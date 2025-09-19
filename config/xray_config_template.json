@@ -1,0 +1,273 @@
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/opt/vless/logs/xray-access.log",
+    "error": "/opt/vless/logs/xray-error.log"
+  },
+  "api": {
+    "tag": "api",
+    "services": [
+      "HandlerService",
+      "LoggerService",
+      "StatsService"
+    ]
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "handshake": 4,
+        "connIdle": 300,
+        "uplinkOnly": 2,
+        "downlinkOnly": 5,
+        "statsUserUplink": false,
+        "statsUserDownlink": false,
+        "bufferSize": 10240
+      }
+    },
+    "system": {
+      "statsInboundUplink": false,
+      "statsInboundDownlink": false,
+      "statsOutboundUplink": false,
+      "statsOutboundDownlink": false
+    }
+  },
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "PLACEHOLDER_UUID_1",
+            "flow": "xtls-rprx-vision",
+            "email": "user1@example.com"
+          },
+          {
+            "id": "PLACEHOLDER_UUID_2",
+            "flow": "xtls-rprx-vision",
+            "email": "user2@example.com"
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": "80",
+            "xver": 1
+          },
+          {
+            "path": "/websocket",
+            "dest": "8001",
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "PLACEHOLDER_DEST_DOMAIN:443",
+          "xver": 0,
+          "serverNames": [
+            "PLACEHOLDER_DEST_DOMAIN"
+          ],
+          "privateKey": "PLACEHOLDER_PRIVATE_KEY",
+          "minClientVer": "",
+          "maxClientVer": "",
+          "maxTimeDiff": 0,
+          "shortIds": [
+            "PLACEHOLDER_SHORT_ID_1",
+            "PLACEHOLDER_SHORT_ID_2",
+            "PLACEHOLDER_SHORT_ID_3"
+          ],
+          "fingerprint": "chrome"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "http-fallback",
+      "port": 80,
+      "protocol": "http",
+      "settings": {
+        "timeout": 300,
+        "accounts": []
+      }
+    },
+    {
+      "tag": "websocket-fallback",
+      "port": 8001,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/websocket",
+          "headers": {
+            "Host": "PLACEHOLDER_DEST_DOMAIN"
+          }
+        }
+      }
+    },
+    {
+      "tag": "api",
+      "port": 8080,
+      "listen": "127.0.0.1",
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole",
+      "settings": {
+        "response": {
+          "type": "http"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "domain:googleapis.cn",
+          "domain:gstatic.com",
+          "domain:doubleclick.net",
+          "domain:google-analytics.com"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "224.0.0.0/4",
+          "255.255.255.255/32",
+          "0.0.0.0/8",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "224.0.0.0/4",
+          "240.0.0.0/4"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:category-ads-all",
+          "geosite:category-ads-ir"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "port": "0-65535",
+        "outboundTag": "direct"
+      }
+    ]
+  },
+  "transport": {
+    "tcpSettings": {
+      "acceptProxyProtocol": false
+    },
+    "kcpSettings": {
+      "mtu": 1350,
+      "tti": 50,
+      "uplinkCapacity": 5,
+      "downlinkCapacity": 20,
+      "congestion": false,
+      "readBufferSize": 1,
+      "writeBufferSize": 1
+    },
+    "wsSettings": {
+      "connectionReuse": true
+    },
+    "httpSettings": {
+      "host": [
+        "PLACEHOLDER_DEST_DOMAIN"
+      ],
+      "path": "/path"
+    },
+    "quicSettings": {
+      "security": "none",
+      "key": "",
+      "header": {
+        "type": "none"
+      }
+    }
+  },
+  "reverse": {},
+  "fakedns": [
+    {
+      "ipPool": "198.18.0.0/15",
+      "poolSize": 10000
+    }
+  ],
+  "browserForwarder": {
+    "listenAddr": "127.0.0.1",
+    "listenPort": 8002
+  },
+  "observatory": {
+    "subjectSelector": [
+      "outbound"
+    ],
+    "probeURL": "https://api.v2fly.org/checkConnection.svgz",
+    "probeInterval": "1m"
+  },
+  "burstObservatory": {
+    "subjectSelector": [
+      "outbound"
+    ],
+    "pingConfig": {
+      "destination": "8.8.8.8",
+      "connectivity": "http://connectivitycheck.gstatic.com/generate_204",
+      "interval": "1h",
+      "sampling": 3,
+      "timeout": "30s"
+    }
+  }
+}

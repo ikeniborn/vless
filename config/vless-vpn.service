@@ -1,0 +1,68 @@
+[Unit]
+Description=VLESS VPN Server
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=notify
+User=root
+Group=root
+
+# Working directory
+WorkingDirectory=/opt/vless
+
+# Environment file
+EnvironmentFile=-/opt/vless/.env
+
+# Execution commands
+ExecStartPre=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml down
+ExecStartPre=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml pull
+ExecStart=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml up
+ExecReload=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml restart
+ExecStop=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml down
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# Timeout settings
+TimeoutStartSec=300
+TimeoutStopSec=60
+TimeoutReloadSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vless-vpn
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/vless /var/log/vless
+PrivateTmp=true
+PrivateDevices=false
+
+# Notification settings
+NotifyAccess=main
+WatchdogSec=30
+
+# Kill settings
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+
+# Pre and post execution scripts
+ExecStartPost=/bin/bash -c 'sleep 10 && /usr/local/bin/vless-logger log_system_event "startup" "VLESS VPN service started successfully"'
+ExecStopPost=/bin/bash -c '/usr/local/bin/vless-logger log_system_event "shutdown" "VLESS VPN service stopped"'
+
+[Install]
+WantedBy=multi-user.target

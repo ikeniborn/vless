@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project_analysis>
+  <project_info>
+    <name>VLESS+Reality VPN</name>
+    <description>Скрипт для установки и управления сервером VPN по протоколу VLESS+Reality</description>
+    <technology_stack>
+      <language>Bash</language>
+      <language>Python</language>
+      <infrastructure>Docker</infrastructure>
+      <infrastructure>Docker Compose</infrastructure>
+      <integration>Telegram Bot API</integration>
+    </technology_stack>
+  </project_info>
+
+  <requirements_analysis>
+    <functional_requirements>
+      <requirement id="FR1">
+        <title>Установка сервиса</title>
+        <description>Автоматическая установка VPN сервера через Docker Compose с обновлением системы</description>
+        <components>
+          <component>Обновление пакетов ОС (apt update && apt upgrade)</component>
+          <component>Установка Docker и Docker Compose</component>
+          <component>Создание структуры каталогов в /opt/vless</component>
+          <component>Развертывание контейнеров (Xray-core, Python bot)</component>
+        </components>
+      </requirement>
+
+      <requirement id="FR2">
+        <title>Управление конфигурацией</title>
+        <description>Централизованное хранение и управление конфигурациями</description>
+        <components>
+          <component>Хранение конфигураций в /opt/vless</component>
+          <component>Генерация ключей и сертификатов</component>
+          <component>Автоматическая ротация сертификатов</component>
+        </components>
+      </requirement>
+
+      <requirement id="FR3">
+        <title>Telegram интеграция</title>
+        <description>Управление сервером через Telegram бота</description>
+        <components>
+          <component>Аутентификация админа по ADMIN_TELEGRAM_ID</component>
+          <component>Команда /adduser - создание пользователя с UUID</component>
+          <component>Команда /deleteuser - удаление пользователя</component>
+          <component>Команда /listusers - список активных пользователей</component>
+          <component>Команда /status - статус сервера</component>
+          <component>Команда /restart - перезапуск сервиса</component>
+          <component>Отправка конфигурации в виде QR-кода и ссылки</component>
+        </components>
+      </requirement>
+
+      <requirement id="FR4">
+        <title>Управление сервером</title>
+        <description>Функции переустановки и удаления сервера</description>
+        <components>
+          <component>Переустановка с сохранением пользователей</component>
+          <component>Полное удаление сервера и конфигураций</component>
+          <component>Резервное копирование конфигураций</component>
+        </components>
+      </requirement>
+
+      <requirement id="FR5">
+        <title>Настройка безопасности</title>
+        <description>Конфигурация файрволла и безопасности</description>
+        <components>
+          <component>Настройка UFW (открыть порты 443, 80, SSH)</component>
+          <component>Логирование доступа</component>
+          <component>Защита от обнаружения VPN трафика</component>
+        </components>
+      </requirement>
+    </functional_requirements>
+
+    <non_functional_requirements>
+      <requirement id="NFR1">
+        <title>Модульность</title>
+        <description>Модульная архитектура для легкой поддержки и расширения</description>
+      </requirement>
+
+      <requirement id="NFR2">
+        <title>Безопасность</title>
+        <description>Использование протокола VLESS+Reality для маскировки трафика под HTTPS</description>
+        <details>
+          <detail>Шифрование трафика без возможности обнаружения VPN</detail>
+          <detail>Маскировка под трафик к популярным сайтам (Microsoft, Apple)</detail>
+          <detail>TLS 1.3 с ECDHE для forward secrecy</detail>
+          <detail>UUID для идентификации пользователей</detail>
+        </details>
+      </requirement>
+
+      <requirement id="NFR3">
+        <title>Совместимость</title>
+        <description>Поддержка Linux платформ (Debian/Ubuntu)</description>
+      </requirement>
+
+      <requirement id="NFR4">
+        <title>Надежность</title>
+        <description>Автозапуск через systemd, обработка ошибок</description>
+      </requirement>
+    </non_functional_requirements>
+  </requirements_analysis>
+
+  <architecture>
+    <structure>
+      <component name="Main Script">
+        <file>install.sh</file>
+        <description>Главный установочный скрипт с меню</description>
+      </component>
+
+      <component name="Modules">
+        <directory>modules/</directory>
+        <files>
+          <file>docker_setup.sh - Установка Docker и Docker Compose</file>
+          <file>telegram_bot.py - Telegram бот для управления</file>
+          <file>ufw_config.sh - Настройка файрволла</file>
+          <file>user_management.sh - Управление пользователями</file>
+          <file>system_update.sh - Обновление системы</file>
+          <file>backup_restore.sh - Резервное копирование</file>
+        </files>
+      </component>
+
+      <component name="Configuration">
+        <directory>config/</directory>
+        <files>
+          <file>xray_config_template.json - Шаблон конфигурации Xray</file>
+          <file>docker-compose.yml - Docker Compose конфигурация</file>
+          <file>bot_config.env - Переменные окружения для бота</file>
+        </files>
+      </component>
+
+      <component name="Runtime Configuration">
+        <directory>/opt/vless/</directory>
+        <subdirectories>
+          <dir>configs/ - Конфигурации Xray</dir>
+          <dir>certs/ - Сертификаты и ключи</dir>
+          <dir>users/ - Данные пользователей</dir>
+          <dir>logs/ - Логи сервиса</dir>
+          <dir>backups/ - Резервные копии</dir>
+        </subdirectories>
+      </component>
+    </structure>
+
+    <containers>
+      <container name="xray-core">
+        <image>teddysun/xray:latest</image>
+        <purpose>VLESS+Reality VPN сервер</purpose>
+        <ports>
+          <port>443:443 - HTTPS/VLESS трафик</port>
+          <port>80:80 - HTTP fallback</port>
+        </ports>
+        <volumes>
+          <volume>/opt/vless/configs:/etc/xray</volume>
+          <volume>/opt/vless/certs:/certs</volume>
+          <volume>/opt/vless/logs:/var/log/xray</volume>
+        </volumes>
+      </container>
+
+      <container name="telegram-bot">
+        <image>python:3.11-slim</image>
+        <purpose>Telegram бот для управления</purpose>
+        <volumes>
+          <volume>/opt/vless:/opt/vless</volume>
+          <volume>./modules/telegram_bot.py:/app/bot.py</volume>
+        </volumes>
+        <environment>
+          <var>BOT_TOKEN - Токен Telegram бота</var>
+          <var>ADMIN_TELEGRAM_ID - ID администратора</var>
+        </environment>
+      </container>
+    </containers>
+  </architecture>
+
+  <implementation_plan>
+    <phase id="1" name="Подготовка инфраструктуры">
+      <tasks>
+        <task>Создание структуры каталогов проекта</task>
+        <task>Написание модуля обновления системы</task>
+        <task>Написание модуля установки Docker</task>
+      </tasks>
+    </phase>
+
+    <phase id="2" name="Реализация основного функционала">
+      <tasks>
+        <task>Создание главного установочного скрипта с меню</task>
+        <task>Написание модуля управления пользователями</task>
+        <task>Создание шаблонов конфигурации Xray</task>
+        <task>Написание docker-compose.yml</task>
+      </tasks>
+    </phase>
+
+    <phase id="3" name="Telegram интеграция">
+      <tasks>
+        <task>Реализация Telegram бота на Python</task>
+        <task>Добавление команд управления</task>
+        <task>Генерация QR-кодов для конфигураций</task>
+      </tasks>
+    </phase>
+
+    <phase id="4" name="Безопасность и финализация">
+      <tasks>
+        <task>Настройка UFW файрволла</task>
+        <task>Добавление логирования</task>
+        <task>Создание systemd сервиса</task>
+        <task>Написание функций резервного копирования</task>
+      </tasks>
+    </phase>
+
+    <phase id="5" name="Тестирование и документация">
+      <tasks>
+        <task>Тестирование установки на чистой системе</task>
+        <task>Тестирование Telegram команд</task>
+        <task>Написание документации</task>
+      </tasks>
+    </phase>
+  </implementation_plan>
+
+  <technologies_used>
+    <technology name="Docker Compose">
+      <version>latest</version>
+      <purpose>Оркестрация контейнеров</purpose>
+      <key_features>
+        <feature>Определение multi-container приложений</feature>
+        <feature>Управление сетями и volumes</feature>
+        <feature>Простое масштабирование</feature>
+      </key_features>
+    </technology>
+
+    <technology name="Python Telegram Bot">
+      <version>python-telegram-bot 20.x</version>
+      <purpose>Создание Telegram бота</purpose>
+      <key_features>
+        <feature>Асинхронная обработка команд</feature>
+        <feature>Поддержка inline keyboards</feature>
+        <feature>Генерация QR-кодов</feature>
+      </key_features>
+    </technology>
+
+    <technology name="Xray-core">
+      <version>latest</version>
+      <purpose>VLESS+Reality VPN сервер</purpose>
+      <key_features>
+        <feature>Протокол VLESS</feature>
+        <feature>Reality для маскировки трафика</feature>
+        <feature>Поддержка множественных пользователей</feature>
+      </key_features>
+    </technology>
+  </technologies_used>
+</project_analysis>

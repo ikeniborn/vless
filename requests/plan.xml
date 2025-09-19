@@ -1,0 +1,604 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<implementation_plan>
+  <project_info>
+    <name>VLESS+Reality VPN Implementation Plan</name>
+    <description>Детальный план реализации системы VPN с протоколом VLESS+Reality</description>
+    <created_date>2025-09-19</created_date>
+    <estimated_duration>2-3 weeks</estimated_duration>
+  </project_info>
+
+  <phases>
+    <!-- ФАЗА 1: ПОДГОТОВКА ИНФРАСТРУКТУРЫ -->
+    <phase id="1" name="Подготовка инфраструктуры" priority="high">
+      <description>Создание базовой инфраструктуры и настройка окружения</description>
+      <estimated_hours>16</estimated_hours>
+      <dependencies>none</dependencies>
+
+      <tasks>
+        <task id="1.1" priority="high">
+          <title>Создание структуры каталогов проекта</title>
+          <description>Создание всех необходимых каталогов для проекта</description>
+          <estimated_hours>1</estimated_hours>
+          <dependencies>none</dependencies>
+          <technical_details>
+            <detail>Создать каталоги: modules/, config/, tests/</detail>
+            <detail>Создать структуру в /opt/vless: configs/, certs/, users/, logs/, backups/</detail>
+            <detail>Установить правильные права доступа (755 для каталогов)</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/</file>
+            <file>config/</file>
+            <file>/opt/vless/configs/</file>
+            <file>/opt/vless/certs/</file>
+            <file>/opt/vless/users/</file>
+            <file>/opt/vless/logs/</file>
+            <file>/opt/vless/backups/</file>
+          </deliverables>
+        </task>
+
+        <task id="1.2" priority="high">
+          <title>Модуль обновления системы</title>
+          <description>Создание модуля для безопасного обновления ОС</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>1.1</dependencies>
+          <technical_details>
+            <detail>Обновление списка пакетов (apt update)</detail>
+            <detail>Установка критических обновлений безопасности</detail>
+            <detail>Проверка необходимости перезагрузки</detail>
+            <detail>Логирование процесса обновления</detail>
+            <detail>Обработка ошибок и откат при сбоях</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/system_update.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="1.3" priority="high">
+          <title>Модуль установки Docker</title>
+          <description>Автоматическая установка Docker и Docker Compose</description>
+          <estimated_hours>4</estimated_hours>
+          <dependencies>1.2</dependencies>
+          <technical_details>
+            <detail>Удаление старых версий Docker</detail>
+            <detail>Добавление официального GPG ключа Docker</detail>
+            <detail>Добавление репозитория Docker</detail>
+            <detail>Установка docker-ce, docker-ce-cli, containerd.io</detail>
+            <detail>Установка Docker Compose v2</detail>
+            <detail>Добавление пользователя в группу docker</detail>
+            <detail>Настройка автозапуска Docker</detail>
+            <detail>Проверка установки (docker --version, docker-compose --version)</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/docker_setup.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="1.4" priority="medium">
+          <title>Модуль настройки UFW</title>
+          <description>Конфигурация файрволла для безопасности</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>1.1</dependencies>
+          <technical_details>
+            <detail>Установка UFW если не установлен</detail>
+            <detail>Сброс к настройкам по умолчанию</detail>
+            <detail>Разрешение SSH (порт 22 или custom)</detail>
+            <detail>Разрешение HTTP (80) и HTTPS (443)</detail>
+            <detail>Блокировка всех остальных портов по умолчанию</detail>
+            <detail>Активация UFW с подтверждением</detail>
+            <detail>Логирование настроек файрволла</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/ufw_config.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="1.5" priority="medium">
+          <title>Модуль резервного копирования</title>
+          <description>Система создания и восстановления бэкапов</description>
+          <estimated_hours>5</estimated_hours>
+          <dependencies>1.1</dependencies>
+          <technical_details>
+            <detail>Создание архивов конфигураций с timestamp</detail>
+            <detail>Резервное копирование пользовательских данных</detail>
+            <detail>Сохранение ключей и сертификатов</detail>
+            <detail>Автоматическая очистка старых бэкапов (>30 дней)</detail>
+            <detail>Функция восстановления из бэкапа</detail>
+            <detail>Проверка целостности архивов</detail>
+            <detail>Поддержка инкрементальных бэкапов</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/backup_restore.sh</file>
+          </deliverables>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ФАЗА 2: ОСНОВНОЙ ФУНКЦИОНАЛ -->
+    <phase id="2" name="Реализация основного функционала" priority="high">
+      <description>Создание основных компонентов системы VPN</description>
+      <estimated_hours>24</estimated_hours>
+      <dependencies>1</dependencies>
+
+      <tasks>
+        <task id="2.1" priority="high">
+          <title>Главный установочный скрипт</title>
+          <description>Центральный скрипт с меню управления</description>
+          <estimated_hours>6</estimated_hours>
+          <dependencies>1.2, 1.3, 1.4</dependencies>
+          <technical_details>
+            <detail>Интерактивное меню с опциями: установка, переустановка, удаление</detail>
+            <detail>Проверка совместимости ОС (Ubuntu 20.04+, Debian 11+)</detail>
+            <detail>Проверка прав root</detail>
+            <detail>Валидация введенных данных (домен, порты, токены)</detail>
+            <detail>Цветной вывод для улучшения UX</detail>
+            <detail>Логирование всех операций</detail>
+            <detail>Обработка сигналов прерывания (Ctrl+C)</detail>
+            <detail>Автоматический откат при ошибках</detail>
+          </technical_details>
+          <deliverables>
+            <file>install.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="2.2" priority="high">
+          <title>Модуль управления пользователями</title>
+          <description>Создание, удаление и управление пользователями VPN</description>
+          <estimated_hours>8</estimated_hours>
+          <dependencies>2.1</dependencies>
+          <technical_details>
+            <detail>Генерация UUID v4 для новых пользователей</detail>
+            <detail>Создание персональных конфигураций</detail>
+            <detail>Валидация уникальности UUID</detail>
+            <detail>Хранение пользователей в JSON формате</detail>
+            <detail>Функции: add_user, remove_user, list_users, get_user_config</detail>
+            <detail>Автоматическое обновление конфигурации Xray при изменениях</detail>
+            <detail>Генерация QR-кодов для мобильных клиентов</detail>
+            <detail>Создание VLESS ссылок (vless://)</detail>
+            <detail>Логирование всех операций с пользователями</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/user_management.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="2.3" priority="high">
+          <title>Конфигурационные шаблоны Xray</title>
+          <description>Создание шаблонов конфигурации для Xray-core</description>
+          <estimated_hours>5</estimated_hours>
+          <dependencies>2.2</dependencies>
+          <technical_details>
+            <detail>Базовая конфигурация VLESS+Reality</detail>
+            <detail>Настройка TLS 1.3 с поддержкой ECDHE</detail>
+            <detail>Конфигурация Reality с маскировкой под популярные сайты</detail>
+            <detail>Настройка fallback для HTTP трафика</detail>
+            <detail>Поддержка множественных пользователей</detail>
+            <detail>Конфигурация логирования</detail>
+            <detail>Оптимизация производительности</detail>
+            <detail>Параметры маршрутизации трафика</detail>
+          </technical_details>
+          <deliverables>
+            <file>config/xray_config_template.json</file>
+          </deliverables>
+        </task>
+
+        <task id="2.4" priority="high">
+          <title>Docker Compose конфигурация</title>
+          <description>Создание docker-compose.yml для оркестрации контейнеров</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>2.3</dependencies>
+          <technical_details>
+            <detail>Сервис xray-core с образом teddysun/xray:latest</detail>
+            <detail>Сервис telegram-bot на Python 3.11-slim</detail>
+            <detail>Настройка сетей (bridge network)</detail>
+            <detail>Маппинг портов: 80:80, 443:443</detail>
+            <detail>Монтирование volumes для конфигураций и данных</detail>
+            <detail>Переменные окружения для ботов</detail>
+            <detail>Политики перезапуска (restart: unless-stopped)</detail>
+            <detail>Healthcheck для проверки состояния сервисов</detail>
+            <detail>Ограничения ресурсов (memory, cpu)</detail>
+          </technical_details>
+          <deliverables>
+            <file>config/docker-compose.yml</file>
+          </deliverables>
+        </task>
+
+        <task id="2.5" priority="medium">
+          <title>Скрипты генерации ключей и сертификатов</title>
+          <description>Автоматическая генерация необходимых криптографических материалов</description>
+          <estimated_hours>2</estimated_hours>
+          <dependencies>2.3</dependencies>
+          <technical_details>
+            <detail>Генерация приватных ключей для Reality</detail>
+            <detail>Создание самоподписанных сертификатов</detail>
+            <detail>Генерация short ID для Reality</detail>
+            <detail>Безопасное хранение ключей (права 600)</detail>
+            <detail>Автоматическая ротация сертификатов</detail>
+            <detail>Проверка валидности существующих сертификатов</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/cert_management.sh</file>
+          </deliverables>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ФАЗА 3: TELEGRAM ИНТЕГРАЦИЯ -->
+    <phase id="3" name="Telegram интеграция" priority="high">
+      <description>Создание Telegram бота для управления VPN сервером</description>
+      <estimated_hours>20</estimated_hours>
+      <dependencies>2</dependencies>
+
+      <tasks>
+        <task id="3.1" priority="high">
+          <title>Основа Telegram бота</title>
+          <description>Создание базовой структуры Python Telegram бота</description>
+          <estimated_hours>6</estimated_hours>
+          <dependencies>2.4</dependencies>
+          <technical_details>
+            <detail>Использование python-telegram-bot 20.x</detail>
+            <detail>Асинхронная архитектура с async/await</detail>
+            <detail>Обработка ошибок и исключений</detail>
+            <detail>Логирование всех действий бота</detail>
+            <detail>Аутентификация по ADMIN_TELEGRAM_ID</detail>
+            <detail>Middleware для проверки прав доступа</detail>
+            <detail>Graceful shutdown при получении сигналов</detail>
+            <detail>Reconnection logic при сетевых сбоях</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/telegram_bot.py</file>
+          </deliverables>
+        </task>
+
+        <task id="3.2" priority="high">
+          <title>Команды управления пользователями</title>
+          <description>Реализация команд для управления VPN пользователями</description>
+          <estimated_hours>8</estimated_hours>
+          <dependencies>3.1, 2.2</dependencies>
+          <technical_details>
+            <detail>/start - приветствие и список доступных команд</detail>
+            <detail>/adduser &lt;name&gt; - создание нового пользователя</detail>
+            <detail>/deleteuser &lt;uuid&gt; - удаление пользователя</detail>
+            <detail>/listusers - список всех пользователей с UUID</detail>
+            <detail>/getconfig &lt;uuid&gt; - получение конфигурации пользователя</detail>
+            <detail>Inline keyboard для интерактивного управления</detail>
+            <detail>Подтверждение критических операций</detail>
+            <detail>Валидация входных данных</detail>
+            <detail>Отправка конфигураций в виде файлов</detail>
+          </technical_details>
+          <deliverables>
+            <file>Bot commands for user management</file>
+          </deliverables>
+        </task>
+
+        <task id="3.3" priority="high">
+          <title>Команды системного управления</title>
+          <description>Команды для мониторинга и управления сервером</description>
+          <estimated_hours>4</estimated_hours>
+          <dependencies>3.1</dependencies>
+          <technical_details>
+            <detail>/status - статус сервера и контейнеров</detail>
+            <detail>/restart - перезапуск сервисов</detail>
+            <detail>/logs - просмотр логов сервера</detail>
+            <detail>/backup - создание резервной копии</detail>
+            <detail>/stats - статистика использования</detail>
+            <detail>Мониторинг использования ресурсов</detail>
+            <detail>Отображение информации о подключенных пользователях</detail>
+            <detail>Проверка доступности сервиса</detail>
+          </technical_details>
+          <deliverables>
+            <file>Bot commands for system management</file>
+          </deliverables>
+        </task>
+
+        <task id="3.4" priority="medium">
+          <title>Генерация QR-кодов</title>
+          <description>Создание QR-кодов для мобильных клиентов</description>
+          <estimated_hours>2</estimated_hours>
+          <dependencies>3.2</dependencies>
+          <technical_details>
+            <detail>Использование библиотеки qrcode для Python</detail>
+            <detail>Генерация QR-кодов из VLESS ссылок</detail>
+            <detail>Оптимизация размера и качества изображений</detail>
+            <detail>Отправка QR-кодов как изображений в Telegram</detail>
+            <detail>Временное хранение QR-кодов в памяти</detail>
+            <detail>Поддержка различных форматов (PNG, SVG)</detail>
+          </technical_details>
+          <deliverables>
+            <file>QR code generation functionality</file>
+          </deliverables>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ФАЗА 4: БЕЗОПАСНОСТЬ И FINALIZATION -->
+    <phase id="4" name="Безопасность и финализация" priority="medium">
+      <description>Усиление безопасности и завершение разработки</description>
+      <estimated_hours>16</estimated_hours>
+      <dependencies>3</dependencies>
+
+      <tasks>
+        <task id="4.1" priority="medium">
+          <title>Расширенная настройка безопасности</title>
+          <description>Дополнительные меры безопасности системы</description>
+          <estimated_hours>4</estimated_hours>
+          <dependencies>1.4</dependencies>
+          <technical_details>
+            <detail>Настройка fail2ban для защиты от брутфорса</detail>
+            <detail>Отключение неиспользуемых сервисов</detail>
+            <detail>Настройка логирования аудита</detail>
+            <detail>Ограничение доступа к системным файлам</detail>
+            <detail>Настройка автоматических обновлений безопасности</detail>
+            <detail>Мониторинг целостности файлов</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/security_hardening.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="4.2" priority="medium">
+          <title>Система логирования</title>
+          <description>Централизованное логирование всех компонентов</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>3.1</dependencies>
+          <technical_details>
+            <detail>Настройка rsyslog для централизованного логирования</detail>
+            <detail>Ротация логов с logrotate</detail>
+            <detail>Логирование подключений пользователей</detail>
+            <detail>Логирование ошибок и предупреждений</detail>
+            <detail>Мониторинг аномальной активности</detail>
+            <detail>Экспорт логов в structured format (JSON)</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/logging_setup.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="4.3" priority="medium">
+          <title>Systemd сервис</title>
+          <description>Создание systemd unit для автозапуска</description>
+          <estimated_hours>2</estimated_hours>
+          <dependencies>2.4</dependencies>
+          <technical_details>
+            <detail>Создание vless-vpn.service unit file</detail>
+            <detail>Настройка зависимостей (docker.service)</detail>
+            <detail>Автозапуск при загрузке системы</detail>
+            <detail>Автоматический перезапуск при сбоях</detail>
+            <detail>Настройка timeout'ов для запуска/остановки</detail>
+            <detail>Интеграция с systemd журналированием</detail>
+          </technical_details>
+          <deliverables>
+            <file>config/vless-vpn.service</file>
+          </deliverables>
+        </task>
+
+        <task id="4.4" priority="low">
+          <title>Мониторинг и алерты</title>
+          <description>Система мониторинга состояния сервера</description>
+          <estimated_hours>4</estimated_hours>
+          <dependencies>4.2</dependencies>
+          <technical_details>
+            <detail>Мониторинг использования CPU, RAM, диска</detail>
+            <detail>Проверка доступности сервисов</detail>
+            <detail>Алерты в Telegram при критических событиях</detail>
+            <detail>Мониторинг сетевого трафика</detail>
+            <detail>Проверка целостности конфигураций</detail>
+            <detail>Автоматическое восстановление при сбоях</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/monitoring.sh</file>
+          </deliverables>
+        </task>
+
+        <task id="4.5" priority="medium">
+          <title>Утилиты обслуживания</title>
+          <description>Дополнительные утилиты для обслуживания системы</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>1.5</dependencies>
+          <technical_details>
+            <detail>Скрипт очистки временных файлов</detail>
+            <detail>Утилита проверки конфигураций</detail>
+            <detail>Скрипт обновления системы</detail>
+            <detail>Инструмент диагностики проблем</detail>
+            <detail>Генератор отчетов о состоянии системы</detail>
+            <detail>Утилита массового управления пользователями</detail>
+          </technical_details>
+          <deliverables>
+            <file>modules/maintenance_utils.sh</file>
+          </deliverables>
+        </task>
+      </tasks>
+    </phase>
+
+    <!-- ФАЗА 5: ТЕСТИРОВАНИЕ И ДОКУМЕНТАЦИЯ -->
+    <phase id="5" name="Тестирование и документация" priority="low">
+      <description>Комплексное тестирование и создание документации</description>
+      <estimated_hours>12</estimated_hours>
+      <dependencies>4</dependencies>
+
+      <tasks>
+        <task id="5.1" priority="medium">
+          <title>Автоматизированные тесты</title>
+          <description>Создание тестового набора для всех компонентов</description>
+          <estimated_hours>6</estimated_hours>
+          <dependencies>4.1, 4.2, 4.3</dependencies>
+          <technical_details>
+            <detail>Unit тесты для shell функций</detail>
+            <detail>Integration тесты для Docker Compose</detail>
+            <detail>Тесты Telegram бота с mock API</detail>
+            <detail>Тесты установки на чистой системе</detail>
+            <detail>Нагрузочные тесты VPN соединений</detail>
+            <detail>Тесты восстановления из бэкапа</detail>
+            <detail>Автоматизация тестирования через CI/CD</detail>
+          </technical_details>
+          <deliverables>
+            <file>tests/test_installation.sh</file>
+            <file>tests/test_user_management.sh</file>
+            <file>tests/test_telegram_bot.py</file>
+          </deliverables>
+        </task>
+
+        <task id="5.2" priority="low">
+          <title>Пользовательская документация</title>
+          <description>Создание руководств для пользователей</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>5.1</dependencies>
+          <technical_details>
+            <detail>Руководство по установке</detail>
+            <detail>Инструкция по настройке Telegram бота</detail>
+            <detail>Руководство по управлению пользователями</detail>
+            <detail>Troubleshooting guide</detail>
+            <detail>FAQ по часто задаваемым вопросам</detail>
+            <detail>Инструкции по настройке клиентов</detail>
+          </technical_details>
+          <deliverables>
+            <file>docs/installation.md</file>
+            <file>docs/user_guide.md</file>
+            <file>docs/troubleshooting.md</file>
+          </deliverables>
+        </task>
+
+        <task id="5.3" priority="low">
+          <title>Техническая документация</title>
+          <description>Документация для разработчиков и системных администраторов</description>
+          <estimated_hours>3</estimated_hours>
+          <dependencies>5.1</dependencies>
+          <technical_details>
+            <detail>Архитектурная диаграмма системы</detail>
+            <detail>API документация для всех модулей</detail>
+            <detail>Описание структуры конфигураций</detail>
+            <detail>Руководство по расширению функционала</detail>
+            <detail>Security best practices</detail>
+            <detail>Performance tuning guide</detail>
+          </technical_details>
+          <deliverables>
+            <file>docs/architecture.md</file>
+            <file>docs/api_reference.md</file>
+            <file>docs/security_guide.md</file>
+          </deliverables>
+        </task>
+      </tasks>
+    </phase>
+  </phases>
+
+  <!-- КРИТИЧЕСКИЙ ПУТЬ ПРОЕКТА -->
+  <critical_path>
+    <description>Последовательность задач, определяющих минимальное время реализации проекта</description>
+    <tasks>
+      <task>1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 2.3 → 2.4 → 3.1 → 3.2 → 5.1</task>
+    </tasks>
+    <total_duration>46 hours</total_duration>
+  </critical_path>
+
+  <!-- РИСКИ И МИТИГАЦИЯ -->
+  <risks>
+    <risk id="R1" level="medium">
+      <title>Проблемы совместимости Docker на разных дистрибутивах Linux</title>
+      <mitigation>Тестирование на Ubuntu 20.04+, Debian 11+, CentOS 8+</mitigation>
+      <impact>Задержка на 1-2 дня</impact>
+    </risk>
+
+    <risk id="R2" level="low">
+      <title>Изменения в API Telegram Bot</title>
+      <mitigation>Использование стабильной версии python-telegram-bot с фиксированной версией</mitigation>
+      <impact>Необходимость обновления кода бота</impact>
+    </risk>
+
+    <risk id="R3" level="high">
+      <title>Проблемы с Reality маскировкой в некоторых регионах</title>
+      <mitigation>Поддержка нескольких fallback доменов, возможность кастомизации</mitigation>
+      <impact>Снижение эффективности маскировки</impact>
+    </risk>
+
+    <risk id="R4" level="medium">
+      <title>Сложности с автоматической настройкой сертификатов</title>
+      <mitigation>Реализация fallback на самоподписанные сертификаты</mitigation>
+      <impact>Ручная настройка сертификатов</impact>
+    </risk>
+  </risks>
+
+  <!-- РЕСУРСЫ И ЗАВИСИМОСТИ -->
+  <resources>
+    <external_dependencies>
+      <dependency>Docker Engine 20.10+</dependency>
+      <dependency>Docker Compose v2</dependency>
+      <dependency>Python 3.8+</dependency>
+      <dependency>python-telegram-bot 20.x</dependency>
+      <dependency>qrcode library</dependency>
+      <dependency>Xray-core latest</dependency>
+    </external_dependencies>
+
+    <system_requirements>
+      <requirement>Linux (Ubuntu 20.04+, Debian 11+)</requirement>
+      <requirement>Минимум 1GB RAM</requirement>
+      <requirement>Минимум 5GB свободного места</requirement>
+      <requirement>Интернет соединение</requirement>
+      <requirement>Root доступ</requirement>
+    </system_requirements>
+  </resources>
+
+  <!-- ПРОВЕРОЧНЫЕ ТОЧКИ -->
+  <milestones>
+    <milestone id="M1" phase="1">
+      <title>Базовая инфраструктура готова</title>
+      <criteria>Docker установлен, каталоги созданы, UFW настроен</criteria>
+      <date>Week 1</date>
+    </milestone>
+
+    <milestone id="M2" phase="2">
+      <title>VPN сервер функционален</title>
+      <criteria>Xray запущен, пользователи могут подключаться</criteria>
+      <date>Week 2</date>
+    </milestone>
+
+    <milestone id="M3" phase="3">
+      <title>Telegram бот работает</title>
+      <criteria>Все команды бота функциональны</criteria>
+      <date>Week 2</date>
+    </milestone>
+
+    <milestone id="M4" phase="4">
+      <title>Система безопасна и стабильна</title>
+      <criteria>Логирование настроено, мониторинг работает</criteria>
+      <date>Week 3</date>
+    </milestone>
+
+    <milestone id="M5" phase="5">
+      <title>Проект завершен</title>
+      <criteria>Все тесты пройдены, документация готова</criteria>
+      <date>End of Week 3</date>
+    </milestone>
+  </milestones>
+
+  <!-- ФИНАЛЬНЫЕ КРИТЕРИИ ПРИЕМКИ -->
+  <acceptance_criteria>
+    <criterion id="AC1">
+      <title>Функциональность VPN</title>
+      <description>Пользователи могут успешно подключаться через VLESS+Reality</description>
+      <test>Подключение тестового клиента и проверка IP адреса</test>
+    </criterion>
+
+    <criterion id="AC2">
+      <title>Telegram управление</title>
+      <description>Все команды бота работают корректно</description>
+      <test>Выполнение всех команд и проверка результатов</test>
+    </criterion>
+
+    <criterion id="AC3">
+      <title>Безопасность</title>
+      <description>Система защищена от базовых атак</description>
+      <test>Сканирование портов и проверка логов</test>
+    </criterion>
+
+    <criterion id="AC4">
+      <title>Стабильность</title>
+      <description>Система работает 24/7 без сбоев</description>
+      <test>72-часовой тест стабильности</test>
+    </criterion>
+
+    <criterion id="AC5">
+      <title>Документация</title>
+      <description>Пользователь может установить и настроить систему по документации</description>
+      <test>Установка на чистой системе по инструкции</test>
+    </criterion>
+  </acceptance_criteria>
+</implementation_plan>
