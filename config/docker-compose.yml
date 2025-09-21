@@ -1,73 +1,52 @@
 version: '3.8'
 
-# VLESS+Reality VPN Docker Compose Configuration
-# Orchestrates Xray-core and Telegram bot services
+# ======================================================================================
+# VLESS+Reality VPN Management System - Docker Compose Configuration
+# ======================================================================================
+# This Docker Compose file defines the Xray service with VLESS+Reality support.
+# It includes proper networking, volume management, and health monitoring.
+#
+# Author: Claude Code
 # Version: 1.0
-
-networks:
-  vless-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-
-volumes:
-  xray-configs:
-    driver: local
-    driver_opts:
-      type: none
-      device: ${VLESS_DIR:-/opt/vless}/configs
-      o: bind
-  xray-certs:
-    driver: local
-    driver_opts:
-      type: none
-      device: ${VLESS_DIR:-/opt/vless}/certs
-      o: bind
-  xray-logs:
-    driver: local
-    driver_opts:
-      type: none
-      device: ${VLESS_DIR:-/opt/vless}/logs
-      o: bind
-  user-data:
-    driver: local
-    driver_opts:
-      type: none
-      device: ${VLESS_DIR:-/opt/vless}/users
-      o: bind
+# Last Modified: 2025-09-21
+# ======================================================================================
 
 services:
-  # Xray-core service for VLESS+Reality VPN
-  xray-core:
+  xray:
     image: teddysun/xray:latest
-    container_name: vless-xray-core
+    container_name: vless-xray
     restart: unless-stopped
 
     # Network configuration
-    networks:
-      vless-network:
-        ipv4_address: 172.20.0.10
+    network_mode: host
 
-    # Port mapping
-    ports:
-      - "80:80"           # HTTP fallback
-      - "443:443"         # VLESS Reality main port
-      - "8001:8001"       # WebSocket fallback
-      - "127.0.0.1:8080:8080"  # API port (localhost only)
-
-    # Volume mounts
-    volumes:
-      - xray-configs:/etc/xray:ro
-      - xray-certs:/etc/ssl/xray:ro
-      - xray-logs:/var/log/xray
-      - /etc/localtime:/etc/localtime:ro
+    # Port mappings (when not using host networking)
+    # ports:
+    #   - "443:443"     # HTTPS port for Reality
+    #   - "80:80"       # HTTP port for fallback
 
     # Environment variables
     environment:
       - TZ=UTC
-      - XRAY_VMESS_AEAD_FORCED=false
-      - XRAY_LOCATION_ASSET=/usr/local/share/xray
+      - XRAY_LOCATION_ASSET=/usr/share/xray
+
+    # Volume mounts
+    volumes:
+      # Xray configuration
+      - ${VLESS_ROOT:-/opt/vless}/config/xray_config.json:/etc/xray/config.json:ro
+
+      # Logs directory
+      - ${VLESS_ROOT:-/opt/vless}/logs:/var/log/xray:rw
+
+      # Certificates directory
+      - ${VLESS_ROOT:-/opt/vless}/certs:/etc/ssl/xray:ro
+
+      # Data directory for persistence
+      - xray_data:/var/lib/xray:rw
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
 
     # Resource limits
     deploy:
@@ -81,324 +60,125 @@ services:
 
     # Health check
     healthcheck:
-      test: ["CMD", "xray", "version"]
+      test: ["CMD", "pgrep", "-x", "xray"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # User permissions
-    user: "1000:1000"
-
-    # Command override to use custom config
-    command: ["xray", "run", "-config", "/etc/xray/config.json"]
-
     # Logging configuration
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+        labels: "service=xray"
 
-    # DNS configuration
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    # Process isolation
+    pid: "container"
 
-    # Labels for management
-    labels:
-      - "com.vless.service=xray-core"
-      - "com.vless.version=1.0"
-      - "com.vless.description=VLESS Reality VPN Server"
+    # Capabilities (drop all, add only what's needed)
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - NET_ADMIN
 
-  # Telegram bot service for VPN management
-  telegram-bot:
-    build:
-      context: ..
-      dockerfile: Dockerfile.bot
-    image: vless-telegram-bot:latest
-    container_name: vless-telegram-bot
+    # User namespace (run as non-root when possible)
+    # user: "1000:1000"  # Uncomment if running as non-root
+
+  # Optional: Monitoring container
+  xray-monitor:
+    image: alpine:latest
+    container_name: vless-monitor
     restart: unless-stopped
 
-    # Network configuration
-    networks:
-      vless-network:
-        ipv4_address: 172.20.0.20
+    # Monitoring script
+    command: |
+      sh -c '
+        apk add --no-cache curl procps &&
+        while true; do
+          if pgrep -f xray > /dev/null; then
+            echo "$(date): Xray is running"
+          else
+            echo "$(date): WARNING - Xray is not running!"
+          fi
+          sleep 60
+        done
+      '
 
-    # Volume mounts
-    volumes:
-      - ../modules:/app/modules:ro
-      - ../config:/app/config:ro
-      - xray-configs:/opt/vless/configs:rw
-      - xray-certs:/opt/vless/certs:ro
-      - user-data:/opt/vless/users:rw
-      - xray-logs:/opt/vless/logs:rw
-      - /opt/vless/qrcodes:/opt/vless/qrcodes:rw
-      - /opt/vless/backups:/opt/vless/backups:rw
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/localtime:/etc/localtime:ro
-
-    # Environment variables from file
-    env_file:
-      - ../config/bot_config.env
-
-    # Additional environment variables
-    environment:
-      - TZ=${TIMEZONE:-UTC}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
-      - SERVER_IP=${SERVER_IP}
-      - DOMAIN=${DOMAIN}
-      - VLESS_PORT=${VLESS_PORT:-443}
-      - VLESS_DIR=/opt/vless
-      - SCRIPTS_DIR=/app/modules
-      - XRAY_SERVICE_NAME=vless-xray-core
-      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-vless}
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-
-    # Dependencies
-    depends_on:
-      xray-core:
-        condition: service_healthy
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 128M
-          cpus: '0.2'
-
-    # Health check
-    healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # User permissions (matches Dockerfile)
-    user: "1000:1000"
-
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "3"
-
-    # DNS configuration
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
-
-    # Labels for management
-    labels:
-      - "com.vless.service=telegram-bot"
-      - "com.vless.version=1.0"
-      - "com.vless.description=VLESS VPN Management Bot"
-
-  # Nginx reverse proxy for fallback (optional)
-  nginx-fallback:
-    image: nginx:alpine
-    container_name: vless-nginx-fallback
-    restart: unless-stopped
-
-    # Network configuration
-    networks:
-      vless-network:
-        ipv4_address: 172.20.0.30
-
-    # Volume mounts
-    volumes:
-      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./config/html:/usr/share/nginx/html:ro
-      - /etc/localtime:/etc/localtime:ro
-
-    # Environment variables
-    environment:
-      - TZ=UTC
-      - NGINX_HOST=${DOMAIN:-localhost}
+    # Share network with Xray for monitoring
+    network_mode: "service:xray"
 
     # Resource limits
     deploy:
       resources:
         limits:
           memory: 64M
-          cpus: '0.2'
-        reservations:
-          memory: 16M
-          cpus: '0.05'
+          cpus: '0.1'
 
-    # Health check
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # User permissions
-    user: "101:101"  # nginx user
-
-    # Logging configuration
+    # Logging
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "5m"
         max-file: "2"
+        labels: "service=monitor"
 
-    # Labels for management
-    labels:
-      - "com.vless.service=nginx-fallback"
-      - "com.vless.version=1.0"
-      - "com.vless.description=HTTP Fallback Server"
+    # Only start if monitoring is enabled
+    profiles:
+      - monitoring
 
-  # Watchtower for automatic updates (optional)
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: vless-watchtower
-    restart: unless-stopped
+# Named volumes
+volumes:
+  xray_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${VLESS_ROOT:-/opt/vless}/data
+    name: vless_xray_data
 
-    # Network configuration
-    networks:
-      vless-network:
-        ipv4_address: 172.20.0.40
+# Networks (if needed for custom networking)
+networks:
+  vless_network:
+    driver: bridge
+    name: vless_network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1
 
-    # Volume mounts
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/localtime:/etc/localtime:ro
-
-    # Environment variables
-    environment:
-      - TZ=UTC
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_POLL_INTERVAL=86400  # 24 hours
-      - WATCHTOWER_INCLUDE_STOPPED=true
-      - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_NOTIFICATIONS=email
-      - WATCHTOWER_NOTIFICATION_EMAIL_FROM=watchtower@${DOMAIN:-localhost}
-      - WATCHTOWER_NOTIFICATION_EMAIL_TO=admin@${DOMAIN:-localhost}
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.2'
-        reservations:
-          memory: 32M
-          cpus: '0.05'
-
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # Command to watch only VLESS containers
-    command: --label-enable --interval 86400 --cleanup
-
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-    # Labels for management
-    labels:
-      - "com.vless.service=watchtower"
-      - "com.vless.version=1.0"
-      - "com.vless.description=Automatic Container Updates"
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  # Log aggregator (optional)
-  log-aggregator:
-    image: fluent/fluent-bit:latest
-    container_name: vless-log-aggregator
-    restart: unless-stopped
-
-    # Network configuration
-    networks:
-      vless-network:
-        ipv4_address: 172.20.0.50
-
-    # Volume mounts
-    volumes:
-      - ./config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-      - xray-logs:/var/log/xray:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /etc/localtime:/etc/localtime:ro
-
-    # Environment variables
-    environment:
-      - TZ=UTC
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.2'
-        reservations:
-          memory: 32M
-          cpus: '0.05'
-
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # User permissions
-    user: "fluent"
-
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-    # Labels for management
-    labels:
-      - "com.vless.service=log-aggregator"
-      - "com.vless.version=1.0"
-      - "com.vless.description=Centralized Log Collection"
-
-# Global configuration
-x-common-variables: &common-variables
-  TZ: UTC
-  COMPOSE_PROJECT_NAME: vless
-
-x-restart-policy: &restart-policy
-  restart: unless-stopped
-
-x-logging: &default-logging
-  driver: "json-file"
-  options:
-    max-size: "10m"
-    max-file: "3"
-
-x-security: &default-security
-  - no-new-privileges:true
-
-# Health check URLs and commands
-x-healthcheck-defaults: &healthcheck-defaults
-  interval: 30s
-  timeout: 10s
-  retries: 3
-  start_period: 30s
+# ======================================================================================
+# Environment Variables Reference:
+# ======================================================================================
+# VLESS_ROOT           - Root directory for VLESS installation (default: /opt/vless)
+# TZ                   - Timezone for containers (default: UTC)
+# XRAY_LOG_LEVEL       - Log level for Xray (error, warning, info, debug)
+#
+# ======================================================================================
+# Usage Examples:
+# ======================================================================================
+# Start services:           docker compose up -d
+# Start with monitoring:     docker compose --profile monitoring up -d
+# View logs:                 docker compose logs -f xray
+# Stop services:             docker compose down
+# Restart Xray:              docker compose restart xray
+# Update containers:         docker compose pull && docker compose up -d
+#
+# ======================================================================================
+# Health Check Commands:
+# ======================================================================================
+# Check container status:    docker compose ps
+# View health status:        docker inspect --format='{{.State.Health.Status}}' vless-xray
+# Manual health check:       docker exec vless-xray pgrep -x xray
+#
+# ======================================================================================
+# Troubleshooting:
+# ======================================================================================
+# View container logs:       docker compose logs xray
+# Execute shell in container: docker compose exec xray sh
+# Check configuration:       docker compose config
+# Validate config syntax:    docker compose config --quiet
+#
+# ======================================================================================

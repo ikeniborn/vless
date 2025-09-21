@@ -1,0 +1,1 @@
+./test_phase3_integration.sh: line 35: VLESS_ROOT: readonly variable

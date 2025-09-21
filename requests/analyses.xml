@@ -1,42 +1,304 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <context>
-        <project>VLESS+Reality VPN</project>
-        <technologies>
-            <language>Bash</language>
-            <language>Python</language>
-            <infrastructure>Docker Compose</infrastructure>
-            <vpn>Xray-core with VLESS+Reality protocol</vpn>
-        </technologies>
-    </context>
+    <project_overview>
+        <name>VLESS+Reality VPN Management System</name>
+        <purpose>Создание системы управления VPN сервером на базе протокола VLESS+Reality</purpose>
+        <type>Full-Stack система управления инфраструктурой</type>
+    </project_overview>
 
-    <problem>
-        <description>Переменная WHITE не определена при выполнении install.sh</description>
-        <location>
-            <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
-            <line>57</line>
-        </location>
-        <error_message>WHITE: unbound variable</error_message>
-        <root_cause>
-            <item>Используется режим set -euo pipefail, который прерывает выполнение при обращении к неопределенным переменным</item>
-            <item>Переменные цветов определяются условно (строки 28-38), проверяя только RED</item>
-            <item>Если RED уже определена, блок пропускается, но WHITE может быть не определена</item>
-            <item>В функции print_header на строке 57 происходит обращение к неопределенной WHITE</item>
-        </root_cause>
-    </problem>
+    <requirements_analysis>
+        <functional_requirements>
+            <requirement id="FR1">
+                <title>Установка и развертывание</title>
+                <description>Автоматизированная установка VPN сервера через Docker Compose</description>
+                <components>
+                    <component>Docker установщик</component>
+                    <component>Docker Compose конфигуратор</component>
+                    <component>Обновление системных пакетов</component>
+                    <component>Xray сервер с поддержкой VLESS+Reality</component>
+                </components>
+            </requirement>
 
-    <solution>
-        <approach>Исправить условную проверку определения цветовых переменных</approach>
-        <steps>
-            <step number="1">Изменить проверку с RED на WHITE или проверять все переменные</step>
-            <step number="2">Использовать параметр подстановки по умолчанию ${WHITE:-}</step>
-            <step number="3">Убедиться, что все цветовые переменные определены корректно</step>
-        </steps>
-    </solution>
+            <requirement id="FR2">
+                <title>Управление конфигурацией</title>
+                <description>Централизованное хранение и управление конфигурациями в /opt/vless</description>
+                <components>
+                    <component>Структура каталогов конфигурации</component>
+                    <component>Шаблоны конфигураций Xray</component>
+                    <component>Управление сертификатами</component>
+                    <component>Резервное копирование конфигураций</component>
+                </components>
+            </requirement>
 
-    <testing_plan>
-        <test number="1">Проверить корректность определения всех цветовых переменных</test>
-        <test number="2">Запустить install.sh для проверки исправления</test>
-        <test number="3">Проверить работу всех функций вывода (print_header, print_info и т.д.)</test>
-    </testing_plan>
+            <requirement id="FR3">
+                <title>Управление пользователями</title>
+                <description>Полнофункциональная система управления VPN пользователями</description>
+                <components>
+                    <component>Добавление новых пользователей с уникальными UUID</component>
+                    <component>Удаление существующих пользователей</component>
+                    <component>Генерация QR-кодов для подключения</component>
+                    <component>Экспорт конфигураций клиентов</component>
+                </components>
+            </requirement>
+
+            <requirement id="FR4">
+                <title>Управление сервером</title>
+                <description>Функции администрирования VPN сервера</description>
+                <components>
+                    <component>Переустановка сервера с сохранением данных</component>
+                    <component>Полное удаление сервера и конфигураций</component>
+                    <component>Перезапуск и обновление сервисов</component>
+                    <component>Мониторинг состояния</component>
+                </components>
+            </requirement>
+
+            <requirement id="FR5">
+                <title>Безопасность и файрволл</title>
+                <description>Настройка UFW с сохранением существующих правил</description>
+                <components>
+                    <component>Анализ существующих правил UFW</component>
+                    <component>Резервное копирование правил</component>
+                    <component>Добавление правил для VPN</component>
+                    <component>Блокировка нежелательного трафика</component>
+                </components>
+            </requirement>
+        </functional_requirements>
+
+        <non_functional_requirements>
+            <requirement id="NFR1">
+                <title>Модульность</title>
+                <description>Модульная архитектура bash скриптов для переиспользования и поддержки</description>
+                <implementation>Разделение функционала на независимые модули</implementation>
+            </requirement>
+
+            <requirement id="NFR2">
+                <title>Безопасность трафика</title>
+                <description>Обеспечение безопасной передачи данных через VLESS+Reality</description>
+                <implementation>Использование современных методов шифрования и маскировки</implementation>
+            </requirement>
+
+            <requirement id="NFR3">
+                <title>Обход блокировок</title>
+                <description>Работа через домашние и мобильные сети без блокировки трафика</description>
+                <implementation>Reality протокол для маскировки VPN трафика</implementation>
+            </requirement>
+
+            <requirement id="NFR4">
+                <title>Тестируемость</title>
+                <description>Полное покрытие функционала тестами</description>
+                <implementation>Unit и интеграционные тесты для всех модулей</implementation>
+            </requirement>
+        </non_functional_requirements>
+    </requirements_analysis>
+
+    <technology_stack>
+        <technology>
+            <name>Bash</name>
+            <version>5.0+</version>
+            <purpose>Основной язык для системных скриптов</purpose>
+            <usage>Установка, настройка, управление системой</usage>
+        </technology>
+
+        <technology>
+            <name>Python</name>
+            <version>3.8+</version>
+            <purpose>Вспомогательный язык для сложной логики</purpose>
+            <usage>Telegram бот, генерация QR-кодов, обработка данных</usage>
+        </technology>
+
+        <technology>
+            <name>Docker</name>
+            <version>20.10+</version>
+            <purpose>Контейнеризация сервисов</purpose>
+            <usage>Изоляция и управление сервисами</usage>
+        </technology>
+
+        <technology>
+            <name>Docker Compose</name>
+            <version>2.0+</version>
+            <purpose>Оркестрация контейнеров</purpose>
+            <usage>Управление многоконтейнерной инфраструктурой</usage>
+        </technology>
+
+        <technology>
+            <name>Xray-core</name>
+            <version>Latest</version>
+            <purpose>VPN сервер с поддержкой VLESS</purpose>
+            <usage>Основной VPN движок</usage>
+        </technology>
+
+        <technology>
+            <name>UFW</name>
+            <version>System default</version>
+            <purpose>Управление файрволлом</purpose>
+            <usage>Контроль сетевого доступа</usage>
+        </technology>
+
+        <technology>
+            <name>Telegram Bot API</name>
+            <version>Latest</version>
+            <purpose>Интеграция с Telegram</purpose>
+            <usage>Удаленное управление через мессенджер</usage>
+        </technology>
+    </technology_stack>
+
+    <architecture_design>
+        <layers>
+            <layer name="Presentation">
+                <components>
+                    <component>CLI интерфейс (bash меню)</component>
+                    <component>Telegram Bot интерфейс</component>
+                </components>
+            </layer>
+
+            <layer name="Business Logic">
+                <components>
+                    <component>Модуль установки и настройки</component>
+                    <component>Модуль управления пользователями</component>
+                    <component>Модуль управления сервером</component>
+                    <component>Модуль безопасности</component>
+                    <component>Модуль резервного копирования</component>
+                </components>
+            </layer>
+
+            <layer name="Infrastructure">
+                <components>
+                    <component>Docker контейнеры</component>
+                    <component>Xray сервер</component>
+                    <component>Файловая система конфигураций</component>
+                    <component>Системный файрволл UFW</component>
+                </components>
+            </layer>
+        </layers>
+
+        <module_structure>
+            <module name="install.sh">
+                <description>Главный установочный скрипт</description>
+                <dependencies>Все вспомогательные модули</dependencies>
+            </module>
+
+            <module name="modules/common_utils.sh">
+                <description>Общие утилиты и функции</description>
+                <functions>Логирование, валидация, цветной вывод</functions>
+            </module>
+
+            <module name="modules/docker_setup.sh">
+                <description>Установка и настройка Docker</description>
+                <functions>Проверка Docker, установка, настройка compose</functions>
+            </module>
+
+            <module name="modules/user_management.sh">
+                <description>Управление VPN пользователями</description>
+                <functions>CRUD операции с пользователями, генерация QR</functions>
+            </module>
+
+            <module name="modules/security_hardening.sh">
+                <description>Настройки безопасности</description>
+                <functions>UFW правила, SSH hardening, fail2ban</functions>
+            </module>
+
+            <module name="modules/backup_restore.sh">
+                <description>Резервное копирование</description>
+                <functions>Backup конфигураций, восстановление</functions>
+            </module>
+
+            <module name="modules/telegram_bot.py">
+                <description>Telegram бот для управления</description>
+                <functions>Удаленное управление через Telegram</functions>
+            </module>
+        </module_structure>
+    </architecture_design>
+
+    <implementation_approach>
+        <phases>
+            <phase number="1">
+                <name>Базовая инфраструктура</name>
+                <tasks>
+                    <task>Создание структуры проекта</task>
+                    <task>Реализация common_utils.sh</task>
+                    <task>Настройка логирования</task>
+                </tasks>
+            </phase>
+
+            <phase number="2">
+                <name>Docker инфраструктура</name>
+                <tasks>
+                    <task>Реализация docker_setup.sh</task>
+                    <task>Создание docker-compose.yml для Xray</task>
+                    <task>Настройка volumes и networks</task>
+                </tasks>
+            </phase>
+
+            <phase number="3">
+                <name>Управление пользователями</name>
+                <tasks>
+                    <task>Реализация user_management.sh</task>
+                    <task>Генерация UUID и конфигураций</task>
+                    <task>QR-код генератор</task>
+                </tasks>
+            </phase>
+
+            <phase number="4">
+                <name>Безопасность</name>
+                <tasks>
+                    <task>Реализация security_hardening.sh</task>
+                    <task>Настройка UFW правил</task>
+                    <task>SSH hardening</task>
+                </tasks>
+            </phase>
+
+            <phase number="5">
+                <name>Интеграции</name>
+                <tasks>
+                    <task>Telegram бот</task>
+                    <task>Мониторинг системы</task>
+                    <task>Автоматическое резервное копирование</task>
+                </tasks>
+            </phase>
+        </phases>
+    </implementation_approach>
+
+    <testing_strategy>
+        <test_types>
+            <type name="Unit Tests">
+                <scope>Тестирование отдельных функций в модулях</scope>
+                <tools>Bash testing framework (bats)</tools>
+            </type>
+
+            <type name="Integration Tests">
+                <scope>Тестирование взаимодействия модулей</scope>
+                <tools>Shell scripts с проверками</tools>
+            </type>
+
+            <type name="System Tests">
+                <scope>End-to-end тестирование всей системы</scope>
+                <tools>Автоматизированные сценарии</tools>
+            </type>
+        </test_types>
+
+        <test_scenarios>
+            <scenario>Установка на чистую систему</scenario>
+            <scenario>Добавление и удаление пользователей</scenario>
+            <scenario>Генерация и валидация QR-кодов</scenario>
+            <scenario>Резервное копирование и восстановление</scenario>
+            <scenario>Обработка ошибок и исключений</scenario>
+        </test_scenarios>
+    </testing_strategy>
+
+    <risks_and_mitigations>
+        <risk>
+            <description>Блокировка VPN протокола провайдером</description>
+            <mitigation>Использование Reality для маскировки трафика</mitigation>
+        </risk>
+
+        <risk>
+            <description>Утечка конфигураций и ключей</description>
+            <mitigation>Шифрование конфигураций, ограничение доступа</mitigation>
+        </risk>
+
+        <risk>
+            <description>Несовместимость с различными Linux дистрибутивами</description>
+            <mitigation>Тестирование на популярных дистрибутивах, проверка зависимостей</mitigation>
+        </risk>
+    </risks_and_mitigations>
 </analysis>

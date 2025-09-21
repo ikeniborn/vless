@@ -1,783 +1,499 @@
 #!/bin/bash
-# Docker Setup Module for VLESS VPN Project
-# Automated Docker and Docker Compose installation with safety measures
-# Compatible with Ubuntu 20.04+ and Debian 11+
+# ======================================================================================
+# VLESS+Reality VPN Management System - Docker Setup Module
+# ======================================================================================
+# This module handles Docker and Docker Compose installation and configuration.
+# It provides functions for automated Docker installation and validation.
+#
 # Author: Claude Code
 # Version: 1.0
+# Last Modified: 2025-09-21
+# ======================================================================================
 
 set -euo pipefail
 
-# Get script directory
+# Source common utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_DIR="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=modules/common_utils.sh
+source "${SCRIPT_DIR}/common_utils.sh"
 
-# Import process isolation module
-source "${SCRIPT_DIR}/process_isolation/process_safe.sh" 2>/dev/null || {
-    echo "ERROR: Cannot load process isolation module" >&2
-    exit 1
-}
+# Docker-specific constants
+readonly DOCKER_REPO_URL="https://download.docker.com/linux"
+readonly DOCKER_GPG_URL="https://download.docker.com/linux/ubuntu/gpg"
+readonly DOCKER_COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+readonly MIN_DOCKER_VERSION="20.10.0"
+readonly MIN_COMPOSE_VERSION="2.0.0"
 
-# Setup signal handlers
-setup_signal_handlers
+# ======================================================================================
+# DOCKER INSTALLATION FUNCTIONS
+# ======================================================================================
 
-# Configuration
-readonly LOG_DIR="/opt/vless/logs"
-readonly LOG_FILE="${LOG_DIR}/docker_setup.log"
-readonly BACKUP_DIR="/opt/vless/backups"
-readonly DOCKER_TIMEOUT=600  # 10 minutes for Docker operations
-readonly DOCKER_COMPOSE_VERSION="v2.21.0"  # Latest stable version
+#
+# Check if Docker is installed and meets minimum version requirements
+#
+# Returns:
+#   0 if Docker is properly installed
+#   1 if Docker is not installed or version is insufficient
+#
+check_docker_installed() {
+    log_info "Checking Docker installation status..."
 
-# Color codes
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly PURPLE='\033[0;35m'
-readonly NC='\033[0m'
-
-# Logging functions
-log_to_file() {
-    local message="$1"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] $message" >> "$LOG_FILE"
-}
-
-log_info() {
-    local message="$1"
-    echo -e "${GREEN}[INFO]${NC} $message"
-    log_to_file "INFO: $message"
-}
-
-log_warning() {
-    local message="$1"
-    echo -e "${YELLOW}[WARNING]${NC} $message"
-    log_to_file "WARNING: $message"
-}
-
-log_error() {
-    local message="$1"
-    echo -e "${RED}[ERROR]${NC} $message"
-    log_to_file "ERROR: $message"
-}
-
-log_debug() {
-    local message="$1"
-    if [[ "${DEBUG:-0}" == "1" ]]; then
-        echo -e "${CYAN}[DEBUG]${NC} $message"
-    fi
-    log_to_file "DEBUG: $message"
-}
-
-log_success() {
-    local message="$1"
-    echo -e "${GREEN}✓${NC} $message"
-    log_to_file "SUCCESS: $message"
-}
-
-# Initialize logging
-init_logging() {
-    if [[ ! -d "$LOG_DIR" ]]; then
-        sudo mkdir -p "$LOG_DIR"
-        sudo chown "$USER:$USER" "$LOG_DIR"
-        sudo chmod 755 "$LOG_DIR"
-    fi
-
-    if [[ ! -f "$LOG_FILE" ]]; then
-        touch "$LOG_FILE"
-        chmod 644 "$LOG_FILE"
-    fi
-
-    log_info "Docker setup module initialized"
-}
-
-# Check if running as root (when needed)
-check_root_privileges() {
-    if [[ $EUID -ne 0 ]]; then
-        log_error "This function requires root privileges. Please run with sudo."
-        return 1
-    fi
-}
-
-# Detect OS distribution and architecture
-detect_system_info() {
-    local info_array=()
-
-    # Detect OS
-    if [[ -f /etc/os-release ]]; then
-        source /etc/os-release
-        info_array+=("$ID")
-        info_array+=("$VERSION_ID")
-    else
-        log_error "Cannot detect OS distribution"
+    if ! command -v docker &> /dev/null; then
+        log_warn "Docker is not installed"
         return 1
     fi
 
-    # Detect architecture
-    local arch=$(uname -m)
-    case "$arch" in
-        x86_64)
-            info_array+=("amd64")
-            ;;
-        aarch64|arm64)
-            info_array+=("arm64")
-            ;;
-        armv7l)
-            info_array+=("armhf")
-            ;;
-        *)
-            log_error "Unsupported architecture: $arch"
-            return 1
-            ;;
-    esac
+    local docker_version
+    docker_version=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
 
-    echo "${info_array[@]}"
-}
-
-# Check Docker installation requirements
-check_docker_requirements() {
-    log_info "Checking Docker installation requirements..."
-
-    local system_info
-    if ! system_info=($(detect_system_info)); then
+    if ! version_compare "${docker_version}" "${MIN_DOCKER_VERSION}"; then
+        log_warn "Docker version ${docker_version} is below minimum required version ${MIN_DOCKER_VERSION}"
         return 1
     fi
 
-    local os_id="${system_info[0]}"
-    local os_version="${system_info[1]}"
-    local arch="${system_info[2]}"
-
-    log_info "Detected system: $os_id $os_version ($arch)"
-
-    # Check OS compatibility
-    case "$os_id" in
-        ubuntu)
-            if ! dpkg --compare-versions "$os_version" ge "20.04"; then
-                log_error "Ubuntu $os_version is not supported. Minimum version: 20.04"
-                return 1
-            fi
-            ;;
-        debian)
-            if ! dpkg --compare-versions "$os_version" ge "11"; then
-                log_error "Debian $os_version is not supported. Minimum version: 11"
-                return 1
-            fi
-            ;;
-        *)
-            log_error "Unsupported OS: $os_id. Only Ubuntu 20.04+ and Debian 11+ are supported."
-            return 1
-            ;;
-    esac
-
-    # Check available disk space (minimum 2GB)
-    local available_space=$(df / | awk 'NR==2 {print $4}')
-    local min_space=$((2 * 1024 * 1024))  # 2GB in KB
-
-    if [[ "$available_space" -lt "$min_space" ]]; then
-        log_error "Insufficient disk space. Available: $(($available_space / 1024 / 1024))GB, Required: 2GB"
-        return 1
-    fi
-
-    # Check memory (minimum 1GB)
-    local total_memory=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    local min_memory=$((1024 * 1024))  # 1GB in KB
-
-    if [[ "$total_memory" -lt "$min_memory" ]]; then
-        log_error "Insufficient memory. Available: $(($total_memory / 1024 / 1024))GB, Required: 1GB"
-        return 1
-    fi
-
-    log_success "System requirements check passed"
+    log_info "Docker version ${docker_version} is installed and meets requirements"
     return 0
 }
 
-# Check if Docker is already installed
-check_docker_installed() {
-    if command -v docker >/dev/null 2>&1; then
-        local docker_version=$(docker --version 2>/dev/null || echo "unknown")
-        log_info "Docker is already installed: $docker_version"
-        return 0
-    else
-        log_info "Docker is not installed"
-        return 1
-    fi
-}
-
-# Check if Docker Compose is already installed
+#
+# Check if Docker Compose is installed and meets minimum version requirements
+#
+# Returns:
+#   0 if Docker Compose is properly installed
+#   1 if Docker Compose is not installed or version is insufficient
+#
 check_docker_compose_installed() {
-    if command -v docker-compose >/dev/null 2>&1; then
-        local compose_version=$(docker-compose --version 2>/dev/null || echo "unknown")
-        log_info "Docker Compose (standalone) is installed: $compose_version"
-        return 0
-    elif docker compose version >/dev/null 2>&1; then
-        local compose_version=$(docker compose version 2>/dev/null || echo "unknown")
-        log_info "Docker Compose (plugin) is installed: $compose_version"
-        return 0
-    else
-        log_info "Docker Compose is not installed"
-        return 1
+    log_info "Checking Docker Compose installation status..."
+
+    # Check for Docker Compose v2 (plugin)
+    if docker compose version &> /dev/null; then
+        local compose_version
+        compose_version=$(docker compose version --short)
+
+        if version_compare "${compose_version}" "${MIN_COMPOSE_VERSION}"; then
+            log_info "Docker Compose v2 (plugin) version ${compose_version} is installed"
+            return 0
+        else
+            log_warn "Docker Compose version ${compose_version} is below minimum required version ${MIN_COMPOSE_VERSION}"
+            return 1
+        fi
     fi
+
+    # Check for standalone Docker Compose v1
+    if command -v docker-compose &> /dev/null; then
+        local compose_version
+        compose_version=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+
+        log_warn "Found Docker Compose v1 (${compose_version}). Recommend upgrading to v2"
+        return 0
+    fi
+
+    log_warn "Docker Compose is not installed"
+    return 1
 }
 
-# Remove old Docker versions
-remove_old_docker() {
-    log_info "Removing old Docker versions..."
+#
+# Install Docker from official repository
+#
+# Returns:
+#   0 on successful installation
+#   1 on installation failure
+#
+install_docker() {
+    log_info "Installing Docker from official repository..."
 
-    local old_packages=(
-        "docker"
-        "docker-engine"
-        "docker.io"
-        "containerd"
-        "runc"
-        "docker-compose"
-    )
+    validate_root
+    check_internet
 
-    local remove_cmd="apt-get remove -y"
-    for package in "${old_packages[@]}"; do
-        remove_cmd+=" $package"
-    done
+    # Detect OS distribution
+    local distro
+    distro=$(get_os_info)
 
-    if isolated_sudo_command "$remove_cmd" 180 "Remove old Docker packages"; then
-        log_success "Old Docker packages removed"
-    else
-        log_warning "Some old packages could not be removed (this may be normal)"
-    fi
-
-    # Clean up residual files
-    local cleanup_cmd="apt-get autoremove -y && apt-get autoclean"
-    isolated_sudo_command "$cleanup_cmd" 120 "Cleanup after package removal"
-}
-
-# Install required packages
-install_prerequisites() {
-    log_info "Installing prerequisite packages..."
-
-    local update_cmd="apt-get update"
-    if ! isolated_sudo_command "$update_cmd" 300 "Update package lists"; then
-        log_error "Failed to update package lists"
-        return 1
-    fi
-
-    local packages=(
-        "ca-certificates"
-        "curl"
-        "gnupg"
-        "lsb-release"
-        "apt-transport-https"
-        "software-properties-common"
-    )
-
-    local install_cmd="DEBIAN_FRONTEND=noninteractive apt-get install -y"
-    for package in "${packages[@]}"; do
-        install_cmd+=" $package"
-    done
-
-    if isolated_sudo_command "$install_cmd" 300 "Install prerequisite packages"; then
-        log_success "Prerequisite packages installed"
-        return 0
-    else
-        log_error "Failed to install prerequisite packages"
-        return 1
-    fi
-}
-
-# Add Docker GPG key and repository
-setup_docker_repository() {
-    log_info "Setting up Docker repository..."
-
-    local system_info
-    system_info=($(detect_system_info))
-    local os_id="${system_info[0]}"
-    local arch="${system_info[2]}"
-
-    # Create keyrings directory
-    local keyring_setup_cmd="mkdir -p /etc/apt/keyrings"
-    if ! isolated_sudo_command "$keyring_setup_cmd" 30 "Create keyrings directory"; then
-        log_error "Failed to create keyrings directory"
-        return 1
-    fi
-
-    # Download and add Docker GPG key
-    local gpg_key_cmd="curl -fsSL https://download.docker.com/linux/$os_id/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
-    if ! isolated_sudo_command "$gpg_key_cmd" 120 "Download Docker GPG key"; then
-        log_error "Failed to download Docker GPG key"
-        return 1
-    fi
-
-    # Set proper permissions for GPG key
-    local chmod_cmd="chmod a+r /etc/apt/keyrings/docker.gpg"
-    isolated_sudo_command "$chmod_cmd" 10 "Set GPG key permissions"
-
-    # Add Docker repository
-    local repo_cmd="echo \"deb [arch=$arch signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$os_id \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list"
-    if ! isolated_sudo_command "$repo_cmd" 30 "Add Docker repository"; then
-        log_error "Failed to add Docker repository"
-        return 1
-    fi
-
-    # Update package lists with new repository
-    local update_cmd="apt-get update"
-    if isolated_sudo_command "$update_cmd" 300 "Update package lists with Docker repo"; then
-        log_success "Docker repository configured"
-        return 0
-    else
-        log_error "Failed to update package lists after adding Docker repository"
-        return 1
-    fi
-}
-
-# Install Docker Engine
-install_docker_engine() {
-    log_info "Installing Docker Engine..."
-
-    local docker_packages=(
-        "docker-ce"
-        "docker-ce-cli"
-        "containerd.io"
-        "docker-buildx-plugin"
-        "docker-compose-plugin"
-    )
-
-    local install_cmd="DEBIAN_FRONTEND=noninteractive apt-get install -y"
-    for package in "${docker_packages[@]}"; do
-        install_cmd+=" $package"
-    done
-
-    if isolated_sudo_command "$install_cmd" "$DOCKER_TIMEOUT" "Install Docker packages"; then
-        log_success "Docker Engine installed successfully"
-        return 0
-    else
-        log_error "Failed to install Docker Engine"
-        return 1
-    fi
-}
-
-# Configure Docker service
-configure_docker_service() {
-    log_info "Configuring Docker service..."
-
-    # Enable Docker service
-    if isolate_systemctl_command "enable" "docker" 30; then
-        log_success "Docker service enabled"
-    else
-        log_error "Failed to enable Docker service"
-        return 1
-    fi
-
-    # Start Docker service
-    if isolate_systemctl_command "start" "docker" 60; then
-        log_success "Docker service started"
-    else
-        log_error "Failed to start Docker service"
-        return 1
-    fi
-
-    # Verify Docker is running
-    if check_service_health "docker" 3 5; then
-        log_success "Docker service is running properly"
-        return 0
-    else
-        log_error "Docker service health check failed"
-        return 1
-    fi
-}
-
-# Add user to docker group
-add_user_to_docker_group() {
-    local username="${1:-$USER}"
-
-    log_info "Adding user '$username' to docker group..."
-
-    local usermod_cmd="usermod -aG docker $username"
-    if isolated_sudo_command "$usermod_cmd" 30 "Add user to docker group"; then
-        log_success "User '$username' added to docker group"
-        log_warning "You may need to log out and back in for group changes to take effect"
-        return 0
-    else
-        log_error "Failed to add user to docker group"
-        return 1
-    fi
-}
-
-# Install Docker Compose (if not installed as plugin)
-install_docker_compose_standalone() {
-    log_info "Installing Docker Compose standalone..."
-
-    local system_info
-    system_info=($(detect_system_info))
-    local arch="${system_info[2]}"
-
-    # Map architecture for Docker Compose
-    local compose_arch
-    case "$arch" in
-        amd64) compose_arch="x86_64" ;;
-        arm64) compose_arch="aarch64" ;;
-        armhf) compose_arch="armv7" ;;
+    case "${distro}" in
+        "ubuntu"|"debian")
+            install_docker_debian_ubuntu
+            ;;
+        "centos"|"rhel"|"fedora")
+            install_docker_redhat
+            ;;
         *)
-            log_error "Unsupported architecture for Docker Compose: $arch"
+            log_error "Unsupported distribution: ${distro}"
             return 1
             ;;
     esac
 
-    local compose_url="https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${compose_arch}"
-    local download_cmd="curl -L '$compose_url' -o /usr/local/bin/docker-compose"
+    # Start and enable Docker service
+    systemctl enable docker
+    systemctl start docker
 
-    if isolated_sudo_command "$download_cmd" 300 "Download Docker Compose"; then
-        local chmod_cmd="chmod +x /usr/local/bin/docker-compose"
-        if isolated_sudo_command "$chmod_cmd" 10 "Make Docker Compose executable"; then
-            log_success "Docker Compose standalone installed"
-            return 0
-        else
-            log_error "Failed to make Docker Compose executable"
-            return 1
-        fi
+    # Add current user to docker group if not root
+    if [[ "${EUID}" -ne 0 ]] && [[ -n "${SUDO_USER:-}" ]]; then
+        usermod -aG docker "${SUDO_USER}"
+        log_info "Added user ${SUDO_USER} to docker group. Please log out and back in for changes to take effect."
+    fi
+
+    # Verify installation
+    if check_docker_installed; then
+        log_info "Docker installation completed successfully"
+        return 0
+    else
+        log_error "Docker installation failed verification"
+        return 1
+    fi
+}
+
+#
+# Install Docker on Debian/Ubuntu systems
+#
+install_docker_debian_ubuntu() {
+    log_info "Installing Docker on Debian/Ubuntu system..."
+
+    # Update package index
+    apt-get update
+
+    # Install prerequisites
+    apt-get install -y \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release
+
+    # Add Docker's official GPG key
+    curl -fsSL "${DOCKER_GPG_URL}" | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+    # Add Docker repository
+    local distro_id
+    distro_id=$(lsb_release -is | tr '[:upper:]' '[:lower:]')
+
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] ${DOCKER_REPO_URL}/${distro_id} $(lsb_release -cs) stable" | \
+        tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # Update package index again
+    apt-get update
+
+    # Install Docker Engine
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    log_info "Docker installation on Debian/Ubuntu completed"
+}
+
+#
+# Install Docker on RedHat/CentOS/Fedora systems
+#
+install_docker_redhat() {
+    log_info "Installing Docker on RedHat/CentOS/Fedora system..."
+
+    # Install prerequisites
+    if command -v dnf &> /dev/null; then
+        dnf install -y dnf-plugins-core
+        dnf config-manager --add-repo "${DOCKER_REPO_URL}/centos/docker-ce.repo"
+        dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    else
+        yum install -y yum-utils
+        yum-config-manager --add-repo "${DOCKER_REPO_URL}/centos/docker-ce.repo"
+        yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    fi
+
+    log_info "Docker installation on RedHat/CentOS/Fedora completed"
+}
+
+#
+# Install Docker Compose if not available as plugin
+#
+# Returns:
+#   0 on successful installation
+#   1 on installation failure
+#
+install_docker_compose() {
+    log_info "Installing Docker Compose..."
+
+    validate_root
+    check_internet
+
+    # Check if Docker Compose plugin is already available
+    if docker compose version &> /dev/null; then
+        log_info "Docker Compose plugin is already available"
+        return 0
+    fi
+
+    # Download and install standalone Docker Compose
+    local compose_dest="/usr/local/bin/docker-compose"
+
+    log_info "Downloading Docker Compose from ${DOCKER_COMPOSE_URL}..."
+
+    if curl -L "${DOCKER_COMPOSE_URL}" -o "${compose_dest}"; then
+        chmod +x "${compose_dest}"
+
+        # Create symlink for convenience
+        ln -sf "${compose_dest}" /usr/bin/docker-compose 2>/dev/null || true
+
+        log_info "Docker Compose installed successfully"
+        return 0
     else
         log_error "Failed to download Docker Compose"
         return 1
     fi
 }
 
-# Verify Docker installation
-verify_docker_installation() {
-    log_info "Verifying Docker installation..."
+#
+# Configure Docker daemon with optimized settings
+#
+# Returns:
+#   0 on successful configuration
+#   1 on configuration failure
+#
+configure_docker_daemon() {
+    log_info "Configuring Docker daemon..."
 
-    # Test Docker command
-    local docker_test_cmd="docker --version"
-    if safe_execute "$docker_test_cmd" 30 "Docker version check"; then
-        local docker_version=$(docker --version 2>/dev/null)
-        log_success "Docker verified: $docker_version"
-    else
-        log_error "Docker verification failed"
+    validate_root
+
+    local daemon_config="/etc/docker/daemon.json"
+
+    # Backup existing configuration if it exists
+    if [[ -f "${daemon_config}" ]]; then
+        backup_file "${daemon_config}"
+    fi
+
+    # Create optimized daemon configuration
+    cat > "${daemon_config}" << 'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2",
+  "live-restore": true,
+  "userland-proxy": false,
+  "experimental": false,
+  "ip-forward": true,
+  "iptables": true,
+  "bridge": "docker0"
+}
+EOF
+
+    # Validate JSON configuration
+    if ! python3 -m json.tool "${daemon_config}" > /dev/null 2>&1; then
+        log_error "Invalid JSON in Docker daemon configuration"
         return 1
     fi
 
-    # Test Docker Compose
-    local compose_test_cmd="docker compose version"
-    if safe_execute "$compose_test_cmd" 30 "Docker Compose version check"; then
-        local compose_version=$(docker compose version 2>/dev/null)
-        log_success "Docker Compose verified: $compose_version"
+    log_info "Docker daemon configuration created successfully"
+    return 0
+}
+
+#
+# Setup and start Docker service
+#
+# Returns:
+#   0 on successful setup
+#   1 on setup failure
+#
+setup_docker_service() {
+    log_info "Setting up Docker service..."
+
+    validate_root
+
+    # Reload systemd daemon
+    systemctl daemon-reload
+
+    # Enable Docker service
+    if systemctl enable docker; then
+        log_info "Docker service enabled"
     else
-        log_warning "Docker Compose plugin not available, checking standalone..."
-        if command -v docker-compose >/dev/null 2>&1; then
-            local compose_version=$(docker-compose --version 2>/dev/null)
-            log_success "Docker Compose standalone verified: $compose_version"
-        else
-            log_error "Docker Compose verification failed"
+        log_error "Failed to enable Docker service"
+        return 1
+    fi
+
+    # Start Docker service
+    if systemctl start docker; then
+        log_info "Docker service started"
+    else
+        log_error "Failed to start Docker service"
+        return 1
+    fi
+
+    # Wait for Docker to be ready
+    local max_attempts=30
+    local attempt=0
+
+    while [[ ${attempt} -lt ${max_attempts} ]]; do
+        if docker info &> /dev/null; then
+            log_info "Docker service is ready"
+            return 0
+        fi
+
+        ((attempt++))
+        log_info "Waiting for Docker service to be ready... (${attempt}/${max_attempts})"
+        sleep 2
+    done
+
+    log_error "Docker service failed to become ready within ${max_attempts} attempts"
+    return 1
+}
+
+#
+# Validate Docker installation and functionality
+#
+# Returns:
+#   0 if Docker is working properly
+#   1 if Docker validation fails
+#
+validate_docker_installation() {
+    log_info "Validating Docker installation..."
+
+    # Check if Docker daemon is running
+    if ! systemctl is-active docker &> /dev/null; then
+        log_error "Docker service is not running"
+        return 1
+    fi
+
+    # Check Docker info
+    if ! docker info &> /dev/null; then
+        log_error "Cannot connect to Docker daemon"
+        return 1
+    fi
+
+    # Test Docker functionality with hello-world
+    log_info "Testing Docker functionality..."
+    if docker run --rm hello-world &> /dev/null; then
+        log_info "Docker functionality test passed"
+    else
+        log_error "Docker functionality test failed"
+        return 1
+    fi
+
+    # Check Docker Compose
+    if docker compose version &> /dev/null; then
+        local compose_version
+        compose_version=$(docker compose version --short)
+        log_info "Docker Compose plugin version ${compose_version} is working"
+    elif command -v docker-compose &> /dev/null; then
+        local compose_version
+        compose_version=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+        log_info "Docker Compose standalone version ${compose_version} is working"
+    else
+        log_error "Docker Compose is not available"
+        return 1
+    fi
+
+    log_info "Docker installation validation completed successfully"
+    return 0
+}
+
+#
+# Complete Docker setup process
+#
+# Returns:
+#   0 on successful setup
+#   1 on setup failure
+#
+setup_docker_complete() {
+    log_info "Starting complete Docker setup process..."
+
+    # Check if Docker is already installed and working
+    if check_docker_installed && check_docker_compose_installed && validate_docker_installation; then
+        log_info "Docker is already properly installed and configured"
+        return 0
+    fi
+
+    # Install Docker if needed
+    if ! check_docker_installed; then
+        if ! install_docker; then
+            log_error "Docker installation failed"
             return 1
         fi
     fi
 
-    # Test Docker daemon
-    local daemon_test_cmd="docker info"
-    if safe_execute "$daemon_test_cmd" 30 "Docker daemon connectivity check"; then
-        log_success "Docker daemon is accessible"
-    else
-        log_error "Docker daemon is not accessible"
-        return 1
-    fi
-
-    # Run hello-world container test
-    log_info "Running Docker hello-world test..."
-    local hello_test_cmd="docker run --rm hello-world"
-    if safe_execute "$hello_test_cmd" 120 "Docker hello-world test"; then
-        log_success "Docker hello-world test passed"
-        return 0
-    else
-        log_error "Docker hello-world test failed"
-        return 1
-    fi
-}
-
-# Clean up Docker test containers and images
-cleanup_docker_test() {
-    log_info "Cleaning up Docker test resources..."
-
-    local cleanup_commands=(
-        "docker system prune -f"
-        "docker image prune -f"
-    )
-
-    for cmd in "${cleanup_commands[@]}"; do
-        if safe_execute "$cmd" 60 "Docker cleanup: $cmd"; then
-            log_debug "Cleanup command succeeded: $cmd"
-        else
-            log_warning "Cleanup command failed: $cmd"
-        fi
-    done
-
-    log_success "Docker cleanup completed"
-}
-
-# Main Docker installation function
-install_docker() {
-    local skip_user_setup="${1:-false}"
-    local install_compose_standalone="${2:-false}"
-
-    log_info "Starting Docker installation process"
-
-    # Initialize logging
-    init_logging
-
-    # Check requirements
-    if ! check_docker_requirements; then
-        log_error "System requirements not met"
-        return 1
-    fi
-
-    # Check if Docker is already installed
-    if check_docker_installed; then
-        local docker_version=$(docker --version 2>/dev/null)
-        log_warning "Docker is already installed: $docker_version"
-
-        read -p "Do you want to reinstall Docker? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping Docker installation"
-
-            # Still verify the installation
-            if verify_docker_installation; then
-                log_success "Existing Docker installation verified"
-                return 0
-            else
-                log_error "Existing Docker installation has issues"
-                return 1
-            fi
+    # Install Docker Compose if needed
+    if ! check_docker_compose_installed; then
+        if ! install_docker_compose; then
+            log_error "Docker Compose installation failed"
+            return 1
         fi
     fi
 
-    # Remove old Docker versions
-    remove_old_docker
-
-    # Install prerequisites
-    if ! install_prerequisites; then
-        log_error "Failed to install prerequisites"
+    # Configure Docker daemon
+    if ! configure_docker_daemon; then
+        log_error "Docker daemon configuration failed"
         return 1
     fi
 
-    # Setup Docker repository
-    if ! setup_docker_repository; then
-        log_error "Failed to setup Docker repository"
+    # Setup Docker service
+    if ! setup_docker_service; then
+        log_error "Docker service setup failed"
         return 1
     fi
 
-    # Install Docker Engine
-    if ! install_docker_engine; then
-        log_error "Failed to install Docker Engine"
+    # Validate installation
+    if ! validate_docker_installation; then
+        log_error "Docker installation validation failed"
         return 1
     fi
 
-    # Configure Docker service
-    if ! configure_docker_service; then
-        log_error "Failed to configure Docker service"
-        return 1
-    fi
-
-    # Add user to docker group (unless skipped)
-    if [[ "$skip_user_setup" != "true" ]]; then
-        add_user_to_docker_group "$USER"
-    fi
-
-    # Install standalone Docker Compose if requested
-    if [[ "$install_compose_standalone" == "true" ]]; then
-        if ! check_docker_compose_installed; then
-            install_docker_compose_standalone
-        fi
-    fi
-
-    # Verify installation
-    if ! verify_docker_installation; then
-        log_error "Docker installation verification failed"
-        return 1
-    fi
-
-    # Cleanup test resources
-    cleanup_docker_test
-
-    log_success "Docker installation completed successfully!"
-    log_info "Note: You may need to log out and back in for group changes to take effect"
-
+    log_info "Complete Docker setup process finished successfully"
     return 0
 }
 
-# Uninstall Docker
-uninstall_docker() {
-    log_info "Uninstalling Docker..."
+#
+# Compare two version strings
+#
+# Arguments:
+#   $1 - Version to compare
+#   $2 - Minimum required version
+#
+# Returns:
+#   0 if version is >= minimum required
+#   1 if version is < minimum required
+#
+version_compare() {
+    local version="$1"
+    local min_version="$2"
 
-    # Stop and disable Docker service
-    if isolate_systemctl_command "stop" "docker" 60; then
-        log_info "Docker service stopped"
-    fi
-
-    if isolate_systemctl_command "disable" "docker" 30; then
-        log_info "Docker service disabled"
-    fi
-
-    # Remove Docker packages
-    local docker_packages=(
-        "docker-ce"
-        "docker-ce-cli"
-        "containerd.io"
-        "docker-buildx-plugin"
-        "docker-compose-plugin"
-        "docker"
-        "docker-engine"
-        "docker.io"
-        "containerd"
-        "runc"
-    )
-
-    local remove_cmd="apt-get purge -y"
-    for package in "${docker_packages[@]}"; do
-        remove_cmd+=" $package"
-    done
-
-    if isolated_sudo_command "$remove_cmd" 300 "Remove Docker packages"; then
-        log_success "Docker packages removed"
+    # Use sort -V for version comparison
+    if [[ "$(printf '%s\n' "${min_version}" "${version}" | sort -V | head -n1)" == "${min_version}" ]]; then
+        return 0
     else
-        log_error "Failed to remove all Docker packages"
+        return 1
     fi
-
-    # Remove Docker data
-    local cleanup_cmd="rm -rf /var/lib/docker /var/lib/containerd /etc/docker"
-    if isolated_sudo_command "$cleanup_cmd" 60 "Remove Docker data"; then
-        log_success "Docker data removed"
-    fi
-
-    # Remove repository and keys
-    local repo_cleanup_cmd="rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.gpg"
-    isolated_sudo_command "$repo_cleanup_cmd" 30 "Remove Docker repository"
-
-    # Update package lists
-    local update_cmd="apt-get update"
-    isolated_sudo_command "$update_cmd" 300 "Update package lists"
-
-    log_success "Docker uninstallation completed"
 }
 
-# Interactive Docker setup
-interactive_docker_setup() {
-    echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║         Docker Setup Manager         ║${NC}"
-    echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
-    echo
+# ======================================================================================
+# MAIN EXECUTION
+# ======================================================================================
 
-    # Check current Docker status
-    if check_docker_installed; then
-        echo -e "${GREEN}✓${NC} Docker is currently installed"
-        docker --version 2>/dev/null || echo "Version detection failed"
-    else
-        echo -e "${YELLOW}⚠${NC} Docker is not installed"
-    fi
+# Only execute main function if script is run directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main() {
+        log_info "Docker setup module executed directly"
 
-    if check_docker_compose_installed; then
-        echo -e "${GREEN}✓${NC} Docker Compose is available"
-    else
-        echo -e "${YELLOW}⚠${NC} Docker Compose is not available"
-    fi
-
-    echo
-    echo "Available options:"
-    echo "1) Install Docker (recommended)"
-    echo "2) Install Docker with standalone Compose"
-    echo "3) Reinstall Docker"
-    echo "4) Uninstall Docker"
-    echo "5) Verify current installation"
-    echo "6) Exit"
-    echo
-
-    while true; do
-        read -p "Please select an option (1-6): " choice
-
-        case $choice in
-            1)
-                echo -e "\n${GREEN}Installing Docker...${NC}"
-                install_docker "false" "false"
-                break
+        case "${1:-help}" in
+            "install")
+                setup_docker_complete
                 ;;
-            2)
-                echo -e "\n${GREEN}Installing Docker with standalone Compose...${NC}"
-                install_docker "false" "true"
-                break
-                ;;
-            3)
-                echo -e "\n${YELLOW}Reinstalling Docker...${NC}"
-                read -p "This will remove existing Docker installation. Continue? (y/N): " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
-                    uninstall_docker
-                    install_docker "false" "false"
-                fi
-                break
-                ;;
-            4)
-                echo -e "\n${RED}WARNING: This will remove Docker and all containers/images${NC}"
-                read -p "Are you sure? (y/N): " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
-                    uninstall_docker
-                fi
-                break
-                ;;
-            5)
-                echo -e "\n${CYAN}Verifying Docker installation...${NC}"
-                if check_docker_installed; then
-                    verify_docker_installation
+            "check")
+                if check_docker_installed && check_docker_compose_installed; then
+                    echo "Docker is properly installed"
+                    exit 0
                 else
-                    log_error "Docker is not installed"
+                    echo "Docker is not properly installed"
+                    exit 1
                 fi
-                echo
                 ;;
-            6)
-                echo "Exiting Docker setup."
-                break
+            "validate")
+                validate_docker_installation
                 ;;
-            *)
-                echo -e "${RED}Invalid option. Please select 1-6.${NC}"
+            "help"|*)
+                echo "Usage: $0 {install|check|validate|help}"
+                echo "  install  - Install and configure Docker"
+                echo "  check    - Check if Docker is installed"
+                echo "  validate - Validate Docker installation"
+                echo "  help     - Show this help message"
+                exit 0
                 ;;
         esac
-    done
-}
+    }
 
-# Export functions for use by other modules
-export -f install_docker
-export -f uninstall_docker
-export -f check_docker_installed
-export -f check_docker_compose_installed
-export -f verify_docker_installation
-export -f interactive_docker_setup
-
-# If script is run directly, start interactive mode
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # Parse command line arguments
-    case "${1:-interactive}" in
-        "install")
-            install_docker "false" "false"
-            ;;
-        "install-with-compose")
-            install_docker "false" "true"
-            ;;
-        "uninstall")
-            uninstall_docker
-            ;;
-        "verify")
-            if check_docker_installed; then
-                verify_docker_installation
-            else
-                log_error "Docker is not installed"
-                exit 1
-            fi
-            ;;
-        "interactive"|"")
-            interactive_docker_setup
-            ;;
-        *)
-            echo "Usage: $0 [install|install-with-compose|uninstall|verify|interactive]"
-            echo "  install              - Install Docker with plugin Compose"
-            echo "  install-with-compose - Install Docker with standalone Compose"
-            echo "  uninstall           - Remove Docker completely"
-            echo "  verify              - Verify existing installation"
-            echo "  interactive         - Interactive setup menu (default)"
-            exit 1
-            ;;
-    esac
+    main "$@"
 fi

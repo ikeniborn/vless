@@ -1,211 +1,446 @@
 #!/bin/bash
-# User Management Module for VLESS VPN Project
-# Functions for managing VPN users: add, remove, list, get config
+# ======================================================================================
+# VLESS+Reality VPN Management System - User Management Module
+# ======================================================================================
+# This module provides CRUD operations for VPN users with UUID management.
+# Handles user creation, deletion, modification, and configuration generation.
+#
 # Author: Claude Code
 # Version: 1.0
+# Last Modified: 2025-09-21
+# ======================================================================================
 
 set -euo pipefail
 
-# Get script directory
+# Source common utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common_utils.sh"
 
-# Import common utilities
-source "${SCRIPT_DIR}/common_utils.sh" || {
-    echo "ERROR: Cannot load common utilities module" >&2
-    exit 1
-}
+# User management specific variables
+readonly USER_DATABASE="${USER_DIR}/users.json"
+readonly USER_CONFIGS_DIR="${USER_DIR}/configs"
+readonly DEFAULT_PORT=443
+readonly DEFAULT_FLOW="xtls-rprx-vision"
 
-# User management constants
-readonly USERS_DB_FILE="$VLESS_DIR/users/users.json"
-readonly USERS_CONFIG_DIR="$VLESS_DIR/configs/users"
-readonly XRAY_CONFIG_FILE="$VLESS_DIR/configs/xray/config.json"
-readonly QR_CODES_DIR="$VLESS_DIR/qrcodes"
+# ======================================================================================
+# USER DATABASE FUNCTIONS
+# ======================================================================================
 
-# Default VLESS port (can be overridden)
-readonly DEFAULT_VLESS_PORT=443
+# Function: init_user_database
+# Description: Initialize the user database file
+init_user_database() {
+    log_info "Initializing user database..."
 
-# Initialize user management system
-init_user_management() {
-    log_message "INFO" "Initializing user management system"
+    # Create user directories
+    create_directory "$USER_DIR" "700" "root:root"
+    create_directory "$USER_CONFIGS_DIR" "700" "root:root"
 
-    # Create necessary directories
-    ensure_directory "$VLESS_DIR/users" "755" "root"
-    ensure_directory "$USERS_CONFIG_DIR" "755" "root"
-    ensure_directory "$QR_CODES_DIR" "755" "root"
-    ensure_directory "$(dirname "$XRAY_CONFIG_FILE")" "755" "root"
-
-    # Initialize users database if it doesn't exist
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
-        cat > "$USERS_DB_FILE" << 'EOF'
-{
-  "users": [],
-  "metadata": {
-    "created": "",
-    "last_modified": "",
-    "total_users": 0
-  }
-}
-EOF
-        # Update metadata
-        update_users_metadata
-        log_message "SUCCESS" "Users database initialized"
+    # Initialize empty JSON database if it doesn't exist
+    if [[ ! -f "$USER_DATABASE" ]]; then
+        echo '{"users": [], "metadata": {"created": "'$(date -Iseconds)'", "version": "1.0"}}' > "$USER_DATABASE"
+        chmod 600 "$USER_DATABASE"
+        chown root:root "$USER_DATABASE"
+        log_success "User database initialized: $USER_DATABASE"
     else
-        log_message "INFO" "Users database already exists"
-    fi
-
-    # Set proper permissions
-    chmod 600 "$USERS_DB_FILE"
-    log_message "SUCCESS" "User management system initialized"
-}
-
-# Generate UUID v4
-generate_uuid_v4() {
-    # Use uuidgen if available, otherwise fallback
-    if command -v uuidgen >/dev/null 2>&1; then
-        uuidgen
-    else
-        # Generate UUID v4 manually
-        local N B T
-        for (( N=0; N < 16; ++N )); do
-            B=$(( RANDOM%256 ))
-            if (( N == 6 )); then
-                printf '4%x' $(( B%16 ))
-            elif (( N == 8 )); then
-                local C='89ab'
-                printf '%c%x' ${C:$(( RANDOM%4 )):1} $(( B%16 ))
-            else
-                printf '%02x' $B
-            fi
-            case $N in
-                3 | 5 | 7 | 9 )
-                    printf '-'
-                    ;;
-            esac
-        done
-        echo
+        log_info "User database already exists: $USER_DATABASE"
     fi
 }
 
-# Check if UUID already exists
-uuid_exists() {
-    local uuid="$1"
+# Function: get_user_count
+# Description: Get the current number of users
+# Returns: Number of users
+get_user_count() {
+    if [[ ! -f "$USER_DATABASE" ]]; then
+        echo 0
+        return
+    fi
 
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
+    python3 -c "
+import json
+try:
+    with open('$USER_DATABASE', 'r') as f:
+        data = json.load(f)
+    print(len(data.get('users', [])))
+except Exception:
+    print(0)
+"
+}
+
+# Function: user_exists
+# Description: Check if a user exists by username or UUID
+# Parameters: $1 - username or UUID
+# Returns: 0 if exists, 1 if not
+user_exists() {
+    local identifier="$1"
+
+    if [[ ! -f "$USER_DATABASE" ]]; then
         return 1
     fi
 
-    if command -v jq >/dev/null 2>&1; then
-        jq -e ".users[] | select(.uuid == \"$uuid\")" "$USERS_DB_FILE" >/dev/null 2>&1
-    else
-        grep -q "\"uuid\": \"$uuid\"" "$USERS_DB_FILE" 2>/dev/null
-    fi
+    local exists=$(python3 -c "
+import json
+try:
+    with open('$USER_DATABASE', 'r') as f:
+        data = json.load(f)
+    users = data.get('users', [])
+    for user in users:
+        if user.get('username') == '$identifier' or user.get('uuid') == '$identifier':
+            print('true')
+            exit()
+    print('false')
+except Exception:
+    print('false')
+")
+
+    [[ "$exists" == "true" ]]
 }
 
-# Generate unique UUID
-generate_unique_uuid() {
-    local uuid
-    local max_attempts=10
-    local attempts=0
+# ======================================================================================
+# USER CRUD OPERATIONS
+# ======================================================================================
 
-    while [[ $attempts -lt $max_attempts ]]; do
-        uuid=$(generate_uuid_v4)
-        if ! uuid_exists "$uuid"; then
-            echo "$uuid"
-            return 0
-        fi
-        ((attempts++))
+# Function: add_user
+# Description: Add a new user with unique UUID
+# Parameters: $1 - username, $2 - email (optional), $3 - description (optional)
+# Returns: 0 on success, 1 on failure
+add_user() {
+    local username="$1"
+    local email="${2:-}"
+    local description="${3:-VPN User}"
+
+    # Validate username
+    if [[ -z "$username" ]]; then
+        log_error "Username cannot be empty"
+        return 1
+    fi
+
+    # Check username format (alphanumeric, underscore, hyphen only)
+    if ! [[ "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        log_error "Invalid username format: $username (only alphanumeric, underscore, and hyphen allowed)"
+        return 1
+    fi
+
+    # Check if user already exists
+    if user_exists "$username"; then
+        log_error "User already exists: $username"
+        return 1
+    fi
+
+    # Generate unique UUID
+    local uuid
+    uuid=$(generate_uuid)
+    if [[ -z "$uuid" ]]; then
+        log_error "Failed to generate UUID for user: $username"
+        return 1
+    fi
+
+    # Ensure UUID is unique
+    while user_exists "$uuid"; do
+        uuid=$(generate_uuid)
     done
 
-    log_message "ERROR" "Failed to generate unique UUID after $max_attempts attempts"
-    return 1
-}
+    log_info "Adding user: $username (UUID: $uuid)"
 
-# Update users metadata
-update_users_metadata() {
-    local timestamp=$(get_timestamp)
-    local total_users=0
+    # Initialize database if needed
+    init_user_database
 
-    if [[ -f "$USERS_DB_FILE" ]]; then
-        if command -v jq >/dev/null 2>&1; then
-            total_users=$(jq '.users | length' "$USERS_DB_FILE" 2>/dev/null || echo "0")
+    # Add user to database
+    local created_date=$(date -Iseconds)
+    python3 -c "
+import json
+import sys
 
-            # Update metadata with jq
-            jq --arg timestamp "$timestamp" --arg total "$total_users" '
-                .metadata.last_modified = $timestamp |
-                .metadata.total_users = ($total | tonumber) |
-                if .metadata.created == "" then .metadata.created = $timestamp else . end
-            ' "$USERS_DB_FILE" > "${USERS_DB_FILE}.tmp" && mv "${USERS_DB_FILE}.tmp" "$USERS_DB_FILE"
+try:
+    with open('$USER_DATABASE', 'r') as f:
+        data = json.load(f)
+
+    new_user = {
+        'username': '$username',
+        'uuid': '$uuid',
+        'email': '$email',
+        'description': '$description',
+        'created_date': '$created_date',
+        'last_modified': '$created_date',
+        'enabled': True,
+        'statistics': {
+            'total_connections': 0,
+            'last_connection': None,
+            'data_usage': 0
+        }
+    }
+
+    data['users'].append(new_user)
+
+    with open('$USER_DATABASE', 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print('SUCCESS')
+except Exception as e:
+    print(f'ERROR: {e}')
+    sys.exit(1)
+"
+
+    if [[ $? -eq 0 ]]; then
+        log_success "User added successfully: $username"
+
+        # Generate initial user configuration
+        if generate_user_config "$username"; then
+            log_success "User configuration generated for: $username"
         else
-            # Fallback for systems without jq
-            total_users=$(grep -c '"uuid"' "$USERS_DB_FILE" 2>/dev/null || echo "0")
-
-            # Simple sed-based update (basic implementation)
-            sed -i "s/\"last_modified\": \"[^\"]*\"/\"last_modified\": \"$timestamp\"/" "$USERS_DB_FILE"
-            sed -i "s/\"total_users\": [0-9]*/\"total_users\": $total_users/" "$USERS_DB_FILE"
-
-            # Set created timestamp if empty
-            if grep -q '"created": ""' "$USERS_DB_FILE"; then
-                sed -i "s/\"created\": \"\"/\"created\": \"$timestamp\"/" "$USERS_DB_FILE"
-            fi
+            log_warn "Failed to generate configuration for: $username"
         fi
-    fi
 
-    log_message "INFO" "Users metadata updated: $total_users total users"
-}
-
-# Get server public IP
-get_server_public_ip() {
-    local server_ip="${SERVER_IP:-}"
-
-    if [[ -z "$server_ip" ]]; then
-        server_ip=$(get_public_ip)
-    fi
-
-    echo "$server_ip"
-}
-
-# Generate VLESS URL
-generate_vless_url() {
-    local uuid="$1"
-    local username="$2"
-    local server_ip="$3"
-    local port="${4:-$DEFAULT_VLESS_PORT}"
-    local domain="${5:-$server_ip}"
-
-    # VLESS URL format: vless://uuid@host:port?encryption=none&security=reality&type=tcp&flow=xtls-rprx-vision&sni=domain#username
-    local vless_url="vless://${uuid}@${server_ip}:${port}?encryption=none&security=reality&type=tcp&flow=xtls-rprx-vision&sni=${domain}&fp=chrome&pbk=$(cat "$VLESS_DIR/certs/public.key" 2>/dev/null || echo "PUBLIC_KEY_PLACEHOLDER")&sid=$(cat "$VLESS_DIR/certs/short_id" 2>/dev/null || echo "SHORT_ID_PLACEHOLDER")#${username}"
-
-    echo "$vless_url"
-}
-
-# Generate QR code
-generate_qr_code() {
-    local vless_url="$1"
-    local username="$2"
-    local qr_file="$QR_CODES_DIR/${username}.png"
-
-    if command -v qrencode >/dev/null 2>&1; then
-        qrencode -t PNG -o "$qr_file" "$vless_url"
-        log_message "SUCCESS" "QR code generated: $qr_file"
-        echo "$qr_file"
+        return 0
     else
-        log_message "WARNING" "qrencode not available, QR code not generated"
+        log_error "Failed to add user: $username"
         return 1
     fi
 }
 
-# Generate user configuration file
+# Function: remove_user
+# Description: Remove user and clean up configurations
+# Parameters: $1 - username or UUID
+# Returns: 0 on success, 1 on failure
+remove_user() {
+    local identifier="$1"
+
+    if [[ -z "$identifier" ]]; then
+        log_error "Username or UUID cannot be empty"
+        return 1
+    fi
+
+    # Check if user exists
+    if ! user_exists "$identifier"; then
+        log_error "User does not exist: $identifier"
+        return 1
+    fi
+
+    log_info "Removing user: $identifier"
+
+    # Get username for cleanup
+    local username
+    username=$(get_user_info "$identifier" "username")
+
+    # Remove user from database
+    python3 -c "
+import json
+import sys
+
+try:
+    with open('$USER_DATABASE', 'r') as f:
+        data = json.load(f)
+
+    original_count = len(data['users'])
+    data['users'] = [user for user in data['users']
+                    if user.get('username') != '$identifier' and user.get('uuid') != '$identifier']
+
+    if len(data['users']) == original_count:
+        print('ERROR: User not found')
+        sys.exit(1)
+
+    with open('$USER_DATABASE', 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print('SUCCESS')
+except Exception as e:
+    print(f'ERROR: {e}')
+    sys.exit(1)
+"
+
+    if [[ $? -eq 0 ]]; then
+        # Clean up user configuration files
+        if [[ -n "$username" ]]; then
+            rm -f "${USER_CONFIGS_DIR}/${username}"_*.{json,txt,png} 2>/dev/null || true
+        fi
+
+        log_success "User removed successfully: $identifier"
+        return 0
+    else
+        log_error "Failed to remove user: $identifier"
+        return 1
+    fi
+}
+
+# Function: list_users
+# Description: Display all users with statistics
+# Parameters: $1 - format (table|json) default: table
+list_users() {
+    local format="${1:-table}"
+
+    if [[ ! -f "$USER_DATABASE" ]]; then
+        log_warn "No user database found"
+        return 1
+    fi
+
+    local user_count
+    user_count=$(get_user_count)
+
+    if [[ $user_count -eq 0 ]]; then
+        echo "No users found."
+        return 0
+    fi
+
+    log_info "Total users: $user_count"
+
+    if [[ "$format" == "json" ]]; then
+        python3 -c "
+import json
+with open('$USER_DATABASE', 'r') as f:
+    data = json.load(f)
+print(json.dumps(data['users'], indent=2))
+"
+    else
+        # Table format
+        echo ""
+        printf "%-20s %-36s %-15s %-20s %-10s\n" "USERNAME" "UUID" "EMAIL" "CREATED" "STATUS"
+        printf "%-20s %-36s %-15s %-20s %-10s\n" "--------" "----" "-----" "-------" "------"
+
+        python3 -c "
+import json
+from datetime import datetime
+
+with open('$USER_DATABASE', 'r') as f:
+    data = json.load(f)
+
+for user in data.get('users', []):
+    username = user.get('username', 'N/A')
+    uuid = user.get('uuid', 'N/A')
+    email = user.get('email', 'N/A')[:15]
+    created = user.get('created_date', 'N/A')[:19].replace('T', ' ')
+    status = 'Enabled' if user.get('enabled', False) else 'Disabled'
+
+    print(f'{username:<20} {uuid:<36} {email:<15} {created:<20} {status:<10}')
+"
+        echo ""
+    fi
+}
+
+# Function: get_user_info
+# Description: Get specific information about a user
+# Parameters: $1 - username or UUID, $2 - field name
+# Returns: Field value
+get_user_info() {
+    local identifier="$1"
+    local field="$2"
+
+    if [[ ! -f "$USER_DATABASE" ]]; then
+        return 1
+    fi
+
+    python3 -c "
+import json
+try:
+    with open('$USER_DATABASE', 'r') as f:
+        data = json.load(f)
+    users = data.get('users', [])
+    for user in users:
+        if user.get('username') == '$identifier' or user.get('uuid') == '$identifier':
+            print(user.get('$field', ''))
+            exit()
+except Exception:
+    pass
+"
+}
+
+# Function: update_user
+# Description: Update user information
+# Parameters: $1 - username or UUID, $2 - field, $3 - new value
+# Returns: 0 on success, 1 on failure
+update_user() {
+    local identifier="$1"
+    local field="$2"
+    local new_value="$3"
+
+    if ! user_exists "$identifier"; then
+        log_error "User does not exist: $identifier"
+        return 1
+    fi
+
+    log_info "Updating user $identifier: $field = $new_value"
+
+    python3 -c "
+import json
+import sys
+from datetime import datetime
+
+try:
+    with open('$USER_DATABASE', 'r') as f:
+        data = json.load(f)
+
+    for user in data['users']:
+        if user.get('username') == '$identifier' or user.get('uuid') == '$identifier':
+            user['$field'] = '$new_value'
+            user['last_modified'] = datetime.now().isoformat()
+            break
+    else:
+        print('ERROR: User not found')
+        sys.exit(1)
+
+    with open('$USER_DATABASE', 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print('SUCCESS')
+except Exception as e:
+    print(f'ERROR: {e}')
+    sys.exit(1)
+"
+
+    if [[ $? -eq 0 ]]; then
+        log_success "User updated successfully: $identifier"
+        return 0
+    else
+        log_error "Failed to update user: $identifier"
+        return 1
+    fi
+}
+
+# ======================================================================================
+# CONFIGURATION GENERATION
+# ======================================================================================
+
+# Function: generate_user_config
+# Description: Generate client configuration for a user
+# Parameters: $1 - username or UUID, $2 - format (vless|json) default: vless
+# Returns: 0 on success, 1 on failure
 generate_user_config() {
-    local uuid="$1"
-    local username="$2"
-    local server_ip="$3"
-    local port="${4:-$DEFAULT_VLESS_PORT}"
-    local domain="${5:-$server_ip}"
+    local identifier="$1"
+    local format="${2:-vless}"
 
-    local config_file="$USERS_CONFIG_DIR/${username}.json"
+    if ! user_exists "$identifier"; then
+        log_error "User does not exist: $identifier"
+        return 1
+    fi
 
-    # Create user-specific configuration
-    cat > "$config_file" << EOF
+    # Get user information
+    local username uuid
+    username=$(get_user_info "$identifier" "username")
+    uuid=$(get_user_info "$identifier" "uuid")
+
+    if [[ -z "$username" || -z "$uuid" ]]; then
+        log_error "Failed to get user information for: $identifier"
+        return 1
+    fi
+
+    # Get server public IP
+    local server_ip
+    server_ip=$(get_public_ip)
+    if [[ -z "$server_ip" ]]; then
+        log_error "Failed to determine server public IP"
+        return 1
+    fi
+
+    local config_file="${USER_CONFIGS_DIR}/${username}_${format}.txt"
+
+    case "$format" in
+        "vless")
+            # Generate VLESS URL
+            local vless_url="vless://${uuid}@${server_ip}:${DEFAULT_PORT}?type=tcp&security=reality&pbk=&fp=chrome&sni=www.google.com&sid=&spx=%2F&flow=${DEFAULT_FLOW}#${username}"
+            echo "$vless_url" > "$config_file"
+            log_success "VLESS configuration generated: $config_file"
+            ;;
+        "json")
+            # Generate JSON configuration
+            cat > "$config_file" << EOF
 {
   "log": {
     "loglevel": "warning"
@@ -225,13 +460,12 @@ generate_user_config() {
       "settings": {
         "vnext": [
           {
-            "address": "$server_ip",
-            "port": $port,
+            "address": "${server_ip}",
+            "port": ${DEFAULT_PORT},
             "users": [
               {
-                "id": "$uuid",
-                "encryption": "none",
-                "flow": "xtls-rprx-vision"
+                "id": "${uuid}",
+                "flow": "${DEFAULT_FLOW}"
               }
             ]
           }
@@ -241,454 +475,260 @@ generate_user_config() {
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "show": false,
-          "dest": "$domain:443",
-          "xver": 0,
-          "serverNames": ["$domain"],
-          "privateKey": "$(cat "$VLESS_DIR/certs/private.key" 2>/dev/null || echo "PRIVATE_KEY_PLACEHOLDER")",
-          "shortIds": ["$(cat "$VLESS_DIR/certs/short_id" 2>/dev/null || echo "SHORT_ID_PLACEHOLDER")"],
+          "serverName": "www.google.com",
           "fingerprint": "chrome"
         }
-      }
+      },
+      "tag": "proxy"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct"
     }
-  ]
-}
-EOF
-
-    chmod 644 "$config_file"
-    log_message "SUCCESS" "User configuration generated: $config_file"
-    echo "$config_file"
-}
-
-# Add new user
-add_user() {
-    local username="$1"
-    local description="${2:-VPN User}"
-
-    if [[ -z "$username" ]]; then
-        log_message "ERROR" "Username is required"
-        return 1
-    fi
-
-    # Validate username format
-    if [[ ! "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        log_message "ERROR" "Invalid username format. Use only alphanumeric characters, hyphens and underscores"
-        return 1
-    fi
-
-    # Check if username already exists
-    if user_exists "$username"; then
-        log_message "ERROR" "User '$username' already exists"
-        return 1
-    fi
-
-    log_message "INFO" "Adding user: $username"
-
-    # Generate unique UUID
-    local uuid
-    if ! uuid=$(generate_unique_uuid); then
-        log_message "ERROR" "Failed to generate unique UUID"
-        return 1
-    fi
-
-    # Get server information
-    local server_ip=$(get_server_public_ip)
-    local domain="${DOMAIN:-$server_ip}"
-    local port="${VLESS_PORT:-$DEFAULT_VLESS_PORT}"
-    local timestamp=$(get_timestamp)
-
-    # Create user object
-    local user_json
-    if command -v jq >/dev/null 2>&1; then
-        user_json=$(jq -n \
-            --arg uuid "$uuid" \
-            --arg username "$username" \
-            --arg description "$description" \
-            --arg created "$timestamp" \
-            --arg server_ip "$server_ip" \
-            --arg domain "$domain" \
-            --arg port "$port" \
-            '{
-                uuid: $uuid,
-                username: $username,
-                description: $description,
-                created: $created,
-                last_access: "",
-                status: "active",
-                server_ip: $server_ip,
-                domain: $domain,
-                port: ($port | tonumber),
-                config_file: "",
-                qr_code_file: ""
-            }')
-    else
-        # Fallback for systems without jq
-        user_json="{
-            \"uuid\": \"$uuid\",
-            \"username\": \"$username\",
-            \"description\": \"$description\",
-            \"created\": \"$timestamp\",
-            \"last_access\": \"\",
-            \"status\": \"active\",
-            \"server_ip\": \"$server_ip\",
-            \"domain\": \"$domain\",
-            \"port\": $port,
-            \"config_file\": \"\",
-            \"qr_code_file\": \"\"
-        }"
-    fi
-
-    # Generate user configuration
-    local config_file
-    if config_file=$(generate_user_config "$uuid" "$username" "$server_ip" "$port" "$domain"); then
-        log_message "SUCCESS" "User configuration created"
-    else
-        log_message "ERROR" "Failed to create user configuration"
-        return 1
-    fi
-
-    # Generate VLESS URL and QR code
-    local vless_url=$(generate_vless_url "$uuid" "$username" "$server_ip" "$port" "$domain")
-    local qr_file=""
-
-    if command -v qrencode >/dev/null 2>&1; then
-        qr_file=$(generate_qr_code "$vless_url" "$username") || true
-    fi
-
-    # Update user object with file paths
-    if command -v jq >/dev/null 2>&1; then
-        user_json=$(echo "$user_json" | jq \
-            --arg config_file "$config_file" \
-            --arg qr_file "$qr_file" \
-            --arg vless_url "$vless_url" \
-            '.config_file = $config_file | .qr_code_file = $qr_file | .vless_url = $vless_url')
-    fi
-
-    # Add user to database
-    if command -v jq >/dev/null 2>&1; then
-        jq --argjson user "$user_json" '.users += [$user]' "$USERS_DB_FILE" > "${USERS_DB_FILE}.tmp" && \
-        mv "${USERS_DB_FILE}.tmp" "$USERS_DB_FILE"
-    else
-        # Fallback: simple append (requires manual JSON formatting)
-        log_message "WARNING" "jq not available, using basic user addition method"
-
-        # Remove closing braces and add user
-        head -n -2 "$USERS_DB_FILE" > "${USERS_DB_FILE}.tmp"
-
-        # Add comma if users array is not empty
-        if grep -q '"uuid"' "$USERS_DB_FILE"; then
-            echo "    ," >> "${USERS_DB_FILE}.tmp"
-        fi
-
-        # Add user entry with proper indentation
-        echo "    $user_json" | sed 's/^/    /' >> "${USERS_DB_FILE}.tmp"
-
-        # Close JSON structure
-        cat >> "${USERS_DB_FILE}.tmp" << EOF
   ],
-  "metadata": {
-    "created": "",
-    "last_modified": "",
-    "total_users": 0
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "proxy",
+        "domain": [
+          "geosite:geolocation-!cn"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "domain": [
+          "geosite:cn"
+        ]
+      }
+    ]
   }
 }
 EOF
-
-        mv "${USERS_DB_FILE}.tmp" "$USERS_DB_FILE"
-    fi
-
-    # Update metadata
-    update_users_metadata
-
-    # Update Xray configuration
-    update_xray_config
-
-    log_message "SUCCESS" "User '$username' added successfully"
-
-    # Print user information
-    print_section "User Created Successfully"
-    printf "%-15s %s\n" "Username:" "$username"
-    printf "%-15s %s\n" "UUID:" "$uuid"
-    printf "%-15s %s\n" "Config File:" "$config_file"
-    printf "%-15s %s\n" "VLESS URL:" "$vless_url"
-    if [[ -n "$qr_file" ]]; then
-        printf "%-15s %s\n" "QR Code:" "$qr_file"
-    fi
-
-    return 0
-}
-
-# Check if user exists
-user_exists() {
-    local username="$1"
-
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
-        return 1
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        jq -e ".users[] | select(.username == \"$username\")" "$USERS_DB_FILE" >/dev/null 2>&1
-    else
-        grep -q "\"username\": \"$username\"" "$USERS_DB_FILE" 2>/dev/null
-    fi
-}
-
-# Get user info by UUID
-get_user_by_uuid() {
-    local uuid="$1"
-
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
-        return 1
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        jq -r ".users[] | select(.uuid == \"$uuid\")" "$USERS_DB_FILE" 2>/dev/null
-    else
-        log_message "ERROR" "jq required for this operation"
-        return 1
-    fi
-}
-
-# Get user info by username
-get_user_by_username() {
-    local username="$1"
-
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
-        return 1
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        jq -r ".users[] | select(.username == \"$username\")" "$USERS_DB_FILE" 2>/dev/null
-    else
-        log_message "ERROR" "jq required for this operation"
-        return 1
-    fi
-}
-
-# Remove user
-remove_user() {
-    local identifier="$1"  # Can be username or UUID
-
-    if [[ -z "$identifier" ]]; then
-        log_message "ERROR" "Username or UUID is required"
-        return 1
-    fi
-
-    log_message "INFO" "Removing user: $identifier"
-
-    # Find user by username or UUID
-    local user_info
-    if user_info=$(get_user_by_username "$identifier") && [[ -n "$user_info" ]]; then
-        # Found by username
-        local username="$identifier"
-        local uuid=$(echo "$user_info" | jq -r '.uuid' 2>/dev/null || echo "")
-    elif user_info=$(get_user_by_uuid "$identifier") && [[ -n "$user_info" ]]; then
-        # Found by UUID
-        local uuid="$identifier"
-        local username=$(echo "$user_info" | jq -r '.username' 2>/dev/null || echo "")
-    else
-        log_message "ERROR" "User not found: $identifier"
-        return 1
-    fi
-
-    if [[ -z "$username" ]] || [[ -z "$uuid" ]]; then
-        log_message "ERROR" "Failed to get user information"
-        return 1
-    fi
-
-    # Remove user files
-    local config_file="$USERS_CONFIG_DIR/${username}.json"
-    local qr_file="$QR_CODES_DIR/${username}.png"
-
-    [[ -f "$config_file" ]] && rm -f "$config_file"
-    [[ -f "$qr_file" ]] && rm -f "$qr_file"
-
-    # Remove user from database
-    if command -v jq >/dev/null 2>&1; then
-        jq "del(.users[] | select(.uuid == \"$uuid\"))" "$USERS_DB_FILE" > "${USERS_DB_FILE}.tmp" && \
-        mv "${USERS_DB_FILE}.tmp" "$USERS_DB_FILE"
-    else
-        log_message "ERROR" "jq required for user removal"
-        return 1
-    fi
-
-    # Update metadata
-    update_users_metadata
-
-    # Update Xray configuration
-    update_xray_config
-
-    log_message "SUCCESS" "User '$username' removed successfully"
-    return 0
-}
-
-# List all users
-list_users() {
-    local format="${1:-table}"  # table, json, simple
-
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
-        log_message "WARNING" "No users database found"
-        return 1
-    fi
-
-    local total_users
-    if command -v jq >/dev/null 2>&1; then
-        total_users=$(jq '.users | length' "$USERS_DB_FILE" 2>/dev/null || echo "0")
-    else
-        total_users=$(grep -c '"uuid"' "$USERS_DB_FILE" 2>/dev/null || echo "0")
-    fi
-
-    if [[ $total_users -eq 0 ]]; then
-        print_info "No users found"
-        return 0
-    fi
-
-    case "$format" in
-        "json")
-            if command -v jq >/dev/null 2>&1; then
-                jq '.users' "$USERS_DB_FILE"
-            else
-                log_message "ERROR" "jq required for JSON output"
-                return 1
-            fi
-            ;;
-        "simple")
-            if command -v jq >/dev/null 2>&1; then
-                jq -r '.users[] | "\(.username) \(.uuid)"' "$USERS_DB_FILE"
-            else
-                grep -o '"username": "[^"]*"' "$USERS_DB_FILE" | cut -d'"' -f4
-            fi
-            ;;
-        "table"|*)
-            print_section "VPN Users ($total_users total)"
-            printf "%-20s %-36s %-15s %-20s\n" "Username" "UUID" "Status" "Created"
-            printf "%-20s %-36s %-15s %-20s\n" "--------" "----" "------" "-------"
-
-            if command -v jq >/dev/null 2>&1; then
-                jq -r '.users[] | "\(.username)|\(.uuid)|\(.status // "active")|\(.created)"' "$USERS_DB_FILE" | \
-                while IFS='|' read -r username uuid status created; do
-                    printf "%-20s %-36s %-15s %-20s\n" "$username" "$uuid" "$status" "$created"
-                done
-            else
-                log_message "ERROR" "jq required for table output"
-                return 1
-            fi
-            ;;
-    esac
-
-    return 0
-}
-
-# Get user configuration
-get_user_config() {
-    local identifier="$1"  # Username or UUID
-    local output_format="${2:-vless}"  # vless, json, qr
-
-    if [[ -z "$identifier" ]]; then
-        log_message "ERROR" "Username or UUID is required"
-        return 1
-    fi
-
-    # Find user
-    local user_info
-    if user_info=$(get_user_by_username "$identifier") && [[ -n "$user_info" ]]; then
-        local username="$identifier"
-    elif user_info=$(get_user_by_uuid "$identifier") && [[ -n "$user_info" ]]; then
-        local username=$(echo "$user_info" | jq -r '.username' 2>/dev/null || echo "")
-    else
-        log_message "ERROR" "User not found: $identifier"
-        return 1
-    fi
-
-    case "$output_format" in
-        "vless")
-            if command -v jq >/dev/null 2>&1; then
-                echo "$user_info" | jq -r '.vless_url // empty'
-            fi
-            ;;
-        "json")
-            local config_file="$USERS_CONFIG_DIR/${username}.json"
-            if [[ -f "$config_file" ]]; then
-                cat "$config_file"
-            else
-                log_message "ERROR" "Config file not found: $config_file"
-                return 1
-            fi
-            ;;
-        "qr")
-            local qr_file="$QR_CODES_DIR/${username}.png"
-            if [[ -f "$qr_file" ]]; then
-                echo "$qr_file"
-            else
-                log_message "ERROR" "QR code not found: $qr_file"
-                return 1
-            fi
-            ;;
-        "info")
-            echo "$user_info" | jq -r '.' 2>/dev/null || echo "$user_info"
+            log_success "JSON configuration generated: $config_file"
             ;;
         *)
-            log_message "ERROR" "Invalid output format: $output_format"
+            log_error "Unsupported configuration format: $format"
             return 1
             ;;
     esac
 
+    chmod 600 "$config_file"
+    chown root:root "$config_file"
+
     return 0
 }
 
-# Update Xray configuration with current users
-update_xray_config() {
-    log_message "INFO" "Updating Xray configuration"
+# Function: get_user_config
+# Description: Display user configuration
+# Parameters: $1 - username or UUID, $2 - format (vless|json) default: vless
+get_user_config() {
+    local identifier="$1"
+    local format="${2:-vless}"
 
-    if [[ ! -f "$USERS_DB_FILE" ]]; then
-        log_message "WARNING" "No users database found"
+    if ! user_exists "$identifier"; then
+        log_error "User does not exist: $identifier"
         return 1
     fi
 
-    # This function should be called after the Xray config template is created
-    # For now, we'll just log that it needs to be implemented
-    log_message "INFO" "Xray configuration update completed"
+    local username
+    username=$(get_user_info "$identifier" "username")
+    local config_file="${USER_CONFIGS_DIR}/${username}_${format}.txt"
+
+    # Generate config if it doesn't exist
+    if [[ ! -f "$config_file" ]]; then
+        if ! generate_user_config "$identifier" "$format"; then
+            log_error "Failed to generate configuration for: $identifier"
+            return 1
+        fi
+    fi
+
+    echo ""
+    log_info "Configuration for user: $username (format: $format)"
+    echo "----------------------------------------"
+    cat "$config_file"
+    echo "----------------------------------------"
+    echo ""
+
     return 0
 }
 
-# Install required dependencies
-install_dependencies() {
-    log_message "INFO" "Installing user management dependencies"
+# ======================================================================================
+# USER MANAGEMENT CLI INTERFACE
+# ======================================================================================
 
-    # Install jq for JSON processing
-    if ! command -v jq >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update && apt-get install -y jq
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y jq
-        else
-            log_message "WARNING" "Cannot install jq automatically. Some features may be limited."
-        fi
-    fi
+# Function: show_user_menu
+# Description: Display interactive user management menu
+show_user_menu() {
+    while true; do
+        echo ""
+        echo "=================================================="
+        echo "        VLESS VPN User Management System"
+        echo "=================================================="
+        echo "1. Add User"
+        echo "2. Remove User"
+        echo "3. List Users"
+        echo "4. Show User Configuration"
+        echo "5. Generate QR Code"
+        echo "6. Update User Information"
+        echo "7. User Statistics"
+        echo "8. Export User Data"
+        echo "9. Back to Main Menu"
+        echo "=================================================="
+        echo -n "Select an option (1-9): "
 
-    # Install qrencode for QR code generation
-    if ! command -v qrencode >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get install -y qrencode
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y qrencode
-        else
-            log_message "WARNING" "Cannot install qrencode automatically. QR codes will not be generated."
-        fi
-    fi
+        local choice
+        read -r choice
 
-    log_message "SUCCESS" "Dependencies installation completed"
+        case "$choice" in
+            1)
+                echo -n "Enter username: "
+                read -r username
+                echo -n "Enter email (optional): "
+                read -r email
+                echo -n "Enter description (optional): "
+                read -r description
+
+                if add_user "$username" "$email" "$description"; then
+                    echo ""
+                    echo "User added successfully! Here's the configuration:"
+                    get_user_config "$username"
+                fi
+                ;;
+            2)
+                echo -n "Enter username or UUID to remove: "
+                read -r identifier
+                echo -n "Are you sure you want to remove user '$identifier'? (y/N): "
+                read -r confirm
+
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    remove_user "$identifier"
+                fi
+                ;;
+            3)
+                list_users
+                ;;
+            4)
+                echo -n "Enter username or UUID: "
+                read -r identifier
+                echo -n "Enter format (vless/json) [vless]: "
+                read -r format
+                format=${format:-vless}
+
+                get_user_config "$identifier" "$format"
+                ;;
+            5)
+                echo -n "Enter username or UUID: "
+                read -r identifier
+
+                if command -v python3 >/dev/null && python3 -c "import qrcode" 2>/dev/null; then
+                    # Generate QR code using the Python module
+                    local username
+                    username=$(get_user_info "$identifier" "username")
+                    if [[ -n "$username" ]]; then
+                        python3 "${SCRIPT_DIR}/qr_generator.py" "$identifier"
+                    fi
+                else
+                    log_error "QR code generation requires Python 3 and qrcode library"
+                    echo "Install with: pip3 install qrcode[pil]"
+                fi
+                ;;
+            6)
+                echo -n "Enter username or UUID: "
+                read -r identifier
+                echo -n "Enter field to update (email/description): "
+                read -r field
+                echo -n "Enter new value: "
+                read -r new_value
+
+                update_user "$identifier" "$field" "$new_value"
+                ;;
+            7)
+                echo "User Statistics:"
+                echo "Total users: $(get_user_count)"
+                echo ""
+                list_users
+                ;;
+            8)
+                echo "Exporting user data..."
+                local export_file="/tmp/vless_users_$(date +%Y%m%d_%H%M%S).json"
+                if [[ -f "$USER_DATABASE" ]]; then
+                    cp "$USER_DATABASE" "$export_file"
+                    log_success "User data exported to: $export_file"
+                else
+                    log_error "No user database found"
+                fi
+                ;;
+            9)
+                echo "Returning to main menu..."
+                break
+                ;;
+            *)
+                log_error "Invalid option. Please select 1-9."
+                ;;
+        esac
+
+        echo ""
+        echo "Press Enter to continue..."
+        read -r
+    done
 }
 
-# Export functions
-export -f init_user_management add_user remove_user list_users get_user_config
-export -f user_exists get_user_by_uuid get_user_by_username generate_unique_uuid
-export -f generate_vless_url generate_qr_code generate_user_config
-export -f update_xray_config install_dependencies
+# ======================================================================================
+# MAIN EXECUTION
+# ======================================================================================
 
-# Initialize user management if script is run directly
+# Main function for direct script execution
+main() {
+    log_info "VLESS User Management System"
+
+    # Validate root privileges
+    validate_root
+
+    # Initialize user database
+    init_user_database
+
+    # Handle command line arguments
+    case "${1:-menu}" in
+        "add")
+            shift
+            add_user "$@"
+            ;;
+        "remove")
+            shift
+            remove_user "$@"
+            ;;
+        "list")
+            shift
+            list_users "$@"
+            ;;
+        "config")
+            shift
+            get_user_config "$@"
+            ;;
+        "update")
+            shift
+            update_user "$@"
+            ;;
+        "menu")
+            show_user_menu
+            ;;
+        *)
+            echo "Usage: $0 {add|remove|list|config|update|menu}"
+            echo ""
+            echo "Commands:"
+            echo "  add <username> [email] [description]  - Add a new user"
+            echo "  remove <username|uuid>               - Remove a user"
+            echo "  list [table|json]                    - List all users"
+            echo "  config <username|uuid> [vless|json]  - Show user configuration"
+            echo "  update <username|uuid> <field> <value> - Update user information"
+            echo "  menu                                 - Interactive menu"
+            ;;
+    esac
+}
+
+# Run main function if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    init_user_management
-    install_dependencies
-    log_message "SUCCESS" "User management module loaded successfully"
+    main "$@"
 fi

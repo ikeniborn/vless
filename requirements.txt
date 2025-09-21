@@ -1,45 +1,57 @@
-# VLESS VPN Telegram Bot Dependencies
-# Python 3.11+ compatible
+# VLESS+Reality VPN Management System - Python Dependencies
+# Version: 1.0
 
-# Telegram Bot API
+# Telegram Bot Framework
 python-telegram-bot==20.7
+telegram>=0.0.1
+
+# HTTP requests and API calls
+requests>=2.31.0
+urllib3>=2.0.0
 
 # QR Code generation
-qrcode[pil]==7.4.2
+qrcode[pil]>=7.4.2
+Pillow>=10.0.0
 
-# Additional image processing (for QR codes)
-Pillow==10.1.0
+# System monitoring and metrics
+psutil>=5.9.0
 
-# HTTP requests (if needed for additional features)
-aiohttp==3.9.1
+# Configuration and environment
+python-dotenv>=1.0.0
 
-# JSON processing (built-in json module is sufficient, but this adds extra features)
-orjson==3.9.10
+# Async support for Telegram bot
+aiohttp>=3.8.0
+asyncio-throttle>=1.0.2
+
+# Cryptographic functions
+cryptography>=41.0.0
+
+# JSON handling and validation
+jsonschema>=4.17.0
+
+# Date and time handling
+python-dateutil>=2.8.2
 
 # Logging enhancements
-structlog==23.2.0
+colorlog>=6.7.0
 
-# Environment variable handling
-python-dotenv==1.0.0
+# System service management
+systemd-python>=235
 
-# Date and time utilities
-python-dateutil==2.8.2
+# Network utilities
+netifaces>=0.11.0
 
-# System monitoring utilities
-psutil==5.9.6
+# File system operations
+watchdog>=3.0.0
 
-# Async I/O utilities
-aiofiles==23.2.1
-
-# Configuration validation
-pydantic==2.5.0
-
-# YAML support (for potential config files)
-PyYAML==6.0.1
+# Database support (SQLite for user management)
+sqlite3
 
 # Development and testing dependencies (optional)
-# pytest==7.4.3
-# pytest-asyncio==0.21.1
-# black==23.11.0
-# mypy==1.7.1
-# ruff==0.1.7
+# Uncomment for development environment
+# pytest>=7.4.0
+# pytest-asyncio>=0.21.0
+# pytest-mock>=3.11.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.5.0

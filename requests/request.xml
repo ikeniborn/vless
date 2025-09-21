@@ -4,20 +4,29 @@
         Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, Telegram инттеграция, тестирование и отладку.
     </role>
     <project>
-        <name>VLESS+REality VPN</name>
+        <name>VLESS+Retality VPN</name>
         <architecture>
             <program_language>Bash, Python</program_language>
             <infrastructure>Docker Compose</infrastructure>
         </architecture>
     </project>
     <context>
-        sudo bash install.sh
-        При выполеннии ошибка 
-        ║                    /home/ikeniborn/vless/modules/common_utils.sh: line 57: WHITE: unbound variable
-✗ Installation interrupted. Exit code: 1
+        Скрпит для устанвоки и управления сервером VPN по протоколу VLESS+REality.
+        Функции:
+        1. Установка сервиса в докер с помощью docker compose. Обновление всех пакетов операционной системы
+        2. Настройка конфиграций в каталоге /opt/vless c с храением всех конфиграуий
+        3. управление (Добавление, Удаление) пользвоателеями. Генерация qrcodes для подключения
+        4. ПЕреустанвока сервера
+        5. Удаление сервера
+        6. Настройка файрволла UFW с проверкой существубщих правил. Созхранением старых правил и добавления нужныхх для сервера.
+        Документация по проктоклу https://xtls.github.io/en/development/protocols/vless.html
+        Задача сервиса обеспечить доступ по ВПН черрез домашние сети вайфай или мобильные сетти без запрета трафика. 
+        Безопасность трафика так же важна
     </context>
     <requirements>
-        <point number="1">Исправить ошибку </point>
+        <point number="1">Реализовать набор скрпитов</point>
+        <point number="2">Предусмотретть модульность bash скпритов</point>
+        <point number="3">Протестировать функционал</point>
     </requirements>
     <tasks>
         <task number="1">

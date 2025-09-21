@@ -1,1041 +1,619 @@
 #!/bin/bash
-# Logging Setup Module for VLESS VPN Project
-# Centralized logging system with rsyslog, logrotate, and monitoring
+# ======================================================================================
+# VLESS+Reality VPN Management System - Logging Infrastructure Module
+# ======================================================================================
+# This module sets up centralized logging with rotation, levels, and analysis utilities.
+# It configures logrotate and provides log management functions.
+#
 # Author: Claude Code
 # Version: 1.0
+# Last Modified: 2025-09-21
+# ======================================================================================
 
 set -euo pipefail
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Import common utilities
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SOURCE_DIR}/common_utils.sh"
 
-# Load common utilities
-source "${SCRIPT_DIR}/common_utils.sh"
-
-# Configuration
-readonly RSYSLOG_CONFIG_DIR="/etc/rsyslog.d"
+# Logging configuration
 readonly LOGROTATE_CONFIG_DIR="/etc/logrotate.d"
-readonly VLESS_LOG_DIR="/var/log/vless"
-readonly MAIN_LOG_FILE="$VLESS_LOG_DIR/vless.log"
-readonly ACCESS_LOG_FILE="$VLESS_LOG_DIR/access.log"
-readonly ERROR_LOG_FILE="$VLESS_LOG_DIR/error.log"
-readonly AUTH_LOG_FILE="$VLESS_LOG_DIR/auth.log"
-readonly SYSTEM_LOG_FILE="$VLESS_LOG_DIR/system.log"
-readonly MONITORING_LOG_FILE="$VLESS_LOG_DIR/monitoring.log"
-readonly JSON_LOG_DIR="$VLESS_LOG_DIR/json"
+readonly VLESS_LOGROTATE_CONFIG="${LOGROTATE_CONFIG_DIR}/vless"
+readonly RSYSLOG_CONFIG_DIR="/etc/rsyslog.d"
+readonly VLESS_RSYSLOG_CONFIG="${RSYSLOG_CONFIG_DIR}/49-vless.conf"
 
-# Log levels
-readonly LOG_LEVEL_DEBUG=7
-readonly LOG_LEVEL_INFO=6
-readonly LOG_LEVEL_NOTICE=5
-readonly LOG_LEVEL_WARNING=4
-readonly LOG_LEVEL_ERROR=3
-readonly LOG_LEVEL_CRITICAL=2
-readonly LOG_LEVEL_ALERT=1
-readonly LOG_LEVEL_EMERGENCY=0
+# ======================================================================================
+# LOGROTATE CONFIGURATION
+# ======================================================================================
 
-# Initialize logging system
-init_logging_system() {
-    print_header "Initializing VLESS Logging System"
+# Function: create_logrotate_config
+# Description: Create logrotate configuration for VLESS logs
+create_logrotate_config() {
+    log_info "Creating logrotate configuration for VLESS logs..."
 
-    # Create log directories
-    ensure_directory "$VLESS_LOG_DIR" "755" "syslog"
-    ensure_directory "$JSON_LOG_DIR" "755" "syslog"
+    cat > "$VLESS_LOGROTATE_CONFIG" << 'EOF'
+# VLESS+Reality VPN Management System Log Rotation
+# Rotate logs daily, keep 7 days, compress old logs
 
-    # Create log files with proper permissions
-    local log_files=(
-        "$MAIN_LOG_FILE"
-        "$ACCESS_LOG_FILE"
-        "$ERROR_LOG_FILE"
-        "$AUTH_LOG_FILE"
-        "$SYSTEM_LOG_FILE"
-        "$MONITORING_LOG_FILE"
-    )
-
-    for log_file in "${log_files[@]}"; do
-        sudo touch "$log_file"
-        sudo chown syslog:adm "$log_file"
-        sudo chmod 640 "$log_file"
-    done
-
-    print_success "Logging directories and files initialized"
-}
-
-# Setup rsyslog configuration
-setup_rsyslog() {
-    print_section "Configuring Rsyslog for VLESS"
-
-    # Create VLESS rsyslog configuration
-    sudo tee "$RSYSLOG_CONFIG_DIR/49-vless.conf" > /dev/null << 'EOF'
-# VLESS VPN Logging Configuration
-
-# Create separate log files for different components
-$template VLESSLogFormat,"%timegenerated% %HOSTNAME% %syslogtag% %msg%\n"
-$template VLESSJSONFormat,"{ \"timestamp\": \"%timegenerated:::date-rfc3339%\", \"hostname\": \"%HOSTNAME%\", \"facility\": \"%syslogfacility-text%\", \"priority\": \"%syslogpriority-text%\", \"tag\": \"%syslogtag%\", \"message\": \"%msg%\" }\n"
-
-# VLESS main application logs (local0)
-local0.*                    /var/log/vless/vless.log;VLESSLogFormat
-local0.*                    /var/log/vless/json/vless.json;VLESSJSONFormat
-& stop
-
-# VLESS access logs (local1)
-local1.*                    /var/log/vless/access.log;VLESSLogFormat
-local1.*                    /var/log/vless/json/access.json;VLESSJSONFormat
-& stop
-
-# VLESS error logs (local2)
-local2.*                    /var/log/vless/error.log;VLESSLogFormat
-local2.*                    /var/log/vless/json/error.json;VLESSJSONFormat
-& stop
-
-# VLESS authentication logs (local3)
-local3.*                    /var/log/vless/auth.log;VLESSLogFormat
-local3.*                    /var/log/vless/json/auth.json;VLESSJSONFormat
-& stop
-
-# VLESS system logs (local4)
-local4.*                    /var/log/vless/system.log;VLESSLogFormat
-local4.*                    /var/log/vless/json/system.json;VLESSJSONFormat
-& stop
-
-# VLESS monitoring logs (local5)
-local5.*                    /var/log/vless/monitoring.log;VLESSLogFormat
-local5.*                    /var/log/vless/json/monitoring.json;VLESSJSONFormat
-& stop
-
-# High frequency logs for performance (disable sync)
-$ModLoad imfile
-$WorkDirectory /var/spool/rsyslog
-$PrivDropToUser syslog
-$PrivDropToGroup syslog
-
-# Docker container logs
-$InputFileName /var/lib/docker/containers/*/*-json.log
-$InputFileTag docker-vless:
-$InputFileStateFile stat-docker-vless
-$InputFileSeverity info
-$InputFileFacility local6
-$InputRunFileMonitor
-
-# Process Docker logs
-local6.*                    /var/log/vless/docker.log;VLESSLogFormat
-& stop
-EOF
-
-    # Restart rsyslog to apply configuration
-    sudo systemctl restart rsyslog
-
-    # Verify rsyslog status
-    if systemctl is-active --quiet rsyslog; then
-        print_success "Rsyslog configured and restarted successfully"
-    else
-        print_error "Failed to restart rsyslog"
-        return 1
-    fi
-}
-
-# Setup logrotate configuration
-setup_logrotate() {
-    print_section "Configuring Log Rotation"
-
-    # Create logrotate configuration for VLESS logs
-    sudo tee "$LOGROTATE_CONFIG_DIR/vless" > /dev/null << 'EOF'
-# VLESS VPN Log Rotation Configuration
-
-# Main application logs
-/var/log/vless/vless.log {
+/opt/vless/logs/*.log {
     daily
-    missingok
-    rotate 30
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-        # Send log rotation notification if Telegram is configured
-        if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${ADMIN_TELEGRAM_ID:-}" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${ADMIN_TELEGRAM_ID}" \
-                -d "text=📋 Log rotated: vless.log on $(hostname)" \
-                >/dev/null 2>&1 || true
-        fi
-    endscript
-}
-
-# Access logs (higher frequency)
-/var/log/vless/access.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-    endscript
-}
-
-# Error logs (keep longer)
-/var/log/vless/error.log {
-    daily
-    missingok
-    rotate 60
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-    endscript
-}
-
-# Authentication logs (security critical - keep longer)
-/var/log/vless/auth.log {
-    daily
-    missingok
-    rotate 90
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-    endscript
-}
-
-# System logs
-/var/log/vless/system.log {
-    daily
-    missingok
-    rotate 30
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-    endscript
-}
-
-# Monitoring logs
-/var/log/vless/monitoring.log {
-    daily
-    missingok
-    rotate 30
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-    endscript
-}
-
-# Docker logs
-/var/log/vless/docker.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    sharedscripts
-    postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
-    endscript
-}
-
-# JSON logs (for external processing)
-/var/log/vless/json/*.json {
-    daily
-    missingok
     rotate 7
     compress
     delaycompress
+    missingok
     notifempty
+    create 644 root root
     sharedscripts
     postrotate
-        /bin/kill -HUP `cat /var/run/rsyslogd.pid 2> /dev/null` 2> /dev/null || true
+        # Signal any processes that need to reopen log files
+        if [ -f /opt/vless/logs/vless.pid ]; then
+            kill -USR1 $(cat /opt/vless/logs/vless.pid) 2>/dev/null || true
+        fi
+        # Restart rsyslog if it's managing our logs
+        systemctl reload rsyslog 2>/dev/null || true
     endscript
 }
+
+# Rotate Docker logs if they exist
+/opt/vless/logs/docker/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    maxsize 100M
+}
+
+# Rotate Xray logs
+/opt/vless/logs/xray/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    maxsize 50M
+    sharedscripts
+    postrotate
+        # Send SIGUSR1 to Xray for log rotation
+        docker exec vless-xray pkill -USR1 xray 2>/dev/null || true
+    endscript
+}
+
+# Rotate access logs
+/opt/vless/logs/access/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    maxsize 200M
+}
+
+# Rotate security logs
+/opt/vless/logs/security/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 root root
+    copytruncate
+}
 EOF
 
-    # Test logrotate configuration
-    if sudo logrotate -d "$LOGROTATE_CONFIG_DIR/vless" >/dev/null 2>&1; then
-        print_success "Logrotate configuration created and tested successfully"
+    chmod 644 "$VLESS_LOGROTATE_CONFIG"
+    log_success "Logrotate configuration created: $VLESS_LOGROTATE_CONFIG"
+}
+
+# Function: test_logrotate_config
+# Description: Test the logrotate configuration
+test_logrotate_config() {
+    log_info "Testing logrotate configuration..."
+
+    if logrotate -d "$VLESS_LOGROTATE_CONFIG" &>/dev/null; then
+        log_success "Logrotate configuration is valid"
+        return 0
     else
-        print_error "Logrotate configuration test failed"
+        log_error "Logrotate configuration has errors"
         return 1
     fi
 }
 
-# Create logging functions for applications
-create_logging_functions() {
-    print_section "Creating Logging Helper Functions"
+# ======================================================================================
+# RSYSLOG CONFIGURATION
+# ======================================================================================
 
-    # Create logging helper script
-    sudo tee "/usr/local/bin/vless-logger" > /dev/null << 'EOF'
-#!/bin/bash
-# VLESS Logging Helper Script
+# Function: create_rsyslog_config
+# Description: Create rsyslog configuration for centralized logging
+create_rsyslog_config() {
+    log_info "Creating rsyslog configuration for VLESS..."
 
-# Log levels
-LOG_EMERGENCY=0
-LOG_ALERT=1
-LOG_CRITICAL=2
-LOG_ERROR=3
-LOG_WARNING=4
-LOG_NOTICE=5
-LOG_INFO=6
-LOG_DEBUG=7
+    cat > "$VLESS_RSYSLOG_CONFIG" << 'EOF'
+# VLESS+Reality VPN Management System - Rsyslog Configuration
+# Centralized logging configuration for VLESS components
 
-# Facilities
-FACILITY_MAIN="local0"
-FACILITY_ACCESS="local1"
-FACILITY_ERROR="local2"
-FACILITY_AUTH="local3"
-FACILITY_SYSTEM="local4"
-FACILITY_MONITORING="local5"
+# Create log directories
+$CreateDirs on
 
-# Function to log messages
-vless_log() {
-    local facility="$1"
-    local level="$2"
-    local component="$3"
-    local message="$4"
-    local user_info="${5:-$(whoami)}"
-    local client_ip="${6:-unknown}"
+# VLESS application logs
+:programname, isequal, "vless"                /opt/vless/logs/vless.log
+:programname, startswith, "vless-"            /opt/vless/logs/vless.log
 
-    # Create structured message
-    local structured_msg="[component=$component] [user=$user_info] [client_ip=$client_ip] $message"
+# Docker container logs for VLESS
+:programname, isequal, "dockerd"              /opt/vless/logs/docker/docker.log
+:programname, startswith, "docker/"           /opt/vless/logs/docker/containers.log
 
-    # Log to syslog
-    logger -p "${facility}.${level}" -t "vless" "$structured_msg"
+# Security-related logs
+:msg, contains, "VLESS"                       /opt/vless/logs/security/vless-security.log
+:msg, contains, "Failed password"             /opt/vless/logs/security/auth-failures.log
+:msg, contains, "authentication failure"      /opt/vless/logs/security/auth-failures.log
 
-    # Also log to journal with metadata
-    systemd-cat -t "vless-$component" -p "$level" <<< "$structured_msg"
-}
+# UFW firewall logs
+:msg, contains, "[UFW "                       /opt/vless/logs/security/firewall.log
 
-# Convenience functions for different log types
-log_main() {
-    vless_log "$FACILITY_MAIN" "info" "main" "$@"
-}
+# Stop processing these messages
+:programname, isequal, "vless"                stop
+:programname, startswith, "vless-"            stop
 
-log_access() {
-    vless_log "$FACILITY_ACCESS" "info" "access" "$@"
-}
-
-log_error() {
-    vless_log "$FACILITY_ERROR" "err" "error" "$@"
-}
-
-log_auth() {
-    vless_log "$FACILITY_AUTH" "info" "auth" "$@"
-}
-
-log_system() {
-    vless_log "$FACILITY_SYSTEM" "info" "system" "$@"
-}
-
-log_monitoring() {
-    vless_log "$FACILITY_MONITORING" "info" "monitoring" "$@"
-}
-
-# Log user connections
-log_user_connection() {
-    local user_uuid="$1"
-    local client_ip="$2"
-    local action="$3"  # connect/disconnect
-    local protocol="${4:-vless}"
-
-    log_access "User $action: uuid=$user_uuid protocol=$protocol" "system" "$client_ip"
-}
-
-# Log authentication events
-log_auth_event() {
-    local event_type="$1"  # success/failure/attempt
-    local user_uuid="$2"
-    local client_ip="$3"
-    local details="${4:-}"
-
-    log_auth "Authentication $event_type: uuid=$user_uuid $details" "system" "$client_ip"
-}
-
-# Log system events
-log_system_event() {
-    local event_type="$1"  # startup/shutdown/restart/config_change
-    local details="$2"
-
-    log_system "System $event_type: $details" "system" "localhost"
-}
-
-# Log errors with severity
-log_error_event() {
-    local severity="$1"  # low/medium/high/critical
-    local component="$2"
-    local error_msg="$3"
-    local context="${4:-}"
-
-    case "$severity" in
-        "critical")
-            vless_log "$FACILITY_ERROR" "crit" "$component" "$error_msg $context"
-            ;;
-        "high")
-            vless_log "$FACILITY_ERROR" "err" "$component" "$error_msg $context"
-            ;;
-        "medium")
-            vless_log "$FACILITY_ERROR" "warning" "$component" "$error_msg $context"
-            ;;
-        "low")
-            vless_log "$FACILITY_ERROR" "notice" "$component" "$error_msg $context"
-            ;;
-        *)
-            vless_log "$FACILITY_ERROR" "err" "$component" "$error_msg $context"
-            ;;
-    esac
-}
-
-# Performance logging
-log_performance() {
-    local metric_name="$1"
-    local metric_value="$2"
-    local unit="${3:-}"
-
-    log_monitoring "Performance metric: $metric_name=$metric_value$unit"
-}
-
-# Usage information
-if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
-    echo "VLESS Logger - Centralized logging for VLESS VPN"
-    echo ""
-    echo "Usage examples:"
-    echo "  vless_log local0 info main 'Server started'"
-    echo "  log_main 'Configuration updated'"
-    echo "  log_access 'User connected' user-uuid client-ip"
-    echo "  log_error 'Connection failed' component-name"
-    echo "  log_auth_event success user-uuid client-ip"
-    echo "  log_system_event startup 'Server initialization complete'"
-    echo "  log_error_event critical xray 'Service crashed'"
-    echo "  log_performance 'active_connections' 150"
-    exit 0
-fi
-
-# If script is sourced, just define functions
-# If executed directly, allow direct logging
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [[ $# -lt 4 ]]; then
-        echo "Usage: $0 <facility> <level> <component> <message> [user] [client_ip]"
-        echo "Try: $0 --help for more information"
-        exit 1
-    fi
-    vless_log "$@"
-fi
+# Rate limiting for security logs
+$SystemLogRateLimitInterval 10
+$SystemLogRateLimitBurst 50
 EOF
 
-    sudo chmod +x "/usr/local/bin/vless-logger"
-
-    print_success "Logging helper functions created"
+    chmod 644 "$VLESS_RSYSLOG_CONFIG"
+    log_success "Rsyslog configuration created: $VLESS_RSYSLOG_CONFIG"
 }
 
-# Setup log monitoring and alerting
-setup_log_monitoring() {
-    print_section "Setting up Log Monitoring and Alerting"
+# Function: restart_rsyslog
+# Description: Restart rsyslog service to apply new configuration
+restart_rsyslog() {
+    log_info "Restarting rsyslog service..."
 
-    # Create log monitoring script
-    sudo tee "/usr/local/bin/vless-log-monitor" > /dev/null << 'EOF'
-#!/bin/bash
-# VLESS Log Monitoring and Anomaly Detection
-
-VLESS_LOG_DIR="/var/log/vless"
-ERROR_LOG="$VLESS_LOG_DIR/error.log"
-AUTH_LOG="$VLESS_LOG_DIR/auth.log"
-ACCESS_LOG="$VLESS_LOG_DIR/access.log"
-ALERT_STATE_FILE="/tmp/vless-alert-state"
-MAX_ERRORS_PER_MINUTE=10
-MAX_FAILED_AUTH_PER_MINUTE=5
-
-# Function to send alert
-send_alert() {
-    local severity="$1"
-    local message="$2"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-    # Log the alert
-    logger -p local5.warning -t "vless-monitor" "ALERT[$severity]: $message"
-
-    # Send Telegram notification if configured
-    if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && [[ -n "${ADMIN_TELEGRAM_ID:-}" ]]; then
-        local emoji=""
-        case "$severity" in
-            "CRITICAL") emoji="🔴" ;;
-            "HIGH") emoji="🟠" ;;
-            "MEDIUM") emoji="🟡" ;;
-            "LOW") emoji="🔵" ;;
-        esac
-
-        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${ADMIN_TELEGRAM_ID}" \
-            -d "text=${emoji} VLESS Alert [$severity]
-${message}
-
-Time: ${timestamp}
-Host: $(hostname)" \
-            >/dev/null 2>&1 || true
-    fi
-}
-
-# Check for error spikes
-check_error_spike() {
-    if [[ ! -f "$ERROR_LOG" ]]; then
+    if systemctl restart rsyslog; then
+        log_success "Rsyslog service restarted successfully"
         return 0
-    fi
-
-    local recent_errors=$(tail -n 1000 "$ERROR_LOG" | grep "$(date '+%Y-%m-%d %H:%M')" | wc -l)
-
-    if [[ $recent_errors -gt $MAX_ERRORS_PER_MINUTE ]]; then
-        if [[ ! -f "$ALERT_STATE_FILE.error_spike" ]]; then
-            send_alert "HIGH" "Error spike detected: $recent_errors errors in the last minute (threshold: $MAX_ERRORS_PER_MINUTE)"
-            touch "$ALERT_STATE_FILE.error_spike"
-        fi
     else
-        rm -f "$ALERT_STATE_FILE.error_spike"
-    fi
-}
-
-# Check for authentication failures
-check_auth_failures() {
-    if [[ ! -f "$AUTH_LOG" ]]; then
-        return 0
-    fi
-
-    local recent_failures=$(tail -n 1000 "$AUTH_LOG" | grep "$(date '+%Y-%m-%d %H:%M')" | grep -i "fail\|error\|denied" | wc -l)
-
-    if [[ $recent_failures -gt $MAX_FAILED_AUTH_PER_MINUTE ]]; then
-        if [[ ! -f "$ALERT_STATE_FILE.auth_failures" ]]; then
-            send_alert "MEDIUM" "Authentication failure spike: $recent_failures failed attempts in the last minute (threshold: $MAX_FAILED_AUTH_PER_MINUTE)"
-            touch "$ALERT_STATE_FILE.auth_failures"
-        fi
-    else
-        rm -f "$ALERT_STATE_FILE.auth_failures"
-    fi
-}
-
-# Check for suspicious IP patterns
-check_suspicious_ips() {
-    if [[ ! -f "$ACCESS_LOG" ]]; then
-        return 0
-    fi
-
-    # Find IPs with high connection frequency
-    local suspicious_ips=$(tail -n 2000 "$ACCESS_LOG" | grep "$(date '+%Y-%m-%d %H')" | \
-        grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | \
-        sort | uniq -c | sort -nr | head -5 | \
-        awk '$1 > 100 {print $2 " (" $1 " connections)"}')
-
-    if [[ -n "$suspicious_ips" ]]; then
-        if [[ ! -f "$ALERT_STATE_FILE.suspicious_ips" ]]; then
-            send_alert "MEDIUM" "Suspicious IP activity detected:
-$suspicious_ips"
-            touch "$ALERT_STATE_FILE.suspicious_ips"
-        fi
-    else
-        rm -f "$ALERT_STATE_FILE.suspicious_ips"
-    fi
-}
-
-# Check log file sizes
-check_log_sizes() {
-    local max_size_mb=1000  # 1GB threshold
-
-    for log_file in "$VLESS_LOG_DIR"/*.log; do
-        if [[ -f "$log_file" ]]; then
-            local size_mb=$(du -m "$log_file" | cut -f1)
-            local filename=$(basename "$log_file")
-
-            if [[ $size_mb -gt $max_size_mb ]]; then
-                if [[ ! -f "$ALERT_STATE_FILE.large_log_${filename}" ]]; then
-                    send_alert "LOW" "Large log file detected: $filename ($size_mb MB)"
-                    touch "$ALERT_STATE_FILE.large_log_${filename}"
-                fi
-            else
-                rm -f "$ALERT_STATE_FILE.large_log_${filename}"
-            fi
-        fi
-    done
-}
-
-# Check disk space for logs
-check_disk_space() {
-    local usage=$(df "$VLESS_LOG_DIR" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
-
-    if [[ $usage -gt 90 ]]; then
-        if [[ ! -f "$ALERT_STATE_FILE.disk_space" ]]; then
-            send_alert "HIGH" "Log partition disk usage critical: ${usage}%"
-            touch "$ALERT_STATE_FILE.disk_space"
-        fi
-    elif [[ $usage -gt 80 ]]; then
-        if [[ ! -f "$ALERT_STATE_FILE.disk_space_warning" ]]; then
-            send_alert "MEDIUM" "Log partition disk usage high: ${usage}%"
-            touch "$ALERT_STATE_FILE.disk_space_warning"
-        fi
-    else
-        rm -f "$ALERT_STATE_FILE.disk_space" "$ALERT_STATE_FILE.disk_space_warning"
-    fi
-}
-
-# Main monitoring function
-run_monitoring() {
-    check_error_spike
-    check_auth_failures
-    check_suspicious_ips
-    check_log_sizes
-    check_disk_space
-}
-
-# Cleanup old alert state files (older than 1 hour)
-cleanup_alert_states() {
-    find /tmp -name "vless-alert-state*" -mmin +60 -delete 2>/dev/null || true
-}
-
-# Main execution
-case "${1:-monitor}" in
-    "monitor")
-        run_monitoring
-        cleanup_alert_states
-        ;;
-    "test-alert")
-        send_alert "LOW" "Test alert from VLESS log monitoring system"
-        ;;
-    "reset-alerts")
-        rm -f "$ALERT_STATE_FILE".*
-        echo "Alert states reset"
-        ;;
-    *)
-        echo "Usage: $0 {monitor|test-alert|reset-alerts}"
-        exit 1
-        ;;
-esac
-EOF
-
-    sudo chmod +x "/usr/local/bin/vless-log-monitor"
-
-    # Create cron job for log monitoring
-    sudo tee "/etc/cron.d/vless-log-monitor" > /dev/null << 'EOF'
-# VLESS Log Monitoring Cron Job
-# Run every 2 minutes
-
-*/2 * * * * root /usr/local/bin/vless-log-monitor monitor >/dev/null 2>&1
-EOF
-
-    print_success "Log monitoring and alerting configured"
-}
-
-# Create log analysis tools
-create_log_analysis_tools() {
-    print_section "Creating Log Analysis Tools"
-
-    # Create log analysis script
-    sudo tee "/usr/local/bin/vless-log-analyzer" > /dev/null << 'EOF'
-#!/bin/bash
-# VLESS Log Analysis Tool
-
-VLESS_LOG_DIR="/var/log/vless"
-
-# Function to show usage statistics
-show_usage_stats() {
-    local time_range="${1:-24}"  # hours
-    local start_time=$(date -d "${time_range} hours ago" '+%Y-%m-%d %H:%M')
-
-    echo "=== VLESS Usage Statistics (Last ${time_range} hours) ==="
-    echo "Start time: $start_time"
-    echo
-
-    # Connection statistics
-    if [[ -f "$VLESS_LOG_DIR/access.log" ]]; then
-        echo "Connection Statistics:"
-        local total_connections=$(grep -c "User connect" "$VLESS_LOG_DIR/access.log" 2>/dev/null || echo "0")
-        local unique_users=$(grep "User connect" "$VLESS_LOG_DIR/access.log" 2>/dev/null | \
-            grep -oE 'uuid=[a-f0-9-]+' | sort | uniq | wc -l)
-        local unique_ips=$(grep "User connect" "$VLESS_LOG_DIR/access.log" 2>/dev/null | \
-            grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' | sort | uniq | wc -l)
-
-        echo "  Total connections: $total_connections"
-        echo "  Unique users: $unique_users"
-        echo "  Unique IP addresses: $unique_ips"
-        echo
-    fi
-
-    # Error statistics
-    if [[ -f "$VLESS_LOG_DIR/error.log" ]]; then
-        echo "Error Statistics:"
-        local total_errors=$(wc -l < "$VLESS_LOG_DIR/error.log" 2>/dev/null || echo "0")
-        local critical_errors=$(grep -c "CRITICAL\|crit" "$VLESS_LOG_DIR/error.log" 2>/dev/null || echo "0")
-        local warnings=$(grep -c "WARNING\|warning" "$VLESS_LOG_DIR/error.log" 2>/dev/null || echo "0")
-
-        echo "  Total errors: $total_errors"
-        echo "  Critical errors: $critical_errors"
-        echo "  Warnings: $warnings"
-        echo
-    fi
-
-    # Top users by connection count
-    if [[ -f "$VLESS_LOG_DIR/access.log" ]]; then
-        echo "Top 10 Users by Connection Count:"
-        grep "User connect" "$VLESS_LOG_DIR/access.log" 2>/dev/null | \
-            grep -oE 'uuid=[a-f0-9-]+' | sort | uniq -c | sort -nr | head -10 | \
-            awk '{print "  " $2 ": " $1 " connections"}' || echo "  No data available"
-        echo
-    fi
-
-    # Top source IPs
-    if [[ -f "$VLESS_LOG_DIR/access.log" ]]; then
-        echo "Top 10 Source IP Addresses:"
-        grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$VLESS_LOG_DIR/access.log" 2>/dev/null | \
-            sort | uniq -c | sort -nr | head -10 | \
-            awk '{print "  " $2 ": " $1 " connections"}' || echo "  No data available"
-        echo
-    fi
-}
-
-# Function to show recent errors
-show_recent_errors() {
-    local count="${1:-20}"
-
-    echo "=== Recent Errors (Last $count) ==="
-    if [[ -f "$VLESS_LOG_DIR/error.log" ]]; then
-        tail -n "$count" "$VLESS_LOG_DIR/error.log" | \
-            while IFS= read -r line; do
-                echo "  $line"
-            done
-    else
-        echo "  No error log found"
-    fi
-    echo
-}
-
-# Function to show authentication events
-show_auth_events() {
-    local count="${1:-20}"
-
-    echo "=== Recent Authentication Events (Last $count) ==="
-    if [[ -f "$VLESS_LOG_DIR/auth.log" ]]; then
-        tail -n "$count" "$VLESS_LOG_DIR/auth.log" | \
-            while IFS= read -r line; do
-                echo "  $line"
-            done
-    else
-        echo "  No authentication log found"
-    fi
-    echo
-}
-
-# Function to search logs
-search_logs() {
-    local pattern="$1"
-    local log_type="${2:-all}"
-
-    echo "=== Search Results for: $pattern ==="
-
-    case "$log_type" in
-        "all")
-            for log_file in "$VLESS_LOG_DIR"/*.log; do
-                if [[ -f "$log_file" ]]; then
-                    local filename=$(basename "$log_file")
-                    local results=$(grep -n "$pattern" "$log_file" 2>/dev/null || true)
-                    if [[ -n "$results" ]]; then
-                        echo "--- $filename ---"
-                        echo "$results" | head -20
-                        echo
-                    fi
-                fi
-            done
-            ;;
-        *)
-            local log_file="$VLESS_LOG_DIR/${log_type}.log"
-            if [[ -f "$log_file" ]]; then
-                grep -n "$pattern" "$log_file" | head -20
-            else
-                echo "Log file not found: $log_file"
-            fi
-            ;;
-    esac
-}
-
-# Function to generate detailed report
-generate_report() {
-    local output_file="${1:-/tmp/vless-report-$(date +%Y%m%d_%H%M%S).txt}"
-
-    echo "Generating detailed VLESS report..."
-
-    {
-        echo "VLESS VPN System Report"
-        echo "Generated: $(date)"
-        echo "Hostname: $(hostname)"
-        echo "======================================"
-        echo
-
-        show_usage_stats 24
-        show_recent_errors 10
-        show_auth_events 10
-
-        echo "=== System Information ==="
-        echo "Disk usage for logs:"
-        du -sh "$VLESS_LOG_DIR"/* 2>/dev/null || echo "No logs found"
-        echo
-
-        echo "Log file sizes:"
-        ls -lh "$VLESS_LOG_DIR"/*.log 2>/dev/null || echo "No log files found"
-        echo
-
-        echo "=== Recent System Events ==="
-        if [[ -f "$VLESS_LOG_DIR/system.log" ]]; then
-            tail -n 10 "$VLESS_LOG_DIR/system.log"
-        else
-            echo "No system log found"
-        fi
-
-    } > "$output_file"
-
-    echo "Report generated: $output_file"
-}
-
-# Main menu
-case "${1:-help}" in
-    "stats")
-        show_usage_stats "${2:-24}"
-        ;;
-    "errors")
-        show_recent_errors "${2:-20}"
-        ;;
-    "auth")
-        show_auth_events "${2:-20}"
-        ;;
-    "search")
-        if [[ -z "${2:-}" ]]; then
-            echo "Usage: $0 search <pattern> [log_type]"
-            exit 1
-        fi
-        search_logs "$2" "${3:-all}"
-        ;;
-    "report")
-        generate_report "$2"
-        ;;
-    "help"|*)
-        echo "VLESS Log Analyzer"
-        echo ""
-        echo "Usage: $0 <command> [options]"
-        echo ""
-        echo "Commands:"
-        echo "  stats [hours]     - Show usage statistics (default: 24 hours)"
-        echo "  errors [count]    - Show recent errors (default: 20)"
-        echo "  auth [count]      - Show recent auth events (default: 20)"
-        echo "  search <pattern> [log_type] - Search logs for pattern"
-        echo "  report [file]     - Generate detailed report"
-        echo "  help              - Show this help"
-        echo ""
-        echo "Examples:"
-        echo "  $0 stats 6        - Show last 6 hours statistics"
-        echo "  $0 search 'error' access  - Search for 'error' in access.log"
-        echo "  $0 report /tmp/my-report.txt"
-        ;;
-esac
-EOF
-
-    sudo chmod +x "/usr/local/bin/vless-log-analyzer"
-
-    print_success "Log analysis tools created"
-}
-
-# Main setup function
-setup_logging() {
-    print_header "VLESS Logging System Setup"
-
-    init_logging_system
-    setup_rsyslog
-    setup_logrotate
-    create_logging_functions
-    setup_log_monitoring
-    create_log_analysis_tools
-
-    print_success "VLESS logging system setup completed"
-
-    # Test the logging system
-    test_logging_system
-}
-
-# Test logging system
-test_logging_system() {
-    print_section "Testing Logging System"
-
-    # Source the logging functions
-    source "/usr/local/bin/vless-logger"
-
-    # Test different log types
-    log_system_event "startup" "Logging system test"
-    log_main "Test log entry from setup script"
-    log_monitoring "Performance metric: setup_duration=300s"
-
-    # Verify logs are created
-    sleep 2
-    local test_passed=true
-
-    if [[ -f "$MAIN_LOG_FILE" ]] && grep -q "Test log entry" "$MAIN_LOG_FILE"; then
-        print_success "Main logging test passed"
-    else
-        print_error "Main logging test failed"
-        test_passed=false
-    fi
-
-    if [[ -f "$SYSTEM_LOG_FILE" ]] && grep -q "Logging system test" "$SYSTEM_LOG_FILE"; then
-        print_success "System logging test passed"
-    else
-        print_error "System logging test failed"
-        test_passed=false
-    fi
-
-    if [[ -f "$MONITORING_LOG_FILE" ]] && grep -q "setup_duration" "$MONITORING_LOG_FILE"; then
-        print_success "Monitoring logging test passed"
-    else
-        print_error "Monitoring logging test failed"
-        test_passed=false
-    fi
-
-    if $test_passed; then
-        print_success "All logging tests passed"
-    else
-        print_error "Some logging tests failed - check configuration"
+        log_error "Failed to restart rsyslog service"
         return 1
     fi
 }
 
-# Show logging status
-show_logging_status() {
-    print_header "VLESS Logging System Status"
+# ======================================================================================
+# LOG DIRECTORY STRUCTURE
+# ======================================================================================
 
-    # Check service status
-    printf "%-25s " "Rsyslog service:"
-    if systemctl is-active --quiet rsyslog; then
-        echo -e "${GREEN}Active${NC}"
-    else
-        echo -e "${RED}Inactive${NC}"
-    fi
-
-    # Check log files
-    echo
-    echo "Log Files Status:"
-    local log_files=(
-        "$MAIN_LOG_FILE:Main logs"
-        "$ACCESS_LOG_FILE:Access logs"
-        "$ERROR_LOG_FILE:Error logs"
-        "$AUTH_LOG_FILE:Authentication logs"
-        "$SYSTEM_LOG_FILE:System logs"
-        "$MONITORING_LOG_FILE:Monitoring logs"
+# Function: create_log_directories
+# Description: Create organized log directory structure
+create_log_directories() {
+    local log_dirs=(
+        "$LOG_DIR"
+        "$LOG_DIR/docker"
+        "$LOG_DIR/xray"
+        "$LOG_DIR/access"
+        "$LOG_DIR/security"
+        "$LOG_DIR/backup"
+        "$LOG_DIR/maintenance"
+        "$LOG_DIR/user-management"
+        "$LOG_DIR/telegram-bot"
     )
 
-    for item in "${log_files[@]}"; do
-        local file_path="${item%:*}"
-        local description="${item#*:}"
+    log_info "Creating log directory structure..."
 
-        printf "  %-30s " "$description:"
-        if [[ -f "$file_path" ]]; then
-            local size=$(du -h "$file_path" | cut -f1)
-            echo -e "${GREEN}Exists${NC} ($size)"
-        else
-            echo -e "${RED}Missing${NC}"
-        fi
+    for dir in "${log_dirs[@]}"; do
+        create_directory "$dir" "755" "root:root"
     done
 
-    # Check configuration files
-    echo
-    echo "Configuration Files:"
-    printf "  %-30s " "Rsyslog config:"
-    if [[ -f "$RSYSLOG_CONFIG_DIR/49-vless.conf" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Missing${NC}"
+    log_success "Log directory structure created"
+}
+
+# ======================================================================================
+# LOG MANAGEMENT UTILITIES
+# ======================================================================================
+
+# Function: setup_log_levels
+# Description: Configure log level environment
+setup_log_levels() {
+    local env_file="/opt/vless/config/logging.env"
+
+    log_info "Setting up log level configuration..."
+
+    cat > "$env_file" << 'EOF'
+# VLESS Logging Configuration
+# Log levels: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR
+
+# Default log level for all components
+VLESS_LOG_LEVEL=1
+
+# Component-specific log levels
+VLESS_DOCKER_LOG_LEVEL=1
+VLESS_XRAY_LOG_LEVEL=1
+VLESS_SECURITY_LOG_LEVEL=1
+VLESS_USER_MGMT_LOG_LEVEL=1
+VLESS_TELEGRAM_BOT_LOG_LEVEL=1
+
+# Log file settings
+VLESS_LOG_MAX_SIZE=10485760  # 10MB
+VLESS_LOG_RETENTION_DAYS=7
+VLESS_LOG_COMPRESSION=true
+
+# Performance logging
+VLESS_PERFORMANCE_LOGGING=false
+VLESS_ACCESS_LOGGING=true
+EOF
+
+    chmod 600 "$env_file"
+    log_success "Log level configuration created: $env_file"
+}
+
+# Function: create_log_analysis_script
+# Description: Create script for log analysis and monitoring
+create_log_analysis_script() {
+    local analysis_script="/opt/vless/bin/analyze-logs.sh"
+
+    create_directory "/opt/vless/bin" "755" "root:root"
+
+    cat > "$analysis_script" << 'EOF'
+#!/bin/bash
+# VLESS Log Analysis Utility
+# Analyze logs for patterns, errors, and security issues
+
+set -euo pipefail
+
+# Source common utilities
+source /opt/vless/modules/common_utils.sh
+
+# Default values
+LOG_DIR="/opt/vless/logs"
+HOURS_BACK=24
+SHOW_ERRORS=false
+SHOW_WARNINGS=false
+SHOW_SECURITY=false
+SHOW_STATS=false
+
+# Function: show_usage
+show_usage() {
+    cat << 'USAGE'
+Usage: analyze-logs.sh [OPTIONS]
+
+OPTIONS:
+    -h, --help          Show this help message
+    -t, --hours HOURS   Analyze logs from last N hours (default: 24)
+    -e, --errors        Show error analysis
+    -w, --warnings      Show warning analysis
+    -s, --security      Show security events
+    -a, --stats         Show statistics summary
+    --all              Show all analysis types
+
+EXAMPLES:
+    analyze-logs.sh --errors --hours 6
+    analyze-logs.sh --security --stats
+    analyze-logs.sh --all --hours 48
+USAGE
+}
+
+# Function: analyze_errors
+analyze_errors() {
+    echo "=== ERROR ANALYSIS (Last $HOURS_BACK hours) ==="
+    find "$LOG_DIR" -name "*.log" -mtime -1 -exec grep -l "ERROR" {} \; | while read -r logfile; do
+        echo "Errors in $(basename "$logfile"):"
+        grep "ERROR" "$logfile" | tail -20
+        echo ""
+    done
+}
+
+# Function: analyze_warnings
+analyze_warnings() {
+    echo "=== WARNING ANALYSIS (Last $HOURS_BACK hours) ==="
+    find "$LOG_DIR" -name "*.log" -mtime -1 -exec grep -l "WARN" {} \; | while read -r logfile; do
+        echo "Warnings in $(basename "$logfile"):"
+        grep "WARN" "$logfile" | tail -10
+        echo ""
+    done
+}
+
+# Function: analyze_security
+analyze_security() {
+    echo "=== SECURITY ANALYSIS (Last $HOURS_BACK hours) ==="
+    local security_log="$LOG_DIR/security/vless-security.log"
+    local auth_log="$LOG_DIR/security/auth-failures.log"
+    local fw_log="$LOG_DIR/security/firewall.log"
+
+    if [[ -f "$security_log" ]]; then
+        echo "Security Events:"
+        tail -50 "$security_log"
+        echo ""
     fi
 
-    printf "  %-30s " "Logrotate config:"
-    if [[ -f "$LOGROTATE_CONFIG_DIR/vless" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Missing${NC}"
+    if [[ -f "$auth_log" ]]; then
+        echo "Authentication Failures:"
+        tail -20 "$auth_log"
+        echo ""
     fi
 
-    printf "  %-30s " "Log monitoring:"
-    if [[ -f "/usr/local/bin/vless-log-monitor" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Missing${NC}"
-    fi
-
-    # Show recent log activity
-    echo
-    print_section "Recent Log Activity"
-    if [[ -f "$MAIN_LOG_FILE" ]]; then
-        echo "Last 5 entries from main log:"
-        tail -n 5 "$MAIN_LOG_FILE" | sed 's/^/  /'
-    else
-        echo "No main log activity"
+    if [[ -f "$fw_log" ]]; then
+        echo "Firewall Events:"
+        tail -30 "$fw_log"
+        echo ""
     fi
 }
 
-# Remove logging setup
-remove_logging() {
-    print_header "Removing VLESS Logging System"
+# Function: show_statistics
+show_statistics() {
+    echo "=== LOG STATISTICS (Last $HOURS_BACK hours) ==="
 
-    if ! prompt_yes_no "Are you sure you want to remove the logging system?" "n"; then
-        print_info "Logging system removal cancelled"
-        return 0
+    # Count log entries by level
+    echo "Log Levels:"
+    find "$LOG_DIR" -name "*.log" -mtime -1 -exec grep -h "\[.*\]" {} \; | \
+        sed -n 's/.*\[\([^]]*\)\].*/\1/p' | sort | uniq -c | sort -nr
+    echo ""
+
+    # Disk usage
+    echo "Log Directory Disk Usage:"
+    du -sh "$LOG_DIR"/* 2>/dev/null | sort -hr
+    echo ""
+
+    # Active connections (if available)
+    if command -v ss >/dev/null; then
+        echo "Current Network Connections:"
+        ss -tuln | grep -E ":(443|80|8080|1080)" || echo "No VLESS-related ports active"
     fi
-
-    # Remove configuration files
-    sudo rm -f "$RSYSLOG_CONFIG_DIR/49-vless.conf"
-    sudo rm -f "$LOGROTATE_CONFIG_DIR/vless"
-    sudo rm -f "/usr/local/bin/vless-logger"
-    sudo rm -f "/usr/local/bin/vless-log-monitor"
-    sudo rm -f "/usr/local/bin/vless-log-analyzer"
-    sudo rm -f "/etc/cron.d/vless-log-monitor"
-
-    # Restart rsyslog
-    sudo systemctl restart rsyslog
-
-    # Optionally remove log files
-    if prompt_yes_no "Do you want to remove all log files as well?" "n"; then
-        sudo rm -rf "$VLESS_LOG_DIR"
-    fi
-
-    print_success "VLESS logging system removed"
 }
 
-# Export functions
-export -f setup_logging show_logging_status remove_logging test_logging_system
-export -f init_logging_system setup_rsyslog setup_logrotate
-export -f create_logging_functions setup_log_monitoring create_log_analysis_tools
-
-# Main execution if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    case "${1:-setup}" in
-        "setup"|"install"|"configure")
-            setup_logging
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_usage
+            exit 0
             ;;
-        "status"|"show")
-            show_logging_status
+        -t|--hours)
+            HOURS_BACK="$2"
+            shift 2
             ;;
-        "test")
-            test_logging_system
+        -e|--errors)
+            SHOW_ERRORS=true
+            shift
             ;;
-        "remove"|"uninstall")
-            remove_logging
+        -w|--warnings)
+            SHOW_WARNINGS=true
+            shift
+            ;;
+        -s|--security)
+            SHOW_SECURITY=true
+            shift
+            ;;
+        -a|--stats)
+            SHOW_STATS=true
+            shift
+            ;;
+        --all)
+            SHOW_ERRORS=true
+            SHOW_WARNINGS=true
+            SHOW_SECURITY=true
+            SHOW_STATS=true
+            shift
             ;;
         *)
-            echo "Usage: $0 {setup|status|test|remove}"
-            echo "  setup   - Setup and configure logging system"
-            echo "  status  - Show logging system status"
-            echo "  test    - Test logging functionality"
-            echo "  remove  - Remove logging system"
+            echo "Unknown option: $1"
+            show_usage
             exit 1
             ;;
     esac
+done
+
+# If no specific analysis requested, show stats
+if [[ "$SHOW_ERRORS" = false && "$SHOW_WARNINGS" = false && "$SHOW_SECURITY" = false && "$SHOW_STATS" = false ]]; then
+    SHOW_STATS=true
+fi
+
+# Run requested analysis
+[[ "$SHOW_ERRORS" = true ]] && analyze_errors
+[[ "$SHOW_WARNINGS" = true ]] && analyze_warnings
+[[ "$SHOW_SECURITY" = true ]] && analyze_security
+[[ "$SHOW_STATS" = true ]] && show_statistics
+EOF
+
+    chmod 755 "$analysis_script"
+    log_success "Log analysis script created: $analysis_script"
+}
+
+# ======================================================================================
+# PERFORMANCE MONITORING
+# ======================================================================================
+
+# Function: setup_log_monitoring
+# Description: Setup automated log monitoring and alerts
+setup_log_monitoring() {
+    local monitor_script="/opt/vless/bin/log-monitor.sh"
+
+    cat > "$monitor_script" << 'EOF'
+#!/bin/bash
+# VLESS Log Monitoring - Automated log analysis and alerting
+
+set -euo pipefail
+
+# Source common utilities
+source /opt/vless/modules/common_utils.sh
+
+LOG_DIR="/opt/vless/logs"
+ALERT_THRESHOLD_ERRORS=10
+ALERT_THRESHOLD_WARNINGS=50
+CHECK_INTERVAL=300  # 5 minutes
+
+# Function: check_error_rate
+check_error_rate() {
+    local error_count
+    error_count=$(find "$LOG_DIR" -name "*.log" -mmin -5 -exec grep -c "ERROR" {} + 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
+
+    if [[ $error_count -gt $ALERT_THRESHOLD_ERRORS ]]; then
+        log_warn "High error rate detected: $error_count errors in last 5 minutes"
+        return 1
+    fi
+    return 0
+}
+
+# Function: check_disk_usage
+check_disk_usage() {
+    local usage_percent
+    usage_percent=$(df "$LOG_DIR" | tail -1 | awk '{print $5}' | sed 's/%//')
+
+    if [[ $usage_percent -gt 80 ]]; then
+        log_warn "Log directory disk usage high: ${usage_percent}%"
+        return 1
+    fi
+    return 0
+}
+
+# Function: check_log_files
+check_log_files() {
+    local large_files
+    large_files=$(find "$LOG_DIR" -name "*.log" -size +100M)
+
+    if [[ -n "$large_files" ]]; then
+        log_warn "Large log files detected (>100MB):"
+        echo "$large_files"
+        return 1
+    fi
+    return 0
+}
+
+# Main monitoring loop
+log_info "Starting log monitoring (PID: $$)"
+echo $$ > "$LOG_DIR/log-monitor.pid"
+
+while true; do
+    check_error_rate
+    check_disk_usage
+    check_log_files
+    sleep $CHECK_INTERVAL
+done
+EOF
+
+    chmod 755 "$monitor_script"
+    log_success "Log monitoring script created: $monitor_script"
+}
+
+# ======================================================================================
+# MAIN SETUP FUNCTIONS
+# ======================================================================================
+
+# Function: setup_logging_infrastructure
+# Description: Complete logging infrastructure setup
+setup_logging_infrastructure() {
+    log_info "Setting up VLESS logging infrastructure..."
+
+    # Create log directories
+    create_log_directories
+
+    # Setup log rotation
+    create_logrotate_config
+    test_logrotate_config
+
+    # Setup centralized logging
+    create_rsyslog_config
+    restart_rsyslog
+
+    # Setup log levels and configuration
+    setup_log_levels
+
+    # Create analysis and monitoring utilities
+    create_log_analysis_script
+    setup_log_monitoring
+
+    log_success "Logging infrastructure setup completed"
+}
+
+# Function: verify_logging_setup
+# Description: Verify that logging setup is working correctly
+verify_logging_setup() {
+    log_info "Verifying logging setup..."
+
+    local checks_passed=0
+    local total_checks=5
+
+    # Check log directories exist
+    if [[ -d "$LOG_DIR" ]]; then
+        log_success "Log directory exists: $LOG_DIR"
+        ((checks_passed++))
+    else
+        log_error "Log directory missing: $LOG_DIR"
+    fi
+
+    # Check logrotate config
+    if [[ -f "$VLESS_LOGROTATE_CONFIG" ]]; then
+        log_success "Logrotate configuration exists"
+        ((checks_passed++))
+    else
+        log_error "Logrotate configuration missing"
+    fi
+
+    # Check rsyslog config
+    if [[ -f "$VLESS_RSYSLOG_CONFIG" ]]; then
+        log_success "Rsyslog configuration exists"
+        ((checks_passed++))
+    else
+        log_error "Rsyslog configuration missing"
+    fi
+
+    # Test log writing
+    local test_log="$LOG_DIR/test.log"
+    if echo "Test log entry $(date)" > "$test_log"; then
+        log_success "Log writing test passed"
+        rm -f "$test_log"
+        ((checks_passed++))
+    else
+        log_error "Log writing test failed"
+    fi
+
+    # Check rsyslog service
+    if systemctl is-active --quiet rsyslog; then
+        log_success "Rsyslog service is running"
+        ((checks_passed++))
+    else
+        log_error "Rsyslog service is not running"
+    fi
+
+    # Report results
+    log_info "Logging verification: $checks_passed/$total_checks checks passed"
+
+    if [[ $checks_passed -eq $total_checks ]]; then
+        log_success "All logging infrastructure checks passed"
+        return 0
+    else
+        log_error "Some logging infrastructure checks failed"
+        return 1
+    fi
+}
+
+# ======================================================================================
+# MAIN EXECUTION
+# ======================================================================================
+
+# Function: main
+# Description: Main function for logging setup
+main() {
+    log_info "Initializing VLESS logging infrastructure..."
+
+    # Validate environment
+    validate_root
+
+    # Setup logging infrastructure
+    setup_logging_infrastructure
+
+    # Verify setup
+    verify_logging_setup
+
+    log_success "VLESS logging infrastructure setup completed successfully"
+}
+
+# Execute main function if script is run directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

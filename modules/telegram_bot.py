@@ -1,919 +1,641 @@
 #!/usr/bin/env python3
 """
-Telegram Bot Module for VLESS VPN Project
-Provides telegram interface for managing VPN users and system operations
-Author: Claude Code
+VLESS+Reality VPN - Telegram Bot Interface
+Complete Telegram bot for remote VPN management
 Version: 1.0
+Author: VLESS Management System
 """
 
-import asyncio
+import os
+import sys
 import json
 import logging
-import os
+import asyncio
 import subprocess
-import sys
-import tempfile
-from datetime import datetime
-from io import BytesIO
+import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Any
+import tempfile
+import io
 
-import qrcode
-from telegram import (
-    Bot,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Update
-)
-from telegram.constants import ParseMode
+# Telegram bot imports
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-    filters
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, filters, ContextTypes
 )
 
-# Configure logging
+# System imports
+import psutil
+import requests
+from PIL import Image
+import qrcode
+
+# Configuration
+SCRIPT_DIR = Path(__file__).parent
+CONFIG_DIR = Path("/opt/vless/config")
+LOG_DIR = Path("/opt/vless/logs")
+BOT_CONFIG_FILE = CONFIG_DIR / "bot_config.env"
+USER_DB_FILE = Path("/opt/vless/users/users.db")
+ADMIN_DB_FILE = Path("/opt/vless/config/bot_admins.db")
+
+# Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     handlers=[
-        logging.FileHandler('/opt/vless/logs/telegram_bot.log'),
+        logging.FileHandler(LOG_DIR / "telegram_bot.log"),
         logging.StreamHandler()
     ]
 )
-
 logger = logging.getLogger(__name__)
 
 class VLESSBot:
-    """Main VLESS Telegram Bot class"""
+    """Main Telegram bot class for VLESS VPN management"""
 
-    def __init__(self, token: str, admin_id: int):
-        """Initialize the bot with token and admin ID"""
-        self.token = token
-        self.admin_id = admin_id
-        self.application: Optional[Application] = None
-        self.vless_dir = Path("/opt/vless")
-        self.user_mgmt_script = Path("/home/ikeniborn/Documents/Project/vless/modules/user_management.sh")
+    def __init__(self):
+        self.config = self.load_config()
+        self.application = None
+        self.admin_list = set()
+        self.load_admin_list()
 
-        # Ensure required directories exist
-        self._ensure_directories()
+    def load_config(self) -> Dict[str, str]:
+        """Load bot configuration from environment file"""
+        config = {}
 
-    def _ensure_directories(self) -> None:
-        """Ensure required directories exist"""
-        directories = [
-            self.vless_dir / "logs",
-            self.vless_dir / "users",
-            self.vless_dir / "configs" / "users",
-            self.vless_dir / "qrcodes"
-        ]
+        if BOT_CONFIG_FILE.exists():
+            with open(BOT_CONFIG_FILE, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        config[key] = value
 
-        for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
+        # Environment variables override file config
+        config.update({
+            'BOT_TOKEN': os.getenv('VLESS_BOT_TOKEN', config.get('BOT_TOKEN', '')),
+            'ADMIN_CHAT_ID': os.getenv('VLESS_ADMIN_CHAT_ID', config.get('ADMIN_CHAT_ID', '')),
+            'WEBHOOK_URL': os.getenv('VLESS_WEBHOOK_URL', config.get('WEBHOOK_URL', '')),
+            'WEBHOOK_PORT': int(os.getenv('VLESS_WEBHOOK_PORT', config.get('WEBHOOK_PORT', '8443'))),
+            'BOT_DEBUG': os.getenv('VLESS_BOT_DEBUG', config.get('BOT_DEBUG', 'false')).lower() == 'true'
+        })
 
-    def _is_admin(self, user_id: int) -> bool:
-        """Check if user is admin"""
-        return user_id == self.admin_id
+        if not config.get('BOT_TOKEN'):
+            raise ValueError("BOT_TOKEN is required in configuration")
 
-    async def _admin_only(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-        """Decorator-like function to check admin access"""
-        if not self._is_admin(update.effective_user.id):
-            await update.message.reply_text(
-                "❌ Access denied. This bot is for administrators only.",
-                parse_mode=ParseMode.MARKDOWN
+        return config
+
+    def load_admin_list(self):
+        """Load admin user list from database"""
+        try:
+            if not ADMIN_DB_FILE.exists():
+                self.init_admin_db()
+
+            conn = sqlite3.connect(ADMIN_DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT user_id FROM admins WHERE active = 1")
+            self.admin_list = {row[0] for row in cursor.fetchall()}
+            conn.close()
+
+            # Add initial admin from config
+            if self.config.get('ADMIN_CHAT_ID'):
+                admin_id = int(self.config['ADMIN_CHAT_ID'])
+                self.admin_list.add(admin_id)
+                self.add_admin(admin_id, "Initial Admin", "config")
+
+            logger.info(f"Loaded {len(self.admin_list)} admin(s)")
+
+        except Exception as e:
+            logger.error(f"Failed to load admin list: {e}")
+            self.admin_list = set()
+
+    def init_admin_db(self):
+        """Initialize admin database"""
+        conn = sqlite3.connect(ADMIN_DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                added_by TEXT,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                active INTEGER DEFAULT 1
             )
-            logger.warning(f"Unauthorized access attempt from user {update.effective_user.id}")
+        """)
+        conn.commit()
+        conn.close()
+
+    def add_admin(self, user_id: int, name: str, added_by: str) -> bool:
+        """Add admin to database"""
+        try:
+            conn = sqlite3.connect(ADMIN_DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO admins (user_id, first_name, added_by, active)
+                VALUES (?, ?, ?, 1)
+            """, (user_id, name, added_by))
+            conn.commit()
+            conn.close()
+            self.admin_list.add(user_id)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add admin {user_id}: {e}")
             return False
-        return True
 
-    async def _run_shell_command(self, command: List[str]) -> Dict[str, Union[str, int]]:
-        """Run shell command and return result"""
-        try:
-            logger.info(f"Running command: {' '.join(command)}")
+    def is_admin(self, user_id: int) -> bool:
+        """Check if user is admin"""
+        return user_id in self.admin_list
 
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.user_mgmt_script.parent)
-            )
+    def require_admin(func):
+        """Decorator to require admin privileges"""
+        async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+            user_id = update.effective_user.id
+            if not self.is_admin(user_id):
+                await update.message.reply_text("❌ Access denied. Admin privileges required.")
+                logger.warning(f"Unauthorized access attempt by user {user_id}")
+                return
+            return await func(self, update, context)
+        return wrapper
 
-            stdout, stderr = await process.communicate()
-
-            result = {
-                'returncode': process.returncode,
-                'stdout': stdout.decode('utf-8').strip(),
-                'stderr': stderr.decode('utf-8').strip()
-            }
-
-            logger.info(f"Command result: returncode={result['returncode']}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error running command: {e}")
-            return {
-                'returncode': 1,
-                'stdout': '',
-                'stderr': str(e)
-            }
-
-    async def _get_users_json(self) -> Optional[Dict]:
-        """Get users from JSON database"""
-        users_file = self.vless_dir / "users" / "users.json"
-        try:
-            if users_file.exists():
-                with open(users_file, 'r') as f:
-                    return json.load(f)
-            return None
-        except Exception as e:
-            logger.error(f"Error reading users JSON: {e}")
-            return None
-
-    async def _generate_qr_code(self, vless_url: str) -> BytesIO:
-        """Generate QR code for VLESS URL"""
-        try:
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_M,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(vless_url)
-            qr.make(fit=True)
-
-            img = qr.make_image(fill_color="black", back_color="white")
-
-            img_buffer = BytesIO()
-            img.save(img_buffer, format='PNG')
-            img_buffer.seek(0)
-
-            return img_buffer
-
-        except Exception as e:
-            logger.error(f"Error generating QR code: {e}")
-            raise
-
-    # Command Handlers
-
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
-        if not await self._admin_only(update, context):
-            return
+        user = update.effective_user
+        user_id = user.id
 
-        welcome_text = """
-🤖 **VLESS VPN Management Bot**
+        welcome_message = f"""
+🔐 **VLESS VPN Management Bot**
 
-Welcome to the VLESS VPN management interface!
+Hello {user.first_name}!
 
-**User Management Commands:**
-• `/adduser <name>` - Create new VPN user
-• `/deleteuser <uuid>` - Delete user by UUID
-• `/listusers` - Show all users
-• `/getconfig <uuid>` - Get user configuration
-• `/getqr <uuid>` - Get QR code for user
+This bot provides remote management for your VLESS+Reality VPN server.
 
-**System Management Commands:**
-• `/status` - Server and containers status
-• `/restart` - Restart VPN services
-• `/logs` - View system logs
-• `/backup` - Create backup
-• `/stats` - Usage statistics
+**Available Commands:**
+• /status - System status
+• /users - User management
+• /backup - Backup operations
+• /help - Show all commands
 
-**Help:**
-• `/help` - Show this message
-
-Select an option below or use commands directly.
+{"🔑 **Admin Access Granted**" if self.is_admin(user_id) else "ℹ️ Contact admin for access"}
         """
 
-        keyboard = [
-            [
-                InlineKeyboardButton("👥 Users", callback_data="menu_users"),
-                InlineKeyboardButton("⚙️ System", callback_data="menu_system")
-            ],
-            [
-                InlineKeyboardButton("📊 Statistics", callback_data="stats"),
-                InlineKeyboardButton("❓ Help", callback_data="help")
-            ]
-        ]
+        await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Log new user
+        logger.info(f"New user interaction: {user.username or user.first_name} ({user_id})")
 
-        await update.message.reply_text(
-            welcome_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /help command"""
-        if not await self._admin_only(update, context):
-            return
-
-        help_text = """
-📚 **VLESS VPN Bot Help**
-
-**User Management:**
-• `/adduser john` - Create user 'john'
-• `/deleteuser uuid-here` - Delete user by UUID
-• `/listusers` - List all users with UUIDs
-• `/getconfig uuid-here` - Get VLESS URL for user
-• `/getqr uuid-here` - Get QR code for mobile apps
-
-**System Management:**
-• `/status` - Check server health
-• `/restart` - Restart VPN services (use with caution)
-• `/logs` - View recent system logs
-• `/backup` - Create system backup
-• `/stats` - Show usage statistics
-
-**Tips:**
-• UUIDs are shown in `/listusers` output
-• QR codes work with most VPN apps
-• Always backup before making major changes
-• Monitor logs for troubleshooting
-
-Need help? Check the logs or restart services if needed.
-        """
-
-        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
-
-    async def add_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /adduser command"""
-        if not await self._admin_only(update, context):
-            return
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Please provide a username: `/adduser <username>`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        username = context.args[0]
-
-        # Validate username
-        if not username.replace('-', '').replace('_', '').isalnum():
-            await update.message.reply_text(
-                "❌ Invalid username. Use only alphanumeric characters, hyphens, and underscores."
-            )
-            return
-
-        await update.message.reply_text(f"⏳ Creating user '{username}'...")
-
-        # Run user creation command
-        result = await self._run_shell_command([
-            'bash', str(self.user_mgmt_script), 'add_user', username
-        ])
-
-        if result['returncode'] == 0:
-            # Parse the output to get user info
-            users_data = await self._get_users_json()
-            if users_data:
-                # Find the newly created user
-                new_user = None
-                for user in users_data.get('users', []):
-                    if user.get('username') == username:
-                        new_user = user
-                        break
-
-                if new_user:
-                    success_text = f"""
-✅ **User created successfully!**
-
-**Username:** `{new_user['username']}`
-**UUID:** `{new_user['uuid']}`
-**Created:** {new_user.get('created', 'N/A')}
-
-Use `/getconfig {new_user['uuid']}` to get the configuration.
-Use `/getqr {new_user['uuid']}` to get the QR code.
-                    """
-
-                    keyboard = [
-                        [
-                            InlineKeyboardButton(
-                                "📋 Get Config",
-                                callback_data=f"getconfig_{new_user['uuid']}"
-                            ),
-                            InlineKeyboardButton(
-                                "📱 Get QR",
-                                callback_data=f"getqr_{new_user['uuid']}"
-                            )
-                        ]
-                    ]
-
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-
-                    await update.message.reply_text(
-                        success_text,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=reply_markup
-                    )
-                else:
-                    await update.message.reply_text("✅ User created, but could not retrieve details.")
-            else:
-                await update.message.reply_text("✅ User created successfully!")
-        else:
-            error_text = f"❌ Failed to create user:\n`{result['stderr'] or result['stdout']}`"
-            await update.message.reply_text(error_text, parse_mode=ParseMode.MARKDOWN)
-
-    async def delete_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /deleteuser command"""
-        if not await self._admin_only(update, context):
-            return
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Please provide a UUID: `/deleteuser <uuid>`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        uuid = context.args[0]
-
-        # Get user info before deletion
-        users_data = await self._get_users_json()
-        user_to_delete = None
-
-        if users_data:
-            for user in users_data.get('users', []):
-                if user.get('uuid') == uuid:
-                    user_to_delete = user
-                    break
-
-        if not user_to_delete:
-            await update.message.reply_text("❌ User not found with the provided UUID.")
-            return
-
-        # Ask for confirmation
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete_{uuid}"),
-                InlineKeyboardButton("❌ Cancel", callback_data="cancel_delete")
-            ]
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"⚠️ **Confirm Deletion**\n\n"
-            f"Are you sure you want to delete user **{user_to_delete['username']}**?\n"
-            f"UUID: `{uuid}`\n\n"
-            f"This action cannot be undone!",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-
-    async def list_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /listusers command"""
-        if not await self._admin_only(update, context):
-            return
-
-        users_data = await self._get_users_json()
-
-        if not users_data or not users_data.get('users'):
-            await update.message.reply_text("📝 No users found.")
-            return
-
-        users = users_data['users']
-        total_users = len(users)
-
-        # Create users list
-        users_text = f"👥 **VPN Users ({total_users} total)**\n\n"
-
-        for i, user in enumerate(users, 1):
-            username = user.get('username', 'Unknown')
-            uuid = user.get('uuid', 'Unknown')
-            status = user.get('status', 'active')
-            created = user.get('created', 'Unknown')
-
-            status_emoji = "✅" if status == "active" else "❌"
-
-            users_text += f"{i}. {status_emoji} **{username}**\n"
-            users_text += f"   UUID: `{uuid}`\n"
-            users_text += f"   Created: {created}\n\n"
-
-        # Add inline keyboard for actions
-        keyboard = []
-
-        # Add user management buttons
-        keyboard.append([
-            InlineKeyboardButton("➕ Add User", callback_data="add_user_prompt"),
-            InlineKeyboardButton("🔄 Refresh", callback_data="list_users")
-        ])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            users_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-
-    async def get_config(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /getconfig command"""
-        if not await self._admin_only(update, context):
-            return
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Please provide a UUID: `/getconfig <uuid>`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        uuid = context.args[0]
-
-        # Get user info
-        users_data = await self._get_users_json()
-        user = None
-
-        if users_data:
-            for u in users_data.get('users', []):
-                if u.get('uuid') == uuid:
-                    user = u
-                    break
-
-        if not user:
-            await update.message.reply_text("❌ User not found with the provided UUID.")
-            return
-
-        # Get VLESS URL using shell script
-        result = await self._run_shell_command([
-            'bash', '-c',
-            f'source {self.user_mgmt_script} && get_user_config {uuid} vless'
-        ])
-
-        if result['returncode'] == 0 and result['stdout']:
-            vless_url = result['stdout'].strip()
-
-            config_text = f"""
-📋 **Configuration for {user['username']}**
-
-**VLESS URL:**
-`{vless_url}`
-
-**Instructions:**
-1. Copy the VLESS URL above
-2. Import it into your VPN client
-3. Or use the QR code: `/getqr {uuid}`
-
-**Supported Apps:**
-• V2RayNG (Android)
-• Shadowrocket (iOS)
-• V2Ray (Desktop)
-            """
-
-            keyboard = [
-                [
-                    InlineKeyboardButton("📱 Get QR Code", callback_data=f"getqr_{uuid}"),
-                    InlineKeyboardButton("📄 Get JSON", callback_data=f"getjson_{uuid}")
-                ]
-            ]
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text(
-                config_text,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
-        else:
-            await update.message.reply_text("❌ Failed to get user configuration.")
-
-    async def get_qr(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /getqr command"""
-        if not await self._admin_only(update, context):
-            return
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Please provide a UUID: `/getqr <uuid>`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        uuid = context.args[0]
-
-        # Get user info
-        users_data = await self._get_users_json()
-        user = None
-
-        if users_data:
-            for u in users_data.get('users', []):
-                if u.get('uuid') == uuid:
-                    user = u
-                    break
-
-        if not user:
-            await update.message.reply_text("❌ User not found with the provided UUID.")
-            return
-
-        await update.message.reply_text("⏳ Generating QR code...")
-
-        # Get VLESS URL
-        result = await self._run_shell_command([
-            'bash', '-c',
-            f'source {self.user_mgmt_script} && get_user_config {uuid} vless'
-        ])
-
-        if result['returncode'] == 0 and result['stdout']:
-            vless_url = result['stdout'].strip()
-
-            try:
-                # Generate QR code
-                qr_buffer = await self._generate_qr_code(vless_url)
-
-                # Send QR code as photo
-                await update.message.reply_photo(
-                    photo=qr_buffer,
-                    caption=f"📱 **QR Code for {user['username']}**\n\n"
-                           f"Scan with your VPN app to import configuration.",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-
-            except Exception as e:
-                logger.error(f"Error generating QR code: {e}")
-                await update.message.reply_text("❌ Failed to generate QR code.")
-        else:
-            await update.message.reply_text("❌ Failed to get user configuration for QR code.")
-
-    async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    @require_admin
+    async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /status command"""
-        if not await self._admin_only(update, context):
-            return
+        try:
+            # System information
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory = psutil.virtual_memory()
+            disk = psutil.disk_usage('/opt/vless')
 
-        await update.message.reply_text("⏳ Checking system status...")
+            # Docker status
+            docker_status = await self.run_command("docker ps --format 'table {{.Names}}\t{{.Status}}'")
 
-        # Check Docker containers
-        docker_result = await self._run_shell_command(['docker', 'ps', '--format', 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'])
+            # Xray status
+            xray_status = await self.run_command("docker exec vless-xray xray version 2>/dev/null | head -1 || echo 'Not available'")
 
-        # Check disk usage
-        disk_result = await self._run_shell_command(['df', '-h', '/'])
+            # Active connections (approximate)
+            connections = await self.run_command("docker exec vless-xray ss -tuln | grep ':443' | wc -l")
 
-        # Check memory usage
-        memory_result = await self._run_shell_command(['free', '-h'])
-
-        # Get users count
-        users_data = await self._get_users_json()
-        user_count = len(users_data.get('users', [])) if users_data else 0
-
-        status_text = f"""
+            status_message = f"""
 📊 **System Status**
 
-**VPN Users:** {user_count} active
+🖥️ **Server Resources:**
+• CPU Usage: {cpu_percent}%
+• RAM Usage: {memory.percent}% ({memory.used // (1024**3)}GB / {memory.total // (1024**3)}GB)
+• Disk Usage: {disk.percent}% ({disk.used // (1024**3)}GB / {disk.total // (1024**3)}GB)
 
-**Docker Containers:**
-```
-{docker_result['stdout'] if docker_result['returncode'] == 0 else 'Failed to get container status'}
-```
+🐳 **Services:**
+• Docker: {"✅ Running" if await self.is_service_running("docker") else "❌ Stopped"}
+• Xray: {"✅ Running" if "vless-xray" in docker_status else "❌ Stopped"}
 
-**System Resources:**
-```
-{memory_result['stdout'].split(chr(10))[1] if memory_result['returncode'] == 0 else 'Memory info unavailable'}
-```
+🔗 **VPN Status:**
+• Xray Version: {xray_status.strip()}
+• Active Connections: ~{connections.strip()}
 
-**Disk Usage:**
-```
-{disk_result['stdout'].split(chr(10))[1] if disk_result['returncode'] == 0 else 'Disk info unavailable'}
-```
+📅 **Last Updated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            """
 
-**Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        """
-
-        keyboard = [
-            [
-                InlineKeyboardButton("🔄 Refresh", callback_data="status"),
-                InlineKeyboardButton("📊 Detailed Stats", callback_data="stats")
+            # Add quick action buttons
+            keyboard = [
+                [InlineKeyboardButton("🔄 Refresh", callback_data="status_refresh")],
+                [InlineKeyboardButton("📋 Detailed Info", callback_data="status_detailed")],
+                [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
             ]
-        ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
+            await update.message.reply_text(status_message, parse_mode='Markdown', reply_markup=reply_markup)
+
+        except Exception as e:
+            logger.error(f"Status command error: {e}")
+            await update.message.reply_text(f"❌ Error getting system status: {str(e)}")
+
+    @require_admin
+    async def users(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /users command"""
+        keyboard = [
+            [InlineKeyboardButton("👥 List Users", callback_data="users_list")],
+            [InlineKeyboardButton("➕ Add User", callback_data="users_add")],
+            [InlineKeyboardButton("🗑️ Remove User", callback_data="users_remove")],
+            [InlineKeyboardButton("📱 Get QR Code", callback_data="users_qr")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            status_text,
-            parse_mode=ParseMode.MARKDOWN,
+            "👥 **User Management**\n\nChoose an action:",
+            parse_mode='Markdown',
             reply_markup=reply_markup
         )
 
-    async def restart_services(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /restart command"""
-        if not await self._admin_only(update, context):
-            return
-
-        # Ask for confirmation
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Yes, Restart", callback_data="confirm_restart"),
-                InlineKeyboardButton("❌ Cancel", callback_data="cancel_restart")
-            ]
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "⚠️ **Confirm Service Restart**\n\n"
-            "This will restart all VPN services. Active connections will be interrupted.\n\n"
-            "Are you sure you want to proceed?",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-
-    async def view_logs(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /logs command"""
-        if not await self._admin_only(update, context):
-            return
-
-        # Get recent logs
-        log_files = [
-            ('/opt/vless/logs/telegram_bot.log', 'Bot Logs'),
-            ('/var/log/docker.log', 'Docker Logs'),
-            ('/opt/vless/logs/xray.log', 'Xray Logs')
-        ]
-
-        logs_text = "📋 **Recent System Logs**\n\n"
-
-        for log_file, log_name in log_files:
-            result = await self._run_shell_command(['tail', '-10', log_file])
-
-            if result['returncode'] == 0:
-                logs_text += f"**{log_name}:**\n"
-                logs_text += f"```\n{result['stdout']}\n```\n\n"
-            else:
-                logs_text += f"**{log_name}:** Not available\n\n"
-
-        # Truncate if too long
-        if len(logs_text) > 4000:
-            logs_text = logs_text[:4000] + "\n... (truncated)"
-
-        keyboard = [
-            [
-                InlineKeyboardButton("🔄 Refresh Logs", callback_data="logs"),
-                InlineKeyboardButton("📊 System Status", callback_data="status")
-            ]
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            logs_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-
-    async def create_backup(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    @require_admin
+    async def backup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /backup command"""
-        if not await self._admin_only(update, context):
-            return
-
-        await update.message.reply_text("⏳ Creating system backup...")
-
-        # Run backup script
-        backup_script = Path("/home/ikeniborn/Documents/Project/vless/modules/backup_restore.sh")
-        result = await self._run_shell_command([
-            'bash', str(backup_script), 'create_backup'
-        ])
-
-        if result['returncode'] == 0:
-            backup_text = f"""
-✅ **Backup Created Successfully**
-
-**Details:**
-```
-{result['stdout']}
-```
-
-Backup location: `/opt/vless/backups/`
-            """
-        else:
-            backup_text = f"""
-❌ **Backup Failed**
-
-**Error:**
-```
-{result['stderr'] or result['stdout']}
-```
-            """
-
-        await update.message.reply_text(backup_text, parse_mode=ParseMode.MARKDOWN)
-
-    async def show_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /stats command"""
-        if not await self._admin_only(update, context):
-            return
-
-        # Get system statistics
-        users_data = await self._get_users_json()
-
-        if users_data:
-            total_users = len(users_data.get('users', []))
-            active_users = len([u for u in users_data.get('users', []) if u.get('status') == 'active'])
-
-            # Get creation dates for user statistics
-            created_dates = [u.get('created', '') for u in users_data.get('users', []) if u.get('created')]
-
-            stats_text = f"""
-📊 **Usage Statistics**
-
-**Users:**
-• Total Users: {total_users}
-• Active Users: {active_users}
-• Inactive Users: {total_users - active_users}
-
-**System:**
-• Bot Uptime: Since last restart
-• Database: {users_data.get('metadata', {}).get('last_modified', 'Unknown')}
-
-**Recent Activity:**
-• Last User Created: {max(created_dates) if created_dates else 'None'}
-• Total Users Created: {total_users}
-            """
-        else:
-            stats_text = "📊 **Usage Statistics**\n\nNo user data available."
-
         keyboard = [
-            [
-                InlineKeyboardButton("👥 View Users", callback_data="list_users"),
-                InlineKeyboardButton("📊 System Status", callback_data="status")
-            ]
+            [InlineKeyboardButton("💾 Create Backup", callback_data="backup_create")],
+            [InlineKeyboardButton("📋 List Backups", callback_data="backup_list")],
+            [InlineKeyboardButton("🔄 Restore", callback_data="backup_restore")],
+            [InlineKeyboardButton("⏰ Schedule", callback_data="backup_schedule")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
         ]
-
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            stats_text,
-            parse_mode=ParseMode.MARKDOWN,
+            "💾 **Backup Management**\n\nChoose an action:",
+            parse_mode='Markdown',
             reply_markup=reply_markup
         )
 
-    # Callback Query Handlers
+    @require_admin
+    async def maintenance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /maintenance command"""
+        keyboard = [
+            [InlineKeyboardButton("🔧 System Health", callback_data="maint_health")],
+            [InlineKeyboardButton("🧹 Cleanup", callback_data="maint_cleanup")],
+            [InlineKeyboardButton("📊 Diagnostics", callback_data="maint_diagnostics")],
+            [InlineKeyboardButton("🔄 Updates", callback_data="maint_updates")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle button callbacks"""
+        await update.message.reply_text(
+            "🔧 **System Maintenance**\n\nChoose an action:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /help command"""
+        user_id = update.effective_user.id
+        is_admin = self.is_admin(user_id)
+
+        help_text = """
+🔐 **VLESS VPN Bot Commands**
+
+**Available to everyone:**
+/start - Start the bot
+/help - Show this help message
+
+"""
+
+        if is_admin:
+            help_text += """
+**Admin Commands:**
+/status - System status and metrics
+/users - User management (add/remove/list)
+/backup - Backup and restore operations
+/maintenance - System maintenance tools
+/logs - View system logs
+/restart - Restart services
+/admin - Admin management
+
+**Quick Actions:**
+• Add user: `/adduser username`
+• Remove user: `/removeuser username`
+• Get QR: `/qr username`
+• System info: `/info`
+"""
+        else:
+            help_text += "\n**Access Level:** Standard User\n*Contact admin for elevated privileges*"
+
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+
+    # Callback handlers for inline buttons
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle inline button callbacks"""
         query = update.callback_query
         await query.answer()
 
         data = query.data
+        user_id = query.from_user.id
 
-        if data == "menu_users":
-            keyboard = [
-                [
-                    InlineKeyboardButton("👥 List Users", callback_data="list_users"),
-                    InlineKeyboardButton("➕ Add User", callback_data="add_user_prompt")
-                ],
-                [
-                    InlineKeyboardButton("🔙 Back", callback_data="start")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                "👥 **User Management**\n\nSelect an action:",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
-
-        elif data == "menu_system":
-            keyboard = [
-                [
-                    InlineKeyboardButton("📊 Status", callback_data="status"),
-                    InlineKeyboardButton("📋 Logs", callback_data="logs")
-                ],
-                [
-                    InlineKeyboardButton("🔄 Restart", callback_data="restart_confirm"),
-                    InlineKeyboardButton("💾 Backup", callback_data="backup")
-                ],
-                [
-                    InlineKeyboardButton("🔙 Back", callback_data="start")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                "⚙️ **System Management**\n\nSelect an action:",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=reply_markup
-            )
-
-        elif data == "list_users":
-            # Simulate the list_users command
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            await self.list_users(fake_update, context)
-
-        elif data == "status":
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            await self.status(fake_update, context)
-
-        elif data == "stats":
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            await self.show_stats(fake_update, context)
-
-        elif data == "logs":
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            await self.view_logs(fake_update, context)
-
-        elif data == "backup":
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            await self.create_backup(fake_update, context)
-
-        elif data.startswith("getconfig_"):
-            uuid = data.replace("getconfig_", "")
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            fake_context = type('', (), {})()
-            fake_context.args = [uuid]
-            await self.get_config(fake_update, fake_context)
-
-        elif data.startswith("getqr_"):
-            uuid = data.replace("getqr_", "")
-            fake_update = type('', (), {})()
-            fake_update.message = query.message
-            fake_update.effective_user = query.from_user
-            fake_context = type('', (), {})()
-            fake_context.args = [uuid]
-            await self.get_qr(fake_update, fake_context)
-
-        elif data.startswith("confirm_delete_"):
-            uuid = data.replace("confirm_delete_", "")
-            await query.edit_message_text("⏳ Deleting user...")
-
-            # Run delete command
-            result = await self._run_shell_command([
-                'bash', str(self.user_mgmt_script), 'remove_user', uuid
-            ])
-
-            if result['returncode'] == 0:
-                await query.edit_message_text(
-                    "✅ User deleted successfully!",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            else:
-                await query.edit_message_text(
-                    f"❌ Failed to delete user:\n`{result['stderr'] or result['stdout']}`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-
-        elif data == "cancel_delete":
-            await query.edit_message_text("❌ User deletion cancelled.")
-
-        elif data == "confirm_restart":
-            await query.edit_message_text("⏳ Restarting services...")
-
-            # Restart Docker Compose services
-            result = await self._run_shell_command([
-                'docker-compose', '-f', '/home/ikeniborn/Documents/Project/vless/config/docker-compose.yml', 'restart'
-            ])
-
-            if result['returncode'] == 0:
-                await query.edit_message_text("✅ Services restarted successfully!")
-            else:
-                await query.edit_message_text(
-                    f"❌ Failed to restart services:\n`{result['stderr'] or result['stdout']}`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-
-        elif data == "cancel_restart":
-            await query.edit_message_text("❌ Service restart cancelled.")
-
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle errors"""
-        logger.error(f"Update {update} caused error {context.error}")
+        if not self.is_admin(user_id):
+            await query.edit_message_text("❌ Access denied. Admin privileges required.")
+            return
 
         try:
-            if update and update.effective_message:
-                await update.effective_message.reply_text(
-                    "❌ An error occurred. Please try again or contact the administrator."
-                )
+            if data == "main_menu":
+                await self.show_main_menu(query)
+            elif data.startswith("status_"):
+                await self.handle_status_callback(query, data)
+            elif data.startswith("users_"):
+                await self.handle_users_callback(query, data)
+            elif data.startswith("backup_"):
+                await self.handle_backup_callback(query, data)
+            elif data.startswith("maint_"):
+                await self.handle_maintenance_callback(query, data)
+            else:
+                await query.edit_message_text("❌ Unknown action")
+
         except Exception as e:
-            logger.error(f"Error in error handler: {e}")
+            logger.error(f"Callback error: {e}")
+            await query.edit_message_text(f"❌ Error: {str(e)}")
 
-    def setup_handlers(self) -> None:
-        """Setup command and callback handlers"""
+    async def show_main_menu(self, query):
+        """Show main menu"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Status", callback_data="status_refresh")],
+            [InlineKeyboardButton("👥 Users", callback_data="users_menu")],
+            [InlineKeyboardButton("💾 Backup", callback_data="backup_menu")],
+            [InlineKeyboardButton("🔧 Maintenance", callback_data="maint_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
+        await query.edit_message_text(
+            "🏠 **Main Menu**\n\nChoose an option:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+
+    async def handle_status_callback(self, query, data):
+        """Handle status-related callbacks"""
+        if data == "status_refresh":
+            # Recreate status message
+            await self.status(update=type('obj', (object,), {
+                'message': query, 'effective_user': query.from_user
+            })(), context=None)
+        elif data == "status_detailed":
+            detailed_info = await self.get_detailed_status()
+            await query.edit_message_text(detailed_info, parse_mode='Markdown')
+
+    async def handle_users_callback(self, query, data):
+        """Handle user management callbacks"""
+        if data == "users_list":
+            users_info = await self.get_users_list()
+            await query.edit_message_text(users_info, parse_mode='Markdown')
+        elif data == "users_add":
+            await query.edit_message_text(
+                "➕ **Add New User**\n\nSend the command:\n`/adduser <username>`",
+                parse_mode='Markdown'
+            )
+        elif data == "users_remove":
+            await query.edit_message_text(
+                "🗑️ **Remove User**\n\nSend the command:\n`/removeuser <username>`",
+                parse_mode='Markdown'
+            )
+        elif data == "users_qr":
+            await query.edit_message_text(
+                "📱 **Get QR Code**\n\nSend the command:\n`/qr <username>`",
+                parse_mode='Markdown'
+            )
+
+    async def handle_backup_callback(self, query, data):
+        """Handle backup-related callbacks"""
+        if data == "backup_create":
+            await query.edit_message_text("💾 Creating backup...")
+            result = await self.create_backup()
+            await query.edit_message_text(result, parse_mode='Markdown')
+        elif data == "backup_list":
+            backups = await self.list_backups()
+            await query.edit_message_text(backups, parse_mode='Markdown')
+
+    async def handle_maintenance_callback(self, query, data):
+        """Handle maintenance-related callbacks"""
+        if data == "maint_health":
+            await query.edit_message_text("🔧 Running health check...")
+            health_report = await self.run_health_check()
+            await query.edit_message_text(health_report, parse_mode='Markdown')
+        elif data == "maint_cleanup":
+            await query.edit_message_text("🧹 Running cleanup...")
+            cleanup_result = await self.run_cleanup()
+            await query.edit_message_text(cleanup_result, parse_mode='Markdown')
+
+    # Quick command handlers
+    @require_admin
+    async def add_user_quick(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Quick add user command"""
+        if not context.args:
+            await update.message.reply_text("Usage: /adduser <username>")
+            return
+
+        username = context.args[0]
+        result = await self.add_vpn_user(username)
+        await update.message.reply_text(result, parse_mode='Markdown')
+
+    @require_admin
+    async def remove_user_quick(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Quick remove user command"""
+        if not context.args:
+            await update.message.reply_text("Usage: /removeuser <username>")
+            return
+
+        username = context.args[0]
+        result = await self.remove_vpn_user(username)
+        await update.message.reply_text(result, parse_mode='Markdown')
+
+    @require_admin
+    async def get_qr_quick(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Quick QR code command"""
+        if not context.args:
+            await update.message.reply_text("Usage: /qr <username>")
+            return
+
+        username = context.args[0]
+        await self.send_qr_code(update, username)
+
+    # Utility methods
+    async def run_command(self, command: str) -> str:
+        """Run shell command and return output"""
+        try:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode == 0:
+                return stdout.decode().strip()
+            else:
+                return f"Error: {stderr.decode().strip()}"
+        except Exception as e:
+            return f"Command failed: {str(e)}"
+
+    async def is_service_running(self, service: str) -> bool:
+        """Check if service is running"""
+        result = await self.run_command(f"systemctl is-active {service}")
+        return result == "active"
+
+    async def get_users_list(self) -> str:
+        """Get formatted list of VPN users"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/user_management.sh list")
+            if result:
+                return f"👥 **VPN Users:**\n\n```\n{result}\n```"
+            else:
+                return "👥 **VPN Users:**\n\nNo users found."
+        except Exception as e:
+            return f"❌ Error getting users list: {str(e)}"
+
+    async def add_vpn_user(self, username: str) -> str:
+        """Add VPN user"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/user_management.sh add {username}")
+            if "successfully" in result.lower():
+                return f"✅ **User Added Successfully**\n\nUsername: `{username}`\n\nUse `/qr {username}` to get QR code."
+            else:
+                return f"❌ **Failed to add user:**\n\n{result}"
+        except Exception as e:
+            return f"❌ Error adding user: {str(e)}"
+
+    async def remove_vpn_user(self, username: str) -> str:
+        """Remove VPN user"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/user_management.sh remove {username}")
+            if "successfully" in result.lower():
+                return f"✅ **User Removed Successfully**\n\nUsername: `{username}`"
+            else:
+                return f"❌ **Failed to remove user:**\n\n{result}"
+        except Exception as e:
+            return f"❌ Error removing user: {str(e)}"
+
+    async def send_qr_code(self, update: Update, username: str):
+        """Generate and send QR code for user"""
+        try:
+            # Get user configuration
+            config_result = await self.run_command(f"{SCRIPT_DIR}/user_management.sh config {username}")
+
+            if "error" in config_result.lower() or "not found" in config_result.lower():
+                await update.message.reply_text(f"❌ User '{username}' not found.")
+                return
+
+            # Generate QR code
+            qr = qrcode.QRCode(version=1, box_size=10, border=5)
+            qr.add_data(config_result)
+            qr.make(fit=True)
+
+            # Create QR code image
+            qr_image = qr.make_image(fill_color="black", back_color="white")
+
+            # Save to BytesIO
+            bio = io.BytesIO()
+            qr_image.save(bio, format='PNG')
+            bio.seek(0)
+
+            # Send QR code
+            await update.message.reply_photo(
+                photo=InputFile(bio, filename=f"{username}_qr.png"),
+                caption=f"📱 **QR Code for {username}**\n\nScan with your VLESS client to connect."
+            )
+
+        except Exception as e:
+            logger.error(f"QR code generation error: {e}")
+            await update.message.reply_text(f"❌ Error generating QR code: {str(e)}")
+
+    async def create_backup(self) -> str:
+        """Create system backup"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/backup_restore.sh full 'Telegram bot backup'")
+            if "successfully" in result.lower():
+                return f"✅ **Backup Created Successfully**\n\n{result}"
+            else:
+                return f"❌ **Backup Failed:**\n\n{result}"
+        except Exception as e:
+            return f"❌ Error creating backup: {str(e)}"
+
+    async def list_backups(self) -> str:
+        """List available backups"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/backup_restore.sh list")
+            if result:
+                return f"💾 **Available Backups:**\n\n```\n{result}\n```"
+            else:
+                return "💾 **Available Backups:**\n\nNo backups found."
+        except Exception as e:
+            return f"❌ Error listing backups: {str(e)}"
+
+    async def run_health_check(self) -> str:
+        """Run system health check"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/maintenance_utils.sh health-check")
+            return f"🔧 **System Health Check:**\n\n```\n{result}\n```"
+        except Exception as e:
+            return f"❌ Error running health check: {str(e)}"
+
+    async def run_cleanup(self) -> str:
+        """Run system cleanup"""
+        try:
+            result = await self.run_command(f"{SCRIPT_DIR}/maintenance_utils.sh cleanup-logs && {SCRIPT_DIR}/maintenance_utils.sh cleanup-temp")
+            return f"🧹 **Cleanup Completed:**\n\n```\n{result}\n```"
+        except Exception as e:
+            return f"❌ Error running cleanup: {str(e)}"
+
+    async def get_detailed_status(self) -> str:
+        """Get detailed system status"""
+        try:
+            # Get various system metrics
+            uptime = await self.run_command("uptime")
+            disk_info = await self.run_command("df -h /opt/vless")
+            memory_info = await self.run_command("free -h")
+            docker_info = await self.run_command("docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'")
+
+            return f"""
+📊 **Detailed System Status**
+
+⏱️ **Uptime:**
+```
+{uptime}
+```
+
+💽 **Disk Usage:**
+```
+{disk_info}
+```
+
+🧠 **Memory Usage:**
+```
+{memory_info}
+```
+
+🐳 **Docker Containers:**
+```
+{docker_info}
+```
+"""
+        except Exception as e:
+            return f"❌ Error getting detailed status: {str(e)}"
+
+    def setup_handlers(self):
+        """Setup all command and callback handlers"""
         # Command handlers
         self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("adduser", self.add_user))
-        self.application.add_handler(CommandHandler("deleteuser", self.delete_user))
-        self.application.add_handler(CommandHandler("listusers", self.list_users))
-        self.application.add_handler(CommandHandler("getconfig", self.get_config))
-        self.application.add_handler(CommandHandler("getqr", self.get_qr))
         self.application.add_handler(CommandHandler("status", self.status))
-        self.application.add_handler(CommandHandler("restart", self.restart_services))
-        self.application.add_handler(CommandHandler("logs", self.view_logs))
-        self.application.add_handler(CommandHandler("backup", self.create_backup))
-        self.application.add_handler(CommandHandler("stats", self.show_stats))
+        self.application.add_handler(CommandHandler("users", self.users))
+        self.application.add_handler(CommandHandler("backup", self.backup))
+        self.application.add_handler(CommandHandler("maintenance", self.maintenance))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+
+        # Quick command handlers
+        self.application.add_handler(CommandHandler("adduser", self.add_user_quick))
+        self.application.add_handler(CommandHandler("removeuser", self.remove_user_quick))
+        self.application.add_handler(CommandHandler("qr", self.get_qr_quick))
 
         # Callback query handler
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -921,57 +643,63 @@ Backup location: `/opt/vless/backups/`
         # Error handler
         self.application.add_error_handler(self.error_handler)
 
-    async def start_bot(self) -> None:
-        """Start the bot"""
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle errors"""
+        logger.error(f"Update {update} caused error {context.error}")
+
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "❌ An error occurred. Please try again or contact the administrator."
+            )
+
+    async def run_bot(self):
+        """Main bot run method"""
         try:
             # Create application
-            self.application = Application.builder().token(self.token).build()
+            self.application = Application.builder().token(self.config['BOT_TOKEN']).build()
 
             # Setup handlers
             self.setup_handlers()
 
+            # Start bot
             logger.info("Starting VLESS VPN Telegram Bot...")
 
-            # Start polling
-            await self.application.run_polling(
-                drop_pending_updates=True,
-                close_loop=False
-            )
+            if self.config.get('WEBHOOK_URL'):
+                # Webhook mode
+                await self.application.bot.set_webhook(
+                    url=self.config['WEBHOOK_URL'],
+                    drop_pending_updates=True
+                )
+
+                # Start webhook server
+                await self.application.run_webhook(
+                    listen="0.0.0.0",
+                    port=self.config['WEBHOOK_PORT'],
+                    webhook_url=self.config['WEBHOOK_URL']
+                )
+            else:
+                # Polling mode
+                await self.application.run_polling(drop_pending_updates=True)
 
         except Exception as e:
-            logger.error(f"Error starting bot: {e}")
+            logger.error(f"Bot startup error: {e}")
             raise
 
 def main():
-    """Main entry point"""
-
-    # Get configuration from environment
-    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    admin_id = os.getenv('ADMIN_TELEGRAM_ID')
-
-    if not bot_token:
-        logger.error("TELEGRAM_BOT_TOKEN environment variable is required")
-        sys.exit(1)
-
-    if not admin_id:
-        logger.error("ADMIN_TELEGRAM_ID environment variable is required")
-        sys.exit(1)
-
+    """Main function"""
     try:
-        admin_id = int(admin_id)
-    except ValueError:
-        logger.error("ADMIN_TELEGRAM_ID must be a valid integer")
-        sys.exit(1)
+        # Ensure directories exist
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Create and start bot
-    bot = VLESSBot(bot_token, admin_id)
+        # Create and run bot
+        bot = VLESSBot()
+        asyncio.run(bot.run_bot())
 
-    try:
-        asyncio.run(bot.start_bot())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f"Bot crashed: {e}")
+        logger.error(f"Bot error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

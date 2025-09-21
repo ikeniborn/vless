@@ -1,320 +1,948 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<plan>
-    <header>
-        <title>План исправления ошибки "WHITE: unbound variable"</title>
-        <file>modules/common_utils.sh</file>
-        <error_line>57</error_line>
-        <priority>High</priority>
-        <estimated_time>30 минут</estimated_time>
-        <created>2025-09-21</created>
-    </header>
+<implementation_plan>
+    <project_info>
+        <name>VLESS+Reality VPN Management System Implementation Plan</name>
+        <version>1.0</version>
+        <created_date>2025-09-21</created_date>
+        <based_on>/home/ikeniborn/Documents/Project/vless/requests/analyses.xml</based_on>
+    </project_info>
 
-    <problem_analysis>
-        <description>
-            При выполнении install.sh возникает ошибка "WHITE: unbound variable" на строке 57
-            в функции print_header() файла modules/common_utils.sh
-        </description>
-        <root_cause>
-            <item>Скрипт использует строгий режим set -euo pipefail</item>
-            <item>Цветовые переменные определяются условно только при проверке RED (строка 28)</item>
-            <item>Если RED уже определена в другом контексте, блок определения переменных пропускается</item>
-            <item>WHITE может остаться неопределенной, что вызывает ошибку при использовании в print_header</item>
-        </root_cause>
-        <affected_functions>
-            <function name="print_header" line="48"/>
-            <function name="show_progress" line="357"/>
-            <function name="spinner" line="376"/>
-            <function name="show_system_info" line="425"/>
-        </affected_functions>
-    </problem_analysis>
+    <implementation_phases>
+        <!-- PHASE 1: Foundation and Core Infrastructure -->
+        <phase id="phase1" priority="1">
+            <name>Foundation and Core Infrastructure</name>
+            <description>Establish project structure, core utilities, and logging system</description>
+            <estimated_duration>2-3 days</estimated_duration>
+            <dependencies>none</dependencies>
 
-    <solution_strategy>
-        <approach>Проверка и определение каждой цветовой переменной индивидуально</approach>
-        <justification>
-            Позволяет гибко определять только недостающие переменные без дублирования
-            уже определенных, обеспечивая совместимость с другими модулями
-        </justification>
-    </solution_strategy>
+            <milestones>
+                <milestone id="M1.1">Project structure created</milestone>
+                <milestone id="M1.2">Common utilities implemented</milestone>
+                <milestone id="M1.3">Logging system operational</milestone>
+                <milestone id="M1.4">Basic validation functions ready</milestone>
+            </milestones>
 
-    <implementation_steps>
-        <step number="1" priority="critical">
-            <title>Замена условной проверки цветовых переменных</title>
-            <location>
-                <file>modules/common_utils.sh</file>
-                <lines>28-38</lines>
-            </location>
-            <action>
-                <description>
-                    Заменить единую проверку на RED индивидуальными проверками для каждой переменной
-                </description>
-                <old_code>
-if [[ -z "${RED:-}" ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[1;33m'
-    readonly BLUE='\033[0;34m'
-    readonly CYAN='\033[0;36m'
-    readonly PURPLE='\033[0;35m'
-    readonly WHITE='\033[1;37m'
-    readonly BOLD='\033[1m'
-    readonly NC='\033[0m'
-fi
-                </old_code>
-                <new_code>
-# Color definitions - check each variable individually
-[[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
-[[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
-[[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
-[[ -z "${BLUE:-}" ]] && readonly BLUE='\033[0;34m'
-[[ -z "${CYAN:-}" ]] && readonly CYAN='\033[0;36m'
-[[ -z "${PURPLE:-}" ]] && readonly PURPLE='\033[0;35m'
-[[ -z "${WHITE:-}" ]] && readonly WHITE='\033[1;37m'
-[[ -z "${BOLD:-}" ]] && readonly BOLD='\033[1m'
-[[ -z "${NC:-}" ]] && readonly NC='\033[0m'
-                </new_code>
-            </action>
-            <validation>
-                <test>bash -n modules/common_utils.sh</test>
-                <test>echo ${WHITE:-"NOT_DEFINED"}</test>
-            </validation>
-        </step>
+            <tasks>
+                <task id="T1.1" priority="high">
+                    <name>Setup project directory structure</name>
+                    <description>Create standardized directory layout for /opt/vless and project modules</description>
+                    <implementation>
+                        <script>install.sh</script>
+                        <actions>
+                            <action>Create /opt/vless/{config,logs,backups,certs,users} directories</action>
+                            <action>Set proper permissions (root:root, 700)</action>
+                            <action>Create modules/ directory structure</action>
+                            <action>Initialize git repository if needed</action>
+                        </actions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_project_structure.sh</test_script>
+                        <validation>Verify all directories exist with correct permissions</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>/opt/vless directory structure</deliverable>
+                        <deliverable>modules/ organization</deliverable>
+                    </deliverables>
+                </task>
 
-        <step number="2" priority="high">
-            <title>Добавление защитных проверок в функции вывода</title>
-            <location>
-                <file>modules/common_utils.sh</file>
-                <lines>48-62</lines>
-            </location>
-            <action>
-                <description>
-                    Добавить защитные проверки переменных в функцию print_header
-                    для предотвращения ошибок в будущем
-                </description>
-                <modification>
-                    Добавить в начало print_header проверку:
-                    # Ensure color variables are defined
-                    local white_color="${WHITE:-\033[1;37m}"
-                    local blue_color="${BLUE:-\033[0;34m}"
-                    local nc_color="${NC:-\033[0m}"
-                    local bold_color="${BOLD:-\033[1m}"
-                </modification>
-            </action>
-        </step>
+                <task id="T1.2" priority="high">
+                    <name>Implement common_utils.sh module</name>
+                    <description>Core utility functions for logging, validation, and system operations</description>
+                    <implementation>
+                        <script>modules/common_utils.sh</script>
+                        <functions>
+                            <function>log_info(), log_warn(), log_error() - Colored logging with timestamps</function>
+                            <function>validate_root() - Ensure script runs as root</function>
+                            <function>validate_system() - Check Linux distribution and version</function>
+                            <function>check_internet() - Verify internet connectivity</function>
+                            <function>backup_file() - Safe file backup with timestamps</function>
+                            <function>generate_uuid() - UUID generation for users</function>
+                            <function>validate_port() - Port number validation</function>
+                            <function>is_service_running() - Service status check</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_common_utils.sh</test_script>
+                        <validation>Unit tests for all utility functions</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/common_utils.sh with full function set</deliverable>
+                        <deliverable>Comprehensive test suite</deliverable>
+                    </deliverables>
+                </task>
 
-        <step number="3" priority="medium">
-            <title>Обновление других функций вывода</title>
-            <location>
-                <file>modules/common_utils.sh</file>
-                <lines>357-390</lines>
-            </location>
-            <action>
-                <description>
-                    Применить аналогичную защиту к функциям show_progress и spinner
-                </description>
-                <functions>
-                    <function name="show_progress">
-                        Добавить: local cyan_color="${CYAN:-\033[0;36m}"
-                        Заменить ${CYAN} на ${cyan_color}
-                    </function>
-                    <function name="spinner">
-                        Добавить: local cyan_color="${CYAN:-\033[0;36m}"
-                        Заменить ${CYAN} на ${cyan_color}
-                    </function>
-                </functions>
-            </action>
-        </step>
+                <task id="T1.3" priority="medium">
+                    <name>Setup logging infrastructure</name>
+                    <description>Centralized logging system with rotation and levels</description>
+                    <implementation>
+                        <script>modules/logging_setup.sh</script>
+                        <actions>
+                            <action>Configure logrotate for /opt/vless/logs/</action>
+                            <action>Setup log levels (DEBUG, INFO, WARN, ERROR)</action>
+                            <action>Implement log file rotation (daily, keep 7 days)</action>
+                            <action>Create log analysis utilities</action>
+                        </actions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_logging.sh</test_script>
+                        <validation>Verify log rotation and level filtering</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/logging_setup.sh</deliverable>
+                        <deliverable>logrotate configuration</deliverable>
+                    </deliverables>
+                </task>
 
-        <step number="4" priority="low">
-            <title>Добавление функции проверки цветовых переменных</title>
-            <location>
-                <file>modules/common_utils.sh</file>
-                <lines>После строки 467</lines>
-            </location>
-            <action>
-                <description>
-                    Создать утилитарную функцию для проверки определения всех цветовых переменных
-                </description>
-                <new_function>
-# Check if all color variables are properly defined
-check_color_variables() {
-    local required_colors=("RED" "GREEN" "YELLOW" "BLUE" "CYAN" "PURPLE" "WHITE" "BOLD" "NC")
-    local missing_colors=()
+                <task id="T1.4" priority="medium">
+                    <name>Create main installation entry point</name>
+                    <description>Main install.sh script that orchestrates the entire installation</description>
+                    <implementation>
+                        <script>install.sh</script>
+                        <actions>
+                            <action>Command-line argument parsing</action>
+                            <action>Pre-installation system checks</action>
+                            <action>Module loading and validation</action>
+                            <action>Installation progress tracking</action>
+                            <action>Error handling and rollback capability</action>
+                        </actions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_installation.sh</test_script>
+                        <validation>Test dry-run mode and argument validation</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>install.sh main script</deliverable>
+                        <deliverable>Installation documentation</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
 
-    for color in "${required_colors[@]}"; do
-        if [[ -z "${!color:-}" ]]; then
-            missing_colors+=("$color")
-        fi
-    done
-
-    if [[ ${#missing_colors[@]} -gt 0 ]]; then
-        echo "WARNING: Missing color variables: ${missing_colors[*]}" >&2
-        return 1
-    fi
-
-    return 0
-}
-                </new_function>
-            </action>
-        </step>
-    </implementation_steps>
-
-    <compatibility_checks>
-        <check number="1">
-            <title>Проверка совместимости с install.sh</title>
-            <action>
-                Убедиться, что install.sh не определяет цветовые переменные до загрузки common_utils.sh
-            </action>
-            <files>
-                <file>install.sh</file>
-            </files>
-            <command>grep -n "RED\|WHITE\|GREEN" install.sh</command>
-        </check>
-
-        <check number="2">
-            <title>Проверка других модулей проекта</title>
-            <action>
-                Проверить все модули на использование цветовых переменных
-            </action>
-            <files>
-                <file>modules/*.sh</file>
-            </files>
-            <command>grep -r "WHITE\|RED\|GREEN" modules/ --include="*.sh"</command>
-        </check>
-
-        <check number="3">
-            <title>Проверка экспорта переменных</title>
-            <action>
-                Убедиться, что все цветовые переменные правильно экспортируются
-            </action>
-            <location>
-                <file>modules/common_utils.sh</file>
-                <line>510</line>
-            </location>
-            <validation>Проверить строку экспорта цветовых констант</validation>
-        </check>
-    </compatibility_checks>
-
-    <testing_plan>
-        <test number="1" type="syntax">
-            <title>Проверка синтаксиса</title>
-            <command>bash -n modules/common_utils.sh</command>
-            <expected_result>Отсутствие синтаксических ошибок</expected_result>
-        </test>
-
-        <test number="2" type="variable_definition">
-            <title>Проверка определения переменных</title>
-            <command>
-source modules/common_utils.sh && echo "WHITE=${WHITE:-UNDEFINED}"
-            </command>
-            <expected_result>WHITE должна быть определена с корректным значением</expected_result>
-        </test>
-
-        <test number="3" type="function_execution">
-            <title>Тест функции print_header</title>
-            <command>
-source modules/common_utils.sh && print_header "Test Header"
-            </command>
-            <expected_result>Корректный вывод заголовка без ошибок</expected_result>
-        </test>
-
-        <test number="4" type="integration">
-            <title>Тест интеграции с install.sh</title>
-            <command>bash -n install.sh</command>
-            <expected_result>Отсутствие ошибок "unbound variable"</expected_result>
-        </test>
-
-        <test number="5" type="color_compatibility">
-            <title>Тест предопределенных переменных</title>
-            <setup>
-                # Симуляция предопределенной RED
-                export RED='\033[0;31m'
-                source modules/common_utils.sh
-                print_header "Test with predefined RED"
-            </setup>
-            <expected_result>Корректная работа с частично предопределенными переменными</expected_result>
-        </test>
-
-        <test number="6" type="eperm_protection">
-            <title>Проверка EPERM protection</title>
-            <command>
-timeout 10 bash -c "source modules/common_utils.sh && print_header 'EPERM Test'"
-            </command>
-            <expected_result>Корректное завершение без зависания процесса</expected_result>
-        </test>
-    </testing_plan>
-
-    <rollback_plan>
-        <backup>
-            <action>Создать резервную копию перед изменениями</action>
-            <command>cp modules/common_utils.sh modules/common_utils.sh.backup.$(date +%Y%m%d_%H%M%S)</command>
-        </backup>
-        <restore>
-            <action>В случае проблем восстановить из резервной копии</action>
-            <command>cp modules/common_utils.sh.backup.* modules/common_utils.sh</command>
-        </restore>
-        <verification>
-            <action>Проверить работоспособность после восстановления</action>
-            <command>bash -n modules/common_utils.sh && source modules/common_utils.sh</command>
-        </verification>
-    </rollback_plan>
-
-    <post_implementation>
-        <documentation>
-            <update_files>
-                <file>docs/troubleshooting.md</file>
-                <file>CLAUDE.md</file>
-            </update_files>
-            <add_section>Исправление ошибок цветовых переменных</add_section>
-        </documentation>
-        <monitoring>
-            <action>Добавить проверку в тестовый suite</action>
-            <file>tests/test_common_utils.sh</file>
-            <test_case>test_color_variables_definition</test_case>
-        </monitoring>
-        <best_practices>
-            <rule>Всегда проверять определение переменных перед использованием</rule>
-            <rule>Использовать ${VAR:-default} паттерн для безопасного доступа</rule>
-            <rule>Тестировать совместимость при изменении общих модулей</rule>
-        </best_practices>
-    </post_implementation>
-
-    <success_criteria>
-        <criterion>install.sh запускается без ошибки "WHITE: unbound variable"</criterion>
-        <criterion>Все функции вывода работают корректно</criterion>
-        <criterion>Совместимость с существующими модулями сохранена</criterion>
-        <criterion>Тесты проходят успешно</criterion>
-        <criterion>Не нарушена EPERM protection система</criterion>
-    </success_criteria>
-
-    <risk_assessment>
-        <risk level="low">
-            <description>Изменение может повлиять на другие модули</description>
-            <mitigation>Тщательное тестирование всех модулей перед развертыванием</mitigation>
-        </risk>
-        <risk level="low">
-            <description>Возможны конфликты с предопределенными переменными</description>
-            <mitigation>Использование индивидуальных проверок для каждой переменной</mitigation>
-        </risk>
-        <risk level="minimal">
-            <description>Синтаксические ошибки</description>
-            <mitigation>Проверка bash -n перед применением изменений</mitigation>
-        </risk>
-    </risk_assessment>
-
-    <timeline>
-        <phase name="Preparation" duration="5 min">
-            <task>Создание резервной копии файла</task>
-            <task>Анализ зависимостей</task>
+            <testing_checkpoint>
+                <name>Phase 1 Integration Test</name>
+                <description>Verify all core utilities work together</description>
+                <test_script>tests/test_phase1_integration.sh</test_script>
+                <success_criteria>
+                    <criterion>All utility functions operational</criterion>
+                    <criterion>Logging system captures all levels</criterion>
+                    <criterion>Directory structure created correctly</criterion>
+                    <criterion>No critical errors in logs</criterion>
+                </success_criteria>
+            </testing_checkpoint>
         </phase>
-        <phase name="Implementation" duration="15 min">
-            <task>Изменение логики определения переменных</task>
-            <task>Добавление защитных проверок</task>
-            <task>Обновление функций вывода</task>
+
+        <!-- PHASE 2: Docker Infrastructure -->
+        <phase id="phase2" priority="2">
+            <name>Docker Infrastructure and Containerization</name>
+            <description>Setup Docker environment and Xray containerization</description>
+            <estimated_duration>2-3 days</estimated_duration>
+            <dependencies>phase1</dependencies>
+
+            <milestones>
+                <milestone id="M2.1">Docker installed and configured</milestone>
+                <milestone id="M2.2">Xray container operational</milestone>
+                <milestone id="M2.3">Docker Compose orchestration working</milestone>
+                <milestone id="M2.4">Container networking configured</milestone>
+            </milestones>
+
+            <tasks>
+                <task id="T2.1" priority="high">
+                    <name>Implement Docker installation module</name>
+                    <description>Automated Docker and Docker Compose installation</description>
+                    <implementation>
+                        <script>modules/docker_setup.sh</script>
+                        <functions>
+                            <function>check_docker_installed() - Verify Docker installation</function>
+                            <function>install_docker() - Install Docker from official repository</function>
+                            <function>install_docker_compose() - Install Docker Compose v2</function>
+                            <function>configure_docker_daemon() - Setup Docker daemon configuration</function>
+                            <function>setup_docker_service() - Enable and start Docker service</function>
+                            <function>validate_docker_installation() - Post-install validation</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_docker_installation.sh</test_script>
+                        <validation>Verify Docker and Compose functionality</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/docker_setup.sh</deliverable>
+                        <deliverable>Docker daemon configuration</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T2.2" priority="high">
+                    <name>Create Xray Docker container configuration</name>
+                    <description>Dockerfile and compose configuration for Xray-core</description>
+                    <implementation>
+                        <script>config/docker-compose.yml</script>
+                        <actions>
+                            <action>Create Xray service definition</action>
+                            <action>Configure volume mounts for configs and logs</action>
+                            <action>Setup network configuration</action>
+                            <action>Define restart policies</action>
+                            <action>Configure health checks</action>
+                        </actions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_xray_container.sh</test_script>
+                        <validation>Container starts and responds to health checks</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>config/docker-compose.yml</deliverable>
+                        <deliverable>Xray container health monitoring</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T2.3" priority="high">
+                    <name>Create Xray configuration template</name>
+                    <description>Template for VLESS+Reality configuration</description>
+                    <implementation>
+                        <script>config/xray_config_template.json</script>
+                        <actions>
+                            <action>Define VLESS inbound configuration</action>
+                            <action>Configure Reality settings with TLS</action>
+                            <action>Setup routing rules</action>
+                            <action>Configure logging for Xray</action>
+                            <action>Define fallback mechanisms</action>
+                        </actions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_xray_config.sh</test_script>
+                        <validation>Configuration validates against Xray schema</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>config/xray_config_template.json</deliverable>
+                        <deliverable>Configuration validation script</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T2.4" priority="medium">
+                    <name>Implement container management utilities</name>
+                    <description>Scripts for managing Docker containers lifecycle</description>
+                    <implementation>
+                        <script>modules/container_management.sh</script>
+                        <functions>
+                            <function>start_xray_container() - Start Xray service</function>
+                            <function>stop_xray_container() - Stop Xray service</function>
+                            <function>restart_xray_container() - Restart with config reload</function>
+                            <function>check_container_health() - Health status monitoring</function>
+                            <function>get_container_logs() - Log retrieval and analysis</function>
+                            <function>update_xray_image() - Container image updates</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_container_management.sh</test_script>
+                        <validation>All container lifecycle operations work</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/container_management.sh</deliverable>
+                        <deliverable>Container monitoring dashboard</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+
+            <testing_checkpoint>
+                <name>Phase 2 Integration Test</name>
+                <description>Verify Docker infrastructure and Xray deployment</description>
+                <test_script>tests/test_phase2_integration.sh</test_script>
+                <success_criteria>
+                    <criterion>Docker service running and responsive</criterion>
+                    <criterion>Xray container starts successfully</criterion>
+                    <criterion>Container networking functional</criterion>
+                    <criterion>Configuration validation passes</criterion>
+                    <criterion>Health checks return positive status</criterion>
+                </success_criteria>
+            </testing_checkpoint>
         </phase>
-        <phase name="Testing" duration="10 min">
-            <task>Синтаксическая проверка</task>
-            <task>Функциональное тестирование</task>
-            <task>Интеграционные тесты</task>
+
+        <!-- PHASE 3: User Management System -->
+        <phase id="phase3" priority="3">
+            <name>User Management and Configuration</name>
+            <description>Complete user lifecycle management with QR code generation</description>
+            <estimated_duration>3-4 days</estimated_duration>
+            <dependencies>phase2</dependencies>
+
+            <milestones>
+                <milestone id="M3.1">User CRUD operations implemented</milestone>
+                <milestone id="M3.2">QR code generation working</milestone>
+                <milestone id="M3.3">Client configuration export functional</milestone>
+                <milestone id="M3.4">User database management operational</milestone>
+            </milestones>
+
+            <tasks>
+                <task id="T3.1" priority="high">
+                    <name>Implement user management core module</name>
+                    <description>CRUD operations for VPN users with UUID management</description>
+                    <implementation>
+                        <script>modules/user_management.sh</script>
+                        <functions>
+                            <function>add_user() - Add new user with unique UUID</function>
+                            <function>remove_user() - Remove user and clean configurations</function>
+                            <function>list_users() - Display all users with statistics</function>
+                            <function>get_user_config() - Generate client configuration</function>
+                            <function>update_user() - Modify user settings</function>
+                            <function>validate_user_exists() - User existence validation</function>
+                            <function>generate_user_uuid() - Unique UUID generation</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_user_management.sh</test_script>
+                        <validation>All CRUD operations work correctly</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/user_management.sh</deliverable>
+                        <deliverable>User database schema</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T3.2" priority="high">
+                    <name>Implement QR code generation system</name>
+                    <description>Generate QR codes for easy client configuration import</description>
+                    <implementation>
+                        <script>modules/qr_generator.py</script>
+                        <functions>
+                            <function>generate_qr_code() - Create QR code from config</function>
+                            <function>save_qr_image() - Save QR code as PNG</function>
+                            <function>display_qr_terminal() - ASCII QR code for terminal</function>
+                            <function>validate_config_url() - Validate VLESS URL format</function>
+                        </functions>
+                        <dependencies>
+                            <dependency>python3-qrcode</dependency>
+                            <dependency>python3-pillow</dependency>
+                        </dependencies>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_qr_generation.py</test_script>
+                        <validation>QR codes scan correctly in VPN clients</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/qr_generator.py</deliverable>
+                        <deliverable>QR code templates</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T3.3" priority="medium">
+                    <name>Create user configuration templates</name>
+                    <description>Templates for different VPN client applications</description>
+                    <implementation>
+                        <script>modules/config_templates.sh</script>
+                        <actions>
+                            <action>Create VLESS URL format template</action>
+                            <action>Generate V2Ray client config JSON</action>
+                            <action>Create Xray client configuration</action>
+                            <action>Generate mobile client configs</action>
+                            <action>Export configurations in multiple formats</action>
+                        </actions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_config_templates.sh</test_script>
+                        <validation>All generated configs validate and work</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/config_templates.sh</deliverable>
+                        <deliverable>Client configuration examples</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T3.4" priority="medium">
+                    <name>Implement user database management</name>
+                    <description>Persistent storage and management of user data</description>
+                    <implementation>
+                        <script>modules/user_database.sh</script>
+                        <functions>
+                            <function>init_user_database() - Initialize user storage</function>
+                            <function>backup_user_database() - Backup user data</function>
+                            <function>restore_user_database() - Restore from backup</function>
+                            <function>export_users() - Export user list</function>
+                            <function>import_users() - Import user list</function>
+                            <function>cleanup_orphaned_users() - Clean unused entries</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_user_database.sh</test_script>
+                        <validation>Data persistence and backup/restore works</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/user_database.sh</deliverable>
+                        <deliverable>Database backup procedures</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+
+            <testing_checkpoint>
+                <name>Phase 3 Integration Test</name>
+                <description>End-to-end user management workflow testing</description>
+                <test_script>tests/test_phase3_integration.sh</test_script>
+                <success_criteria>
+                    <criterion>Users can be added, modified, and removed</criterion>
+                    <criterion>QR codes generate and scan correctly</criterion>
+                    <criterion>Client configurations are valid</criterion>
+                    <criterion>User database operations are reliable</criterion>
+                    <criterion>Configuration updates propagate to Xray</criterion>
+                </success_criteria>
+            </testing_checkpoint>
         </phase>
-    </timeline>
-</plan>
+
+        <!-- PHASE 4: Security and Firewall -->
+        <phase id="phase4" priority="4">
+            <name>Security Hardening and Firewall Configuration</name>
+            <description>Implement comprehensive security measures and UFW configuration</description>
+            <estimated_duration>2-3 days</estimated_duration>
+            <dependencies>phase3</dependencies>
+
+            <milestones>
+                <milestone id="M4.1">UFW rules properly configured</milestone>
+                <milestone id="M4.2">SSH hardening implemented</milestone>
+                <milestone id="M4.3">System security baseline established</milestone>
+                <milestone id="M4.4">Security monitoring operational</milestone>
+            </milestones>
+
+            <tasks>
+                <task id="T4.1" priority="high">
+                    <name>Implement UFW firewall management</name>
+                    <description>Safe UFW configuration preserving existing rules</description>
+                    <implementation>
+                        <script>modules/ufw_config.sh</script>
+                        <functions>
+                            <function>backup_existing_ufw_rules() - Backup current UFW state</function>
+                            <function>analyze_existing_rules() - Analyze current rules</function>
+                            <function>add_vless_rules() - Add VPN-specific rules</function>
+                            <function>configure_default_policies() - Set secure defaults</function>
+                            <function>validate_ufw_config() - Validate configuration</function>
+                            <function>rollback_ufw_changes() - Emergency rollback</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_ufw_config.sh</test_script>
+                        <validation>UFW rules work without breaking existing access</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/ufw_config.sh</deliverable>
+                        <deliverable>UFW backup and restore procedures</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T4.2" priority="high">
+                    <name>Implement SSH hardening</name>
+                    <description>Secure SSH configuration with key-based authentication</description>
+                    <implementation>
+                        <script>modules/ssh_hardening.sh</script>
+                        <functions>
+                            <function>backup_ssh_config() - Backup SSH configuration</function>
+                            <function>disable_password_auth() - Enforce key-based auth</function>
+                            <function>configure_ssh_port() - Change default SSH port</function>
+                            <function>setup_fail2ban() - Install and configure fail2ban</function>
+                            <function>configure_ssh_keys() - Manage authorized keys</function>
+                            <function>validate_ssh_security() - Verify SSH hardening</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_ssh_hardening.sh</test_script>
+                        <validation>SSH access remains functional but secure</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/ssh_hardening.sh</deliverable>
+                        <deliverable>SSH security documentation</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T4.3" priority="medium">
+                    <name>Implement security monitoring</name>
+                    <description>Monitor system security and detect threats</description>
+                    <implementation>
+                        <script>modules/security_monitoring.sh</script>
+                        <functions>
+                            <function>monitor_failed_logins() - Track login failures</function>
+                            <function>check_open_ports() - Monitor port status</function>
+                            <function>analyze_network_traffic() - Basic traffic analysis</function>
+                            <function>detect_brute_force() - Brute force detection</function>
+                            <function>generate_security_report() - Daily security reports</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_security_monitoring.sh</test_script>
+                        <validation>Security alerts work correctly</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/security_monitoring.sh</deliverable>
+                        <deliverable>Security monitoring dashboard</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T4.4" priority="medium">
+                    <name>Implement certificate management</name>
+                    <description>Manage TLS certificates for Reality protocol</description>
+                    <implementation>
+                        <script>modules/cert_management.sh</script>
+                        <functions>
+                            <function>generate_self_signed_cert() - Generate certificates</function>
+                            <function>validate_cert_expiry() - Check certificate validity</function>
+                            <function>renew_certificates() - Automatic renewal</function>
+                            <function>backup_certificates() - Certificate backup</function>
+                            <function>install_cert_monitoring() - Monitor cert expiry</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_cert_management.sh</test_script>
+                        <validation>Certificate operations work correctly</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/cert_management.sh</deliverable>
+                        <deliverable>Certificate renewal automation</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+
+            <testing_checkpoint>
+                <name>Phase 4 Security Test</name>
+                <description>Comprehensive security validation</description>
+                <test_script>tests/test_phase4_security.sh</test_script>
+                <success_criteria>
+                    <criterion>UFW properly configured and functional</criterion>
+                    <criterion>SSH hardening doesn't break access</criterion>
+                    <criterion>Security monitoring detects test threats</criterion>
+                    <criterion>Certificate management works correctly</criterion>
+                    <criterion>System passes security baseline checks</criterion>
+                </success_criteria>
+            </testing_checkpoint>
+        </phase>
+
+        <!-- PHASE 5: Advanced Features and Integration -->
+        <phase id="phase5" priority="5">
+            <name>Advanced Features and Telegram Integration</name>
+            <description>Implement backup/restore, monitoring, and Telegram bot</description>
+            <estimated_duration>4-5 days</estimated_duration>
+            <dependencies>phase4</dependencies>
+
+            <milestones>
+                <milestone id="M5.1">Backup and restore system operational</milestone>
+                <milestone id="M5.2">System monitoring implemented</milestone>
+                <milestone id="M5.3">Telegram bot fully functional</milestone>
+                <milestone id="M5.4">Automated maintenance procedures ready</milestone>
+            </milestones>
+
+            <tasks>
+                <task id="T5.1" priority="high">
+                    <name>Implement backup and restore system</name>
+                    <description>Comprehensive backup solution for all system components</description>
+                    <implementation>
+                        <script>modules/backup_restore.sh</script>
+                        <functions>
+                            <function>create_full_backup() - Complete system backup</function>
+                            <function>create_config_backup() - Configuration-only backup</function>
+                            <function>restore_from_backup() - Restore system state</function>
+                            <function>schedule_automatic_backups() - Setup cron jobs</function>
+                            <function>cleanup_old_backups() - Maintain backup retention</function>
+                            <function>validate_backup_integrity() - Backup validation</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_backup_restore.sh</test_script>
+                        <validation>Backup and restore operations preserve system state</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/backup_restore.sh</deliverable>
+                        <deliverable>Automated backup scheduling</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T5.2" priority="high">
+                    <name>Implement system monitoring</name>
+                    <description>Monitor system performance and VPN service health</description>
+                    <implementation>
+                        <script>modules/monitoring.sh</script>
+                        <functions>
+                            <function>monitor_system_resources() - CPU, RAM, disk usage</function>
+                            <function>monitor_vpn_connections() - Active connections</function>
+                            <function>monitor_network_performance() - Bandwidth and latency</function>
+                            <function>generate_status_report() - System health report</function>
+                            <function>setup_alerts() - Configure alert thresholds</function>
+                            <function>log_performance_metrics() - Performance logging</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_monitoring.sh</test_script>
+                        <validation>Monitoring accurately tracks system metrics</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/monitoring.sh</deliverable>
+                        <deliverable>Performance monitoring dashboard</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T5.3" priority="high">
+                    <name>Develop Telegram bot interface</name>
+                    <description>Complete Telegram bot for remote VPN management</description>
+                    <implementation>
+                        <script>modules/telegram_bot.py</script>
+                        <functions>
+                            <function>setup_bot_authentication() - Secure bot access</function>
+                            <function>handle_user_management() - Add/remove users via bot</function>
+                            <function>send_qr_codes() - Send QR codes through Telegram</function>
+                            <function>system_status_command() - Get system status</function>
+                            <function>backup_command() - Trigger backups</function>
+                            <function>log_monitoring() - View system logs</function>
+                            <function>security_alerts() - Send security notifications</function>
+                        </functions>
+                        <dependencies>
+                            <dependency>python3-telegram-bot</dependency>
+                            <dependency>python3-requests</dependency>
+                        </dependencies>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_telegram_bot.py</test_script>
+                        <validation>All bot commands work correctly and securely</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/telegram_bot.py</deliverable>
+                        <deliverable>Bot deployment configuration</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T5.4" priority="medium">
+                    <name>Implement maintenance utilities</name>
+                    <description>Automated maintenance and update procedures</description>
+                    <implementation>
+                        <script>modules/maintenance_utils.sh</script>
+                        <functions>
+                            <function>update_system_packages() - System updates</function>
+                            <function>update_xray_core() - Xray version updates</function>
+                            <function>cleanup_logs() - Log cleanup and rotation</function>
+                            <function>optimize_system() - Performance optimization</function>
+                            <function>check_system_health() - Health diagnostics</function>
+                            <function>schedule_maintenance() - Automated maintenance</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_maintenance.sh</test_script>
+                        <validation>Maintenance operations complete successfully</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/maintenance_utils.sh</deliverable>
+                        <deliverable>Maintenance scheduling configuration</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="T5.5" priority="medium">
+                    <name>Create system update mechanism</name>
+                    <description>Safe system updates with rollback capability</description>
+                    <implementation>
+                        <script>modules/system_update.sh</script>
+                        <functions>
+                            <function>check_for_updates() - Check for available updates</function>
+                            <function>prepare_update() - Pre-update preparations</function>
+                            <function>apply_updates() - Apply system updates safely</function>
+                            <function>rollback_update() - Rollback failed updates</function>
+                            <function>validate_update() - Post-update validation</function>
+                            <function>schedule_updates() - Automated update scheduling</function>
+                        </functions>
+                    </implementation>
+                    <testing>
+                        <test_script>tests/test_system_update.sh</test_script>
+                        <validation>Updates apply safely with rollback capability</validation>
+                    </testing>
+                    <deliverables>
+                        <deliverable>modules/system_update.sh</deliverable>
+                        <deliverable>Update rollback procedures</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+
+            <testing_checkpoint>
+                <name>Phase 5 Integration Test</name>
+                <description>Full system integration and functionality test</description>
+                <test_script>tests/test_phase5_integration.sh</test_script>
+                <success_criteria>
+                    <criterion>Backup and restore preserves full system state</criterion>
+                    <criterion>Monitoring accurately tracks all metrics</criterion>
+                    <criterion>Telegram bot responds to all commands</criterion>
+                    <criterion>Maintenance procedures complete successfully</criterion>
+                    <criterion>System updates work with rollback capability</criterion>
+                </success_criteria>
+            </testing_checkpoint>
+        </phase>
+    </implementation_phases>
+
+    <!-- SYSTEM TESTING AND VALIDATION -->
+    <system_testing>
+        <test_environments>
+            <environment name="Ubuntu 20.04 LTS">
+                <description>Primary testing environment</description>
+                <requirements>Fresh installation, root access, internet connectivity</requirements>
+            </environment>
+            <environment name="Ubuntu 22.04 LTS">
+                <description>Latest LTS testing</description>
+                <requirements>Fresh installation, root access, internet connectivity</requirements>
+            </environment>
+            <environment name="Debian 11">
+                <description>Alternative distribution testing</description>
+                <requirements>Fresh installation, root access, internet connectivity</requirements>
+            </environment>
+        </test_environments>
+
+        <test_scenarios>
+            <scenario id="S1">
+                <name>Clean Installation Test</name>
+                <description>Install system on fresh server</description>
+                <steps>
+                    <step>Run install.sh on clean system</step>
+                    <step>Verify all services start correctly</step>
+                    <step>Add test user and generate QR code</step>
+                    <step>Test VPN connection from client</step>
+                    <step>Verify all logs are clean</step>
+                </steps>
+                <expected_result>Fully functional VPN system</expected_result>
+            </scenario>
+
+            <scenario id="S2">
+                <name>User Management Workflow</name>
+                <description>Complete user lifecycle management</description>
+                <steps>
+                    <step>Add multiple users with different settings</step>
+                    <step>Generate QR codes for all users</step>
+                    <step>Test simultaneous connections</step>
+                    <step>Remove users and verify cleanup</step>
+                    <step>Verify configurations are updated</step>
+                </steps>
+                <expected_result>All user operations work correctly</expected_result>
+            </scenario>
+
+            <scenario id="S3">
+                <name>Security and Firewall Test</name>
+                <description>Validate security measures</description>
+                <steps>
+                    <step>Verify UFW rules are correctly applied</step>
+                    <step>Test SSH hardening doesn't break access</step>
+                    <step>Simulate security threats</step>
+                    <step>Verify security monitoring detects issues</step>
+                    <step>Test fail2ban functionality</step>
+                </steps>
+                <expected_result>System is secure but accessible</expected_result>
+            </scenario>
+
+            <scenario id="S4">
+                <name>Backup and Recovery Test</name>
+                <description>Validate backup and restore functionality</description>
+                <steps>
+                    <step>Create full system backup</step>
+                    <step>Make changes to system and users</step>
+                    <step>Restore from backup</step>
+                    <step>Verify system state matches backup</step>
+                    <step>Test automated backup scheduling</step>
+                </steps>
+                <expected_result>Perfect backup and restore capability</expected_result>
+            </scenario>
+
+            <scenario id="S5">
+                <name>Telegram Bot Integration Test</name>
+                <description>Validate Telegram bot functionality</description>
+                <steps>
+                    <step>Configure and start Telegram bot</step>
+                    <step>Test all bot commands</step>
+                    <step>Add/remove users via bot</step>
+                    <step>Receive QR codes through Telegram</step>
+                    <step>Monitor system status via bot</step>
+                </steps>
+                <expected_result>Full remote management capability</expected_result>
+            </scenario>
+
+            <scenario id="S6">
+                <name>System Update and Maintenance</name>
+                <description>Validate update and maintenance procedures</description>
+                <steps>
+                    <step>Trigger system updates</step>
+                    <step>Verify services remain functional</step>
+                    <step>Test rollback functionality</step>
+                    <step>Run maintenance procedures</step>
+                    <step>Verify log cleanup and optimization</step>
+                </steps>
+                <expected_result>System maintains functionality through updates</expected_result>
+            </scenario>
+        </test_scenarios>
+
+        <performance_tests>
+            <test name="Connection Capacity">
+                <description>Test maximum concurrent connections</description>
+                <target>Support 100+ concurrent users</target>
+            </test>
+            <test name="Throughput Test">
+                <description>Measure VPN throughput performance</description>
+                <target>Maintain 80% of base network speed</target>
+            </test>
+            <test name="Resource Usage">
+                <description>Monitor system resource consumption</description>
+                <target>Stay under 70% CPU and RAM usage</target>
+            </test>
+        </performance_tests>
+    </system_testing>
+
+    <!-- DEPLOYMENT AND DELIVERY -->
+    <deployment_strategy>
+        <deployment_phases>
+            <phase name="Development Environment">
+                <description>Local development and initial testing</description>
+                <requirements>
+                    <requirement>Ubuntu VM or container</requirement>
+                    <requirement>Root access for testing</requirement>
+                    <requirement>Network access for Docker pulls</requirement>
+                </requirements>
+            </phase>
+
+            <phase name="Staging Environment">
+                <description>Pre-production testing on target hardware</description>
+                <requirements>
+                    <requirement>Production-like server setup</requirement>
+                    <requirement>Full integration testing</requirement>
+                    <requirement>Performance benchmarking</requirement>
+                </requirements>
+            </phase>
+
+            <phase name="Production Deployment">
+                <description>Final deployment with monitoring</description>
+                <requirements>
+                    <requirement>Production server ready</requirement>
+                    <requirement>Backup procedures in place</requirement>
+                    <requirement>Monitoring systems active</requirement>
+                </requirements>
+            </phase>
+        </deployment_phases>
+
+        <delivery_checklist>
+            <item>All modules tested and validated</item>
+            <item>Documentation complete and reviewed</item>
+            <item>Installation procedures verified</item>
+            <item>Security measures implemented and tested</item>
+            <item>Backup and recovery procedures tested</item>
+            <item>Monitoring and alerting configured</item>
+            <item>Performance benchmarks met</item>
+            <item>User training materials prepared</item>
+        </delivery_checklist>
+    </deployment_strategy>
+
+    <!-- PROJECT MANAGEMENT -->
+    <project_management>
+        <timeline>
+            <week number="1">
+                <focus>Phase 1 - Foundation (T1.1-T1.4)</focus>
+                <deliverables>Core utilities, logging, project structure</deliverables>
+            </week>
+            <week number="2">
+                <focus>Phase 2 - Docker Infrastructure (T2.1-T2.4)</focus>
+                <deliverables>Docker setup, Xray container, networking</deliverables>
+            </week>
+            <week number="3">
+                <focus>Phase 3 - User Management (T3.1-T3.4)</focus>
+                <deliverables>User CRUD, QR generation, configuration templates</deliverables>
+            </week>
+            <week number="4">
+                <focus>Phase 4 - Security (T4.1-T4.4)</focus>
+                <deliverables>UFW config, SSH hardening, monitoring</deliverables>
+            </week>
+            <week number="5">
+                <focus>Phase 5 - Advanced Features (T5.1-T5.3)</focus>
+                <deliverables>Backup system, monitoring, Telegram bot</deliverables>
+            </week>
+            <week number="6">
+                <focus>System Testing and Documentation</focus>
+                <deliverables>Complete testing, documentation, deployment</deliverables>
+            </week>
+        </timeline>
+
+        <risk_management>
+            <risk id="R1">
+                <description>Docker installation failures on different distributions</description>
+                <mitigation>Test on multiple Linux distributions, provide manual installation steps</mitigation>
+                <contingency>Alternative installation methods for Docker</contingency>
+            </risk>
+            <risk id="R2">
+                <description>UFW configuration conflicts with existing rules</description>
+                <mitigation>Comprehensive backup and validation before changes</mitigation>
+                <contingency>Rollback procedures and emergency access methods</contingency>
+            </risk>
+            <risk id="R3">
+                <description>Xray configuration incompatibilities</description>
+                <mitigation>Use stable Xray versions, extensive configuration testing</mitigation>
+                <contingency>Fallback to known working configurations</contingency>
+            </risk>
+            <risk id="R4">
+                <description>Performance issues with concurrent users</description>
+                <mitigation>Load testing and optimization during development</mitigation>
+                <contingency>Resource scaling recommendations and optimization guides</contingency>
+            </risk>
+        </risk_management>
+
+        <quality_assurance>
+            <code_standards>
+                <standard>Bash scripts follow POSIX compliance where possible</standard>
+                <standard>All functions have error handling and logging</standard>
+                <standard>Python code follows PEP 8 style guidelines</standard>
+                <standard>All scripts include comprehensive documentation</standard>
+            </code_standards>
+
+            <testing_standards>
+                <standard>Unit tests for all utility functions</standard>
+                <standard>Integration tests for each phase</standard>
+                <standard>End-to-end system testing</standard>
+                <standard>Performance and security testing</standard>
+            </testing_standards>
+
+            <review_process>
+                <step>Code review for all modules</step>
+                <step>Security review for all components</step>
+                <step>Documentation review and validation</step>
+                <step>User acceptance testing</step>
+            </review_process>
+        </quality_assurance>
+    </project_management>
+
+    <!-- SUCCESS METRICS -->
+    <success_metrics>
+        <technical_metrics>
+            <metric name="Installation Success Rate">
+                <target>95% success on supported distributions</target>
+                <measurement>Automated installation testing</measurement>
+            </metric>
+            <metric name="System Uptime">
+                <target>99.9% uptime after installation</target>
+                <measurement>Continuous monitoring</measurement>
+            </metric>
+            <metric name="Performance Impact">
+                <target>Less than 20% performance overhead</target>
+                <measurement>Benchmark comparisons</measurement>
+            </metric>
+            <metric name="Security Compliance">
+                <target>Pass all security baseline checks</target>
+                <measurement>Automated security scanning</measurement>
+            </metric>
+        </technical_metrics>
+
+        <functional_metrics>
+            <metric name="User Management">
+                <target>All user operations complete in under 30 seconds</target>
+                <measurement>Automated timing tests</measurement>
+            </metric>
+            <metric name="Backup and Restore">
+                <target>Full system restore in under 10 minutes</target>
+                <measurement>Timed restore operations</measurement>
+            </metric>
+            <metric name="Telegram Bot Response">
+                <target>All commands respond in under 5 seconds</target>
+                <measurement>Bot response time monitoring</measurement>
+            </metric>
+        </functional_metrics>
+
+        <user_experience_metrics>
+            <metric name="Installation Complexity">
+                <target>Single command installation</target>
+                <measurement>User testing feedback</measurement>
+            </metric>
+            <metric name="Documentation Quality">
+                <target>Complete documentation for all features</target>
+                <measurement>Documentation coverage analysis</measurement>
+            </metric>
+            <metric name="Error Recovery">
+                <target>Clear error messages and recovery procedures</target>
+                <measurement>Error handling testing</measurement>
+            </metric>
+        </user_experience_metrics>
+    </success_metrics>
+</implementation_plan>

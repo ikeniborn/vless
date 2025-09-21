@@ -1,645 +1,578 @@
 #!/bin/bash
-# Phase 4 Integration Module for VLESS VPN Project
-# Integration of security, logging, monitoring and maintenance modules
-# Author: Claude Code
+
+# Phase 4 Integration Module for VLESS+Reality VPN
+# This module orchestrates all Phase 4 security components:
+# UFW firewall, security hardening, certificate management, and monitoring
 # Version: 1.0
 
 set -euo pipefail
 
-# Get script directory
+# Import common utilities and process isolation
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Load common utilities
-source "${SCRIPT_DIR}/common_utils.sh"
-
-# Integration configuration
-readonly INTEGRATION_LOG="/var/log/vless/phase4-integration.log"
-readonly INTEGRATION_STATE_FILE="/opt/vless/phase4_installed"
-readonly SYSTEMD_SERVICE_PATH="/etc/systemd/system/vless-vpn.service"
-
-# Log integration events
-log_integration() {
-    local level="$1"
-    local message="$2"
-    local timestamp=$(get_timestamp)
-
-    echo "[$timestamp] [$level] $message" | tee -a "$INTEGRATION_LOG"
+source "${SCRIPT_DIR}/common_utils.sh" 2>/dev/null || {
+    echo "Error: Cannot find common_utils.sh"
+    exit 1
 }
 
-# Check prerequisites
-check_prerequisites() {
-    print_header "Checking Phase 4 Prerequisites"
+# Import process isolation module
+source "${SCRIPT_DIR}/process_isolation/process_safe.sh" 2>/dev/null || {
+    log_warn "Process isolation module not found, using standard execution"
+}
+
+# Setup signal handlers if process isolation is available
+if command -v setup_signal_handlers >/dev/null 2>&1; then
+    setup_signal_handlers
+fi
+
+# Phase 4 modules
+readonly UFW_MODULE="${SCRIPT_DIR}/ufw_config.sh"
+readonly SECURITY_MODULE="${SCRIPT_DIR}/security_hardening.sh"
+readonly CERT_MODULE="${SCRIPT_DIR}/cert_management.sh"
+readonly MONITORING_MODULE="${SCRIPT_DIR}/monitoring.sh"
+
+# Configuration
+readonly PHASE4_LOG="/opt/vless/logs/phase4_integration.log"
+readonly PHASE4_CONFIG="/opt/vless/config/phase4.conf"
+
+# Phase 4 installation log
+phase4_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] PHASE4: $*" | tee -a "$PHASE4_LOG"
+}
+
+# Check if all Phase 4 modules exist
+check_phase4_modules() {
+    log_info "Checking Phase 4 modules"
+
+    local modules=(
+        "$UFW_MODULE"
+        "$SECURITY_MODULE"
+        "$CERT_MODULE"
+        "$MONITORING_MODULE"
+    )
 
     local missing_modules=()
 
-    # Check for required modules
-    local required_modules=(
-        "security_hardening.sh"
-        "logging_setup.sh"
-        "monitoring.sh"
-        "maintenance_utils.sh"
-    )
-
-    for module in "${required_modules[@]}"; do
-        if [[ ! -f "$SCRIPT_DIR/$module" ]]; then
-            missing_modules+=("$module")
+    for module in "${modules[@]}"; do
+        if [[ ! -f "$module" ]]; then
+            missing_modules+=("$(basename "$module")")
+        elif [[ ! -x "$module" ]]; then
+            chmod +x "$module"
         fi
     done
 
     if [[ ${#missing_modules[@]} -gt 0 ]]; then
-        print_error "Missing required modules: ${missing_modules[*]}"
+        log_error "Missing Phase 4 modules: ${missing_modules[*]}"
         return 1
     fi
 
-    # Check for existing installation
-    if [[ ! -f "/opt/vless/docker-compose.yml" ]]; then
-        print_error "VLESS base installation not found. Please run the main installation first."
-        return 1
-    fi
-
-    # Check if Docker is running
-    if ! systemctl is-active --quiet docker; then
-        print_error "Docker is not running. Please start Docker first."
-        return 1
-    fi
-
-    print_success "All prerequisites satisfied"
+    log_info "All Phase 4 modules found"
     return 0
 }
 
-# Install Phase 4 components
-install_phase4() {
-    print_header "Installing VLESS Phase 4 Components"
+# Create Phase 4 configuration directory
+create_phase4_config() {
+    log_info "Creating Phase 4 configuration"
 
-    log_integration "INFO" "Starting Phase 4 installation"
+    mkdir -p "$(dirname "$PHASE4_CONFIG")"
+    mkdir -p "$(dirname "$PHASE4_LOG")"
 
-    # Check prerequisites
-    if ! check_prerequisites; then
-        log_integration "ERROR" "Prerequisites check failed"
-        return 1
-    fi
+    cat > "$PHASE4_CONFIG" << EOF
+# VLESS VPN Phase 4 Security Configuration
+# Generated: $(date)
 
-    # Create necessary directories
-    ensure_directory "/var/log/vless" "755" "syslog"
-    ensure_directory "/opt/vless/phase4" "755" "root"
+[ufw]
+enabled=true
+default_deny_incoming=true
+default_allow_outgoing=true
+vless_ports=443
+ssh_ports=22,2222
 
-    # Install components in order
-    install_logging_system
-    install_security_hardening
-    install_monitoring_system
-    install_systemd_service
-    configure_maintenance_tools
+[security]
+ssh_hardening=true
+fail2ban=true
+auto_updates=true
+security_monitoring=true
 
-    # Mark installation as complete
-    echo "$(get_timestamp)" > "$INTEGRATION_STATE_FILE"
+[certificates]
+domain=vless.local
+validity_days=365
+auto_renewal=true
+monitoring=true
 
-    print_success "Phase 4 installation completed successfully"
-    log_integration "INFO" "Phase 4 installation completed successfully"
-}
+[monitoring]
+enabled=true
+cpu_threshold=80
+memory_threshold=85
+disk_threshold=90
+alerts=true
+reports=true
 
-# Install logging system
-install_logging_system() {
-    print_section "Installing Logging System"
-
-    # Source and run logging setup
-    source "$SCRIPT_DIR/logging_setup.sh"
-
-    if setup_logging; then
-        print_success "Logging system installed successfully"
-        log_integration "INFO" "Logging system installed"
-    else
-        print_error "Failed to install logging system"
-        log_integration "ERROR" "Logging system installation failed"
-        return 1
-    fi
-}
-
-# Install security hardening
-install_security_hardening() {
-    print_section "Installing Security Hardening"
-
-    # Source and run security hardening
-    source "$SCRIPT_DIR/security_hardening.sh"
-
-    if apply_security_hardening; then
-        print_success "Security hardening applied successfully"
-        log_integration "INFO" "Security hardening applied"
-    else
-        print_error "Failed to apply security hardening"
-        log_integration "ERROR" "Security hardening failed"
-        return 1
-    fi
-}
-
-# Install monitoring system
-install_monitoring_system() {
-    print_section "Installing Monitoring System"
-
-    # Source and run monitoring setup
-    source "$SCRIPT_DIR/monitoring.sh"
-
-    if setup_monitoring; then
-        print_success "Monitoring system installed successfully"
-        log_integration "INFO" "Monitoring system installed"
-    else
-        print_error "Failed to install monitoring system"
-        log_integration "ERROR" "Monitoring system installation failed"
-        return 1
-    fi
-}
-
-# Install systemd service
-install_systemd_service() {
-    print_section "Installing SystemD Service"
-
-    local service_file="$SCRIPT_DIR/../config/vless-vpn.service"
-
-    if [[ ! -f "$service_file" ]]; then
-        print_error "SystemD service file not found: $service_file"
-        return 1
-    fi
-
-    # Copy service file
-    sudo cp "$service_file" "$SYSTEMD_SERVICE_PATH"
-
-    # Update service file with correct paths
-    sudo sed -i "s|/opt/vless|/opt/vless|g" "$SYSTEMD_SERVICE_PATH"
-    sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=/opt/vless|g" "$SYSTEMD_SERVICE_PATH"
-
-    # Reload systemd and enable service
-    sudo systemctl daemon-reload
-    sudo systemctl enable vless-vpn.service
-
-    print_success "SystemD service installed and enabled"
-    log_integration "INFO" "SystemD service installed"
-}
-
-# Configure maintenance tools
-configure_maintenance_tools() {
-    print_section "Configuring Maintenance Tools"
-
-    # Create maintenance script wrapper
-    sudo tee "/usr/local/bin/vless-maintenance" > /dev/null << EOF
-#!/bin/bash
-# VLESS Maintenance Script Wrapper
-
-MAINTENANCE_SCRIPT="/opt/vless/modules/maintenance_utils.sh"
-
-if [[ -f "\$MAINTENANCE_SCRIPT" ]]; then
-    bash "\$MAINTENANCE_SCRIPT" "\$@"
-else
-    echo "Maintenance script not found: \$MAINTENANCE_SCRIPT"
-    exit 1
-fi
+[integration]
+phase4_completed=false
+installation_date=
+last_update=
 EOF
 
-    sudo chmod +x "/usr/local/bin/vless-maintenance"
-
-    # Create daily maintenance cron job
-    sudo tee "/etc/cron.d/vless-daily-maintenance" > /dev/null << 'EOF'
-# VLESS Daily Maintenance
-# Run daily cleanup and checks at 3 AM
-
-0 3 * * * root /usr/local/bin/vless-maintenance cleanup >/dev/null 2>&1
-EOF
-
-    print_success "Maintenance tools configured"
-    log_integration "INFO" "Maintenance tools configured"
+    log_info "Phase 4 configuration created: $PHASE4_CONFIG"
 }
 
-# Update existing configurations
-update_configurations() {
-    print_section "Updating Existing Configurations"
+# Execute UFW configuration
+configure_firewall() {
+    log_info "Phase 4.1: Configuring UFW Firewall"
+    phase4_log "Starting UFW firewall configuration"
 
-    # Update docker-compose.yml with logging configuration
-    update_docker_compose_logging
-
-    # Update Telegram bot with new commands
-    update_telegram_bot_commands
-
-    # Update Xray configuration for logging
-    update_xray_logging_config
-
-    print_success "Configurations updated"
-    log_integration "INFO" "Existing configurations updated"
-}
-
-# Update docker-compose.yml for logging
-update_docker_compose_logging() {
-    local compose_file="/opt/vless/docker-compose.yml"
-
-    if [[ ! -f "$compose_file" ]]; then
-        print_warning "Docker Compose file not found: $compose_file"
+    if [[ ! -f "$UFW_MODULE" ]]; then
+        log_error "UFW module not found: $UFW_MODULE"
         return 1
     fi
 
-    # Backup original file
-    backup_file "$compose_file"
-
-    # Check if logging configuration already exists
-    if grep -q "logging:" "$compose_file"; then
-        print_info "Logging configuration already exists in docker-compose.yml"
-        return 0
-    fi
-
-    # Add logging configuration to services
-    local temp_file=$(mktemp)
-
-    awk '
-    /^  [a-zA-Z].*:$/ {
-        service_name = $1
-        gsub(":", "", service_name)
-        print $0
-        in_service = 1
-        next
-    }
-    /^[[:space:]]*$/ {
-        if (in_service && !logging_added) {
-            print "    logging:"
-            print "      driver: \"syslog\""
-            print "      options:"
-            print "        syslog-address: \"unixgram:///dev/log\""
-            print "        tag: \"vless-" service_name "\""
-            logging_added = 1
-        }
-        in_service = 0
-        logging_added = 0
-    }
-    /^[^[:space:]]/ {
-        if (in_service && !logging_added) {
-            print "    logging:"
-            print "      driver: \"syslog\""
-            print "      options:"
-            print "        syslog-address: \"unixgram:///dev/log\""
-            print "        tag: \"vless-" service_name "\""
-            logging_added = 1
-        }
-        in_service = 0
-        logging_added = 0
-    }
-    { print }
-    ' "$compose_file" > "$temp_file"
-
-    mv "$temp_file" "$compose_file"
-
-    print_success "Docker Compose logging configuration updated"
-}
-
-# Update Telegram bot with new commands
-update_telegram_bot_commands() {
-    local bot_file="/opt/vless/modules/telegram_bot.py"
-
-    if [[ ! -f "$bot_file" ]]; then
-        print_warning "Telegram bot file not found: $bot_file"
+    # Run UFW configuration
+    if "$UFW_MODULE" configure; then
+        phase4_log "UFW firewall configured successfully"
+        log_info "✓ UFW firewall configuration completed"
+    else
+        phase4_log "UFW firewall configuration failed"
+        log_error "UFW firewall configuration failed"
         return 1
     fi
 
-    # Check if Phase 4 commands already exist
-    if grep -q "security_status" "$bot_file"; then
-        print_info "Phase 4 commands already exist in Telegram bot"
-        return 0
-    fi
-
-    # Backup bot file
-    backup_file "$bot_file"
-
-    # Add new command handlers
-    cat >> "$bot_file" << 'EOF'
-
-# Phase 4 Commands
-
-async def security_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show security status"""
-    if not await check_admin(update):
-        return
-
-    try:
-        # Run security status check
-        result = subprocess.run(
-            ['/opt/vless/modules/security_hardening.sh', 'status'],
-            capture_output=True, text=True, timeout=30
-        )
-
-        status_text = f"🔒 Security Status:\n\n{result.stdout}"
-        await update.message.reply_text(status_text, parse_mode='HTML')
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error checking security status: {str(e)}")
-
-async def monitoring_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show monitoring status"""
-    if not await check_admin(update):
-        return
-
-    try:
-        # Run monitoring status check
-        result = subprocess.run(
-            ['/opt/vless/modules/monitoring.sh', 'status'],
-            capture_output=True, text=True, timeout=30
-        )
-
-        status_text = f"📊 Monitoring Status:\n\n{result.stdout}"
-        await update.message.reply_text(status_text, parse_mode='HTML')
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error checking monitoring status: {str(e)}")
-
-async def maintenance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show maintenance options"""
-    if not await check_admin(update):
-        return
-
-    keyboard = [
-        [InlineKeyboardButton("🧹 Clean Temp Files", callback_data='maint_cleanup')],
-        [InlineKeyboardButton("📋 System Report", callback_data='maint_report')],
-        [InlineKeyboardButton("🔍 Validate Configs", callback_data='maint_validate')],
-        [InlineKeyboardButton("👥 User Statistics", callback_data='maint_users')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "🔧 Maintenance Menu:\nSelect an operation:",
-        reply_markup=reply_markup
-    )
-
-async def handle_maintenance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle maintenance callback buttons"""
-    query = update.callback_query
-    await query.answer()
-
-    if not await check_admin_callback(query):
-        return
-
-    action = query.data.replace('maint_', '')
-
-    try:
-        if action == 'cleanup':
-            result = subprocess.run(['/usr/local/bin/vless-maintenance', 'cleanup'],
-                                 capture_output=True, text=True, timeout=120)
-        elif action == 'report':
-            result = subprocess.run(['/usr/local/bin/vless-maintenance', 'report'],
-                                 capture_output=True, text=True, timeout=60)
-        elif action == 'validate':
-            result = subprocess.run(['/usr/local/bin/vless-maintenance', 'validate'],
-                                 capture_output=True, text=True, timeout=30)
-        elif action == 'users':
-            result = subprocess.run(['/usr/local/bin/vless-maintenance', 'users', 'user-statistics'],
-                                 capture_output=True, text=True, timeout=30)
-
-        if result.returncode == 0:
-            message = f"✅ {action.title()} completed successfully:\n\n{result.stdout[:1000]}"
-        else:
-            message = f"❌ {action.title()} failed:\n\n{result.stderr[:500]}"
-
-        await query.edit_message_text(message)
-
-    except Exception as e:
-        await query.edit_message_text(f"❌ Error running {action}: {str(e)}")
-
-# Add command handlers to main function
-def main():
-    # ... existing code ...
-
-    # Add new handlers
-    application.add_handler(CommandHandler("security", security_status))
-    application.add_handler(CommandHandler("monitoring", monitoring_status))
-    application.add_handler(CommandHandler("maintenance", maintenance_menu))
-    application.add_handler(CallbackQueryHandler(handle_maintenance_callback, pattern='^maint_'))
-
-    # ... rest of existing code ...
-EOF
-
-    print_success "Telegram bot updated with Phase 4 commands"
+    return 0
 }
 
-# Update Xray logging configuration
-update_xray_logging_config() {
-    local xray_config="/opt/vless/configs/xray_config.json"
+# Execute security hardening
+harden_security() {
+    log_info "Phase 4.2: Implementing Security Hardening"
+    phase4_log "Starting security hardening"
 
-    if [[ ! -f "$xray_config" ]]; then
-        print_warning "Xray configuration not found: $xray_config"
+    if [[ ! -f "$SECURITY_MODULE" ]]; then
+        log_error "Security module not found: $SECURITY_MODULE"
         return 1
     fi
 
-    # Check if logging is already configured
-    if jq -e '.log' "$xray_config" >/dev/null 2>&1; then
-        print_info "Xray logging already configured"
-        return 0
+    # Run security hardening
+    if "$SECURITY_MODULE" harden; then
+        phase4_log "Security hardening completed successfully"
+        log_info "✓ Security hardening completed"
+    else
+        phase4_log "Security hardening failed"
+        log_error "Security hardening failed"
+        return 1
     fi
 
-    # Backup configuration
-    backup_file "$xray_config"
+    return 0
+}
 
-    # Add logging configuration
-    local temp_file=$(mktemp)
+# Setup certificate management
+setup_certificates() {
+    log_info "Phase 4.3: Setting up Certificate Management"
+    phase4_log "Starting certificate management setup"
 
-    jq '. + {
-        "log": {
-            "access": "/var/log/vless/xray-access.log",
-            "error": "/var/log/vless/xray-error.log",
-            "loglevel": "info"
-        }
-    }' "$xray_config" > "$temp_file"
+    if [[ ! -f "$CERT_MODULE" ]]; then
+        log_error "Certificate module not found: $CERT_MODULE"
+        return 1
+    fi
 
-    mv "$temp_file" "$xray_config"
+    # Generate initial certificates
+    local domain="${1:-vless.local}"
+    if "$CERT_MODULE" generate "$domain"; then
+        phase4_log "Initial certificates generated for domain: $domain"
+        log_info "✓ Initial certificates generated"
+    else
+        phase4_log "Certificate generation failed"
+        log_error "Certificate generation failed"
+        return 1
+    fi
 
-    print_success "Xray logging configuration updated"
+    # Setup certificate monitoring
+    if "$CERT_MODULE" monitor; then
+        phase4_log "Certificate monitoring configured"
+        log_info "✓ Certificate monitoring configured"
+    else
+        phase4_log "Certificate monitoring setup failed"
+        log_warn "Certificate monitoring setup failed"
+    fi
+
+    return 0
+}
+
+# Setup system monitoring
+setup_monitoring() {
+    log_info "Phase 4.4: Setting up System Monitoring"
+    phase4_log "Starting system monitoring setup"
+
+    if [[ ! -f "$MONITORING_MODULE" ]]; then
+        log_error "Monitoring module not found: $MONITORING_MODULE"
+        return 1
+    fi
+
+    # Install monitoring system
+    if "$MONITORING_MODULE" install; then
+        phase4_log "System monitoring installed successfully"
+        log_info "✓ System monitoring installed"
+    else
+        phase4_log "System monitoring installation failed"
+        log_error "System monitoring installation failed"
+        return 1
+    fi
+
+    return 0
+}
+
+# Run Phase 4 tests
+run_phase4_tests() {
+    log_info "Running Phase 4 Integration Tests"
+    phase4_log "Starting Phase 4 integration tests"
+
+    local test_script="${SCRIPT_DIR}/../tests/test_phase4_security.sh"
+
+    if [[ ! -f "$test_script" ]]; then
+        log_error "Phase 4 test script not found: $test_script"
+        return 1
+    fi
+
+    if [[ ! -x "$test_script" ]]; then
+        chmod +x "$test_script"
+    fi
+
+    # Run tests
+    if "$test_script"; then
+        phase4_log "Phase 4 integration tests passed"
+        log_info "✓ Phase 4 integration tests passed"
+        return 0
+    else
+        phase4_log "Phase 4 integration tests failed"
+        log_error "Phase 4 integration tests failed"
+        return 1
+    fi
+}
+
+# Update Phase 4 configuration status
+update_phase4_status() {
+    local status="$1"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    if [[ -f "$PHASE4_CONFIG" ]]; then
+        sed -i "s/^phase4_completed=.*/phase4_completed=$status/" "$PHASE4_CONFIG"
+        sed -i "s/^last_update=.*/last_update=$timestamp/" "$PHASE4_CONFIG"
+
+        if [[ "$status" == "true" ]] && ! grep -q "installation_date=" "$PHASE4_CONFIG" | grep -v "installation_date=$"; then
+            sed -i "s/^installation_date=.*/installation_date=$timestamp/" "$PHASE4_CONFIG"
+        fi
+    fi
+
+    phase4_log "Phase 4 status updated: $status"
+}
+
+# Complete Phase 4 implementation
+implement_phase4() {
+    log_info "Starting Phase 4: Security and Firewall Configuration"
+    log_info "======================================================"
+
+    # Ensure running as root for security operations
+    if ! validate_root; then
+        log_error "Phase 4 implementation requires root privileges"
+        return 1
+    fi
+
+    # Check modules exist
+    if ! check_phase4_modules; then
+        log_error "Phase 4 modules check failed"
+        return 1
+    fi
+
+    # Create configuration
+    create_phase4_config
+
+    # Log start
+    phase4_log "Phase 4 implementation started"
+
+    local phase4_success=true
+
+    # Execute Phase 4 components in order
+    log_info "Executing Phase 4 components..."
+
+    # Phase 4.1: UFW Configuration
+    if ! configure_firewall; then
+        phase4_success=false
+        log_error "Phase 4.1 (UFW) failed"
+    fi
+
+    # Phase 4.2: Security Hardening
+    if $phase4_success && ! harden_security; then
+        phase4_success=false
+        log_error "Phase 4.2 (Security Hardening) failed"
+    fi
+
+    # Phase 4.3: Certificate Management
+    if $phase4_success && ! setup_certificates "${1:-vless.local}"; then
+        phase4_success=false
+        log_error "Phase 4.3 (Certificate Management) failed"
+    fi
+
+    # Phase 4.4: System Monitoring
+    if $phase4_success && ! setup_monitoring; then
+        phase4_success=false
+        log_error "Phase 4.4 (System Monitoring) failed"
+    fi
+
+    # Run integration tests
+    if $phase4_success; then
+        log_info "Running Phase 4 integration tests..."
+        if ! run_phase4_tests; then
+            phase4_success=false
+            log_error "Phase 4 integration tests failed"
+        fi
+    fi
+
+    # Update status and report results
+    if $phase4_success; then
+        update_phase4_status "true"
+        phase4_log "Phase 4 implementation completed successfully"
+
+        log_info ""
+        log_info "✓ Phase 4 Implementation Completed Successfully!"
+        log_info "=============================================="
+        log_info ""
+        log_info "Security Components Installed:"
+        log_info "- UFW Firewall (configured for VLESS ports)"
+        log_info "- SSH Hardening (fail2ban, secure config)"
+        log_info "- Certificate Management (auto-renewal)"
+        log_info "- System Monitoring (alerts & reports)"
+        log_info ""
+        log_info "Important Security Notes:"
+        log_info "- Review SSH access before closing session"
+        log_info "- Check UFW rules: sudo ufw status verbose"
+        log_info "- Monitor logs: tail -f $PHASE4_LOG"
+        log_info "- Security reports: ${MONITORING_MODULE} report"
+        log_info ""
+        log_info "Configuration: $PHASE4_CONFIG"
+        log_info "Logs: $PHASE4_LOG"
+
+        return 0
+    else
+        update_phase4_status "false"
+        phase4_log "Phase 4 implementation failed"
+
+        log_error ""
+        log_error "✗ Phase 4 Implementation Failed"
+        log_error "================================"
+        log_error ""
+        log_error "Please check the logs for details:"
+        log_error "- Phase 4 Log: $PHASE4_LOG"
+        log_error "- System Logs: journalctl -xe"
+        log_error ""
+        log_error "You may need to:"
+        log_error "- Review module-specific logs"
+        log_error "- Check system requirements"
+        log_error "- Verify network connectivity"
+        log_error "- Ensure sufficient privileges"
+
+        return 1
+    fi
 }
 
 # Show Phase 4 status
 show_phase4_status() {
-    print_header "VLESS Phase 4 Status"
+    log_info "Phase 4 Status Report"
+    log_info "===================="
 
-    # Check installation status
-    printf "%-30s " "Phase 4 installed:"
-    if [[ -f "$INTEGRATION_STATE_FILE" ]]; then
-        local install_date=$(cat "$INTEGRATION_STATE_FILE")
-        echo -e "${GREEN}Yes${NC} (installed: $install_date)"
-    else
-        echo -e "${RED}No${NC}"
-    fi
+    if [[ -f "$PHASE4_CONFIG" ]]; then
+        log_info "Configuration file: $PHASE4_CONFIG"
+        log_info ""
 
-    # Check component status
-    echo
-    print_section "Component Status"
+        # Parse configuration
+        local phase4_completed
+        phase4_completed=$(grep "^phase4_completed=" "$PHASE4_CONFIG" | cut -d'=' -f2)
 
-    # Logging system
-    printf "%-30s " "Logging system:"
-    if [[ -f "/etc/rsyslog.d/49-vless.conf" ]] && [[ -f "/usr/local/bin/vless-logger" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Not configured${NC}"
-    fi
+        if [[ "$phase4_completed" == "true" ]]; then
+            log_info "✓ Phase 4 Status: COMPLETED"
 
-    # Security hardening
-    printf "%-30s " "Security hardening:"
-    if [[ -f "/etc/fail2ban/jail.local" ]] && [[ -f "/etc/sysctl.d/99-vless-security.conf" ]]; then
-        echo -e "${GREEN}Applied${NC}"
-    else
-        echo -e "${RED}Not applied${NC}"
-    fi
+            local install_date
+            install_date=$(grep "^installation_date=" "$PHASE4_CONFIG" | cut -d'=' -f2)
+            if [[ -n "$install_date" ]]; then
+                log_info "Installation Date: $install_date"
+            fi
 
-    # Monitoring system
-    printf "%-30s " "Monitoring system:"
-    if [[ -f "/etc/cron.d/vless-monitoring" ]] && [[ -f "/usr/local/bin/vless-monitoring" ]]; then
-        echo -e "${GREEN}Active${NC}"
-    else
-        echo -e "${RED}Not active${NC}"
-    fi
-
-    # SystemD service
-    printf "%-30s " "SystemD service:"
-    if [[ -f "$SYSTEMD_SERVICE_PATH" ]]; then
-        if systemctl is-enabled --quiet vless-vpn; then
-            echo -e "${GREEN}Enabled${NC}"
+            local last_update
+            last_update=$(grep "^last_update=" "$PHASE4_CONFIG" | cut -d'=' -f2)
+            if [[ -n "$last_update" ]]; then
+                log_info "Last Update: $last_update"
+            fi
         else
-            echo -e "${YELLOW}Installed but not enabled${NC}"
+            log_info "✗ Phase 4 Status: NOT COMPLETED"
         fi
-    else
-        echo -e "${RED}Not installed${NC}"
-    fi
 
-    # Maintenance tools
-    printf "%-30s " "Maintenance tools:"
-    if [[ -f "/usr/local/bin/vless-maintenance" ]]; then
-        echo -e "${GREEN}Available${NC}"
-    else
-        echo -e "${RED}Not available${NC}"
-    fi
+        log_info ""
+        log_info "Component Status:"
 
-    # Show service status
-    echo
-    print_section "Service Status"
-
-    local services=("fail2ban" "rsyslog" "vless-vpn")
-    for service in "${services[@]}"; do
-        printf "%-20s " "$service:"
-        if systemctl is-active --quiet "$service" 2>/dev/null; then
-            echo -e "${GREEN}Active${NC}"
+        # Check UFW
+        if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+            log_info "✓ UFW Firewall: Active"
         else
-            echo -e "${RED}Inactive${NC}"
+            log_info "✗ UFW Firewall: Inactive or not installed"
+        fi
+
+        # Check fail2ban
+        if command -v fail2ban-client >/dev/null 2>&1 && fail2ban-client ping 2>/dev/null | grep -q "pong"; then
+            log_info "✓ Fail2ban: Running"
+        else
+            log_info "✗ Fail2ban: Not running or not installed"
+        fi
+
+        # Check certificates
+        if [[ -f "/opt/vless/certs/server.crt" ]]; then
+            log_info "✓ Certificates: Present"
+        else
+            log_info "✗ Certificates: Not found"
+        fi
+
+        # Check monitoring
+        if [[ -f "/usr/local/bin/vless-monitor" ]]; then
+            log_info "✓ Monitoring: Installed"
+        else
+            log_info "✗ Monitoring: Not installed"
+        fi
+
+    else
+        log_info "✗ Phase 4 configuration not found"
+        log_info "Run '$0 implement' to start Phase 4 implementation"
+    fi
+
+    log_info ""
+    log_info "Log file: $PHASE4_LOG"
+}
+
+# Validate Phase 4 implementation
+validate_phase4() {
+    log_info "Validating Phase 4 Implementation"
+    log_info "================================="
+
+    local validation_errors=0
+
+    # Check configuration file
+    if [[ ! -f "$PHASE4_CONFIG" ]]; then
+        log_error "Phase 4 configuration file not found"
+        ((validation_errors++))
+    fi
+
+    # Validate each module
+    local modules=(
+        "$UFW_MODULE:UFW Configuration"
+        "$SECURITY_MODULE:Security Hardening"
+        "$CERT_MODULE:Certificate Management"
+        "$MONITORING_MODULE:System Monitoring"
+    )
+
+    for module_info in "${modules[@]}"; do
+        local module_path="${module_info%:*}"
+        local module_name="${module_info#*:}"
+
+        if [[ ! -f "$module_path" ]]; then
+            log_error "$module_name module not found: $module_path"
+            ((validation_errors++))
+        elif [[ ! -x "$module_path" ]]; then
+            log_error "$module_name module not executable: $module_path"
+            ((validation_errors++))
+        else
+            # Test module syntax
+            if ! bash -n "$module_path"; then
+                log_error "$module_name module has syntax errors"
+                ((validation_errors++))
+            fi
         fi
     done
-}
 
-# Remove Phase 4 components
-remove_phase4() {
-    print_header "Removing VLESS Phase 4 Components"
+    # Run integration tests
+    if ! run_phase4_tests; then
+        log_error "Phase 4 integration tests failed"
+        ((validation_errors++))
+    fi
 
-    if [[ ! -f "$INTEGRATION_STATE_FILE" ]]; then
-        print_warning "Phase 4 is not installed"
+    # Report validation results
+    if [[ $validation_errors -eq 0 ]]; then
+        log_info "✓ Phase 4 validation passed"
         return 0
+    else
+        log_error "✗ Phase 4 validation failed with $validation_errors errors"
+        return 1
     fi
-
-    if ! prompt_yes_no "Are you sure you want to remove all Phase 4 components?" "n"; then
-        print_info "Removal cancelled"
-        return 0
-    fi
-
-    log_integration "WARNING" "Phase 4 removal started"
-
-    # Remove components
-    remove_maintenance_tools
-    remove_systemd_service
-    remove_monitoring_system
-    remove_security_hardening
-    remove_logging_system
-
-    # Remove integration state
-    rm -f "$INTEGRATION_STATE_FILE"
-
-    print_success "Phase 4 components removed"
-    log_integration "WARNING" "Phase 4 removal completed"
 }
 
-# Remove maintenance tools
-remove_maintenance_tools() {
-    print_section "Removing Maintenance Tools"
-
-    sudo rm -f "/usr/local/bin/vless-maintenance"
-    sudo rm -f "/etc/cron.d/vless-daily-maintenance"
-
-    print_success "Maintenance tools removed"
-}
-
-# Remove systemd service
-remove_systemd_service() {
-    print_section "Removing SystemD Service"
-
-    if systemctl is-active --quiet vless-vpn; then
-        sudo systemctl stop vless-vpn
-    fi
-
-    if systemctl is-enabled --quiet vless-vpn; then
-        sudo systemctl disable vless-vpn
-    fi
-
-    sudo rm -f "$SYSTEMD_SERVICE_PATH"
-    sudo systemctl daemon-reload
-
-    print_success "SystemD service removed"
-}
-
-# Remove monitoring system
-remove_monitoring_system() {
-    print_section "Removing Monitoring System"
-
-    source "$SCRIPT_DIR/monitoring.sh"
-    remove_monitoring
-
-    print_success "Monitoring system removed"
-}
-
-# Remove security hardening
-remove_security_hardening() {
-    print_section "Removing Security Hardening"
-
-    source "$SCRIPT_DIR/security_hardening.sh"
-    remove_security_hardening
-
-    print_success "Security hardening removed"
-}
-
-# Remove logging system
-remove_logging_system() {
-    print_section "Removing Logging System"
-
-    source "$SCRIPT_DIR/logging_setup.sh"
-    remove_logging
-
-    print_success "Logging system removed"
-}
-
-# Export functions
-export -f install_phase4 show_phase4_status remove_phase4 update_configurations
-export -f check_prerequisites install_logging_system install_security_hardening
-export -f install_monitoring_system install_systemd_service configure_maintenance_tools
-
-# Main execution if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # Ensure log directory exists
-    ensure_directory "$(dirname "$INTEGRATION_LOG")" "755"
-
-    case "${1:-install}" in
-        "install"|"setup")
-            install_phase4
+# Main script execution
+main() {
+    case "${1:-}" in
+        "implement"|"")
+            implement_phase4 "${2:-vless.local}"
             ;;
-        "status"|"show")
+        "status")
             show_phase4_status
             ;;
-        "update"|"configure")
-            update_configurations
+        "validate")
+            validate_phase4
             ;;
-        "remove"|"uninstall")
-            remove_phase4
+        "test")
+            run_phase4_tests
+            ;;
+        "firewall")
+            configure_firewall
+            ;;
+        "security")
+            harden_security
+            ;;
+        "certificates")
+            setup_certificates "${2:-vless.local}"
+            ;;
+        "monitoring")
+            setup_monitoring
+            ;;
+        "help"|"-h"|"--help")
+            cat << EOF
+Phase 4 Integration Module for VLESS+Reality VPN
+
+Usage: $0 [command] [options]
+
+Commands:
+    implement [domain]    Complete Phase 4 implementation (default)
+    status               Show Phase 4 status
+    validate             Validate Phase 4 implementation
+    test                 Run Phase 4 integration tests
+    firewall             Configure UFW firewall only
+    security             Run security hardening only
+    certificates [domain] Setup certificate management only
+    monitoring           Setup system monitoring only
+    help                 Show this help message
+
+Examples:
+    $0 implement                    # Full Phase 4 implementation
+    $0 implement example.com        # Implementation with custom domain
+    $0 status                       # Show current status
+    $0 validate                     # Validate implementation
+    $0 test                         # Run integration tests
+
+Phase 4 Components:
+    4.1: UFW Firewall Configuration
+    4.2: Security Hardening (SSH, fail2ban, updates)
+    4.3: Certificate Management (generation, renewal, monitoring)
+    4.4: System Monitoring (resources, alerts, reports)
+
+This module orchestrates all security components for a complete
+security baseline implementation.
+
+Requires: root privileges
+Logs: $PHASE4_LOG
+Config: $PHASE4_CONFIG
+EOF
             ;;
         *)
-            echo "Usage: $0 {install|status|update|remove}"
-            echo "  install - Install all Phase 4 components"
-            echo "  status  - Show Phase 4 installation status"
-            echo "  update  - Update existing configurations"
-            echo "  remove  - Remove all Phase 4 components"
+            log_error "Unknown command: $1"
+            log_info "Use '$0 help' for usage information"
             exit 1
             ;;
     esac
+}
+
+# Only run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

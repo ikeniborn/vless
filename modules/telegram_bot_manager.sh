@@ -1,449 +1,450 @@
 #!/bin/bash
-# Telegram Bot Manager Script for VLESS VPN Project
-# Provides utilities for managing the Telegram bot service
-# Author: Claude Code
+
+# VLESS+Reality VPN - Telegram Bot Management Script
+# Management utilities for the Telegram bot service
 # Version: 1.0
+# Author: VLESS Management System
 
 set -euo pipefail
 
-# Get script directory
+# Source common utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "${SCRIPT_DIR}/common_utils.sh"
 
-# Import common utilities
-source "${SCRIPT_DIR}/common_utils.sh" || {
-    echo "ERROR: Cannot load common utilities module" >&2
-    exit 1
-}
-
-# Bot management constants
-readonly BOT_CONTAINER_NAME="vless-telegram-bot"
-readonly BOT_IMAGE_NAME="vless-telegram-bot:latest"
-readonly DOCKER_COMPOSE_FILE="$PROJECT_DIR/config/docker-compose.yml"
-readonly BOT_CONFIG_FILE="$PROJECT_DIR/config/bot_config.env"
+# Configuration
+readonly BOT_SERVICE="vless-vpn"
+readonly BOT_CONFIG_FILE="/opt/vless/config/bot_config.env"
+readonly BOT_SCRIPT="/opt/vless/modules/telegram_bot.py"
 readonly BOT_LOG_FILE="/opt/vless/logs/telegram_bot.log"
+readonly ADMIN_DB_FILE="/opt/vless/config/bot_admins.db"
+readonly SERVICE_FILE="/etc/systemd/system/vless-vpn.service"
 
-# Function to check if Docker is running
-check_docker() {
-    if ! command -v docker >/dev/null 2>&1; then
-        log_message "ERROR" "Docker is not installed"
-        return 1
-    fi
+# Bot status functions
+bot_status() {
+    echo "=== VLESS VPN Telegram Bot Status ==="
+    echo
 
-    if ! docker info >/dev/null 2>&1; then
-        log_message "ERROR" "Docker daemon is not running"
-        return 1
-    fi
-
-    return 0
-}
-
-# Function to check if Docker Compose is available
-check_docker_compose() {
-    if command -v docker-compose >/dev/null 2>&1; then
-        echo "docker-compose"
-    elif docker compose version >/dev/null 2>&1; then
-        echo "docker compose"
+    # Service status
+    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
+        echo "Service Status: ✅ Running"
+        local since
+        since=$(systemctl show "${BOT_SERVICE}" --property=ActiveEnterTimestamp --value)
+        echo "Started: ${since}"
     else
-        log_message "ERROR" "Docker Compose is not available"
-        return 1
-    fi
-}
-
-# Function to validate bot configuration
-validate_bot_config() {
-    log_message "INFO" "Validating bot configuration"
-
-    if [[ ! -f "$BOT_CONFIG_FILE" ]]; then
-        log_message "ERROR" "Bot configuration file not found: $BOT_CONFIG_FILE"
-        return 1
+        echo "Service Status: ❌ Stopped"
     fi
 
-    # Source the config file to check variables
-    set -a
-    source "$BOT_CONFIG_FILE"
-    set +a
+    # Configuration status
+    if [[ -f "${BOT_CONFIG_FILE}" ]]; then
+        echo "Configuration: ✅ Found"
 
-    # Check required variables
-    local required_vars=("TELEGRAM_BOT_TOKEN" "ADMIN_TELEGRAM_ID")
-    local missing_vars=()
-
-    for var in "${required_vars[@]}"; do
-        if [[ -z "${!var:-}" ]]; then
-            missing_vars+=("$var")
+        # Check required settings
+        if grep -q "^BOT_TOKEN=" "${BOT_CONFIG_FILE}" && \
+           grep -q "^ADMIN_CHAT_ID=" "${BOT_CONFIG_FILE}"; then
+            echo "Required Settings: ✅ Configured"
+        else
+            echo "Required Settings: ❌ Missing BOT_TOKEN or ADMIN_CHAT_ID"
         fi
-    done
-
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        log_message "ERROR" "Missing required configuration variables: ${missing_vars[*]}"
-        log_message "INFO" "Please update $BOT_CONFIG_FILE with the required values"
-        return 1
+    else
+        echo "Configuration: ❌ Missing"
     fi
 
-    # Validate ADMIN_TELEGRAM_ID is numeric
-    if ! [[ "$ADMIN_TELEGRAM_ID" =~ ^[0-9]+$ ]]; then
-        log_message "ERROR" "ADMIN_TELEGRAM_ID must be a numeric value"
-        return 1
+    # Process information
+    if pgrep -f "telegram_bot.py" > /dev/null; then
+        local pid
+        pid=$(pgrep -f "telegram_bot.py")
+        local memory
+        memory=$(ps -p "${pid}" -o rss= | awk '{printf "%.1f MB", $1/1024}' 2>/dev/null || echo "Unknown")
+        echo "Process ID: ${pid}"
+        echo "Memory Usage: ${memory}"
     fi
 
-    log_message "SUCCESS" "Bot configuration is valid"
-    return 0
+    # Log file info
+    if [[ -f "${BOT_LOG_FILE}" ]]; then
+        local log_size
+        log_size=$(du -sh "${BOT_LOG_FILE}" | cut -f1)
+        local last_modified
+        last_modified=$(stat -c %y "${BOT_LOG_FILE}" | cut -d'.' -f1)
+        echo "Log File: ${log_size} (${last_modified})"
+    else
+        echo "Log File: Not found"
+    fi
+
+    # Admin count
+    if [[ -f "${ADMIN_DB_FILE}" ]]; then
+        local admin_count
+        admin_count=$(sqlite3 "${ADMIN_DB_FILE}" "SELECT COUNT(*) FROM admins WHERE active = 1" 2>/dev/null || echo "0")
+        echo "Admin Users: ${admin_count}"
+    else
+        echo "Admin Database: Not initialized"
+    fi
+
+    echo
 }
 
-# Function to build bot image
-build_bot_image() {
-    log_message "INFO" "Building bot Docker image"
-
-    if ! check_docker; then
-        return 1
-    fi
-
-    local compose_cmd
-    if ! compose_cmd=$(check_docker_compose); then
-        return 1
-    fi
-
-    cd "$PROJECT_DIR"
-
-    # Build the image
-    if ! $compose_cmd -f "$DOCKER_COMPOSE_FILE" build telegram-bot; then
-        log_message "ERROR" "Failed to build bot image"
-        return 1
-    fi
-
-    log_message "SUCCESS" "Bot image built successfully"
-    return 0
-}
-
-# Function to start bot
+# Start bot service
 start_bot() {
-    log_message "INFO" "Starting Telegram bot"
+    log_info "Starting Telegram bot service..."
 
+    # Validate configuration before starting
     if ! validate_bot_config; then
+        log_error "Bot configuration validation failed"
         return 1
     fi
 
-    if ! check_docker; then
-        return 1
+    # Install service if not exists
+    if [[ ! -f "${SERVICE_FILE}" ]]; then
+        log_info "Installing systemd service..."
+        install_bot_service
     fi
 
-    local compose_cmd
-    if ! compose_cmd=$(check_docker_compose); then
-        return 1
-    fi
+    # Start service
+    systemctl start "${BOT_SERVICE}"
 
-    cd "$PROJECT_DIR"
-
-    # Start the bot service
-    if ! $compose_cmd -f "$DOCKER_COMPOSE_FILE" up -d telegram-bot; then
-        log_message "ERROR" "Failed to start bot"
-        return 1
-    fi
-
-    # Wait a moment for startup
+    # Wait for service to start
     sleep 3
 
-    # Check if container is running
-    if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "$BOT_CONTAINER_NAME"; then
-        log_message "SUCCESS" "Telegram bot started successfully"
+    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
+        log_info "Telegram bot started successfully"
 
-        # Show logs
-        log_message "INFO" "Recent bot logs:"
-        docker logs --tail 10 "$BOT_CONTAINER_NAME" 2>/dev/null || true
+        # Test bot connection
+        test_bot_connection
     else
-        log_message "ERROR" "Bot container failed to start"
+        log_error "Failed to start Telegram bot"
         return 1
     fi
-
-    return 0
 }
 
-# Function to stop bot
+# Stop bot service
 stop_bot() {
-    log_message "INFO" "Stopping Telegram bot"
+    log_info "Stopping Telegram bot service..."
 
-    if ! check_docker; then
-        return 1
-    fi
-
-    local compose_cmd
-    if ! compose_cmd=$(check_docker_compose); then
-        return 1
-    fi
-
-    cd "$PROJECT_DIR"
-
-    # Stop the bot service
-    if ! $compose_cmd -f "$DOCKER_COMPOSE_FILE" stop telegram-bot; then
-        log_message "ERROR" "Failed to stop bot"
-        return 1
-    fi
-
-    log_message "SUCCESS" "Telegram bot stopped successfully"
-    return 0
-}
-
-# Function to restart bot
-restart_bot() {
-    log_message "INFO" "Restarting Telegram bot"
-
-    stop_bot || true
-    sleep 2
-    start_bot
-}
-
-# Function to check bot status
-check_bot_status() {
-    log_message "INFO" "Checking Telegram bot status"
-
-    if ! check_docker; then
-        return 1
-    fi
-
-    # Check if container exists
-    if ! docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | grep -q "$BOT_CONTAINER_NAME"; then
-        log_message "WARNING" "Bot container does not exist"
-        return 1
-    fi
-
-    # Get container status
-    local container_status
-    container_status=$(docker inspect --format='{{.State.Status}}' "$BOT_CONTAINER_NAME" 2>/dev/null || echo "unknown")
-
-    print_section "Telegram Bot Status"
-    printf "%-20s %s\n" "Container Name:" "$BOT_CONTAINER_NAME"
-    printf "%-20s %s\n" "Status:" "$container_status"
-
-    if [[ "$container_status" == "running" ]]; then
-        local uptime
-        uptime=$(docker inspect --format='{{.State.StartedAt}}' "$BOT_CONTAINER_NAME" 2>/dev/null || echo "unknown")
-        printf "%-20s %s\n" "Started At:" "$uptime"
-
-        # Show resource usage
-        local stats
-        if stats=$(docker stats --no-stream --format "table {{.CPUPerc}}\t{{.MemUsage}}" "$BOT_CONTAINER_NAME" 2>/dev/null); then
-            printf "%-20s %s\n" "Resource Usage:" "$stats"
-        fi
-    fi
-
-    return 0
-}
-
-# Function to view bot logs
-view_bot_logs() {
-    local lines="${1:-50}"
-    local follow="${2:-false}"
-
-    log_message "INFO" "Viewing bot logs (last $lines lines)"
-
-    if ! check_docker; then
-        return 1
-    fi
-
-    # Check if container exists
-    if ! docker ps -a --format "table {{.Names}}" | grep -q "$BOT_CONTAINER_NAME"; then
-        log_message "WARNING" "Bot container does not exist"
-        return 1
-    fi
-
-    # Show logs
-    if [[ "$follow" == "true" ]]; then
-        docker logs -f --tail "$lines" "$BOT_CONTAINER_NAME"
+    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
+        systemctl stop "${BOT_SERVICE}"
+        log_info "Telegram bot stopped"
     else
-        docker logs --tail "$lines" "$BOT_CONTAINER_NAME"
+        log_warn "Telegram bot is not running"
     fi
-
-    return 0
 }
 
-# Function to update bot
+# Restart bot service
+restart_bot() {
+    log_info "Restarting Telegram bot service..."
+
+    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
+        systemctl restart "${BOT_SERVICE}"
+    else
+        start_bot
+        return $?
+    fi
+
+    # Wait for service to restart
+    sleep 3
+
+    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
+        log_info "Telegram bot restarted successfully"
+    else
+        log_error "Failed to restart Telegram bot"
+        return 1
+    fi
+}
+
+# Enable bot service
+enable_bot() {
+    log_info "Enabling Telegram bot service for auto-start..."
+
+    # Install service if not exists
+    if [[ ! -f "${SERVICE_FILE}" ]]; then
+        install_bot_service
+    fi
+
+    systemctl enable "${BOT_SERVICE}"
+    log_info "Telegram bot service enabled"
+}
+
+# Disable bot service
+disable_bot() {
+    log_info "Disabling Telegram bot service..."
+
+    systemctl disable "${BOT_SERVICE}"
+    log_info "Telegram bot service disabled"
+}
+
+# Install systemd service
+install_bot_service() {
+    log_info "Installing Telegram bot systemd service..."
+
+    # Copy service file
+    cp "/opt/vless/config/vless-vpn.service" "${SERVICE_FILE}"
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    log_info "Systemd service installed"
+}
+
+# Uninstall systemd service
+uninstall_bot_service() {
+    log_info "Uninstalling Telegram bot systemd service..."
+
+    # Stop and disable service
+    systemctl stop "${BOT_SERVICE}" 2>/dev/null || true
+    systemctl disable "${BOT_SERVICE}" 2>/dev/null || true
+
+    # Remove service file
+    rm -f "${SERVICE_FILE}"
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    log_info "Systemd service uninstalled"
+}
+
+# Validate bot configuration
+validate_bot_config() {
+    log_info "Validating bot configuration..."
+
+    local errors=0
+
+    # Check if config file exists
+    if [[ ! -f "${BOT_CONFIG_FILE}" ]]; then
+        log_error "Configuration file not found: ${BOT_CONFIG_FILE}"
+        return 1
+    fi
+
+    # Check required settings
+    if ! grep -q "^BOT_TOKEN=" "${BOT_CONFIG_FILE}" || \
+       grep -q "^BOT_TOKEN=$" "${BOT_CONFIG_FILE}"; then
+        log_error "BOT_TOKEN is not set in configuration"
+        ((errors++))
+    fi
+
+    if ! grep -q "^ADMIN_CHAT_ID=" "${BOT_CONFIG_FILE}" || \
+       grep -q "^ADMIN_CHAT_ID=$" "${BOT_CONFIG_FILE}"; then
+        log_error "ADMIN_CHAT_ID is not set in configuration"
+        ((errors++))
+    fi
+
+    # Check bot script exists
+    if [[ ! -f "${BOT_SCRIPT}" ]]; then
+        log_error "Bot script not found: ${BOT_SCRIPT}"
+        ((errors++))
+    fi
+
+    # Check Python dependencies
+    if ! python3 -c "import telegram" 2>/dev/null; then
+        log_error "python-telegram-bot library not installed"
+        ((errors++))
+    fi
+
+    if [[ ${errors} -eq 0 ]]; then
+        log_info "Configuration validation passed"
+        return 0
+    else
+        log_error "Configuration validation failed with ${errors} error(s)"
+        return 1
+    fi
+}
+
+# Test bot connection
+test_bot_connection() {
+    log_info "Testing bot connection..."
+
+    # Wait a moment for bot to initialize
+    sleep 5
+
+    # Check if bot is responsive by looking at logs
+    if [[ -f "${BOT_LOG_FILE}" ]]; then
+        local recent_log
+        recent_log=$(tail -20 "${BOT_LOG_FILE}" | grep -E "(Started|Running|Bot)" | tail -1)
+
+        if [[ -n "${recent_log}" ]]; then
+            log_info "Bot appears to be running: ${recent_log}"
+        else
+            log_warn "No recent bot activity in logs"
+        fi
+    else
+        log_warn "Bot log file not found"
+    fi
+}
+
+# Setup bot configuration
+setup_bot_config() {
+    local bot_token="$1"
+    local admin_chat_id="$2"
+
+    log_info "Setting up bot configuration..."
+
+    # Validate inputs
+    if [[ -z "${bot_token}" || -z "${admin_chat_id}" ]]; then
+        log_error "Bot token and admin chat ID are required"
+        return 1
+    fi
+
+    # Update configuration file
+    if [[ -f "${BOT_CONFIG_FILE}" ]]; then
+        # Update existing config
+        sed -i "s/^BOT_TOKEN=.*/BOT_TOKEN=${bot_token}/" "${BOT_CONFIG_FILE}"
+        sed -i "s/^ADMIN_CHAT_ID=.*/ADMIN_CHAT_ID=${admin_chat_id}/" "${BOT_CONFIG_FILE}"
+    else
+        log_error "Configuration file not found"
+        return 1
+    fi
+
+    log_info "Bot configuration updated"
+    log_info "Please restart the bot service to apply changes"
+}
+
+# Add admin user
+add_admin() {
+    local user_id="$1"
+    local username="${2:-"Unknown"}"
+
+    log_info "Adding admin user: ${user_id}"
+
+    # Initialize admin database if needed
+    if [[ ! -f "${ADMIN_DB_FILE}" ]]; then
+        init_admin_db
+    fi
+
+    # Add admin to database
+    sqlite3 "${ADMIN_DB_FILE}" "
+        INSERT OR REPLACE INTO admins (user_id, username, added_by, added_at, active)
+        VALUES (${user_id}, '${username}', 'manual', datetime('now'), 1);
+    "
+
+    log_info "Admin user added successfully"
+}
+
+# Remove admin user
+remove_admin() {
+    local user_id="$1"
+
+    log_info "Removing admin user: ${user_id}"
+
+    if [[ ! -f "${ADMIN_DB_FILE}" ]]; then
+        log_error "Admin database not found"
+        return 1
+    fi
+
+    sqlite3 "${ADMIN_DB_FILE}" "
+        UPDATE admins SET active = 0 WHERE user_id = ${user_id};
+    "
+
+    log_info "Admin user removed successfully"
+}
+
+# List admin users
+list_admins() {
+    log_info "Admin users:"
+
+    if [[ ! -f "${ADMIN_DB_FILE}" ]]; then
+        log_warn "Admin database not found"
+        return 0
+    fi
+
+    sqlite3 "${ADMIN_DB_FILE}" -header -column "
+        SELECT user_id, username, added_by, added_at, active
+        FROM admins
+        ORDER BY added_at DESC;
+    "
+}
+
+# Initialize admin database
+init_admin_db() {
+    log_info "Initializing admin database..."
+
+    sqlite3 "${ADMIN_DB_FILE}" "
+        CREATE TABLE IF NOT EXISTS admins (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            added_by TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            active INTEGER DEFAULT 1
+        );
+    "
+
+    log_info "Admin database initialized"
+}
+
+# View bot logs
+view_logs() {
+    local lines="${1:-50}"
+
+    if [[ -f "${BOT_LOG_FILE}" ]]; then
+        echo "=== Last ${lines} lines of bot log ==="
+        tail -n "${lines}" "${BOT_LOG_FILE}"
+    else
+        echo "Bot log file not found: ${BOT_LOG_FILE}"
+    fi
+}
+
+# Follow bot logs
+follow_logs() {
+    if [[ -f "${BOT_LOG_FILE}" ]]; then
+        echo "Following bot logs (Ctrl+C to stop)..."
+        tail -f "${BOT_LOG_FILE}"
+    else
+        echo "Bot log file not found: ${BOT_LOG_FILE}"
+    fi
+}
+
+# Clear bot logs
+clear_logs() {
+    if [[ -f "${BOT_LOG_FILE}" ]]; then
+        log_info "Clearing bot logs..."
+        > "${BOT_LOG_FILE}"
+        log_info "Bot logs cleared"
+    else
+        log_warn "Bot log file not found"
+    fi
+}
+
+# Install Python dependencies
+install_dependencies() {
+    log_info "Installing Python dependencies..."
+
+    # Check if pip is available
+    if ! command -v pip3 &> /dev/null; then
+        log_info "Installing pip..."
+        apt-get update
+        apt-get install -y python3-pip
+    fi
+
+    # Install requirements
+    if [[ -f "/opt/vless/requirements.txt" ]]; then
+        pip3 install -r /opt/vless/requirements.txt
+        log_info "Dependencies installed successfully"
+    else
+        log_error "Requirements file not found"
+        return 1
+    fi
+}
+
+# Update bot
 update_bot() {
-    log_message "INFO" "Updating Telegram bot"
+    log_info "Updating Telegram bot..."
 
-    # Stop the bot
-    stop_bot || true
+    # Stop bot
+    stop_bot
 
-    # Rebuild the image
-    if ! build_bot_image; then
-        return 1
-    fi
+    # Update dependencies
+    install_dependencies
 
-    # Start the bot
+    # Restart bot
     start_bot
-}
 
-# Function to remove bot
-remove_bot() {
-    log_message "INFO" "Removing Telegram bot"
-
-    if ! check_docker; then
-        return 1
-    fi
-
-    local compose_cmd
-    if ! compose_cmd=$(check_docker_compose); then
-        return 1
-    fi
-
-    cd "$PROJECT_DIR"
-
-    # Stop and remove the bot service
-    $compose_cmd -f "$DOCKER_COMPOSE_FILE" down telegram-bot
-
-    # Remove the image
-    if docker images --format "table {{.Repository}}\t{{.Tag}}" | grep -q "$BOT_IMAGE_NAME"; then
-        docker rmi "$BOT_IMAGE_NAME" || log_message "WARNING" "Failed to remove bot image"
-    fi
-
-    log_message "SUCCESS" "Telegram bot removed successfully"
-    return 0
-}
-
-# Function to backup bot configuration
-backup_bot_config() {
-    local backup_dir="${1:-/opt/vless/backups}"
-    local timestamp=$(date +"%Y%m%d_%H%M%S")
-    local backup_file="$backup_dir/bot_config_backup_$timestamp.tar.gz"
-
-    log_message "INFO" "Creating bot configuration backup"
-
-    ensure_directory "$backup_dir" "755" "root"
-
-    # Create backup archive
-    tar -czf "$backup_file" -C "$PROJECT_DIR" \
-        config/bot_config.env \
-        modules/telegram_bot.py \
-        modules/telegram_bot_manager.sh \
-        Dockerfile.bot \
-        requirements.txt 2>/dev/null || {
-        log_message "ERROR" "Failed to create backup"
-        return 1
-    }
-
-    log_message "SUCCESS" "Bot configuration backup created: $backup_file"
-    return 0
-}
-
-# Function to show bot configuration
-show_bot_config() {
-    log_message "INFO" "Current bot configuration"
-
-    if [[ ! -f "$BOT_CONFIG_FILE" ]]; then
-        log_message "ERROR" "Configuration file not found: $BOT_CONFIG_FILE"
-        return 1
-    fi
-
-    print_section "Bot Configuration"
-
-    # Show non-sensitive configuration
-    grep -E "^[A-Z_]+=" "$BOT_CONFIG_FILE" | \
-    grep -v -E "(TOKEN|PASSWORD|SECRET|KEY)" | \
-    while IFS='=' read -r key value; do
-        printf "%-25s %s\n" "$key:" "$value"
-    done
-
-    return 0
-}
-
-# Function to test bot configuration
-test_bot_config() {
-    log_message "INFO" "Testing bot configuration"
-
-    if ! validate_bot_config; then
-        return 1
-    fi
-
-    # Source configuration
-    set -a
-    source "$BOT_CONFIG_FILE"
-    set +a
-
-    # Test Python dependencies
-    python3 -c "
-import sys
-try:
-    import telegram
-    import qrcode
-    print('✓ Python dependencies are available')
-    sys.exit(0)
-except ImportError as e:
-    print(f'✗ Missing Python dependency: {e}')
-    sys.exit(1)
-" || {
-        log_message "ERROR" "Python dependencies test failed"
-        return 1
-    }
-
-    # Test Telegram API
-    python3 -c "
-import asyncio
-import sys
-from telegram import Bot
-
-async def test_bot():
-    try:
-        bot = Bot(token='$TELEGRAM_BOT_TOKEN')
-        bot_info = await bot.get_me()
-        print(f'✓ Bot connection successful: @{bot_info.username}')
-        await bot.close()
-        return True
-    except Exception as e:
-        print(f'✗ Bot connection failed: {e}')
-        return False
-
-if asyncio.run(test_bot()):
-    sys.exit(0)
-else:
-    sys.exit(1)
-" || {
-        log_message "ERROR" "Telegram API test failed"
-        return 1
-    }
-
-    log_message "SUCCESS" "All configuration tests passed"
-    return 0
-}
-
-# Function to show help
-show_help() {
-    cat << EOF
-VLESS VPN Telegram Bot Manager
-
-Usage: $0 <command> [options]
-
-Commands:
-  start         Start the Telegram bot
-  stop          Stop the Telegram bot
-  restart       Restart the Telegram bot
-  status        Show bot status
-  logs [lines]  View bot logs (default: 50 lines)
-  follow-logs   Follow bot logs in real-time
-  build         Build bot Docker image
-  update        Update bot (rebuild and restart)
-  remove        Remove bot completely
-  backup        Backup bot configuration
-  config        Show current configuration
-  test          Test bot configuration
-  validate      Validate configuration only
-  help          Show this help message
-
-Examples:
-  $0 start                    # Start the bot
-  $0 logs 100                 # View last 100 log lines
-  $0 test                     # Test configuration
-  $0 backup /tmp              # Backup to /tmp directory
-
-Configuration:
-  Bot configuration is stored in: $BOT_CONFIG_FILE
-  Logs are written to: $BOT_LOG_FILE
-EOF
+    log_info "Bot update completed"
 }
 
 # Main function
 main() {
-    local command="${1:-help}"
-
-    case "$command" in
+    case "${1:-}" in
+        "status")
+            bot_status
+            ;;
         "start")
             start_bot
             ;;
@@ -453,45 +454,100 @@ main() {
         "restart")
             restart_bot
             ;;
-        "status")
-            check_bot_status
+        "enable")
+            enable_bot
             ;;
-        "logs")
-            local lines="${2:-50}"
-            view_bot_logs "$lines"
+        "disable")
+            disable_bot
             ;;
-        "follow-logs")
-            view_bot_logs 50 true
+        "install")
+            install_bot_service
             ;;
-        "build")
-            build_bot_image
-            ;;
-        "update")
-            update_bot
-            ;;
-        "remove")
-            remove_bot
-            ;;
-        "backup")
-            local backup_dir="${2:-/opt/vless/backups}"
-            backup_bot_config "$backup_dir"
-            ;;
-        "config")
-            show_bot_config
-            ;;
-        "test")
-            test_bot_config
+        "uninstall")
+            uninstall_bot_service
             ;;
         "validate")
             validate_bot_config
             ;;
-        "help"|*)
-            show_help
+        "setup")
+            if [[ -z "${2:-}" || -z "${3:-}" ]]; then
+                echo "Usage: $0 setup <bot_token> <admin_chat_id>"
+                exit 1
+            fi
+            setup_bot_config "$2" "$3"
+            ;;
+        "add-admin")
+            if [[ -z "${2:-}" ]]; then
+                echo "Usage: $0 add-admin <user_id> [username]"
+                exit 1
+            fi
+            add_admin "$2" "${3:-}"
+            ;;
+        "remove-admin")
+            if [[ -z "${2:-}" ]]; then
+                echo "Usage: $0 remove-admin <user_id>"
+                exit 1
+            fi
+            remove_admin "$2"
+            ;;
+        "list-admins")
+            list_admins
+            ;;
+        "logs")
+            view_logs "${2:-50}"
+            ;;
+        "follow-logs")
+            follow_logs
+            ;;
+        "clear-logs")
+            clear_logs
+            ;;
+        "install-deps")
+            install_dependencies
+            ;;
+        "update")
+            update_bot
+            ;;
+        "test")
+            test_bot_connection
+            ;;
+        *)
+            echo "Usage: $0 {command} [options]"
+            echo
+            echo "Service Management:"
+            echo "  status              Show bot service status"
+            echo "  start               Start bot service"
+            echo "  stop                Stop bot service"
+            echo "  restart             Restart bot service"
+            echo "  enable              Enable auto-start"
+            echo "  disable             Disable auto-start"
+            echo
+            echo "Installation:"
+            echo "  install             Install systemd service"
+            echo "  uninstall           Remove systemd service"
+            echo "  install-deps        Install Python dependencies"
+            echo "  update              Update bot and dependencies"
+            echo
+            echo "Configuration:"
+            echo "  validate            Validate configuration"
+            echo "  setup <token> <id>  Setup bot configuration"
+            echo "  test                Test bot connection"
+            echo
+            echo "Admin Management:"
+            echo "  add-admin <id>      Add admin user"
+            echo "  remove-admin <id>   Remove admin user"
+            echo "  list-admins         List admin users"
+            echo
+            echo "Logging:"
+            echo "  logs [lines]        View bot logs"
+            echo "  follow-logs         Follow logs in real-time"
+            echo "  clear-logs          Clear log file"
+            exit 1
             ;;
     esac
 }
 
-# Run main function if script is executed directly
+# Execute main function if script is run directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

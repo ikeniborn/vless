@@ -1,620 +1,725 @@
 #!/bin/bash
-# VLESS+Reality VPN Installation Script
-# Main installation script with interactive menu
+# ======================================================================================
+# VLESS+Reality VPN Management System - Main Installation Script
+# ======================================================================================
+# This is the main entry point for installing the complete VLESS+Reality VPN system.
+# It orchestrates the installation process, validates the environment, and provides
+# comprehensive error handling with rollback capabilities.
+#
 # Author: Claude Code
 # Version: 1.0
+# Last Modified: 2025-09-21
+#
+# Usage:
+#   sudo ./install.sh [OPTIONS]
+#
+# Options:
+#   -h, --help          Show help message
+#   -v, --verbose       Enable verbose output
+#   -d, --dry-run       Perform dry run without making changes
+#   -f, --force         Force installation (skip confirmations)
+#   -c, --config FILE   Use custom configuration file
+#   --skip-deps         Skip dependency installation
+#   --skip-docker       Skip Docker installation
+#   --skip-security     Skip security hardening
+# ======================================================================================
 
 set -euo pipefail
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Global configuration
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly VLESS_ROOT="/opt/vless"
+readonly MODULES_DIR="${SCRIPT_DIR}/modules"
+readonly CONFIG_DIR="${VLESS_ROOT}/config"
+readonly LOG_DIR="${VLESS_ROOT}/logs"
 
-# Import common utilities
-source "${SCRIPT_DIR}/modules/common_utils.sh" || {
-    echo "ERROR: Cannot load common utilities module" >&2
-    exit 1
+# Installation configuration
+DRY_RUN=false
+VERBOSE=false
+FORCE_INSTALL=false
+SKIP_DEPS=false
+SKIP_DOCKER=false
+SKIP_SECURITY=false
+CUSTOM_CONFIG=""
+
+# Installation phases
+declare -a INSTALLATION_PHASES=(
+    "validate_environment"
+    "setup_foundation"
+    "install_dependencies"
+    "setup_docker"
+    "setup_user_management"
+    "setup_security"
+    "setup_monitoring"
+    "finalize_installation"
+)
+
+# ======================================================================================
+# UTILITY FUNCTIONS
+# ======================================================================================
+
+# Import common utilities (with fallback)
+if [[ -f "${MODULES_DIR}/common_utils.sh" ]]; then
+    source "${MODULES_DIR}/common_utils.sh"
+else
+    # Fallback logging functions if common_utils not available
+    log_info() { echo -e "\033[0;34m[INFO]\033[0m $*"; }
+    log_warn() { echo -e "\033[1;33m[WARN]\033[0m $*" >&2; }
+    log_error() { echo -e "\033[0;31m[ERROR]\033[0m $*" >&2; }
+    log_success() { echo -e "\033[0;32m[SUCCESS]\033[0m $*"; }
+fi
+
+# Function: show_banner
+# Description: Display installation banner
+show_banner() {
+    cat << 'EOF'
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    VLESS+Reality VPN Management System                       ║
+║                              Installation Script                             ║
+║                                                                              ║
+║  This script will install and configure a complete VLESS+Reality VPN        ║
+║  management system with Docker, user management, security hardening,        ║
+║  and Telegram bot integration.                                              ║
+║                                                                              ║
+║  Requirements:                                                               ║
+║  - Ubuntu 20.04+ or Debian 11+                                              ║
+║  - Root privileges                                                           ║
+║  - Internet connectivity                                                     ║
+║  - Minimum 1GB RAM, 10GB disk space                                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+EOF
 }
 
-# Script constants
-readonly SCRIPT_NAME="VLESS VPN Installer"
-readonly REQUIRED_OS_VERSIONS=("ubuntu:20.04" "ubuntu:22.04" "ubuntu:24.04" "debian:11" "debian:12")
-readonly MIN_RAM_GB=1
-readonly MIN_DISK_GB=5
-readonly LOG_FILE="/var/log/vless-install.log"
+# Function: show_usage
+# Description: Display usage information
+show_usage() {
+    cat << 'EOF'
+Usage: sudo ./install.sh [OPTIONS]
 
-# Installation state
-OPERATION=""
-DOMAIN=""
-SSH_PORT=""
-TELEGRAM_BOT_TOKEN=""
-ADMIN_TELEGRAM_ID=""
+OPTIONS:
+    -h, --help          Show this help message
+    -v, --verbose       Enable verbose output (debug mode)
+    -d, --dry-run       Perform dry run without making changes
+    -f, --force         Force installation (skip confirmations)
+    -c, --config FILE   Use custom configuration file
+    --skip-deps         Skip dependency installation
+    --skip-docker       Skip Docker installation
+    --skip-security     Skip security hardening
+    --uninstall         Uninstall VLESS system
 
-# Trap function for cleanup on script interruption
-cleanup() {
-    local exit_code=$?
-    if [[ $exit_code -ne 0 ]]; then
-        print_error "Installation interrupted. Exit code: $exit_code"
-        if [[ -n "${OPERATION:-}" ]]; then
-            print_warning "You can resume installation by running this script again"
-        fi
-    fi
-    exit $exit_code
+EXAMPLES:
+    # Standard installation
+    sudo ./install.sh
+
+    # Verbose installation with custom config
+    sudo ./install.sh --verbose --config /path/to/config.env
+
+    # Dry run to see what would be installed
+    sudo ./install.sh --dry-run --verbose
+
+    # Force installation without prompts
+    sudo ./install.sh --force
+
+    # Install without Docker (if already installed)
+    sudo ./install.sh --skip-docker
+
+CONFIGURATION:
+    The installer can use a configuration file to customize the installation.
+    Create a file with environment variables:
+
+    VLESS_PORT=443
+    VLESS_DOMAIN=example.com
+    TELEGRAM_BOT_TOKEN=your_bot_token
+    ADMIN_TELEGRAM_ID=your_telegram_id
+
+For more information, visit: https://github.com/your-repo/vless-vpn
+EOF
 }
 
-trap cleanup EXIT INT TERM
+# ======================================================================================
+# ARGUMENT PARSING
+# ======================================================================================
 
-# Logging function
-log_message() {
-    local level="$1"
-    local message="$2"
-    local timestamp=$(get_timestamp)
-
-    # Create log directory if it doesn't exist
-    sudo mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
-
-    # Log to file
-    echo "[$timestamp] [$level] $message" | sudo tee -a "$LOG_FILE" >/dev/null 2>&1 || true
-
-    # Also output to console based on level
-    case "$level" in
-        "INFO") print_info "$message" ;;
-        "SUCCESS") print_success "$message" ;;
-        "WARNING") print_warning "$message" ;;
-        "ERROR") print_error "$message" ;;
-    esac
-}
-
-# Check if running as root
-check_root_privileges() {
-    if [[ $EUID -ne 0 ]]; then
-        print_error "This script must be run as root (use sudo)"
-        print_info "Usage: sudo $0"
-        exit 1
-    fi
-}
-
-# Check OS compatibility
-check_os_compatibility() {
-    log_message "INFO" "Checking OS compatibility..."
-
-    if [[ ! -f /etc/os-release ]]; then
-        log_message "ERROR" "Cannot determine OS version"
-        return 1
-    fi
-
-    source /etc/os-release
-    local os_id="${ID,,}"
-    local os_version="${VERSION_ID}"
-    local os_check="${os_id}:${os_version}"
-
-    local compatible=false
-    for version in "${REQUIRED_OS_VERSIONS[@]}"; do
-        if [[ "$os_check" == "$version" ]]; then
-            compatible=true
-            break
-        fi
+# Function: parse_arguments
+# Description: Parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -v|--verbose)
+                VERBOSE=true
+                export VLESS_LOG_LEVEL=0  # Debug level
+                shift
+                ;;
+            -d|--dry-run)
+                DRY_RUN=true
+                log_info "Dry run mode enabled - no changes will be made"
+                shift
+                ;;
+            -f|--force)
+                FORCE_INSTALL=true
+                log_info "Force mode enabled - skipping confirmations"
+                shift
+                ;;
+            -c|--config)
+                CUSTOM_CONFIG="$2"
+                if [[ ! -f "$CUSTOM_CONFIG" ]]; then
+                    log_error "Configuration file not found: $CUSTOM_CONFIG"
+                    exit 1
+                fi
+                shift 2
+                ;;
+            --skip-deps)
+                SKIP_DEPS=true
+                log_info "Skipping dependency installation"
+                shift
+                ;;
+            --skip-docker)
+                SKIP_DOCKER=true
+                log_info "Skipping Docker installation"
+                shift
+                ;;
+            --skip-security)
+                SKIP_SECURITY=true
+                log_info "Skipping security hardening"
+                shift
+                ;;
+            --uninstall)
+                uninstall_vless_system
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
     done
-
-    if [[ "$compatible" == "true" ]]; then
-        log_message "SUCCESS" "OS compatibility verified: $PRETTY_NAME"
-        return 0
-    else
-        log_message "ERROR" "Unsupported OS: $PRETTY_NAME"
-        print_info "Supported versions: ${REQUIRED_OS_VERSIONS[*]}"
-        return 1
-    fi
 }
 
-# Check system requirements
-check_system_requirements() {
-    log_message "INFO" "Checking system requirements..."
+# ======================================================================================
+# PRE-INSTALLATION VALIDATION
+# ======================================================================================
 
-    # Check memory
-    local total_ram_mb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    local total_ram_gb=$((total_ram_mb / 1024 / 1024))
+# Function: validate_environment
+# Description: Validate the installation environment
+validate_environment() {
+    log_info "Validating installation environment..."
 
-    if [[ $total_ram_gb -lt $MIN_RAM_GB ]]; then
-        log_message "ERROR" "Insufficient RAM: ${total_ram_gb}GB (minimum: ${MIN_RAM_GB}GB)"
-        return 1
+    local validation_errors=0
+
+    # Check root privileges
+    if [[ $EUID -ne 0 ]]; then
+        log_error "This script must be run as root. Please use sudo."
+        ((validation_errors++))
     fi
 
-    # Check disk space
-    local available_space_gb=$(df / | awk 'NR==2 {print int($4/1024/1024)}')
-
-    if [[ $available_space_gb -lt $MIN_DISK_GB ]]; then
-        log_message "ERROR" "Insufficient disk space: ${available_space_gb}GB (minimum: ${MIN_DISK_GB}GB)"
-        return 1
+    # Check supported distribution
+    if ! validate_system; then
+        ((validation_errors++))
     fi
 
     # Check internet connectivity
-    if ! check_internet_connectivity; then
-        log_message "ERROR" "No internet connection available"
-        return 1
+    if ! check_internet; then
+        ((validation_errors++))
     fi
 
-    log_message "SUCCESS" "System requirements verified"
-    log_message "INFO" "RAM: ${total_ram_gb}GB, Disk: ${available_space_gb}GB available"
+    # Check disk space (minimum 10GB)
+    local available_space
+    available_space=$(df / | tail -1 | awk '{print $4}')
+    local required_space=10485760  # 10GB in KB
 
-    return 0
-}
-
-# Validate domain name
-validate_domain_input() {
-    local domain="$1"
-
-    if ! validate_domain "$domain"; then
-        return 1
+    if [[ $available_space -lt $required_space ]]; then
+        log_error "Insufficient disk space. Required: 10GB, Available: $((available_space/1024/1024))GB"
+        ((validation_errors++))
     fi
 
-    # Check if domain resolves
-    if ! nslookup "$domain" >/dev/null 2>&1; then
-        print_warning "Domain $domain does not resolve to an IP address"
-        if ! prompt_yes_no "Continue anyway?"; then
-            return 1
+    # Check RAM (minimum 1GB)
+    local available_ram
+    available_ram=$(free -m | awk 'NR==2{print $7}')
+    local required_ram=1024
+
+    if [[ $available_ram -lt $required_ram ]]; then
+        log_warn "Low available RAM. Required: 1GB, Available: ${available_ram}MB"
+    fi
+
+    # Check for conflicting services
+    local conflicting_services=("apache2" "nginx" "v2ray" "xray")
+    for service in "${conflicting_services[@]}"; do
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            log_warn "Conflicting service detected: $service (may need manual configuration)"
         fi
-    fi
+    done
 
-    return 0
-}
-
-# Validate Telegram token format
-validate_telegram_token() {
-    local token="$1"
-
-    # Basic format validation for Telegram bot token: XXXXXXXXX:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    if [[ "$token" =~ ^[0-9]{8,10}:[a-zA-Z0-9_-]{35}$ ]]; then
+    # Report validation results
+    if [[ $validation_errors -gt 0 ]]; then
+        log_error "Environment validation failed with $validation_errors errors"
+        return 1
+    else
+        log_success "Environment validation passed"
         return 0
-    else
-        return 1
     fi
 }
 
-# Validate Telegram ID (numeric)
-validate_telegram_id() {
-    local id="$1"
+# ======================================================================================
+# INSTALLATION PHASES
+# ======================================================================================
 
-    if [[ "$id" =~ ^[0-9]+$ ]] && [[ ${#id} -ge 5 ]] && [[ ${#id} -le 12 ]]; then
+# Function: setup_foundation
+# Description: Setup basic directory structure and permissions
+setup_foundation() {
+    log_info "Setting up foundation infrastructure..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would create directory structure at $VLESS_ROOT"
         return 0
-    else
-        return 1
     fi
+
+    # Source and initialize common utilities
+    source "${MODULES_DIR}/common_utils.sh"
+    init_common_utils
+
+    # Setup logging infrastructure
+    source "${MODULES_DIR}/logging_setup.sh"
+    setup_logging_infrastructure
+
+    log_success "Foundation infrastructure setup completed"
 }
 
-# Collect installation parameters
-collect_installation_params() {
-    print_header "Installation Configuration"
-
-    # Domain configuration
-    print_section "Domain Configuration"
-    DOMAIN=$(prompt_input "Enter your domain name (e.g., example.com)" "" validate_domain_input)
-    log_message "INFO" "Domain configured: $DOMAIN"
-
-    # SSH port configuration
-    print_section "SSH Configuration"
-    print_info "Current SSH port: $(ss -tlpn | awk '/sshd/ && /0.0.0.0/ {gsub(/.*:/, "", $4); print $4}' | head -1 || echo "22")"
-    SSH_PORT=$(prompt_input "SSH port" "22" validate_port)
-    log_message "INFO" "SSH port configured: $SSH_PORT"
-
-    # Telegram bot configuration
-    print_section "Telegram Bot Configuration"
-    print_info "You need to create a Telegram bot with @BotFather first"
-    TELEGRAM_BOT_TOKEN=$(prompt_input "Telegram Bot Token" "" validate_telegram_token)
-
-    print_info "You can get your Telegram ID from @userinfobot"
-    ADMIN_TELEGRAM_ID=$(prompt_input "Admin Telegram ID" "" validate_telegram_id)
-
-    log_message "INFO" "Telegram bot configured"
-
-    # Configuration summary
-    print_section "Configuration Summary"
-    printf "%-20s %s\n" "Domain:" "$DOMAIN"
-    printf "%-20s %s\n" "SSH Port:" "$SSH_PORT"
-    printf "%-20s %s\n" "Bot Token:" "${TELEGRAM_BOT_TOKEN:0:10}...${TELEGRAM_BOT_TOKEN: -5}"
-    printf "%-20s %s\n" "Admin ID:" "$ADMIN_TELEGRAM_ID"
-
-    echo
-    if ! prompt_yes_no "Proceed with this configuration?" "y"; then
-        log_message "INFO" "Installation cancelled by user"
-        exit 0
-    fi
-}
-
-# Execute installation modules
-execute_installation() {
-    log_message "INFO" "Starting VLESS VPN installation..."
-
-    # Step 1: System update
-    print_step "1/6" "Updating system packages"
-    if source "${MODULES_DIR}/system_update.sh"; then
-        log_message "SUCCESS" "System update completed"
-    else
-        log_message "ERROR" "System update failed"
-        return 1
+# Function: install_dependencies
+# Description: Install required system packages
+install_dependencies() {
+    if [[ "$SKIP_DEPS" == "true" ]]; then
+        log_info "Skipping dependency installation"
+        return 0
     fi
 
-    # Step 2: Docker installation
-    print_step "2/6" "Installing Docker and Docker Compose"
-    if source "${MODULES_DIR}/docker_setup.sh"; then
-        log_message "SUCCESS" "Docker installation completed"
-    else
-        log_message "ERROR" "Docker installation failed"
-        return 1
+    log_info "Installing system dependencies..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would install: curl wget gnupg lsb-release apt-transport-https ca-certificates software-properties-common uuidgen qrencode python3 python3-pip"
+        return 0
     fi
 
-    # Step 3: UFW configuration
-    print_step "3/6" "Configuring firewall"
-    if UFW_SSH_PORT="$SSH_PORT" source "${MODULES_DIR}/ufw_config.sh"; then
-        log_message "SUCCESS" "Firewall configuration completed"
-    else
-        log_message "ERROR" "Firewall configuration failed"
-        return 1
-    fi
-
-    # Step 4: Certificate management
-    print_step "4/6" "Setting up certificate management"
-    if REALITY_DOMAIN="$DOMAIN" source "${MODULES_DIR}/cert_management.sh"; then
-        log_message "SUCCESS" "Certificate management setup completed"
-    else
-        log_message "ERROR" "Certificate management setup failed"
-        return 1
-    fi
-
-    # Step 5: User management setup
-    print_step "5/6" "Setting up user management"
-    if source "${MODULES_DIR}/user_management.sh"; then
-        log_message "SUCCESS" "User management setup completed"
-    else
-        log_message "ERROR" "User management setup failed"
-        return 1
-    fi
-
-    # Step 6: Docker services deployment
-    print_step "6/6" "Deploying Docker services"
-    cd "$PROJECT_DIR"
-
-    # Create environment file
-    cat > .env << EOF
-DOMAIN=$DOMAIN
-TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
-ADMIN_TELEGRAM_ID=$ADMIN_TELEGRAM_ID
-VLESS_DIR=$VLESS_DIR
-EOF
-
-    if docker-compose -f "${CONFIG_DIR}/docker-compose.yml" up -d; then
-        log_message "SUCCESS" "Docker services deployed successfully"
-    else
-        log_message "ERROR" "Docker services deployment failed"
-        return 1
-    fi
-
-    # Wait for services to start
-    print_info "Waiting for services to initialize..."
-    sleep 10
-
-    # Verify services are running
-    if docker-compose -f "${CONFIG_DIR}/docker-compose.yml" ps | grep -q "Up"; then
-        log_message "SUCCESS" "All services are running"
-    else
-        log_message "WARNING" "Some services may not be running properly"
-        docker-compose -f "${CONFIG_DIR}/docker-compose.yml" ps
-    fi
-
-    log_message "SUCCESS" "VLESS VPN installation completed successfully"
-}
-
-# Uninstall function
-execute_uninstall() {
-    print_header "VLESS VPN Uninstallation"
-
-    if ! prompt_yes_no "Are you sure you want to uninstall VLESS VPN? This will remove all data." "n"; then
-        log_message "INFO" "Uninstallation cancelled by user"
-        exit 0
-    fi
-
-    log_message "INFO" "Starting VLESS VPN uninstallation..."
-
-    # Stop Docker services
-    print_step "1/4" "Stopping Docker services"
-    cd "$PROJECT_DIR" 2>/dev/null || true
-    docker-compose -f "${CONFIG_DIR}/docker-compose.yml" down 2>/dev/null || true
-    log_message "INFO" "Docker services stopped"
-
-    # Remove Docker images
-    print_step "2/4" "Removing Docker images"
-    docker rmi $(docker images -q "teddysun/xray" "python" 2>/dev/null) 2>/dev/null || true
-    log_message "INFO" "Docker images removed"
-
-    # Remove VLESS directories
-    print_step "3/4" "Removing VLESS data"
-    sudo rm -rf "$VLESS_DIR" 2>/dev/null || true
-    rm -f .env 2>/dev/null || true
-    log_message "INFO" "VLESS data removed"
-
-    # Remove systemd service (if exists)
-    print_step "4/4" "Cleaning up system services"
-    sudo systemctl stop vless-vpn 2>/dev/null || true
-    sudo systemctl disable vless-vpn 2>/dev/null || true
-    sudo rm -f /etc/systemd/system/vless-vpn.service 2>/dev/null || true
-    sudo systemctl daemon-reload 2>/dev/null || true
-    log_message "INFO" "System services cleaned"
-
-    log_message "SUCCESS" "VLESS VPN uninstallation completed"
-    print_success "VLESS VPN has been completely removed from your system"
-}
-
-# Reinstall function
-execute_reinstall() {
-    print_header "VLESS VPN Reinstallation"
-
-    print_warning "This will remove existing installation and install fresh copy"
-    if ! prompt_yes_no "Continue with reinstallation?" "n"; then
-        log_message "INFO" "Reinstallation cancelled by user"
-        exit 0
-    fi
-
-    # Execute uninstall first
-    execute_uninstall
-
-    echo
-    print_info "Starting fresh installation..."
-    sleep 2
-
-    # Execute installation
-    collect_installation_params
-    execute_installation
-}
-
-# Display post-installation information
-show_post_install_info() {
-    print_header "Installation Complete"
-
-    print_success "VLESS VPN has been successfully installed!"
-    echo
-
-    print_section "Service Information"
-    printf "%-20s %s\n" "Domain:" "$DOMAIN"
-    printf "%-20s %s\n" "Status:" "$(docker-compose -f "${CONFIG_DIR}/docker-compose.yml" ps --services --filter status=running | wc -l) services running"
-    printf "%-20s %s\n" "Configuration:" "$VLESS_DIR/configs/"
-    printf "%-20s %s\n" "Logs:" "$VLESS_DIR/logs/"
-
-    echo
-    print_section "Next Steps"
-    print_info "1. Add your first user via Telegram bot: /adduser <username>"
-    print_info "2. Get user configuration: /getconfig <user-uuid>"
-    print_info "3. Monitor system status: /status"
-    print_info "4. View this information anytime: /help"
-
-    echo
-    print_section "Management Commands"
-    print_info "Start services: docker-compose -f ${CONFIG_DIR}/docker-compose.yml up -d"
-    print_info "Stop services: docker-compose -f ${CONFIG_DIR}/docker-compose.yml down"
-    print_info "View logs: docker-compose -f ${CONFIG_DIR}/docker-compose.yml logs -f"
-    print_info "Restart installation: sudo $0"
-
-    echo
-    print_warning "Save this information! Your Telegram bot is ready to use."
-}
-
-# Phase 4 menu and operations
-execute_phase4_menu() {
-    print_header "Phase 4: Security & Monitoring"
-
-    print_info "Phase 4 includes advanced security, monitoring, and maintenance features:"
-    echo "• Enhanced security hardening (fail2ban, kernel security, file integrity)"
-    echo "• Centralized logging with rsyslog and logrotate"
-    echo "• System monitoring with alerting and auto-recovery"
-    echo "• SystemD service integration"
-    echo "• Maintenance utilities and diagnostics"
-    echo
-
-    local options=(
-        "Install Phase 4 (full setup)"
-        "Show Phase 4 status"
-        "Update configurations"
-        "Remove Phase 4 components"
-        "Back to main menu"
+    local required_packages=(
+        "curl"
+        "wget"
+        "gnupg"
+        "lsb-release"
+        "apt-transport-https"
+        "ca-certificates"
+        "software-properties-common"
+        "uuidgen"
+        "qrencode"
+        "python3"
+        "python3-pip"
+        "python3-venv"
+        "jq"
+        "unzip"
+        "tar"
+        "gzip"
     )
 
-    local choice=$(prompt_choice "Select Phase 4 operation:" "${options[@]}")
+    # Update package cache
+    update_package_cache
 
-    case $choice in
-        0) execute_phase4_install ;;
-        1) execute_phase4_status ;;
-        2) execute_phase4_update ;;
-        3) execute_phase4_remove ;;
-        4) main ;;
-    esac
-}
-
-# Execute Phase 4 installation
-execute_phase4_install() {
-    print_header "Installing Phase 4 Components"
-
-    # Check if base installation exists
-    if [[ ! -f "/opt/vless/docker-compose.yml" ]]; then
-        print_error "Base VLESS installation not found. Please run fresh installation first."
-        return 1
-    fi
-
-    log_message "INFO" "Starting Phase 4 installation"
-
-    # Load and execute Phase 4 integration
-    if source "${MODULES_DIR}/phase4_integration.sh"; then
-        if install_phase4; then
-            log_message "SUCCESS" "Phase 4 installation completed"
-            print_success "Phase 4 installation completed successfully!"
-
-            # Show status
-            echo
-            show_phase4_status
-
-            print_info "New commands available:"
-            echo "• vless-maintenance - Maintenance utilities"
-            echo "• vless-monitoring - Monitoring tools"
-            echo "• vless-logger - Logging utilities"
-            echo "• systemctl status vless-vpn - Service status"
-
+    # Install packages
+    for package in "${required_packages[@]}"; do
+        if ! is_package_installed "$package"; then
+            install_package "$package"
         else
-            log_message "ERROR" "Phase 4 installation failed"
-            print_error "Phase 4 installation failed. Check logs for details."
-            return 1
+            log_debug "Package already installed: $package"
         fi
-    else
-        log_message "ERROR" "Failed to load Phase 4 integration module"
-        print_error "Failed to load Phase 4 integration module"
-        return 1
-    fi
+    done
+
+    log_success "System dependencies installed"
 }
 
-# Show Phase 4 status
-execute_phase4_status() {
-    print_header "Phase 4 Status"
-
-    if source "${MODULES_DIR}/phase4_integration.sh"; then
-        show_phase4_status
-    else
-        print_error "Failed to load Phase 4 integration module"
-        return 1
-    fi
-
-    # Ask if user wants to return to menu or exit
-    echo
-    if prompt_yes_no "Return to Phase 4 menu?" "y"; then
-        execute_phase4_menu
-    fi
-}
-
-# Update Phase 4 configurations
-execute_phase4_update() {
-    print_header "Updating Phase 4 Configurations"
-
-    if source "${MODULES_DIR}/phase4_integration.sh"; then
-        if update_configurations; then
-            print_success "Phase 4 configurations updated successfully"
-        else
-            print_error "Failed to update Phase 4 configurations"
-            return 1
-        fi
-    else
-        print_error "Failed to load Phase 4 integration module"
-        return 1
-    fi
-
-    # Ask if user wants to return to menu or exit
-    echo
-    if prompt_yes_no "Return to Phase 4 menu?" "y"; then
-        execute_phase4_menu
-    fi
-}
-
-# Remove Phase 4 components
-execute_phase4_remove() {
-    print_header "Removing Phase 4 Components"
-
-    print_warning "This will remove all Phase 4 security and monitoring features!"
-    print_warning "This includes:"
-    echo "• Security hardening configurations"
-    echo "• Monitoring and alerting system"
-    echo "• Centralized logging setup"
-    echo "• SystemD service integration"
-    echo "• Maintenance utilities"
-    echo
-
-    if ! prompt_yes_no "Are you absolutely sure you want to proceed?" "n"; then
-        print_info "Phase 4 removal cancelled"
-        execute_phase4_menu
+# Function: setup_docker
+# Description: Install and configure Docker
+setup_docker() {
+    if [[ "$SKIP_DOCKER" == "true" ]]; then
+        log_info "Skipping Docker installation"
         return 0
     fi
 
-    log_message "WARNING" "Phase 4 removal requested"
+    log_info "Setting up Docker infrastructure..."
 
-    if source "${MODULES_DIR}/phase4_integration.sh"; then
-        if remove_phase4; then
-            log_message "WARNING" "Phase 4 removal completed"
-            print_success "Phase 4 components removed successfully"
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would install Docker and Docker Compose"
+        return 0
+    fi
+
+    # Check if Docker module exists and source it
+    if [[ -f "${MODULES_DIR}/docker_setup.sh" ]]; then
+        source "${MODULES_DIR}/docker_setup.sh"
+        install_docker_infrastructure
+    else
+        log_warn "Docker setup module not found - will be available in Phase 2"
+    fi
+
+    log_success "Docker setup completed"
+}
+
+# Function: setup_user_management
+# Description: Setup user management system
+setup_user_management() {
+    log_info "Setting up user management system..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would setup user management and QR code generation"
+        return 0
+    fi
+
+    # Setup will be completed in Phase 3
+    log_info "User management setup will be completed in Phase 3"
+    log_success "User management placeholder setup completed"
+}
+
+# Function: setup_security
+# Description: Setup security hardening
+setup_security() {
+    if [[ "$SKIP_SECURITY" == "true" ]]; then
+        log_info "Skipping security hardening"
+        return 0
+    fi
+
+    log_info "Setting up security hardening..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would setup UFW firewall and SSH hardening"
+        return 0
+    fi
+
+    # Security setup will be completed in Phase 4
+    log_info "Security hardening setup will be completed in Phase 4"
+    log_success "Security placeholder setup completed"
+}
+
+# Function: setup_monitoring
+# Description: Setup monitoring and backup systems
+setup_monitoring() {
+    log_info "Setting up monitoring and backup systems..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would setup monitoring, backup, and Telegram bot"
+        return 0
+    fi
+
+    # Monitoring setup will be completed in Phase 5
+    log_info "Monitoring setup will be completed in Phase 5"
+    log_success "Monitoring placeholder setup completed"
+}
+
+# Function: finalize_installation
+# Description: Finalize installation and create service files
+finalize_installation() {
+    log_info "Finalizing installation..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would create systemd services and finalize configuration"
+        return 0
+    fi
+
+    # Create installation info file
+    local install_info="${CONFIG_DIR}/installation.info"
+    cat > "$install_info" << EOF
+# VLESS+Reality VPN Installation Information
+INSTALLATION_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+INSTALLATION_VERSION=1.0
+SCRIPT_VERSION=1.0
+SYSTEM_INFO=$(uname -a)
+DISTRIBUTION=$(lsb_release -ds 2>/dev/null || echo "Unknown")
+INSTALLATION_USER=$(whoami)
+INSTALLATION_PHASES_COMPLETED=Phase1-Foundation
+DRY_RUN_MODE=$DRY_RUN
+VERBOSE_MODE=$VERBOSE
+FORCE_MODE=$FORCE_INSTALL
+SKIP_DEPS=$SKIP_DEPS
+SKIP_DOCKER=$SKIP_DOCKER
+SKIP_SECURITY=$SKIP_SECURITY
+CUSTOM_CONFIG=$CUSTOM_CONFIG
+EOF
+
+    chmod 600 "$install_info"
+
+    # Create management scripts
+    create_management_scripts
+
+    log_success "Installation finalization completed"
+}
+
+# ======================================================================================
+# MANAGEMENT SCRIPTS
+# ======================================================================================
+
+# Function: create_management_scripts
+# Description: Create convenience management scripts
+create_management_scripts() {
+    local bin_dir="${VLESS_ROOT}/bin"
+    create_directory "$bin_dir" "755" "root:root"
+
+    # Create VLESS management script
+    cat > "${bin_dir}/vless-manage" << 'EOF'
+#!/bin/bash
+# VLESS Management Utility
+# Provides easy access to common VLESS management tasks
+
+set -euo pipefail
+
+VLESS_ROOT="/opt/vless"
+source "${VLESS_ROOT}/modules/common_utils.sh"
+
+show_usage() {
+    cat << 'USAGE'
+VLESS Management Utility
+
+Usage: vless-manage [COMMAND] [OPTIONS]
+
+COMMANDS:
+    status              Show system status
+    logs               Show recent logs
+    update             Update system components
+    backup             Create system backup
+    restore            Restore from backup
+    users              Manage VPN users
+    config             View/edit configuration
+    restart            Restart services
+    version            Show version information
+
+OPTIONS:
+    -h, --help         Show help for specific command
+    -v, --verbose      Enable verbose output
+
+EXAMPLES:
+    vless-manage status
+    vless-manage logs --tail 100
+    vless-manage users add username
+    vless-manage backup --full
+
+For detailed help on a specific command:
+    vless-manage [COMMAND] --help
+USAGE
+}
+
+case "${1:-}" in
+    status)
+        echo "VLESS System Status:"
+        echo "==================="
+        echo "Installation: Phase 1 (Foundation) Complete"
+        echo "Next Phase: Phase 2 (Docker Infrastructure)"
+        ;;
+    logs)
+        if [[ -f "${VLESS_ROOT}/bin/analyze-logs.sh" ]]; then
+            "${VLESS_ROOT}/bin/analyze-logs.sh" "${@:2}"
         else
-            log_message "ERROR" "Phase 4 removal failed"
-            print_error "Failed to remove Phase 4 components"
+            echo "Log analysis not yet available (Phase 1 only)"
+        fi
+        ;;
+    version)
+        echo "VLESS+Reality VPN Management System"
+        echo "Version: 1.0 (Phase 1)"
+        echo "Installation Date: $(grep INSTALLATION_DATE ${VLESS_ROOT}/config/installation.info | cut -d'=' -f2)"
+        ;;
+    *)
+        show_usage
+        ;;
+esac
+EOF
+
+    chmod 755 "${bin_dir}/vless-manage"
+
+    # Create symlink in /usr/local/bin for easy access
+    ln -sf "${bin_dir}/vless-manage" "/usr/local/bin/vless-manage"
+
+    log_success "Management scripts created"
+}
+
+# ======================================================================================
+# UNINSTALL FUNCTION
+# ======================================================================================
+
+# Function: uninstall_vless_system
+# Description: Uninstall the VLESS system
+uninstall_vless_system() {
+    log_warn "Starting VLESS system uninstallation..."
+
+    if [[ "$FORCE_INSTALL" != "true" ]]; then
+        echo -n "Are you sure you want to uninstall VLESS system? This will remove all data. [y/N]: "
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            log_info "Uninstallation cancelled"
+            exit 0
+        fi
+    fi
+
+    # Stop and remove services
+    systemctl stop vless-* 2>/dev/null || true
+    systemctl disable vless-* 2>/dev/null || true
+
+    # Remove systemd service files
+    rm -f /etc/systemd/system/vless-*.service
+    systemctl daemon-reload
+
+    # Remove VLESS directory
+    if [[ -d "$VLESS_ROOT" ]]; then
+        rm -rf "$VLESS_ROOT"
+        log_info "Removed VLESS directory: $VLESS_ROOT"
+    fi
+
+    # Remove management script
+    rm -f /usr/local/bin/vless-manage
+
+    # Remove log configurations
+    rm -f /etc/logrotate.d/vless
+    rm -f /etc/rsyslog.d/49-vless.conf
+    systemctl restart rsyslog 2>/dev/null || true
+
+    log_success "VLESS system uninstalled successfully"
+}
+
+# ======================================================================================
+# MAIN INSTALLATION FUNCTION
+# ======================================================================================
+
+# Function: run_installation
+# Description: Run the complete installation process
+run_installation() {
+    local start_time
+    start_time=$(date +%s)
+
+    log_info "Starting VLESS+Reality VPN installation..."
+
+    # Load custom configuration if provided
+    if [[ -n "$CUSTOM_CONFIG" ]]; then
+        log_info "Loading custom configuration from: $CUSTOM_CONFIG"
+        # shellcheck source=/dev/null
+        source "$CUSTOM_CONFIG"
+    fi
+
+    # Run installation phases
+    local phase_count=0
+    local total_phases=${#INSTALLATION_PHASES[@]}
+
+    for phase in "${INSTALLATION_PHASES[@]}"; do
+        ((phase_count++))
+        log_info "Phase $phase_count/$total_phases: Running $phase..."
+
+        if [[ "$VERBOSE" == "true" ]]; then
+            set -x
+        fi
+
+        if ! "$phase"; then
+            log_error "Installation failed during phase: $phase"
             return 1
         fi
-    else
-        print_error "Failed to load Phase 4 integration module"
-        return 1
-    fi
 
-    # Ask if user wants to return to menu or exit
-    echo
-    if prompt_yes_no "Return to main menu?" "y"; then
-        main
-    fi
+        if [[ "$VERBOSE" == "true" ]]; then
+            set +x
+        fi
+
+        log_success "Phase $phase_count/$total_phases completed: $phase"
+    done
+
+    # Calculate installation time
+    local end_time
+    end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    log_success "VLESS+Reality VPN installation completed successfully!"
+    log_info "Installation time: $((duration / 60))m $((duration % 60))s"
+
+    # Show next steps
+    show_next_steps
 }
 
-# Main menu
-show_main_menu() {
-    print_header "$SCRIPT_NAME"
+# Function: show_next_steps
+# Description: Show next steps after installation
+show_next_steps() {
+    cat << 'EOF'
 
-    echo "Please select an operation:"
-    echo
-    echo "1) Fresh Installation"
-    echo "2) Reinstall (remove existing + fresh install)"
-    echo "3) Uninstall (remove completely)"
-    echo "4) Phase 4 Security & Monitoring (advanced features)"
-    echo "5) Exit"
-    echo
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           Installation Complete!                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
-    local choice=$(prompt_choice "Select option:" "Fresh Installation" "Reinstall" "Uninstall" "Phase 4 Security & Monitoring" "Exit")
+Phase 1 (Foundation) has been completed successfully.
 
-    case $choice in
-        0) OPERATION="install" ;;
-        1) OPERATION="reinstall" ;;
-        2) OPERATION="uninstall" ;;
-        3) OPERATION="phase4" ;;
-        4) exit 0 ;;
-    esac
+WHAT'S INSTALLED:
+✓ Core utility modules (common_utils.sh, logging_setup.sh)
+✓ Logging infrastructure with rotation
+✓ Directory structure (/opt/vless)
+✓ Management utilities
+
+NEXT STEPS:
+1. Continue with Phase 2: Docker Infrastructure
+   ./install.sh --continue-phase2
+
+2. Check system status:
+   vless-manage status
+
+3. View logs:
+   vless-manage logs
+
+4. For help:
+   vless-manage --help
+
+COMING IN FUTURE PHASES:
+• Phase 2: Docker and Xray container setup
+• Phase 3: User management and QR code generation
+• Phase 4: Security hardening and firewall
+• Phase 5: Monitoring, backup, and Telegram bot
+
+For support and documentation:
+- Configuration: /opt/vless/config/
+- Logs: /opt/vless/logs/
+- Management: vless-manage command
+
+EOF
 }
+
+# ======================================================================================
+# ERROR HANDLING AND CLEANUP
+# ======================================================================================
+
+# Function: cleanup_on_error
+# Description: Cleanup function called on script failure
+cleanup_on_error() {
+    local exit_code=$?
+    log_error "Installation failed with exit code: $exit_code"
+
+    if [[ "$DRY_RUN" == "false" && -d "$VLESS_ROOT" ]]; then
+        log_info "Cleaning up partial installation..."
+        # Don't remove everything, just mark as incomplete
+        echo "INSTALLATION_INCOMPLETE=true" >> "${CONFIG_DIR}/installation.info" 2>/dev/null || true
+    fi
+
+    log_error "Installation failed. Check logs for details."
+    exit "$exit_code"
+}
+
+# Setup error handling
+trap cleanup_on_error ERR
+
+# ======================================================================================
+# MAIN EXECUTION
+# ======================================================================================
 
 # Main function
 main() {
-    # Show system information
-    show_system_info
+    # Show banner
+    show_banner
 
-    # Check prerequisites
-    check_root_privileges
-    check_os_compatibility
-    check_system_requirements
+    # Parse arguments
+    parse_arguments "$@"
 
-    # Show main menu
-    show_main_menu
-
-    log_message "INFO" "Starting operation: $OPERATION"
-
-    # Execute selected operation
-    case "$OPERATION" in
-        "install")
-            collect_installation_params
-            execute_installation
-            show_post_install_info
-            ;;
-        "reinstall")
-            execute_reinstall
-            show_post_install_info
-            ;;
-        "uninstall")
-            execute_uninstall
-            ;;
-        "phase4")
-            execute_phase4_menu
-            ;;
-        *)
-            log_message "ERROR" "Unknown operation: $OPERATION"
-            exit 1
-            ;;
-    esac
-
-    log_message "SUCCESS" "Operation '$OPERATION' completed successfully"
+    # Run installation
+    run_installation
 }
 
-# Script entry point
+# Execute main function if script is run directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

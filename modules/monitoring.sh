@@ -1,768 +1,585 @@
 #!/bin/bash
-# Monitoring Module for VLESS VPN Project
-# System monitoring, alerting, and auto-recovery
-# Author: Claude Code
+
+# System Monitoring Module for VLESS+Reality VPN
+# This module provides comprehensive monitoring of system resources,
+# VPN connections, and security events with alerting capabilities
 # Version: 1.0
 
 set -euo pipefail
 
-# Get script directory
+# Import common utilities and process isolation
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common_utils.sh" 2>/dev/null || {
+    echo "Error: Cannot find common_utils.sh"
+    exit 1
+}
 
-# Load common utilities
-source "${SCRIPT_DIR}/common_utils.sh"
+# Import process isolation module
+source "${SCRIPT_DIR}/process_isolation/process_safe.sh" 2>/dev/null || {
+    log_warn "Process isolation module not found, using standard execution"
+}
+
+# Setup signal handlers if process isolation is available
+if command -v setup_signal_handlers >/dev/null 2>&1; then
+    setup_signal_handlers
+fi
 
 # Configuration
-readonly MONITORING_CONFIG_DIR="/etc/vless-monitoring"
-readonly MONITORING_DATA_DIR="/var/lib/vless-monitoring"
-readonly MONITORING_LOG="/var/log/vless/monitoring.log"
-readonly ALERT_STATE_DIR="/tmp/vless-alerts"
-readonly METRICS_FILE="$MONITORING_DATA_DIR/metrics.json"
-readonly THRESHOLDS_FILE="$MONITORING_CONFIG_DIR/thresholds.conf"
+readonly MONITORING_DIR="/opt/vless/monitoring"
+readonly MONITORING_LOG="/opt/vless/logs/monitoring.log"
+readonly ALERTS_LOG="/opt/vless/logs/alerts.log"
+readonly METRICS_DIR="${MONITORING_DIR}/metrics"
+readonly REPORTS_DIR="${MONITORING_DIR}/reports"
 
-# Default thresholds
-readonly DEFAULT_CPU_WARNING=80
-readonly DEFAULT_CPU_CRITICAL=95
-readonly DEFAULT_RAM_WARNING=85
-readonly DEFAULT_RAM_CRITICAL=95
-readonly DEFAULT_DISK_WARNING=80
-readonly DEFAULT_DISK_CRITICAL=90
-readonly DEFAULT_LOAD_WARNING=3.0
-readonly DEFAULT_LOAD_CRITICAL=5.0
+# Thresholds for alerting
+readonly CPU_THRESHOLD=80
+readonly MEMORY_THRESHOLD=85
+readonly DISK_THRESHOLD=90
+readonly LOAD_THRESHOLD=2.0
+readonly CONNECTION_THRESHOLD=100
 
-# Initialize monitoring system
-init_monitoring() {
-    print_header "Initializing VLESS Monitoring System"
+# Create monitoring directories
+create_monitoring_dirs() {
+    log_info "Creating monitoring directories"
 
-    # Create directories
-    ensure_directory "$MONITORING_CONFIG_DIR" "755" "root"
-    ensure_directory "$MONITORING_DATA_DIR" "755" "root"
-    ensure_directory "$ALERT_STATE_DIR" "755" "root"
+    mkdir -p "${MONITORING_DIR}"
+    mkdir -p "${METRICS_DIR}"
+    mkdir -p "${REPORTS_DIR}"
+    mkdir -p "$(dirname "${MONITORING_LOG}")"
+    mkdir -p "$(dirname "${ALERTS_LOG}")"
 
-    # Create configuration files
-    create_thresholds_config
-    create_monitoring_config
+    chmod 700 "${MONITORING_DIR}"
+    chmod 700 "${METRICS_DIR}"
+    chmod 700 "${REPORTS_DIR}"
 
-    print_success "Monitoring system initialized"
+    log_info "Monitoring directories created"
 }
 
-# Create thresholds configuration
-create_thresholds_config() {
-    print_section "Creating Monitoring Thresholds Configuration"
-
-    cat > "$THRESHOLDS_FILE" << EOF
-# VLESS Monitoring Thresholds Configuration
-# Format: METRIC_WARNING=value
-#         METRIC_CRITICAL=value
-
-# CPU Usage (percentage)
-CPU_WARNING=$DEFAULT_CPU_WARNING
-CPU_CRITICAL=$DEFAULT_CPU_CRITICAL
-
-# RAM Usage (percentage)
-RAM_WARNING=$DEFAULT_RAM_WARNING
-RAM_CRITICAL=$DEFAULT_RAM_CRITICAL
-
-# Disk Usage (percentage)
-DISK_WARNING=$DEFAULT_DISK_WARNING
-DISK_CRITICAL=$DEFAULT_DISK_CRITICAL
-
-# Load Average (1-minute)
-LOAD_WARNING=$DEFAULT_LOAD_WARNING
-LOAD_CRITICAL=$DEFAULT_LOAD_CRITICAL
-
-# Network Connections
-CONNECTIONS_WARNING=1000
-CONNECTIONS_CRITICAL=1500
-
-# Response Time (milliseconds)
-RESPONSE_TIME_WARNING=1000
-RESPONSE_TIME_CRITICAL=3000
-
-# Service Check Failures
-SERVICE_FAILURES_WARNING=3
-SERVICE_FAILURES_CRITICAL=5
-
-# User Connection Count
-USER_CONNECTIONS_WARNING=500
-USER_CONNECTIONS_CRITICAL=800
-
-# Alert Cooldown (seconds)
-ALERT_COOLDOWN=300
-
-# Telegram Settings
-TELEGRAM_ENABLED=true
-TELEGRAM_MENTION_ON_CRITICAL=true
-EOF
-
-    print_success "Thresholds configuration created"
-}
-
-# Load configuration
-load_config() {
-    if [[ -f "$THRESHOLDS_FILE" ]]; then
-        source "$THRESHOLDS_FILE"
-    else
-        print_warning "Thresholds file not found, using defaults"
-    fi
-}
-
-# Logging function for monitoring
+# Log monitoring events
 log_monitoring() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "${MONITORING_LOG}"
+}
+
+# Log alerts
+log_alert() {
     local level="$1"
-    local message="$2"
-    local timestamp=$(get_timestamp)
-
-    echo "[$timestamp] [$level] $message" | tee -a "$MONITORING_LOG"
-
-    # Also log via system logger if available
-    if command -v vless-logger >/dev/null 2>&1; then
-        source /usr/local/bin/vless-logger
-        log_monitoring "$message"
-    fi
+    shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" >> "${ALERTS_LOG}"
+    log_monitoring "ALERT [$level]: $*"
 }
 
-# Send alert function
-send_alert() {
-    local severity="$1"
-    local title="$2"
-    local message="$3"
-    local metric="${4:-}"
-    local value="${5:-}"
+# Get system information
+get_system_info() {
+    echo "System Information:"
+    echo "=================="
+    echo "Hostname: $(hostname)"
+    echo "Uptime: $(uptime -p 2>/dev/null || uptime | awk '{print $3,$4}')"
+    echo "Kernel: $(uname -r)"
+    echo "OS: $(lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+    echo "Architecture: $(uname -m)"
+    echo ""
+}
 
-    local alert_id="${metric}_${severity}"
-    local alert_file="$ALERT_STATE_DIR/$alert_id"
-    local current_time=$(date +%s)
+# Monitor CPU usage
+monitor_cpu() {
+    local cpu_usage
+    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' | cut -d'%' -f1)
 
-    # Check cooldown
-    if [[ -f "$alert_file" ]]; then
-        local last_alert=$(cat "$alert_file")
-        local time_diff=$((current_time - last_alert))
+    # If top format is different, try alternative method
+    if [[ -z "$cpu_usage" ]] || ! [[ "$cpu_usage" =~ ^[0-9.]+$ ]]; then
+        cpu_usage=$(awk '{u=$2+$4; t=$2+$4+$5; if (NR==1){u1=u; t1=t;} else print ($2+$4-u1) * 100 / (t-t1) "%"; }' \
+                   <(grep 'cpu ' /proc/stat; sleep 1; grep 'cpu ' /proc/stat) 2>/dev/null | sed 's/%//' || echo "0")
+    fi
 
-        if [[ $time_diff -lt ${ALERT_COOLDOWN:-300} ]]; then
-            return 0  # Skip alert due to cooldown
+    # Extract numeric value
+    cpu_usage=$(echo "$cpu_usage" | grep -o '[0-9.]*' | head -1)
+    cpu_usage=${cpu_usage:-0}
+
+    echo "CPU Usage: ${cpu_usage}%"
+
+    # Check threshold
+    if (( $(echo "$cpu_usage > $CPU_THRESHOLD" | bc -l 2>/dev/null || echo "0") )); then
+        log_alert "WARNING" "High CPU usage detected: ${cpu_usage}%"
+    fi
+
+    # Log metric
+    echo "$(date '+%Y-%m-%d %H:%M:%S'),cpu,$cpu_usage" >> "${METRICS_DIR}/cpu.csv"
+}
+
+# Monitor memory usage
+monitor_memory() {
+    local memory_info
+    memory_info=$(free -m)
+
+    local total_mem used_mem available_mem memory_usage
+    total_mem=$(echo "$memory_info" | awk '/^Mem:/ {print $2}')
+    used_mem=$(echo "$memory_info" | awk '/^Mem:/ {print $3}')
+    available_mem=$(echo "$memory_info" | awk '/^Mem:/ {print $7}')
+
+    # Calculate memory usage percentage
+    if [[ $total_mem -gt 0 ]]; then
+        memory_usage=$(( (used_mem * 100) / total_mem ))
+    else
+        memory_usage=0
+    fi
+
+    echo "Memory Usage: ${memory_usage}% (${used_mem}MB used / ${total_mem}MB total)"
+    echo "Memory Available: ${available_mem}MB"
+
+    # Check threshold
+    if [[ $memory_usage -gt $MEMORY_THRESHOLD ]]; then
+        log_alert "WARNING" "High memory usage detected: ${memory_usage}%"
+    fi
+
+    # Log metric
+    echo "$(date '+%Y-%m-%d %H:%M:%S'),memory,$memory_usage" >> "${METRICS_DIR}/memory.csv"
+}
+
+# Monitor disk usage
+monitor_disk() {
+    echo "Disk Usage:"
+    echo "==========="
+
+    df -h | grep -vE '^tmpfs|^udev|^Filesystem' | while read -r filesystem size used avail percent mountpoint; do
+        echo "  $mountpoint: $used used / $size total ($percent)"
+
+        # Extract percentage number
+        local usage_percent
+        usage_percent=$(echo "$percent" | sed 's/%//')
+
+        # Check threshold
+        if [[ $usage_percent -gt $DISK_THRESHOLD ]]; then
+            log_alert "WARNING" "High disk usage on $mountpoint: $percent"
         fi
-    fi
 
-    # Update alert state
-    echo "$current_time" > "$alert_file"
-
-    # Log the alert
-    log_monitoring "ALERT" "[$severity] $title: $message"
-
-    # Send Telegram notification if configured
-    if [[ "${TELEGRAM_ENABLED:-false}" == "true" ]] && \
-       [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && \
-       [[ -n "${ADMIN_TELEGRAM_ID:-}" ]]; then
-
-        send_telegram_alert "$severity" "$title" "$message" "$metric" "$value"
-    fi
-
-    # Trigger auto-recovery if configured
-    if [[ "$severity" == "CRITICAL" ]]; then
-        trigger_auto_recovery "$metric" "$value"
-    fi
-}
-
-# Send Telegram alert
-send_telegram_alert() {
-    local severity="$1"
-    local title="$2"
-    local message="$3"
-    local metric="${4:-}"
-    local value="${5:-}"
-
-    local emoji=""
-    case "$severity" in
-        "CRITICAL") emoji="🔴" ;;
-        "WARNING") emoji="🟡" ;;
-        "INFO") emoji="🔵" ;;
-        "RECOVERY") emoji="🟢" ;;
-        *) emoji="ℹ️" ;;
-    esac
-
-    local hostname=$(hostname)
-    local timestamp=$(get_timestamp)
-    local mention=""
-
-    if [[ "$severity" == "CRITICAL" ]] && [[ "${TELEGRAM_MENTION_ON_CRITICAL:-false}" == "true" ]]; then
-        mention="@admin "
-    fi
-
-    local alert_text="${emoji} ${mention}VLESS Alert [$severity]
-
-📋 $title
-💻 Host: $hostname
-🕐 Time: $timestamp
-
-📊 Details:
-$message"
-
-    if [[ -n "$metric" ]] && [[ -n "$value" ]]; then
-        alert_text+="\n📈 Metric: $metric = $value"
-    fi
-
-    # Add quick actions for critical alerts
-    if [[ "$severity" == "CRITICAL" ]]; then
-        alert_text+="\n\n🔧 Quick Actions:
-• /restart - Restart services
-• /status - Check system status
-• /logs - View recent logs"
-    fi
-
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-        -d "chat_id=${ADMIN_TELEGRAM_ID}" \
-        -d "text=$alert_text" \
-        -d "parse_mode=HTML" \
-        >/dev/null 2>&1 || log_monitoring "ERROR" "Failed to send Telegram alert"
-}
-
-# Clear alert state
-clear_alert() {
-    local metric="$1"
-    local severity="$2"
-    local alert_id="${metric}_${severity}"
-    local alert_file="$ALERT_STATE_DIR/$alert_id"
-
-    if [[ -f "$alert_file" ]]; then
-        rm -f "$alert_file"
-        send_alert "RECOVERY" "Alert Cleared" "Metric $metric has returned to normal levels" "$metric"
-    fi
-}
-
-# Get system metrics
-get_cpu_usage() {
-    top -bn1 | grep "Cpu(s)" | awk '{print $2+$4}' | sed 's/%us,//'
-}
-
-get_ram_usage() {
-    free | awk 'FNR==2{printf "%.0f", ($3/($3+$7))*100}'
-}
-
-get_disk_usage() {
-    df -h / | awk 'NR==2 {gsub(/%/, "", $5); print $5}'
-}
-
-get_load_average() {
-    uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//'
-}
-
-get_network_connections() {
-    netstat -an | grep ESTABLISHED | wc -l
-}
-
-get_service_status() {
-    local service="$1"
-    if systemctl is-active --quiet "$service"; then
-        echo "active"
-    else
-        echo "inactive"
-    fi
-}
-
-get_docker_container_status() {
-    local container="$1"
-    docker ps --filter "name=$container" --format "table {{.Status}}" | tail -n +2 | head -1
-}
-
-get_xray_response_time() {
-    local test_url="http://localhost:80"
-    local response_time=$(curl -o /dev/null -s -w "%{time_total}" --max-time 5 "$test_url" 2>/dev/null || echo "timeout")
-
-    if [[ "$response_time" == "timeout" ]]; then
-        echo "9999"
-    else
-        echo "$response_time" | awk '{printf "%.0f", $1*1000}'
-    fi
-}
-
-get_active_vpn_users() {
-    # Parse Xray logs to count active connections
-    local access_log="/var/log/vless/access.log"
-    if [[ -f "$access_log" ]]; then
-        # Count unique users in last 5 minutes
-        local five_min_ago=$(date -d '5 minutes ago' '+%Y-%m-%d %H:%M')
-        grep "$five_min_ago" "$access_log" 2>/dev/null | \
-            grep -oE 'uuid=[a-f0-9-]+' | sort | uniq | wc -l || echo "0"
-    else
-        echo "0"
-    fi
-}
-
-# Check system health
-check_system_health() {
-    load_config
-
-    local cpu_usage=$(get_cpu_usage)
-    local ram_usage=$(get_ram_usage)
-    local disk_usage=$(get_disk_usage)
-    local load_avg=$(get_load_average)
-    local connections=$(get_network_connections)
-    local response_time=$(get_xray_response_time)
-    local active_users=$(get_active_vpn_users)
-
-    # Store metrics
-    store_metrics "$cpu_usage" "$ram_usage" "$disk_usage" "$load_avg" "$connections" "$response_time" "$active_users"
-
-    # Check CPU usage
-    if (( $(echo "$cpu_usage >= $CPU_CRITICAL" | bc -l) )); then
-        send_alert "CRITICAL" "High CPU Usage" "CPU usage is at ${cpu_usage}% (critical threshold: ${CPU_CRITICAL}%)" "cpu" "$cpu_usage"
-    elif (( $(echo "$cpu_usage >= $CPU_WARNING" | bc -l) )); then
-        send_alert "WARNING" "Elevated CPU Usage" "CPU usage is at ${cpu_usage}% (warning threshold: ${CPU_WARNING}%)" "cpu" "$cpu_usage"
-    else
-        clear_alert "cpu" "WARNING"
-        clear_alert "cpu" "CRITICAL"
-    fi
-
-    # Check RAM usage
-    if [[ $ram_usage -ge $RAM_CRITICAL ]]; then
-        send_alert "CRITICAL" "High Memory Usage" "RAM usage is at ${ram_usage}% (critical threshold: ${RAM_CRITICAL}%)" "ram" "$ram_usage"
-    elif [[ $ram_usage -ge $RAM_WARNING ]]; then
-        send_alert "WARNING" "Elevated Memory Usage" "RAM usage is at ${ram_usage}% (warning threshold: ${RAM_WARNING}%)" "ram" "$ram_usage"
-    else
-        clear_alert "ram" "WARNING"
-        clear_alert "ram" "CRITICAL"
-    fi
-
-    # Check disk usage
-    if [[ $disk_usage -ge $DISK_CRITICAL ]]; then
-        send_alert "CRITICAL" "High Disk Usage" "Disk usage is at ${disk_usage}% (critical threshold: ${DISK_CRITICAL}%)" "disk" "$disk_usage"
-    elif [[ $disk_usage -ge $DISK_WARNING ]]; then
-        send_alert "WARNING" "Elevated Disk Usage" "Disk usage is at ${disk_usage}% (warning threshold: ${DISK_WARNING}%)" "disk" "$disk_usage"
-    else
-        clear_alert "disk" "WARNING"
-        clear_alert "disk" "CRITICAL"
-    fi
-
-    # Check load average
-    if (( $(echo "$load_avg >= $LOAD_CRITICAL" | bc -l) )); then
-        send_alert "CRITICAL" "High System Load" "Load average is ${load_avg} (critical threshold: ${LOAD_CRITICAL})" "load" "$load_avg"
-    elif (( $(echo "$load_avg >= $LOAD_WARNING" | bc -l) )); then
-        send_alert "WARNING" "Elevated System Load" "Load average is ${load_avg} (warning threshold: ${LOAD_WARNING})" "load" "$load_avg"
-    else
-        clear_alert "load" "WARNING"
-        clear_alert "load" "CRITICAL"
-    fi
-
-    # Check response time
-    if [[ $response_time -ge $RESPONSE_TIME_CRITICAL ]]; then
-        send_alert "CRITICAL" "High Response Time" "Service response time is ${response_time}ms (critical threshold: ${RESPONSE_TIME_CRITICAL}ms)" "response_time" "$response_time"
-    elif [[ $response_time -ge $RESPONSE_TIME_WARNING ]]; then
-        send_alert "WARNING" "Elevated Response Time" "Service response time is ${response_time}ms (warning threshold: ${RESPONSE_TIME_WARNING}ms)" "response_time" "$response_time"
-    else
-        clear_alert "response_time" "WARNING"
-        clear_alert "response_time" "CRITICAL"
-    fi
-}
-
-# Store metrics in JSON format
-store_metrics() {
-    local cpu="$1"
-    local ram="$2"
-    local disk="$3"
-    local load="$4"
-    local connections="$5"
-    local response_time="$6"
-    local active_users="$7"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-    local metrics_json=$(cat << EOF
-{
-  "timestamp": "$timestamp",
-  "hostname": "$(hostname)",
-  "metrics": {
-    "cpu_usage": $cpu,
-    "ram_usage": $ram,
-    "disk_usage": $disk,
-    "load_average": $load,
-    "network_connections": $connections,
-    "response_time": $response_time,
-    "active_users": $active_users,
-    "uptime": "$(cat /proc/uptime | awk '{print $1}')"
-  },
-  "services": {
-    "vless-vpn": "$(get_service_status vless-vpn || echo 'unknown')",
-    "docker": "$(get_service_status docker)",
-    "xray": "$(get_docker_container_status xray 2>/dev/null || echo 'unknown')",
-    "telegram-bot": "$(get_docker_container_status telegram-bot 2>/dev/null || echo 'unknown')"
-  }
-}
-EOF
-)
-
-    # Store current metrics
-    echo "$metrics_json" > "$METRICS_FILE"
-
-    # Append to historical data (keep last 1440 entries = 24 hours if run every minute)
-    local history_file="$MONITORING_DATA_DIR/metrics_history.jsonl"
-    echo "$metrics_json" >> "$history_file"
-
-    # Keep only last 1440 lines (24 hours of data)
-    tail -n 1440 "$history_file" > "${history_file}.tmp" && mv "${history_file}.tmp" "$history_file"
-}
-
-# Check service availability
-check_services() {
-    local services=("docker" "vless-vpn")
-    local failed_services=()
-
-    for service in "${services[@]}"; do
-        if ! systemctl is-active --quiet "$service"; then
-            failed_services+=("$service")
-            send_alert "CRITICAL" "Service Down" "Service $service is not running" "service" "$service"
+        # Log metric for root filesystem
+        if [[ "$mountpoint" == "/" ]]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S'),disk,$usage_percent" >> "${METRICS_DIR}/disk.csv"
         fi
     done
-
-    # Check Docker containers
-    local containers=("xray" "telegram-bot")
-    for container in "${containers[@]}"; do
-        if ! docker ps --filter "name=$container" --filter "status=running" --quiet | grep -q .; then
-            failed_services+=("$container")
-            send_alert "CRITICAL" "Container Down" "Docker container $container is not running" "container" "$container"
-        fi
-    done
-
-    if [[ ${#failed_services[@]} -eq 0 ]]; then
-        clear_alert "services" "CRITICAL"
-        log_monitoring "INFO" "All services are running normally"
-    else
-        log_monitoring "ERROR" "Failed services: ${failed_services[*]}"
-    fi
 }
 
-# Auto-recovery actions
-trigger_auto_recovery() {
-    local metric="$1"
-    local value="$2"
+# Monitor system load
+monitor_load() {
+    local load_avg
+    load_avg=$(uptime | awk '{print $(NF-2)}' | sed 's/,//')
 
-    log_monitoring "INFO" "Triggering auto-recovery for metric: $metric (value: $value)"
+    echo "Load Average: $load_avg"
 
-    case "$metric" in
-        "ram")
-            # Clear system caches
-            sync && echo 3 > /proc/sys/vm/drop_caches
-            log_monitoring "INFO" "Cleared system caches for RAM recovery"
-            ;;
-        "disk")
-            # Clean up logs and temporary files
-            find /var/log -name "*.log" -mtime +7 -delete 2>/dev/null || true
-            find /tmp -type f -mtime +1 -delete 2>/dev/null || true
-            log_monitoring "INFO" "Cleaned up disk space"
-            ;;
-        "service"|"container")
-            # Restart failed service/container
-            if [[ "$value" == "vless-vpn" ]]; then
-                systemctl restart vless-vpn
-            elif [[ "$value" == "docker" ]]; then
-                systemctl restart docker
+    # Check threshold (compare with bc if available)
+    if command -v bc >/dev/null 2>&1; then
+        if (( $(echo "$load_avg > $LOAD_THRESHOLD" | bc -l) )); then
+            log_alert "WARNING" "High system load detected: $load_avg"
+        fi
+    else
+        # Fallback comparison for systems without bc
+        if (( $(echo "$load_avg" | cut -d'.' -f1) >= ${LOAD_THRESHOLD%.*} )); then
+            log_alert "WARNING" "High system load detected: $load_avg"
+        fi
+    fi
+
+    # Log metric
+    echo "$(date '+%Y-%m-%d %H:%M:%S'),load,$load_avg" >> "${METRICS_DIR}/load.csv"
+}
+
+# Monitor network interfaces
+monitor_network() {
+    echo "Network Interfaces:"
+    echo "=================="
+
+    ip -s link show | awk '
+    /^[0-9]+: / {
+        interface = $2
+        gsub(/:/, "", interface)
+    }
+    /RX:.*bytes/ {
+        rx_bytes = $2
+        rx_packets = $3
+    }
+    /TX:.*bytes/ {
+        tx_bytes = $2
+        tx_packets = $3
+        if (interface != "lo") {
+            printf "  %s: RX: %s bytes (%s packets), TX: %s bytes (%s packets)\n",
+                   interface, rx_bytes, rx_packets, tx_bytes, tx_packets
+        }
+    }'
+
+    # Monitor active connections
+    local connection_count
+    connection_count=$(ss -tuln | grep -c "LISTEN" 2>/dev/null || echo "0")
+    echo "  Active listening ports: $connection_count"
+
+    # Check connection threshold
+    if [[ $connection_count -gt $CONNECTION_THRESHOLD ]]; then
+        log_alert "WARNING" "High number of listening connections: $connection_count"
+    fi
+
+    # Log metric
+    echo "$(date '+%Y-%m-%d %H:%M:%S'),connections,$connection_count" >> "${METRICS_DIR}/connections.csv"
+}
+
+# Monitor VPN-specific metrics
+monitor_vpn_connections() {
+    echo "VPN Connection Monitoring:"
+    echo "========================="
+
+    # Check if Xray container is running
+    if command -v docker >/dev/null 2>&1; then
+        local xray_status
+        xray_status=$(docker ps --filter "name=xray" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || echo "Docker not available")
+
+        if [[ "$xray_status" != "Docker not available" ]] && [[ -n "$xray_status" ]]; then
+            echo "  Xray Container Status:"
+            echo "    $xray_status"
+
+            # Check if container is running
+            if echo "$xray_status" | grep -q "Up"; then
+                log_monitoring "Xray container is running"
+
+                # Get container resource usage
+                local container_stats
+                container_stats=$(docker stats --no-stream --format "table {{.CPUPerc}}\t{{.MemUsage}}" 2>/dev/null | tail -1)
+                if [[ -n "$container_stats" ]]; then
+                    echo "    Resource Usage: $container_stats"
+                fi
             else
-                # Try to restart the container
-                cd /opt/vless && docker-compose restart "$value" 2>/dev/null || true
+                log_alert "CRITICAL" "Xray container is not running"
             fi
-            log_monitoring "INFO" "Attempted to restart $value"
-            ;;
-    esac
+        else
+            echo "  No Xray container found"
+        fi
+    else
+        echo "  Docker not available"
+    fi
+
+    # Monitor Reality/VLESS connections (port 443)
+    local reality_connections
+    reality_connections=$(ss -tuln | grep ":443" | wc -l 2>/dev/null || echo "0")
+    echo "  Reality port (443) listeners: $reality_connections"
+
+    # Check for established connections on VPN ports
+    local established_conns
+    established_conns=$(ss -tn | grep ":443" | grep "ESTAB" | wc -l 2>/dev/null || echo "0")
+    echo "  Established VPN connections: $established_conns"
+
+    # Log VPN metrics
+    echo "$(date '+%Y-%m-%d %H:%M:%S'),vpn_connections,$established_conns" >> "${METRICS_DIR}/vpn.csv"
 }
 
-# Generate monitoring report
-generate_monitoring_report() {
-    local hours="${1:-24}"
-    local output_file="${2:-/tmp/monitoring-report-$(date +%Y%m%d_%H%M%S).txt}"
+# Monitor security events
+monitor_security() {
+    echo "Security Monitoring:"
+    echo "=================="
 
-    print_section "Generating Monitoring Report"
+    # Check for failed login attempts
+    local failed_logins
+    failed_logins=$(grep "Failed password" /var/log/auth.log 2>/dev/null | tail -10 | wc -l || echo "0")
+    echo "  Recent failed logins (last 10): $failed_logins"
+
+    if [[ $failed_logins -gt 5 ]]; then
+        log_alert "WARNING" "Multiple failed login attempts detected: $failed_logins"
+    fi
+
+    # Check UFW blocks
+    if [[ -f /var/log/ufw.log ]]; then
+        local ufw_blocks
+        ufw_blocks=$(grep "$(date '+%b %d')" /var/log/ufw.log 2>/dev/null | grep "BLOCK" | wc -l || echo "0")
+        echo "  UFW blocks today: $ufw_blocks"
+
+        if [[ $ufw_blocks -gt 50 ]]; then
+            log_alert "INFO" "High number of UFW blocks today: $ufw_blocks"
+        fi
+    fi
+
+    # Check fail2ban status
+    if command -v fail2ban-client >/dev/null 2>&1; then
+        local fail2ban_status
+        fail2ban_status=$(fail2ban-client status 2>/dev/null | grep "Number of jail" || echo "fail2ban not responding")
+        echo "  Fail2ban: $fail2ban_status"
+    fi
+}
+
+# Monitor system processes
+monitor_processes() {
+    echo "Process Monitoring:"
+    echo "=================="
+
+    # Top CPU consuming processes
+    echo "  Top CPU processes:"
+    ps aux --sort=-%cpu | head -6 | tail -5 | awk '{printf "    %s: %s%% CPU\n", $11, $3}'
+
+    # Top memory consuming processes
+    echo "  Top memory processes:"
+    ps aux --sort=-%mem | head -6 | tail -5 | awk '{printf "    %s: %s%% Memory\n", $11, $4}'
+
+    # Check for zombie processes
+    local zombie_count
+    zombie_count=$(ps aux | awk '$8 ~ /^Z/ {count++} END {print count+0}')
+    if [[ $zombie_count -gt 0 ]]; then
+        log_alert "WARNING" "Zombie processes detected: $zombie_count"
+        echo "  Zombie processes: $zombie_count"
+    fi
+}
+
+# Generate system status report
+generate_status_report() {
+    local report_file="${REPORTS_DIR}/status_report_$(date +%Y%m%d_%H%M%S).txt"
+
+    log_info "Generating system status report: $report_file"
 
     {
-        echo "VLESS VPN Monitoring Report"
+        echo "VLESS VPN System Status Report"
+        echo "=============================="
         echo "Generated: $(date)"
-        echo "Period: Last $hours hours"
-        echo "=========================================="
-        echo
+        echo ""
 
-        # Current system status
-        echo "Current System Status:"
-        echo "----------------------"
-        if [[ -f "$METRICS_FILE" ]]; then
-            cat "$METRICS_FILE" | jq -r '
-                "CPU Usage: " + (.metrics.cpu_usage | tostring) + "%",
-                "RAM Usage: " + (.metrics.ram_usage | tostring) + "%",
-                "Disk Usage: " + (.metrics.disk_usage | tostring) + "%",
-                "Load Average: " + (.metrics.load_average | tostring),
-                "Response Time: " + (.metrics.response_time | tostring) + "ms",
-                "Active Users: " + (.metrics.active_users | tostring),
-                "Uptime: " + (.metrics.uptime | tonumber / 86400 | floor | tostring) + " days"
-            ' 2>/dev/null || echo "Metrics data unavailable"
-        else
-            echo "No current metrics available"
-        fi
-        echo
+        get_system_info
+        monitor_cpu
+        echo ""
+        monitor_memory
+        echo ""
+        monitor_disk
+        echo ""
+        monitor_load
+        echo ""
+        monitor_network
+        echo ""
+        monitor_vpn_connections
+        echo ""
+        monitor_security
+        echo ""
+        monitor_processes
 
-        # Service status
-        echo "Service Status:"
-        echo "---------------"
-        echo "VLESS VPN: $(get_service_status vless-vpn 2>/dev/null || echo 'unknown')"
-        echo "Docker: $(get_service_status docker)"
-        echo "Xray Container: $(get_docker_container_status xray 2>/dev/null || echo 'unknown')"
-        echo "Telegram Bot: $(get_docker_container_status telegram-bot 2>/dev/null || echo 'unknown')"
-        echo
+    } > "$report_file"
 
-        # Recent alerts
-        echo "Recent Alerts:"
-        echo "--------------"
-        if [[ -f "$MONITORING_LOG" ]]; then
-            grep "ALERT" "$MONITORING_LOG" | tail -10 | while IFS= read -r line; do
-                echo "  $line"
-            done
-        else
-            echo "  No recent alerts"
-        fi
-        echo
+    log_monitoring "Status report generated: $report_file"
+    echo "Report saved to: $report_file"
 
-        # Historical data summary (if available)
-        echo "Historical Summary (Last $hours hours):"
-        echo "--------------------------------------"
-        local history_file="$MONITORING_DATA_DIR/metrics_history.jsonl"
-        if [[ -f "$history_file" ]]; then
-            local cutoff_time=$(date -d "$hours hours ago" -u +"%Y-%m-%dT%H:%M:%SZ")
-
-            # Calculate averages
-            awk -v cutoff="$cutoff_time" '
-                BEGIN { count=0; cpu_sum=0; ram_sum=0; load_sum=0 }
-                /"timestamp":/ && $0 > cutoff {
-                    if (match($0, /"cpu_usage":\s*([0-9.]+)/, cpu)) cpu_sum += cpu[1]
-                    if (match($0, /"ram_usage":\s*([0-9.]+)/, ram)) ram_sum += ram[1]
-                    if (match($0, /"load_average":\s*([0-9.]+)/, load)) load_sum += load[1]
-                    count++
-                }
-                END {
-                    if (count > 0) {
-                        printf "Average CPU: %.1f%%\n", cpu_sum/count
-                        printf "Average RAM: %.1f%%\n", ram_sum/count
-                        printf "Average Load: %.2f\n", load_sum/count
-                        printf "Data points: %d\n", count
-                    } else {
-                        print "No historical data available for the specified period"
-                    }
-                }
-            ' "$history_file" 2>/dev/null || echo "Error processing historical data"
-        else
-            echo "No historical data available"
-        fi
-
-    } > "$output_file"
-
-    echo "Report generated: $output_file"
+    # Cleanup old reports (keep last 30)
+    find "$REPORTS_DIR" -name "status_report_*.txt" -type f | \
+        sort -r | tail -n +31 | xargs rm -f 2>/dev/null || true
 }
 
-# Show current monitoring status
-show_monitoring_status() {
-    print_header "VLESS Monitoring System Status"
+# Display current system status
+show_system_status() {
+    log_info "Current System Status"
+    log_info "===================="
 
-    # Check if monitoring is configured
-    printf "%-30s " "Monitoring configured:"
-    if [[ -f "$THRESHOLDS_FILE" ]]; then
-        echo -e "${GREEN}Yes${NC}"
-    else
-        echo -e "${RED}No${NC}"
-    fi
-
-    # Current metrics
-    echo
-    print_section "Current System Metrics"
-
-    if [[ -f "$METRICS_FILE" ]]; then
-        echo "Last updated: $(jq -r '.timestamp' "$METRICS_FILE" 2>/dev/null || echo 'Unknown')"
-        echo
-        printf "%-20s %s\n" "CPU Usage:" "$(jq -r '.metrics.cpu_usage' "$METRICS_FILE" 2>/dev/null || echo 'N/A')%"
-        printf "%-20s %s\n" "RAM Usage:" "$(jq -r '.metrics.ram_usage' "$METRICS_FILE" 2>/dev/null || echo 'N/A')%"
-        printf "%-20s %s\n" "Disk Usage:" "$(jq -r '.metrics.disk_usage' "$METRICS_FILE" 2>/dev/null || echo 'N/A')%"
-        printf "%-20s %s\n" "Load Average:" "$(jq -r '.metrics.load_average' "$METRICS_FILE" 2>/dev/null || echo 'N/A')"
-        printf "%-20s %s\n" "Response Time:" "$(jq -r '.metrics.response_time' "$METRICS_FILE" 2>/dev/null || echo 'N/A')ms"
-        printf "%-20s %s\n" "Active Users:" "$(jq -r '.metrics.active_users' "$METRICS_FILE" 2>/dev/null || echo 'N/A')"
-    else
-        echo "No metrics data available - run monitoring check first"
-    fi
-
-    # Active alerts
-    echo
-    print_section "Active Alerts"
-    local alert_files=($(find "$ALERT_STATE_DIR" -name "*" -type f 2>/dev/null || true))
-
-    if [[ ${#alert_files[@]} -gt 0 ]]; then
-        for alert_file in "${alert_files[@]}"; do
-            local alert_name=$(basename "$alert_file")
-            local alert_time=$(cat "$alert_file")
-            local alert_age=$(($(date +%s) - alert_time))
-            echo "  $alert_name (active for ${alert_age}s)"
-        done
-    else
-        echo "  No active alerts"
-    fi
-
-    # Recent monitoring events
-    echo
-    print_section "Recent Monitoring Events"
-    if [[ -f "$MONITORING_LOG" ]]; then
-        echo "Last 5 events:"
-        tail -n 5 "$MONITORING_LOG" | sed 's/^/  /'
-    else
-        echo "  No monitoring log found"
-    fi
+    get_system_info
+    monitor_cpu
+    echo ""
+    monitor_memory
+    echo ""
+    monitor_disk
+    echo ""
+    monitor_load
+    echo ""
+    monitor_network
+    echo ""
+    monitor_vpn_connections
+    echo ""
+    monitor_security
+    echo ""
+    monitor_processes
 }
 
-# Setup monitoring cron job
-setup_monitoring_cron() {
-    print_section "Setting up Monitoring Cron Job"
+# Setup monitoring alerts
+setup_monitoring_alerts() {
+    log_info "Setting up monitoring alerts"
 
-    # Create cron job
-    cat > "/etc/cron.d/vless-monitoring" << 'EOF'
-# VLESS Monitoring Cron Jobs
-SHELL=/bin/bash
-PATH=/usr/local/bin:/usr/bin:/bin
-
-# Run system health check every minute
-* * * * * root /usr/local/bin/vless-monitoring check >/dev/null 2>&1
-
-# Run service check every 2 minutes
-*/2 * * * * root /usr/local/bin/vless-monitoring services >/dev/null 2>&1
-
-# Generate daily report at 6 AM
-0 6 * * * root /usr/local/bin/vless-monitoring report > /tmp/daily-monitoring-report.txt 2>&1
-
-# Cleanup old alert states every hour
-0 * * * * root find /tmp/vless-alerts -type f -mmin +60 -delete 2>/dev/null || true
-EOF
-
-    # Create monitoring script wrapper
-    cat > "/usr/local/bin/vless-monitoring" << 'EOF'
+    # Create monitoring script
+    cat > /usr/local/bin/vless-monitor << 'EOF'
 #!/bin/bash
-# VLESS Monitoring Script Wrapper
+# VLESS VPN Monitoring Script
 
-SCRIPT_DIR="/opt/vless/modules"
-MONITORING_SCRIPT="$SCRIPT_DIR/monitoring.sh"
+MONITORING_LOG="/opt/vless/logs/monitoring.log"
+ALERTS_LOG="/opt/vless/logs/alerts.log"
+METRICS_DIR="/opt/vless/monitoring/metrics"
 
-if [[ -f "$MONITORING_SCRIPT" ]]; then
-    case "${1:-help}" in
-        "check"|"health")
-            bash "$MONITORING_SCRIPT" check_system_health
-            ;;
-        "services")
-            bash "$MONITORING_SCRIPT" check_services
-            ;;
-        "status")
-            bash "$MONITORING_SCRIPT" show_monitoring_status
-            ;;
-        "report")
-            bash "$MONITORING_SCRIPT" generate_monitoring_report "${2:-24}" "${3:-}"
-            ;;
-        "init"|"setup")
-            bash "$MONITORING_SCRIPT" setup_monitoring
-            ;;
-        *)
-            echo "Usage: $0 {check|services|status|report|init}"
-            echo "  check    - Check system health"
-            echo "  services - Check service status"
-            echo "  status   - Show monitoring status"
-            echo "  report   - Generate monitoring report"
-            echo "  init     - Initialize monitoring system"
-            ;;
-    esac
+# Ensure directories exist
+mkdir -p "$(dirname "$MONITORING_LOG")"
+mkdir -p "$METRICS_DIR"
+
+# Import monitoring functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh" ]]; then
+    source "/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh"
+elif [[ -f "/opt/vless/modules/monitoring.sh" ]]; then
+    source "/opt/vless/modules/monitoring.sh"
 else
-    echo "Monitoring script not found: $MONITORING_SCRIPT"
+    echo "Monitoring module not found"
     exit 1
 fi
+
+# Run monitoring checks
+log_monitoring "Starting monitoring cycle"
+
+monitor_cpu >/dev/null
+monitor_memory >/dev/null
+monitor_disk >/dev/null
+monitor_load >/dev/null
+monitor_network >/dev/null
+monitor_vpn_connections >/dev/null
+monitor_security >/dev/null
+
+log_monitoring "Monitoring cycle completed"
 EOF
 
-    chmod +x "/usr/local/bin/vless-monitoring"
+    chmod +x /usr/local/bin/vless-monitor
 
-    print_success "Monitoring cron jobs and wrapper script created"
+    # Create cron job for regular monitoring
+    cat > /etc/cron.d/vless-monitoring << 'EOF'
+# VLESS VPN System Monitoring
+*/5 * * * * root /usr/local/bin/vless-monitor
+0 6 * * * root /home/ikeniborn/Documents/Project/vless/modules/monitoring.sh report
+EOF
+
+    log_info "Monitoring alerts configured"
+    log_info "Monitoring runs every 5 minutes"
+    log_info "Daily reports generated at 6:00 AM"
 }
 
-# Main setup function
-setup_monitoring() {
-    print_header "Setting up VLESS Monitoring System"
+# View recent alerts
+show_recent_alerts() {
+    local count="${1:-20}"
 
-    init_monitoring
-    setup_monitoring_cron
+    log_info "Recent Alerts (last $count):"
+    log_info "============================"
 
-    # Install dependencies
-    if ! command -v bc >/dev/null 2>&1; then
-        print_info "Installing bc for calculations"
-        apt update -qq && apt install -y bc
+    if [[ -f "$ALERTS_LOG" ]]; then
+        tail -n "$count" "$ALERTS_LOG"
+    else
+        log_info "No alerts found"
     fi
-
-    if ! command -v jq >/dev/null 2>&1; then
-        print_info "Installing jq for JSON processing"
-        apt update -qq && apt install -y jq
-    fi
-
-    print_success "VLESS monitoring system setup completed"
-
-    # Run initial check
-    print_info "Running initial system check..."
-    check_system_health
-    check_services
-
-    show_monitoring_status
 }
 
-# Remove monitoring system
-remove_monitoring() {
-    print_header "Removing VLESS Monitoring System"
+# View monitoring metrics
+show_metrics() {
+    local metric="${1:-all}"
+    local hours="${2:-24}"
 
-    if ! prompt_yes_no "Are you sure you want to remove the monitoring system?" "n"; then
-        print_info "Monitoring system removal cancelled"
-        return 0
-    fi
+    log_info "Monitoring Metrics (last $hours hours):"
+    log_info "======================================"
 
-    # Remove cron jobs
-    rm -f "/etc/cron.d/vless-monitoring"
-    rm -f "/usr/local/bin/vless-monitoring"
+    case "$metric" in
+        "cpu"|"all")
+            if [[ -f "${METRICS_DIR}/cpu.csv" ]]; then
+                echo "CPU Usage:"
+                tail -n $((hours * 12)) "${METRICS_DIR}/cpu.csv" 2>/dev/null | \
+                    awk -F',' '{sum+=$3; count++} END {if(count>0) printf "  Average: %.1f%%\n", sum/count}'
+            fi
+            ;;
+    esac
 
-    # Remove configuration and data
-    rm -rf "$MONITORING_CONFIG_DIR"
-    rm -rf "$MONITORING_DATA_DIR"
-    rm -rf "$ALERT_STATE_DIR"
+    case "$metric" in
+        "memory"|"all")
+            if [[ -f "${METRICS_DIR}/memory.csv" ]]; then
+                echo "Memory Usage:"
+                tail -n $((hours * 12)) "${METRICS_DIR}/memory.csv" 2>/dev/null | \
+                    awk -F',' '{sum+=$3; count++} END {if(count>0) printf "  Average: %.1f%%\n", sum/count}'
+            fi
+            ;;
+    esac
 
-    print_success "VLESS monitoring system removed"
+    case "$metric" in
+        "disk"|"all")
+            if [[ -f "${METRICS_DIR}/disk.csv" ]]; then
+                echo "Disk Usage:"
+                tail -n $((hours * 12)) "${METRICS_DIR}/disk.csv" 2>/dev/null | \
+                    awk -F',' '{sum+=$3; count++} END {if(count>0) printf "  Average: %.1f%%\n", sum/count}'
+            fi
+            ;;
+    esac
+
+    case "$metric" in
+        "vpn"|"all")
+            if [[ -f "${METRICS_DIR}/vpn.csv" ]]; then
+                echo "VPN Connections:"
+                tail -n $((hours * 12)) "${METRICS_DIR}/vpn.csv" 2>/dev/null | \
+                    awk -F',' '{sum+=$3; count++; if($3>max) max=$3} END {if(count>0) printf "  Average: %.1f, Peak: %d\n", sum/count, max}'
+            fi
+            ;;
+    esac
 }
 
-# Export functions
-export -f setup_monitoring show_monitoring_status remove_monitoring
-export -f check_system_health check_services generate_monitoring_report
-export -f init_monitoring create_thresholds_config load_config
-export -f log_monitoring send_alert clear_alert trigger_auto_recovery
+# Install monitoring system
+install_monitoring() {
+    log_info "Installing monitoring system"
 
-# Main execution if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    case "${1:-setup}" in
-        "setup"|"install"|"init")
-            setup_monitoring
-            ;;
-        "check"|"health")
-            load_config
-            check_system_health
-            ;;
-        "services")
-            check_services
-            ;;
-        "status"|"show")
-            show_monitoring_status
+    create_monitoring_dirs
+    setup_monitoring_alerts
+
+    log_info "Monitoring system installed successfully"
+    log_info "Logs: $MONITORING_LOG"
+    log_info "Alerts: $ALERTS_LOG"
+    log_info "Metrics: $METRICS_DIR"
+    log_info "Reports: $REPORTS_DIR"
+}
+
+# Main script execution
+main() {
+    case "${1:-}" in
+        "status"|"")
+            show_system_status
             ;;
         "report")
-            generate_monitoring_report "${2:-24}" "${3:-}"
+            generate_status_report
             ;;
-        "remove"|"uninstall")
-            remove_monitoring
+        "install")
+            install_monitoring
+            ;;
+        "alerts")
+            show_recent_alerts "${2:-20}"
+            ;;
+        "metrics")
+            show_metrics "${2:-all}" "${3:-24}"
+            ;;
+        "setup")
+            setup_monitoring_alerts
+            ;;
+        "help"|"-h"|"--help")
+            cat << EOF
+Monitoring Module for VLESS+Reality VPN
+
+Usage: $0 [command] [options]
+
+Commands:
+    status                    Show current system status (default)
+    report                    Generate detailed status report
+    install                   Install monitoring system
+    alerts [count]            Show recent alerts (default: 20)
+    metrics [type] [hours]    Show metrics (cpu|memory|disk|vpn|all, default: all, 24h)
+    setup                     Setup monitoring alerts only
+    help                      Show this help message
+
+Examples:
+    $0 status                 # Show current system status
+    $0 report                 # Generate detailed report
+    $0 alerts 50              # Show last 50 alerts
+    $0 metrics cpu 12         # Show CPU metrics for last 12 hours
+    $0 install                # Install complete monitoring system
+
+Monitoring provides real-time system status, alerting for threshold
+violations, and historical metrics collection for performance analysis.
+
+Thresholds:
+  CPU: ${CPU_THRESHOLD}%
+  Memory: ${MEMORY_THRESHOLD}%
+  Disk: ${DISK_THRESHOLD}%
+  Load: ${LOAD_THRESHOLD}
+  Connections: ${CONNECTION_THRESHOLD}
+EOF
             ;;
         *)
-            echo "Usage: $0 {setup|check|services|status|report|remove}"
-            echo "  setup    - Setup monitoring system"
-            echo "  check    - Check system health"
-            echo "  services - Check service status"
-            echo "  status   - Show monitoring status"
-            echo "  report   - Generate monitoring report"
-            echo "  remove   - Remove monitoring system"
+            log_error "Unknown command: $1"
+            log_info "Use '$0 help' for usage information"
             exit 1
             ;;
     esac
+}
+
+# Only run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

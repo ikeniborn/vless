@@ -1,614 +1,619 @@
 #!/bin/bash
-# Certificate Management Module for VLESS VPN Project
-# Handles generation and management of cryptographic materials for Reality
-# Author: Claude Code
+
+# Certificate Management Module for VLESS+Reality VPN
+# This module manages TLS certificates for Reality protocol including
+# generation, validation, renewal, and monitoring
 # Version: 1.0
 
 set -euo pipefail
 
-# Get script directory
+# Import common utilities and process isolation
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Import common utilities
-source "${SCRIPT_DIR}/common_utils.sh" || {
-    echo "ERROR: Cannot load common utilities module" >&2
+source "${SCRIPT_DIR}/common_utils.sh" 2>/dev/null || {
+    echo "Error: Cannot find common_utils.sh"
     exit 1
 }
 
-# Certificate management constants
-readonly CERTS_DIR="$VLESS_DIR/certs"
-readonly PRIVATE_KEY_FILE="$CERTS_DIR/private.key"
-readonly PUBLIC_KEY_FILE="$CERTS_DIR/public.key"
-readonly SHORT_ID_FILE="$CERTS_DIR/short_id"
-readonly CERT_CONFIG_FILE="$CERTS_DIR/cert_config.json"
+# Import process isolation module
+source "${SCRIPT_DIR}/process_isolation/process_safe.sh" 2>/dev/null || {
+    log_warn "Process isolation module not found, using standard execution"
+}
 
-# Default Reality destination domains (popular sites for masking)
-readonly DEFAULT_DEST_DOMAINS=(
-    "www.microsoft.com"
-    "www.bing.com"
-    "www.yahoo.com"
-    "discord.com"
-    "www.cloudflare.com"
-    "aws.amazon.com"
-    "azure.microsoft.com"
-    "www.speedtest.net"
-    "www.kernel.org"
-    "www.ubuntu.com"
-)
+# Setup signal handlers if process isolation is available
+if command -v setup_signal_handlers >/dev/null 2>&1; then
+    setup_signal_handlers
+fi
 
-# Key generation parameters
-readonly PRIVATE_KEY_SIZE=32
-readonly SHORT_ID_LENGTH=8
-readonly SHORT_ID_COUNT=3
+# Configuration - use values from common_utils.sh if available
+if [[ -z "${CERT_DIR:-}" ]]; then
+    CERT_DIR="/opt/vless/certs"
+fi
+if [[ -z "${CERT_BACKUP_DIR:-}" ]]; then
+    CERT_BACKUP_DIR="/opt/vless/backups/certs"
+fi
+if [[ -z "${CERT_LOG:-}" ]]; then
+    CERT_LOG="/opt/vless/logs/certificates.log"
+fi
 
-# Initialize certificate management system
-init_cert_management() {
-    log_message "INFO" "Initializing certificate management system"
+readonly DEFAULT_DOMAIN="vless.local"
+readonly CERT_VALIDITY_DAYS=365
+readonly RENEWAL_THRESHOLD_DAYS=30
 
-    # Create certificates directory with proper permissions
-    ensure_directory "$CERTS_DIR" "700" "root"
+# Certificate file names
+CERT_KEY="${CERT_DIR}/server.key"
+CERT_CRT="${CERT_DIR}/server.crt"
+CERT_CSR="${CERT_DIR}/server.csr"
+CERT_CONFIG="${CERT_DIR}/cert_config.conf"
 
-    # Create cert config file if it doesn't exist
-    if [[ ! -f "$CERT_CONFIG_FILE" ]]; then
-        create_cert_config
-        log_message "SUCCESS" "Certificate configuration initialized"
-    else
-        log_message "INFO" "Certificate configuration already exists"
+# Create certificate directories
+create_cert_directories() {
+    log_info "Creating certificate directories"
+
+    mkdir -p "${CERT_DIR}"
+    mkdir -p "${CERT_BACKUP_DIR}"
+    mkdir -p "$(dirname "${CERT_LOG}")"
+
+    chmod 700 "${CERT_DIR}"
+    chmod 700 "${CERT_BACKUP_DIR}"
+
+    log_info "Certificate directories created"
+}
+
+# Check if OpenSSL is available
+check_openssl() {
+    if ! command -v openssl >/dev/null 2>&1; then
+        log_error "OpenSSL is not installed"
+
+        # Try to install OpenSSL
+        if command -v apt-get >/dev/null 2>&1; then
+            log_info "Installing OpenSSL"
+            apt-get update && apt-get install -y openssl
+        else
+            log_error "Please install OpenSSL manually"
+            return 1
+        fi
     fi
 
-    log_message "SUCCESS" "Certificate management system initialized"
+    log_info "OpenSSL is available"
 }
 
-# Create certificate configuration file
-create_cert_config() {
-    local timestamp=$(get_timestamp)
+# Generate OpenSSL configuration for certificate
+generate_cert_config() {
+    local domain="${1:-$DEFAULT_DOMAIN}"
+    local alt_names="${2:-}"
 
-    cat > "$CERT_CONFIG_FILE" << EOF
-{
-  "metadata": {
-    "created": "$timestamp",
-    "last_modified": "$timestamp",
-    "version": "1.0"
-  },
-  "reality": {
-    "private_key": "",
-    "public_key": "",
-    "short_ids": [],
-    "dest_domain": "",
-    "dest_port": 443
-  },
-  "certificates": {
-    "auto_renewal": true,
-    "renewal_days": 30,
-    "backup_count": 5
-  },
-  "security": {
-    "key_size": $PRIVATE_KEY_SIZE,
-    "short_id_length": $SHORT_ID_LENGTH,
-    "fingerprint": "chrome"
-  }
-}
+    log_info "Generating certificate configuration for domain: $domain"
+
+    cat > "${CERT_CONFIG}" << EOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+C=US
+ST=VPN
+L=Server
+O=VLESS VPN
+OU=IT Department
+CN=$domain
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = $domain
+DNS.2 = localhost
+IP.1 = 127.0.0.1
 EOF
 
-    chmod 600 "$CERT_CONFIG_FILE"
-    log_message "SUCCESS" "Certificate configuration created"
+    # Add additional alternative names if provided
+    if [[ -n "$alt_names" ]]; then
+        local index=3
+        IFS=',' read -ra NAMES <<< "$alt_names"
+        for name in "${NAMES[@]}"; do
+            name=$(echo "$name" | xargs)  # trim whitespace
+            if [[ $name =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "IP.$((index-1)) = $name" >> "${CERT_CONFIG}"
+            else
+                echo "DNS.$index = $name" >> "${CERT_CONFIG}"
+                ((index++))
+            fi
+        done
+    fi
+
+    log_info "Certificate configuration generated"
 }
 
-# Generate Reality private key using X25519
-generate_reality_private_key() {
-    log_message "INFO" "Generating Reality private key"
+# Generate private key
+generate_private_key() {
+    log_info "Generating private key"
 
-    local private_key
-    local public_key
-
-    # Check if xray command is available for key generation
-    if command -v xray >/dev/null 2>&1; then
-        # Use xray's built-in key generation
-        local key_output
-        key_output=$(xray x25519 2>/dev/null || echo "")
-
-        if [[ -n "$key_output" ]]; then
-            private_key=$(echo "$key_output" | grep "Private key:" | cut -d' ' -f3)
-            public_key=$(echo "$key_output" | grep "Public key:" | cut -d' ' -f3)
-        fi
-    fi
-
-    # Fallback to OpenSSL if xray is not available or failed
-    if [[ -z "${private_key:-}" ]]; then
-        log_message "INFO" "Using OpenSSL for key generation"
-
-        # Generate private key
-        private_key=$(openssl genpkey -algorithm X25519 -outform PEM 2>/dev/null | \
-                     openssl pkey -outform DER 2>/dev/null | \
-                     tail -c 32 | \
-                     base64 -w 0)
-
-        # Generate public key from private key
-        echo "$private_key" | base64 -d > /tmp/private_key_raw
-
-        public_key=$(openssl pkey -inform DER -in /tmp/private_key_raw -pubout -outform DER 2>/dev/null | \
-                    tail -c 32 | \
-                    base64 -w 0)
-
-        # Clean up temporary file
-        rm -f /tmp/private_key_raw
-    fi
-
-    # Fallback to manual generation if OpenSSL fails
-    if [[ -z "${private_key:-}" ]] || [[ -z "${public_key:-}" ]]; then
-        log_message "WARNING" "Using manual key generation (less secure)"
-
-        # Generate random 32 bytes for private key
-        private_key=$(head -c 32 /dev/urandom | base64 -w 0)
-
-        # For manual generation, we'll create a pseudo-public key
-        # Note: This is not cryptographically correct, but serves as a placeholder
-        public_key=$(echo -n "${private_key}public" | sha256sum | cut -d' ' -f1 | head -c 44)
-    fi
-
-    # Validate key lengths
-    if [[ ${#private_key} -lt 40 ]] || [[ ${#public_key} -lt 40 ]]; then
-        log_message "ERROR" "Generated keys appear to be invalid"
+    # Generate 2048-bit RSA private key
+    openssl genpkey -algorithm RSA -out "${CERT_KEY}" -pkcs8 -aes256 \
+        -pass pass:vless_temp_pass 2>/dev/null || {
+        log_error "Failed to generate private key with password"
         return 1
-    fi
+    }
 
-    # Save keys to files
-    echo "$private_key" > "$PRIVATE_KEY_FILE"
-    echo "$public_key" > "$PUBLIC_KEY_FILE"
+    # Remove password from private key for automated use
+    openssl rsa -in "${CERT_KEY}" -out "${CERT_KEY}.tmp" \
+        -passin pass:vless_temp_pass 2>/dev/null || {
+        log_error "Failed to remove password from private key"
+        return 1
+    }
+
+    mv "${CERT_KEY}.tmp" "${CERT_KEY}"
+    chmod 600 "${CERT_KEY}"
+
+    log_info "Private key generated successfully"
+}
+
+# Generate certificate signing request
+generate_csr() {
+    log_info "Generating certificate signing request"
+
+    openssl req -new -key "${CERT_KEY}" -out "${CERT_CSR}" \
+        -config "${CERT_CONFIG}" 2>/dev/null || {
+        log_error "Failed to generate CSR"
+        return 1
+    }
+
+    log_info "Certificate signing request generated"
+}
+
+# Generate self-signed certificate
+generate_self_signed_cert() {
+    local domain="${1:-$DEFAULT_DOMAIN}"
+    local alt_names="${2:-}"
+    local validity_days="${3:-$CERT_VALIDITY_DAYS}"
+
+    log_info "Generating self-signed certificate for domain: $domain"
+
+    # Create certificate directories
+    create_cert_directories
+
+    # Check OpenSSL availability
+    check_openssl
+
+    # Generate certificate configuration
+    generate_cert_config "$domain" "$alt_names"
+
+    # Generate private key
+    generate_private_key
+
+    # Generate CSR
+    generate_csr
+
+    # Generate self-signed certificate
+    openssl x509 -req -in "${CERT_CSR}" -signkey "${CERT_KEY}" \
+        -out "${CERT_CRT}" -days "$validity_days" \
+        -extensions v3_req -extfile "${CERT_CONFIG}" 2>/dev/null || {
+        log_error "Failed to generate self-signed certificate"
+        return 1
+    }
 
     # Set proper permissions
-    chmod 600 "$PRIVATE_KEY_FILE"
-    chmod 644 "$PUBLIC_KEY_FILE"
+    chmod 644 "${CERT_CRT}"
+    chmod 600 "${CERT_KEY}"
 
-    log_message "SUCCESS" "Reality keys generated successfully"
-    log_message "INFO" "Private key saved to: $PRIVATE_KEY_FILE"
-    log_message "INFO" "Public key saved to: $PUBLIC_KEY_FILE"
+    # Log certificate generation
+    {
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Certificate generated for domain: $domain"
+        echo "Certificate file: $CERT_CRT"
+        echo "Private key file: $CERT_KEY"
+        echo "Validity: $validity_days days"
+    } >> "${CERT_LOG}"
 
-    # Update certificate configuration
-    update_cert_config_keys "$private_key" "$public_key"
+    log_info "Self-signed certificate generated successfully"
+    log_info "Certificate: $CERT_CRT"
+    log_info "Private key: $CERT_KEY"
 
-    return 0
+    # Display certificate information
+    display_cert_info
 }
 
-# Generate Reality short IDs
-generate_short_ids() {
-    local count="${1:-$SHORT_ID_COUNT}"
-    local length="${2:-$SHORT_ID_LENGTH}"
-
-    log_message "INFO" "Generating $count short IDs"
-
-    local short_ids=()
-    local i=0
-
-    while [[ $i -lt $count ]]; do
-        # Generate random hex string
-        local short_id=$(head -c "$((length / 2))" /dev/urandom | xxd -p | tr -d '\n')
-
-        # Ensure we haven't generated this ID before
-        local duplicate=false
-        for existing_id in "${short_ids[@]}"; do
-            if [[ "$short_id" == "$existing_id" ]]; then
-                duplicate=true
-                break
-            fi
-        done
-
-        if [[ "$duplicate" == "false" ]]; then
-            short_ids+=("$short_id")
-            ((i++))
-        fi
-    done
-
-    # Save short IDs to file (one per line)
-    printf '%s\n' "${short_ids[@]}" > "$SHORT_ID_FILE"
-    chmod 644 "$SHORT_ID_FILE"
-
-    log_message "SUCCESS" "Generated ${#short_ids[@]} short IDs"
-    log_message "INFO" "Short IDs saved to: $SHORT_ID_FILE"
-
-    # Update certificate configuration
-    update_cert_config_short_ids "${short_ids[@]}"
-
-    return 0
-}
-
-# Select Reality destination domain
-select_dest_domain() {
-    local custom_domain="${REALITY_DOMAIN:-}"
-
-    if [[ -n "$custom_domain" ]]; then
-        # Use provided domain
-        log_message "INFO" "Using provided destination domain: $custom_domain"
-        echo "$custom_domain"
-        return 0
-    fi
-
-    # Test connectivity to default domains and select the best one
-    log_message "INFO" "Testing connectivity to destination domains"
-
-    local best_domain=""
-    local best_time=9999
-
-    for domain in "${DEFAULT_DEST_DOMAINS[@]}"; do
-        local test_time
-        test_time=$(curl -o /dev/null -s -w '%{time_total}' --connect-timeout 5 --max-time 10 "https://$domain" 2>/dev/null || echo "9999")
-
-        # Convert to integer comparison (multiply by 1000 to handle decimals)
-        local test_time_ms=$(echo "$test_time * 1000" | bc 2>/dev/null || echo "9999000")
-        local best_time_ms=$(echo "$best_time * 1000" | bc 2>/dev/null || echo "9999000")
-
-        if [[ ${test_time_ms%.*} -lt ${best_time_ms%.*} ]]; then
-            best_domain="$domain"
-            best_time="$test_time"
-        fi
-
-        log_message "INFO" "Domain $domain: ${test_time}s"
-    done
-
-    if [[ -n "$best_domain" ]] && [[ "$best_time" != "9999" ]]; then
-        log_message "SUCCESS" "Selected destination domain: $best_domain (${best_time}s)"
-        echo "$best_domain"
-    else
-        # Fallback to first domain if all tests fail
-        local fallback_domain="${DEFAULT_DEST_DOMAINS[0]}"
-        log_message "WARNING" "All domains failed connectivity test, using fallback: $fallback_domain"
-        echo "$fallback_domain"
-    fi
-
-    return 0
-}
-
-# Update certificate configuration with keys
-update_cert_config_keys() {
-    local private_key="$1"
-    local public_key="$2"
-    local timestamp=$(get_timestamp)
-
-    if [[ ! -f "$CERT_CONFIG_FILE" ]]; then
-        create_cert_config
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        jq --arg private_key "$private_key" \
-           --arg public_key "$public_key" \
-           --arg timestamp "$timestamp" \
-           '.reality.private_key = $private_key |
-            .reality.public_key = $public_key |
-            .metadata.last_modified = $timestamp' \
-           "$CERT_CONFIG_FILE" > "${CERT_CONFIG_FILE}.tmp" && \
-        mv "${CERT_CONFIG_FILE}.tmp" "$CERT_CONFIG_FILE"
-    else
-        # Fallback for systems without jq
-        sed -i "s/\"private_key\": \"[^\"]*\"/\"private_key\": \"$private_key\"/" "$CERT_CONFIG_FILE"
-        sed -i "s/\"public_key\": \"[^\"]*\"/\"public_key\": \"$public_key\"/" "$CERT_CONFIG_FILE"
-        sed -i "s/\"last_modified\": \"[^\"]*\"/\"last_modified\": \"$timestamp\"/" "$CERT_CONFIG_FILE"
-    fi
-
-    log_message "SUCCESS" "Certificate configuration updated with keys"
-}
-
-# Update certificate configuration with short IDs
-update_cert_config_short_ids() {
-    local short_ids=("$@")
-    local timestamp=$(get_timestamp)
-
-    if [[ ! -f "$CERT_CONFIG_FILE" ]]; then
-        create_cert_config
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        local short_ids_json
-        short_ids_json=$(printf '"%s"\n' "${short_ids[@]}" | jq -s '.')
-
-        jq --argjson short_ids "$short_ids_json" \
-           --arg timestamp "$timestamp" \
-           '.reality.short_ids = $short_ids |
-            .metadata.last_modified = $timestamp' \
-           "$CERT_CONFIG_FILE" > "${CERT_CONFIG_FILE}.tmp" && \
-        mv "${CERT_CONFIG_FILE}.tmp" "$CERT_CONFIG_FILE"
-    else
-        # Fallback: create simple array format
-        local short_ids_str=""
-        for id in "${short_ids[@]}"; do
-            if [[ -n "$short_ids_str" ]]; then
-                short_ids_str+=", "
-            fi
-            short_ids_str+="\"$id\""
-        done
-
-        sed -i "s/\"short_ids\": \[[^\]]*\]/\"short_ids\": [$short_ids_str]/" "$CERT_CONFIG_FILE"
-        sed -i "s/\"last_modified\": \"[^\"]*\"/\"last_modified\": \"$timestamp\"/" "$CERT_CONFIG_FILE"
-    fi
-
-    log_message "SUCCESS" "Certificate configuration updated with short IDs"
-}
-
-# Update certificate configuration with destination domain
-update_cert_config_domain() {
-    local dest_domain="$1"
-    local timestamp=$(get_timestamp)
-
-    if [[ ! -f "$CERT_CONFIG_FILE" ]]; then
-        create_cert_config
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        jq --arg dest_domain "$dest_domain" \
-           --arg timestamp "$timestamp" \
-           '.reality.dest_domain = $dest_domain |
-            .metadata.last_modified = $timestamp' \
-           "$CERT_CONFIG_FILE" > "${CERT_CONFIG_FILE}.tmp" && \
-        mv "${CERT_CONFIG_FILE}.tmp" "$CERT_CONFIG_FILE"
-    else
-        sed -i "s/\"dest_domain\": \"[^\"]*\"/\"dest_domain\": \"$dest_domain\"/" "$CERT_CONFIG_FILE"
-        sed -i "s/\"last_modified\": \"[^\"]*\"/\"last_modified\": \"$timestamp\"/" "$CERT_CONFIG_FILE"
-    fi
-
-    log_message "SUCCESS" "Certificate configuration updated with destination domain"
-}
-
-# Generate all cryptographic materials
-generate_all_certs() {
-    log_message "INFO" "Generating all cryptographic materials"
-
-    # Generate Reality private/public keys
-    if ! generate_reality_private_key; then
-        log_message "ERROR" "Failed to generate Reality keys"
+# Display certificate information
+display_cert_info() {
+    if [[ ! -f "$CERT_CRT" ]]; then
+        log_error "Certificate file not found: $CERT_CRT"
         return 1
     fi
 
-    # Generate short IDs
-    if ! generate_short_ids; then
-        log_message "ERROR" "Failed to generate short IDs"
-        return 1
-    fi
+    log_info "Certificate Information:"
+    log_info "========================"
 
-    # Select and configure destination domain
-    local dest_domain
-    if dest_domain=$(select_dest_domain); then
-        update_cert_config_domain "$dest_domain"
-    else
-        log_message "ERROR" "Failed to select destination domain"
-        return 1
-    fi
+    # Extract certificate details
+    local subject serial issuer not_before not_after
 
-    log_message "SUCCESS" "All cryptographic materials generated successfully"
-    return 0
+    subject=$(openssl x509 -in "$CERT_CRT" -noout -subject 2>/dev/null | sed 's/subject=//')
+    serial=$(openssl x509 -in "$CERT_CRT" -noout -serial 2>/dev/null | sed 's/serial=//')
+    issuer=$(openssl x509 -in "$CERT_CRT" -noout -issuer 2>/dev/null | sed 's/issuer=//')
+    not_before=$(openssl x509 -in "$CERT_CRT" -noout -startdate 2>/dev/null | sed 's/notBefore=//')
+    not_after=$(openssl x509 -in "$CERT_CRT" -noout -enddate 2>/dev/null | sed 's/notAfter=//')
+
+    log_info "Subject: $subject"
+    log_info "Serial: $serial"
+    log_info "Issuer: $issuer"
+    log_info "Valid from: $not_before"
+    log_info "Valid until: $not_after"
+
+    # Display subject alternative names
+    local san
+    san=$(openssl x509 -in "$CERT_CRT" -noout -text 2>/dev/null | \
+          grep -A1 "Subject Alternative Name" | tail -1 | sed 's/^\s*//' || echo "None")
+    log_info "Alternative names: $san"
+
+    # Check certificate validity
+    check_cert_validity
 }
 
-# Check if certificates exist and are valid
-check_certs_validity() {
-    log_message "INFO" "Checking certificate validity"
-
-    local valid=true
-
-    # Check if all required files exist
-    if [[ ! -f "$PRIVATE_KEY_FILE" ]]; then
-        log_message "WARNING" "Private key file missing: $PRIVATE_KEY_FILE"
-        valid=false
+# Check certificate validity and expiration
+check_cert_validity() {
+    if [[ ! -f "$CERT_CRT" ]]; then
+        log_error "Certificate file not found: $CERT_CRT"
+        return 1
     fi
 
-    if [[ ! -f "$PUBLIC_KEY_FILE" ]]; then
-        log_message "WARNING" "Public key file missing: $PUBLIC_KEY_FILE"
-        valid=false
-    fi
+    log_info "Checking certificate validity"
 
-    if [[ ! -f "$SHORT_ID_FILE" ]]; then
-        log_message "WARNING" "Short ID file missing: $SHORT_ID_FILE"
-        valid=false
-    fi
-
-    if [[ ! -f "$CERT_CONFIG_FILE" ]]; then
-        log_message "WARNING" "Certificate configuration missing: $CERT_CONFIG_FILE"
-        valid=false
-    fi
-
-    # Check file permissions
-    if [[ -f "$PRIVATE_KEY_FILE" ]]; then
-        local perms=$(stat -c "%a" "$PRIVATE_KEY_FILE")
-        if [[ "$perms" != "600" ]]; then
-            log_message "WARNING" "Private key has incorrect permissions: $perms (should be 600)"
-            chmod 600 "$PRIVATE_KEY_FILE"
-        fi
-    fi
-
-    # Check key content validity
-    if [[ -f "$PRIVATE_KEY_FILE" ]] && [[ -f "$PUBLIC_KEY_FILE" ]]; then
-        local private_key_content=$(cat "$PRIVATE_KEY_FILE")
-        local public_key_content=$(cat "$PUBLIC_KEY_FILE")
-
-        if [[ ${#private_key_content} -lt 40 ]]; then
-            log_message "WARNING" "Private key appears to be too short"
-            valid=false
-        fi
-
-        if [[ ${#public_key_content} -lt 40 ]]; then
-            log_message "WARNING" "Public key appears to be too short"
-            valid=false
-        fi
-    fi
-
-    # Check short IDs
-    if [[ -f "$SHORT_ID_FILE" ]]; then
-        local short_id_count=$(wc -l < "$SHORT_ID_FILE")
-        if [[ $short_id_count -lt 1 ]]; then
-            log_message "WARNING" "No short IDs found"
-            valid=false
-        fi
-    fi
-
-    if [[ "$valid" == "true" ]]; then
-        log_message "SUCCESS" "All certificates are valid"
-        return 0
+    # Verify certificate
+    if openssl x509 -in "$CERT_CRT" -noout -checkend 0 2>/dev/null; then
+        log_info "✓ Certificate is currently valid"
     else
-        log_message "WARNING" "Some certificates are invalid or missing"
+        log_error "✗ Certificate has expired"
+        return 1
+    fi
+
+    # Check expiration in threshold days
+    local threshold_seconds=$((RENEWAL_THRESHOLD_DAYS * 24 * 3600))
+    if openssl x509 -in "$CERT_CRT" -noout -checkend "$threshold_seconds" 2>/dev/null; then
+        log_info "✓ Certificate is valid for more than $RENEWAL_THRESHOLD_DAYS days"
+    else
+        log_warn "⚠ Certificate expires within $RENEWAL_THRESHOLD_DAYS days"
+
+        # Calculate exact days until expiration
+        local end_date_str
+        end_date_str=$(openssl x509 -in "$CERT_CRT" -noout -enddate 2>/dev/null | sed 's/notAfter=//')
+        local end_date_epoch
+        end_date_epoch=$(date -d "$end_date_str" +%s 2>/dev/null || echo "0")
+        local current_epoch
+        current_epoch=$(date +%s)
+        local days_until_expiry=$(( (end_date_epoch - current_epoch) / 86400 ))
+
+        if [[ $days_until_expiry -ge 0 ]]; then
+            log_warn "Certificate expires in $days_until_expiry days"
+        else
+            log_error "Certificate expired $((days_until_expiry * -1)) days ago"
+        fi
+    fi
+
+    # Verify private key matches certificate
+    verify_key_cert_match
+}
+
+# Verify that private key matches certificate
+verify_key_cert_match() {
+    if [[ ! -f "$CERT_KEY" ]] || [[ ! -f "$CERT_CRT" ]]; then
+        log_error "Certificate or private key file not found"
+        return 1
+    fi
+
+    log_info "Verifying private key matches certificate"
+
+    local cert_hash key_hash
+    cert_hash=$(openssl x509 -in "$CERT_CRT" -noout -modulus 2>/dev/null | openssl md5)
+    key_hash=$(openssl rsa -in "$CERT_KEY" -noout -modulus 2>/dev/null | openssl md5)
+
+    if [[ "$cert_hash" == "$key_hash" ]]; then
+        log_info "✓ Private key matches certificate"
+    else
+        log_error "✗ Private key does not match certificate"
         return 1
     fi
 }
 
-# Backup existing certificates
-backup_certs() {
-    local backup_dir="$VLESS_DIR/backups/certs/$(get_timestamp_filename)"
+# Backup certificates
+backup_certificates() {
+    log_info "Backing up certificates"
 
-    log_message "INFO" "Creating certificate backup"
+    local backup_timestamp
+    backup_timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_file="${CERT_BACKUP_DIR}/certificates_${backup_timestamp}.tar.gz"
 
-    ensure_directory "$backup_dir" "700" "root"
+    if [[ -d "$CERT_DIR" ]]; then
+        tar -czf "$backup_file" -C "$(dirname "$CERT_DIR")" "$(basename "$CERT_DIR")" 2>/dev/null || {
+            log_error "Failed to create certificate backup"
+            return 1
+        }
 
-    # Copy all certificate files
-    if [[ -f "$PRIVATE_KEY_FILE" ]]; then
-        cp "$PRIVATE_KEY_FILE" "$backup_dir/"
+        log_info "Certificates backed up to: $backup_file"
+
+        # Log backup
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Certificate backup created: $backup_file" >> "${CERT_LOG}"
+
+        # Cleanup old backups (keep last 10)
+        find "$CERT_BACKUP_DIR" -name "certificates_*.tar.gz" -type f | \
+            sort -r | tail -n +11 | xargs rm -f 2>/dev/null || true
+    else
+        log_warn "Certificate directory not found, nothing to backup"
     fi
-
-    if [[ -f "$PUBLIC_KEY_FILE" ]]; then
-        cp "$PUBLIC_KEY_FILE" "$backup_dir/"
-    fi
-
-    if [[ -f "$SHORT_ID_FILE" ]]; then
-        cp "$SHORT_ID_FILE" "$backup_dir/"
-    fi
-
-    if [[ -f "$CERT_CONFIG_FILE" ]]; then
-        cp "$CERT_CONFIG_FILE" "$backup_dir/"
-    fi
-
-    log_message "SUCCESS" "Certificate backup created: $backup_dir"
-    echo "$backup_dir"
 }
 
-# Rotate certificates (generate new ones)
-rotate_certs() {
-    log_message "INFO" "Starting certificate rotation"
+# Restore certificates from backup
+restore_certificates() {
+    local backup_file="$1"
 
-    # Create backup first
-    local backup_dir
-    if backup_dir=$(backup_certs); then
-        log_message "SUCCESS" "Backup created before rotation"
-    else
-        log_message "ERROR" "Failed to create backup, aborting rotation"
+    if [[ -z "$backup_file" ]]; then
+        log_error "Backup file path is required"
         return 1
     fi
+
+    if [[ ! -f "$backup_file" ]]; then
+        log_error "Backup file not found: $backup_file"
+        return 1
+    fi
+
+    log_info "Restoring certificates from: $backup_file"
+
+    # Backup current certificates if they exist
+    if [[ -d "$CERT_DIR" ]]; then
+        local current_backup
+        current_backup="${CERT_BACKUP_DIR}/pre_restore_$(date +%Y%m%d_%H%M%S).tar.gz"
+        tar -czf "$current_backup" -C "$(dirname "$CERT_DIR")" "$(basename "$CERT_DIR")" 2>/dev/null || true
+        log_info "Current certificates backed up to: $current_backup"
+    fi
+
+    # Extract backup
+    tar -xzf "$backup_file" -C "$(dirname "$CERT_DIR")" 2>/dev/null || {
+        log_error "Failed to restore certificates from backup"
+        return 1
+    }
+
+    # Set proper permissions
+    chmod 700 "$CERT_DIR"
+    chmod 600 "$CERT_KEY" 2>/dev/null || true
+    chmod 644 "$CERT_CRT" 2>/dev/null || true
+
+    log_info "Certificates restored successfully"
+
+    # Verify restored certificates
+    if [[ -f "$CERT_CRT" ]]; then
+        check_cert_validity
+    fi
+}
+
+# Renew certificate
+renew_certificates() {
+    local domain="${1:-$DEFAULT_DOMAIN}"
+    local alt_names="${2:-}"
+
+    log_info "Renewing certificates for domain: $domain"
+
+    # Backup current certificates
+    backup_certificates
 
     # Generate new certificates
-    if generate_all_certs; then
-        log_message "SUCCESS" "Certificate rotation completed successfully"
-        print_info "Backup location: $backup_dir"
-        return 0
+    generate_self_signed_cert "$domain" "$alt_names"
+
+    log_info "Certificate renewal completed"
+
+    # Log renewal
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Certificate renewed for domain: $domain" >> "${CERT_LOG}"
+}
+
+# Setup certificate monitoring
+setup_cert_monitoring() {
+    log_info "Setting up certificate monitoring"
+
+    # Create certificate monitoring script
+    cat > /usr/local/bin/vless-cert-monitor << 'EOF'
+#!/bin/bash
+# VLESS Certificate Monitoring Script
+
+CERT_DIR="/opt/vless/certs"
+CERT_CRT="${CERT_DIR}/server.crt"
+CERT_LOG="/opt/vless/logs/certificates.log"
+THRESHOLD_DAYS=30
+
+log_cert() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$CERT_LOG"
+}
+
+if [[ ! -f "$CERT_CRT" ]]; then
+    log_cert "WARNING: Certificate file not found: $CERT_CRT"
+    exit 1
+fi
+
+# Check certificate validity
+if ! openssl x509 -in "$CERT_CRT" -noout -checkend 0 2>/dev/null; then
+    log_cert "CRITICAL: Certificate has expired!"
+    exit 1
+fi
+
+# Check if certificate expires within threshold
+threshold_seconds=$((THRESHOLD_DAYS * 24 * 3600))
+if ! openssl x509 -in "$CERT_CRT" -noout -checkend "$threshold_seconds" 2>/dev/null; then
+    # Calculate exact days until expiration
+    end_date_str=$(openssl x509 -in "$CERT_CRT" -noout -enddate 2>/dev/null | sed 's/notAfter=//')
+    end_date_epoch=$(date -d "$end_date_str" +%s 2>/dev/null || echo "0")
+    current_epoch=$(date +%s)
+    days_until_expiry=$(( (end_date_epoch - current_epoch) / 86400 ))
+
+    if [[ $days_until_expiry -ge 0 ]]; then
+        log_cert "WARNING: Certificate expires in $days_until_expiry days"
     else
-        log_message "ERROR" "Certificate rotation failed"
-        print_warning "Restoring from backup: $backup_dir"
+        log_cert "CRITICAL: Certificate expired $((days_until_expiry * -1)) days ago"
+    fi
+fi
+EOF
 
-        # Restore from backup
-        cp "$backup_dir"/* "$CERTS_DIR/" 2>/dev/null || true
+    chmod +x /usr/local/bin/vless-cert-monitor
 
-        return 1
+    # Create cron job for certificate monitoring
+    cat > /etc/cron.d/vless-cert-monitor << 'EOF'
+# VLESS Certificate Monitoring
+0 2 * * * root /usr/local/bin/vless-cert-monitor
+EOF
+
+    log_info "Certificate monitoring configured"
+    log_info "Monitoring script: /usr/local/bin/vless-cert-monitor"
+    log_info "Runs daily at 2:00 AM via cron"
+}
+
+# Install certificate monitoring
+install_cert_monitoring() {
+    setup_cert_monitoring
+    log_info "Certificate monitoring installed successfully"
+}
+
+# List all certificates
+list_certificates() {
+    log_info "Certificate Inventory"
+    log_info "===================="
+
+    if [[ -d "$CERT_DIR" ]]; then
+        find "$CERT_DIR" -name "*.crt" -o -name "*.pem" | while read -r cert_file; do
+            if [[ -f "$cert_file" ]]; then
+                log_info "Certificate: $cert_file"
+                local subject
+                subject=$(openssl x509 -in "$cert_file" -noout -subject 2>/dev/null | sed 's/subject=//' || echo "Unknown")
+                log_info "  Subject: $subject"
+
+                local not_after
+                not_after=$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | sed 's/notAfter=//' || echo "Unknown")
+                log_info "  Expires: $not_after"
+                echo ""
+            fi
+        done
+    else
+        log_info "Certificate directory not found: $CERT_DIR"
+    fi
+
+    # List backups
+    log_info "Certificate Backups"
+    log_info "=================="
+    if [[ -d "$CERT_BACKUP_DIR" ]]; then
+        find "$CERT_BACKUP_DIR" -name "*.tar.gz" -type f | sort -r | while read -r backup_file; do
+            local backup_date
+            backup_date=$(stat -c %y "$backup_file" 2>/dev/null | cut -d' ' -f1 || echo "Unknown")
+            log_info "Backup: $(basename "$backup_file") (Date: $backup_date)"
+        done
+    else
+        log_info "No backup directory found"
     fi
 }
 
-# Get certificate information
-get_cert_info() {
-    local format="${1:-table}"
+# Generate certificate for specific domain with interactive prompts
+interactive_cert_generation() {
+    echo "Certificate Generation Wizard"
+    echo "============================"
 
-    if [[ ! -f "$CERT_CONFIG_FILE" ]]; then
-        log_message "ERROR" "Certificate configuration not found"
+    # Get domain name
+    read -p "Enter domain name [$DEFAULT_DOMAIN]: " domain
+    domain=${domain:-$DEFAULT_DOMAIN}
+
+    # Get alternative names
+    echo "Enter alternative names (comma-separated, optional):"
+    echo "Examples: www.example.com,api.example.com,192.168.1.10"
+    read -r alt_names
+
+    # Get validity period
+    read -p "Enter certificate validity in days [$CERT_VALIDITY_DAYS]: " validity
+    validity=${validity:-$CERT_VALIDITY_DAYS}
+
+    # Validate input
+    if ! [[ "$validity" =~ ^[0-9]+$ ]] || [[ $validity -lt 1 ]] || [[ $validity -gt 3650 ]]; then
+        log_error "Invalid validity period. Must be between 1 and 3650 days."
         return 1
     fi
 
-    case "$format" in
-        "json")
-            if command -v jq >/dev/null 2>&1; then
-                jq '.' "$CERT_CONFIG_FILE"
+    # Generate certificate
+    generate_self_signed_cert "$domain" "$alt_names" "$validity"
+}
+
+# Main script execution
+main() {
+    case "${1:-}" in
+        "generate"|"")
+            if [[ $# -gt 1 ]]; then
+                generate_self_signed_cert "$2" "${3:-}" "${4:-$CERT_VALIDITY_DAYS}"
             else
-                cat "$CERT_CONFIG_FILE"
+                interactive_cert_generation
             fi
             ;;
-        "table"|*)
-            print_section "Certificate Information"
-
-            if command -v jq >/dev/null 2>&1; then
-                local private_key=$(jq -r '.reality.private_key // "Not set"' "$CERT_CONFIG_FILE")
-                local public_key=$(jq -r '.reality.public_key // "Not set"' "$CERT_CONFIG_FILE")
-                local dest_domain=$(jq -r '.reality.dest_domain // "Not set"' "$CERT_CONFIG_FILE")
-                local created=$(jq -r '.metadata.created // "Unknown"' "$CERT_CONFIG_FILE")
-                local modified=$(jq -r '.metadata.last_modified // "Unknown"' "$CERT_CONFIG_FILE")
-
-                printf "%-20s %s\n" "Created:" "$created"
-                printf "%-20s %s\n" "Last Modified:" "$modified"
-                printf "%-20s %s\n" "Destination:" "$dest_domain"
-                printf "%-20s %s\n" "Private Key:" "${private_key:0:20}..."
-                printf "%-20s %s\n" "Public Key:" "${public_key:0:20}..."
-
-                # Show short IDs
-                local short_ids
-                short_ids=$(jq -r '.reality.short_ids[]? // empty' "$CERT_CONFIG_FILE" | tr '\n' ', ' | sed 's/,$//')
-                printf "%-20s %s\n" "Short IDs:" "$short_ids"
-            else
-                printf "%-20s %s\n" "Config File:" "$CERT_CONFIG_FILE"
-                printf "%-20s %s\n" "Private Key File:" "$PRIVATE_KEY_FILE"
-                printf "%-20s %s\n" "Public Key File:" "$PUBLIC_KEY_FILE"
-                printf "%-20s %s\n" "Short ID File:" "$SHORT_ID_FILE"
+        "info")
+            display_cert_info
+            ;;
+        "check")
+            check_cert_validity
+            ;;
+        "backup")
+            backup_certificates
+            ;;
+        "restore")
+            if [[ $# -lt 2 ]]; then
+                log_error "Usage: $0 restore <backup_file>"
+                exit 1
             fi
+            restore_certificates "$2"
+            ;;
+        "renew")
+            renew_certificates "${2:-$DEFAULT_DOMAIN}" "${3:-}"
+            ;;
+        "monitor")
+            install_cert_monitoring
+            ;;
+        "list")
+            list_certificates
+            ;;
+        "verify")
+            verify_key_cert_match
+            ;;
+        "help"|"-h"|"--help")
+            cat << EOF
+Certificate Management Module for VLESS+Reality VPN
+
+Usage: $0 [command] [options]
+
+Commands:
+    generate [domain] [alt_names] [days]  Generate self-signed certificate
+    info                                  Display certificate information
+    check                                Check certificate validity
+    backup                               Backup certificates
+    restore <backup_file>                Restore from backup
+    renew [domain] [alt_names]           Renew certificate
+    monitor                              Setup certificate monitoring
+    list                                 List all certificates and backups
+    verify                               Verify private key matches certificate
+    help                                 Show this help message
+
+Examples:
+    $0 generate                          # Interactive certificate generation
+    $0 generate example.com              # Generate cert for example.com
+    $0 generate example.com "www.example.com,api.example.com" 730
+    $0 info                              # Show certificate information
+    $0 check                             # Check certificate validity
+    $0 renew example.com                 # Renew certificate
+    $0 backup                            # Backup certificates
+
+Certificate files are stored in: $CERT_DIR
+Backups are stored in: $CERT_BACKUP_DIR
+EOF
+            ;;
+        *)
+            log_error "Unknown command: $1"
+            log_info "Use '$0 help' for usage information"
+            exit 1
             ;;
     esac
-
-    return 0
 }
 
-# Install required dependencies
-install_cert_dependencies() {
-    log_message "INFO" "Installing certificate management dependencies"
-
-    # Install OpenSSL
-    if ! command -v openssl >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update && apt-get install -y openssl
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y openssl
-        else
-            log_message "WARNING" "Cannot install OpenSSL automatically"
-        fi
-    fi
-
-    # Install xxd for hex processing
-    if ! command -v xxd >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get install -y xxd
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y vim-common  # xxd is part of vim-common package
-        else
-            log_message "WARNING" "Cannot install xxd automatically"
-        fi
-    fi
-
-    # Install bc for mathematical operations
-    if ! command -v bc >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get install -y bc
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y bc
-        else
-            log_message "WARNING" "Cannot install bc automatically"
-        fi
-    fi
-
-    log_message "SUCCESS" "Dependencies installation completed"
-}
-
-# Export functions
-export -f init_cert_management generate_reality_private_key generate_short_ids
-export -f select_dest_domain generate_all_certs check_certs_validity
-export -f backup_certs rotate_certs get_cert_info
-export -f install_cert_dependencies
-
-# Initialize certificate management if script is run directly
+# Only run main if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    init_cert_management
-    install_cert_dependencies
-
-    # Generate certificates if they don't exist
-    if ! check_certs_validity; then
-        log_message "INFO" "Generating initial certificates"
-        generate_all_certs
-    fi
-
-    log_message "SUCCESS" "Certificate management module loaded successfully"
+    main "$@"
 fi

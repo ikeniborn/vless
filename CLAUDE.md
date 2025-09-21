@@ -1,377 +1,212 @@
-# CLAUDE.md - Память проекта VLESS+Reality VPN
+# VLESS+Reality VPN Management System - Project Memory
 
-> Этот файл содержит ключевую информацию о проекте для быстрого понимания и работы с системой.
+## Project Overview
+- **Name**: VLESS+Reality VPN Management System
+- **Purpose**: Automated VPN server management with VLESS+Reality protocol for censorship resistance
+- **Architecture**: Modular bash scripts + Python Telegram bot + Docker infrastructure
+- **Target OS**: Ubuntu/Debian and RHEL-based Linux distributions
 
-## 📋 Краткий обзор проекта
+## Directory Structure
+- **Main directory**: `/home/ikeniborn/Documents/Project/vless/`
+- **Configuration storage**: `/opt/vless/` (production configs, logs, backups)
+- **Modules**: `modules/` - all bash and Python modules
+- **Tests**: `tests/` - comprehensive test suite
+- **Documentation**: `docs/` - user and API documentation
+- **Config templates**: `config/` - Docker, Xray, and bot configurations
 
-**Название:** VLESS+Reality VPN
-**Версия:** 1.0.0
-**Статус:** ✅ ГОТОВ К ПРОДАКШЕНУ
-**Технологии:** Docker, Xray-core, Python, Telegram Bot API, Bash
-**Платформы:** Ubuntu 20.04+, Debian 11+, CentOS 8+
+## Key Components
 
-### Описание
-Комплексная система развертывания высокопроизводительного VPN сервера с протоколом VLESS+Reality, включающая автоматизированную установку, управление через Telegram бота и корпоративный уровень безопасности.
+### Installation and Core (Phase 1)
+- **Main installer**: `install.sh` - orchestrates entire installation
+- **Common utilities**: `modules/common_utils.sh` - logging, validation, system checks
+- **Logging system**: `modules/logging_setup.sh` - centralized logging with rotation
+- **Use 4-space indentation** in all bash scripts
+- **Always check root permissions** before system modifications
+- **Color output**: Use RED for errors, YELLOW for warnings, GREEN for success
 
-## 🏗️ Структура проекта
+### Docker Infrastructure (Phase 2)
+- **Docker setup**: `modules/docker_setup.sh` - installs and configures Docker
+- **Container management**: `modules/container_management.sh` - lifecycle operations
+- **Xray config**: `config/xray_config_template.json` - VLESS+Reality template
+- **Docker Compose**: `config/docker-compose.yml` - service definitions
+- **Use host networking** for Reality protocol performance
+- **Always validate Docker installation** before container operations
 
-```
-vless-reality-vpn/
-├── 📄 README.md                     # Главная документация
-├── 🚀 install.sh                    # Основной установочный скрипт
-├── 🤖 deploy_telegram_bot.sh         # Развертывание Telegram бота
-├── 📦 requirements.txt               # Python зависимости
-├── 🐳 Dockerfile.bot                 # Docker образ для бота
-├── ⚙️ .env.example                   # Пример конфигурации
-├── 📁 modules/                       # Основные модули системы
-│   ├── 🔒 process_isolation/         # EPERM protection система
-│   ├── 🛠️ common_utils.sh            # Общие функции
-│   ├── 🔄 system_update.sh           # Обновление системы
-│   ├── 🐳 docker_setup.sh            # Установка Docker
-│   ├── 🔥 ufw_config.sh              # Настройка firewall
-│   ├── 💾 backup_restore.sh          # Резервное копирование
-│   ├── 👥 user_management.sh         # Управление пользователями
-│   ├── 🔐 cert_management.sh         # Управление сертификатами
-│   ├── 🤖 telegram_bot.py            # Telegram бот
-│   ├── 📊 monitoring.sh              # Мониторинг системы
-│   └── 🛡️ security_hardening.sh     # Усиление безопасности
-├── 📁 config/                        # Конфигурационные файлы
-│   ├── 🐳 docker-compose.yml         # Docker Compose
-│   ├── ⚙️ xray_config_template.json  # Шаблон Xray
-│   ├── 🔧 vless-vpn.service          # Systemd сервис
-│   └── 🤖 bot_config.env             # Конфигурация бота
-├── 📁 tests/                         # Тестовые модули (72 теста)
-├── 📁 docs/                          # Подробная документация
-│   ├── 📖 installation.md            # Руководство по установке
-│   ├── 👤 user_guide.md              # Руководство пользователя
-│   ├── 🔧 troubleshooting.md         # Решение проблем
-│   ├── 📚 api_reference.md           # API справочник
-│   ├── 🛡️ security_guide.md          # Руководство по безопасности
-│   └── 🏗️ architecture.md            # Архитектура системы
-└── 📁 /opt/vless/                    # Системные данные (создается при установке)
-    ├── configs/                      # Конфигурации VLESS
-    ├── certs/                        # SSL/TLS сертификаты
-    ├── users/                        # Данные пользователей
-    ├── logs/                         # Логи системы
-    └── backups/                      # Резервные копии
-```
+### User Management (Phase 3)
+- **User CRUD**: `modules/user_management.sh` - add/remove/list users
+- **QR generator**: `modules/qr_generator.py` - creates QR codes for clients
+- **Config templates**: `modules/config_templates.sh` - multi-client support
+- **Database**: `modules/user_database.sh` - JSON-based user storage
+- **Store user data** in `/opt/vless/users/users.json`
+- **Generate unique UUIDs** for each user
+- **Support multiple VPN clients**: Xray, V2Ray, Clash, sing-box
 
-## 🚀 Быстрый старт
+### Security (Phase 4)
+- **UFW config**: `modules/ufw_config.sh` - firewall management
+- **Hardening**: `modules/security_hardening.sh` - SSH and system security
+- **Certificates**: `modules/cert_management.sh` - TLS certificate handling
+- **Monitoring**: `modules/monitoring.sh` - system health checks
+- **Open port 443** for VLESS+Reality
+- **Backup UFW rules** before modifications
+- **Enable fail2ban** for brute-force protection
 
-### Минимальные команды для развертывания
+### Advanced Features (Phase 5)
+- **Telegram bot**: `modules/telegram_bot.py` - remote management interface
+- **Bot manager**: `modules/telegram_bot_manager.sh` - bot service control
+- **Backup/Restore**: `modules/backup_restore.sh` - data protection
+- **Maintenance**: `modules/maintenance_utils.sh` - system optimization
+- **Updates**: `modules/system_update.sh` - safe system updates
+- **Bot config**: Store in `config/bot_config.env`
+- **Admin whitelist required** for bot access
+- **Daily automated backups** to `/opt/vless/backups/`
 
+## Testing Framework
+- **Master runner**: `tests/run_all_tests.sh` - executes all tests
+- **Result aggregator**: `tests/test_results_aggregator.sh` - analyzes results
+- **Phase tests**: Separate integration tests for each implementation phase
+- **Always run tests** before deployment
+- **Use dry-run mode** for safe testing
+
+## Critical Paths
+- **Installation flow**: `install.sh` � Phase modules � Docker � User setup � Security � Bot
+- **User addition**: Validate � Generate UUID � Update Xray config � Reload service � Generate QR
+- **Backup process**: Stop services � Backup configs � Backup users � Create archive � Restart
+
+## Command Patterns
+
+### Installation
 ```bash
-# 1. Клонирование и переход в директорию
-git clone <repository_url>
-cd vless-reality-vpn
-
-# 2. Запуск автоматической установки
-sudo bash install.sh
-
-# 3. Следование интерактивному меню:
-# - Выбрать "1) Новая установка"
-# - Ввести домен сервера
-# - Ввести токен Telegram бота
-# - Ввести ID администратора
-
-# 4. Проверка работоспособности
-sudo systemctl status vless-vpn
-sudo docker ps
+sudo ./install.sh [--verbose] [--dry-run] [--help]
 ```
 
-### Быстрая проверка системы
-
+### User Management
 ```bash
-# Статус всех сервисов
-sudo ./tests/run_all_tests.sh quick
-
-# Создание тестового пользователя
-sudo ./modules/user_management.sh add "test_user"
-
-# Проверка через Telegram бота
-# /start - в Telegram боте
+./install.sh manage users  # Interactive menu
+./install.sh add-user USERNAME
+./install.sh remove-user USERNAME
 ```
 
-## ⚙️ Ключевые конфигурационные файлы
-
-### 1. Переменные окружения (.env)
-```env
-BOT_TOKEN=your_telegram_bot_token
-ADMIN_TELEGRAM_ID=your_telegram_id
-DOMAIN=your-domain.com
-VLESS_PORT=443
-HTTP_PORT=80
-```
-
-### 2. Основная конфигурация Xray
-**Файл:** `/opt/vless/configs/config.json`
-- Протокол: VLESS + Reality
-- Порты: 80 (HTTP), 443 (HTTPS)
-- Маскировка: microsoft.com, apple.com
-
-### 3. Пользователи системы
-**Файл:** `/opt/vless/users/users.json`
-- UUID-based идентификация
-- Конфигурации пользователей
-- Статистика использования
-
-## 🤖 Основные команды Telegram бота
-
-### Управление пользователями
-```
-/adduser <имя>         # Создать пользователя
-/deleteuser <uuid>     # Удалить пользователя
-/listusers             # Список пользователей
-/getconfig <uuid>      # Получить конфигурацию (QR + файл)
-```
-
-### Системное управление
-```
-/status               # Статус сервера
-/restart              # Перезапуск VPN
-/logs                 # Просмотр логов
-/backup               # Создать резервную копию
-/stats                # Статистика использования
-```
-
-## 🔧 Основные команды системы
-
-### Управление сервисом
+### Telegram Bot
 ```bash
-# Статус системы
-sudo systemctl status vless-vpn
-
-# Управление сервисом
-sudo systemctl start|stop|restart vless-vpn
-
-# Просмотр логов
-sudo journalctl -u vless-vpn -f
-sudo tail -f /opt/vless/logs/xray.log
+sudo ./deploy_telegram_bot.sh  # Interactive setup
+sudo systemctl status vless-vpn-bot
 ```
 
-### Управление пользователями
+### Testing
 ```bash
-# Добавление пользователя
-sudo ./modules/user_management.sh add "username"
-
-# Удаление пользователя
-sudo ./modules/user_management.sh remove "user-uuid"
-
-# Список пользователей
-sudo ./modules/user_management.sh list
-
-# Получение конфигурации
-sudo ./modules/user_management.sh config "user-uuid"
+cd tests && ./run_all_tests.sh
 ```
 
-### Docker операции
-```bash
-# Статус контейнеров
-sudo docker-compose -f /opt/vless/docker-compose.yml ps
+## Environment Variables
+- `VLESS_HOME=/opt/vless` - Main configuration directory
+- `VLESS_LOG_LEVEL=INFO` - Logging verbosity
+- `VLESS_BOT_TOKEN` - Telegram bot API token
+- `VLESS_ADMIN_IDS` - Comma-separated admin Telegram IDs
 
-# Перезапуск сервисов
-sudo docker-compose -f /opt/vless/docker-compose.yml restart
+## Error Handling
+- **Always use `set -euo pipefail`** in bash scripts
+- **Implement rollback** for critical operations
+- **Log all errors** to `/opt/vless/logs/error.log`
+- **Return specific exit codes**: 0=success, 1=general error, 2=dependency error, 3=permission error
 
-# Просмотр логов
-sudo docker logs xray-core -f
-sudo docker logs telegram-bot -f
-```
+## Security Best Practices
+- **Run containers with minimal privileges**
+- **Use read-only mounts** where possible
+- **Validate all user input**
+- **Sanitize paths** to prevent directory traversal
+- **Encrypt sensitive data** in backups
+- **Rotate logs daily**, keep 7 days
 
-### Резервное копирование
-```bash
-# Создание резервной копии
-sudo ./modules/backup_restore.sh create
+## VLESS+Reality Protocol
+- **Purpose**: Mask VPN traffic as regular HTTPS
+- **Port**: 443 (standard HTTPS)
+- **UUID-based authentication**: Each user has unique identifier
+- **Reality settings**: Use multiple server names for camouflage
+- **Client support**: Xray-core based clients recommended
 
-# Восстановление из копии
-sudo ./modules/backup_restore.sh restore latest
+## Docker Configuration
+- **Network mode**: Host (for Reality protocol)
+- **Restart policy**: unless-stopped
+- **Resource limits**: Set CPU and memory constraints
+- **Volumes**: `/opt/vless` mounted for persistence
+- **Health checks**: Every 30 seconds
 
-# Список доступных бэкапов
-sudo ./modules/backup_restore.sh list
-```
+## Telegram Bot Commands
+- `/start` - Initialize bot
+- `/status` - System status
+- `/adduser <name>` - Add VPN user
+- `/removeuser <name>` - Remove user
+- `/users` - List all users
+- `/qr <username>` - Generate QR code
+- `/backup` - Create backup
+- `/help` - Show commands
 
-## 🛡️ Ключевые аспекты безопасности
+## File Permissions
+- **Config files**: 600 (root only)
+- **Scripts**: 755 (executable)
+- **Logs**: 644 (readable)
+- **Backups**: 600 (root only)
+- **User database**: 600 (root only)
 
-### Встроенные функции защиты
-- **UFW Firewall**: Базовая сетевая защита (порты 22, 80, 443)
-- **fail2ban**: Защита от брутфорс атак
-- **AIDE**: Мониторинг целостности файлов
-- **Reality Protocol**: Непробиваемая маскировка VPN трафика
-- **EPERM Protection**: Система изоляции процессов
+## Monitoring Thresholds
+- **CPU Warning**: >80% usage
+- **Memory Warning**: >90% usage
+- **Disk Warning**: >85% usage
+- **Connection limit**: 1000 concurrent users
+- **Log size limit**: 100MB per file
 
-### Проверка безопасности
-```bash
-# Статус безопасности через Telegram
-/security
+## Backup Strategy
+- **Frequency**: Daily at 3 AM
+- **Retention**: 7 daily, 4 weekly
+- **Components**: Configs, users, certificates, logs
+- **Compression**: tar.gz with timestamp
+- **Validation**: Check archive integrity
 
-# Командная строка
-sudo ./modules/security_hardening.sh status
-sudo ufw status verbose
-sudo fail2ban-client status
-```
+## Update Process
+1. Create system snapshot
+2. Stop services gracefully
+3. Backup current version
+4. Apply updates
+5. Validate configuration
+6. Restart services
+7. Run health checks
+8. Rollback on failure
 
-### Системы мониторинга
-- Автоматические Telegram алерты
-- Мониторинг производительности
-- Анализ логов безопасности
-- Обнаружение аномалий
+## Known Issues and Solutions
+- **EPERM errors**: Use proper error handling in scripts
+- **Docker permission**: Add user to docker group
+- **UFW conflicts**: Always backup rules first
+- **Port 443 in use**: Check existing services
+- **Bot connection**: Verify token and network access
 
-## 📊 Важные файлы логов
+## Development Guidelines
+- **Test all changes** in dry-run mode first
+- **Document new functions** with comments
+- **Follow existing code style** and patterns
+- **Update tests** when adding features
+- **Version control**: Commit logical units of work
+- **Error messages**: Be specific and actionable
 
-```bash
-# Основные логи
-/opt/vless/logs/xray.log              # VPN сервер
-/opt/vless/logs/telegram_bot.log      # Telegram бот
-/opt/vless/logs/security.log          # Безопасность
-/opt/vless/logs/monitoring.log        # Мониторинг
+## Performance Optimization
+- **Use bash built-ins** over external commands
+- **Cache frequently used data**
+- **Implement connection pooling**
+- **Optimize Docker images** (multi-stage builds)
+- **Compress logs** and old backups
+- **Rate limit API calls**
 
-# Системные логи
-/var/log/syslog                       # Системные события
-/var/log/auth.log                     # SSH/авторизация
-/var/log/ufw.log                      # Firewall
-```
+## Integration Points
+- **Systemd**: Service management and auto-start
+- **Logrotate**: Automatic log rotation
+- **Cron**: Scheduled backups and maintenance
+- **UFW**: Firewall rule management
+- **Docker**: Container orchestration
+- **Telegram API**: Bot communication
 
-## 🚨 Troubleshooting - частые проблемы
-
-### Проблема: Сервер не запускается
-```bash
-# Диагностика
-sudo systemctl status vless-vpn
-sudo docker ps -a
-sudo journalctl -u vless-vpn -n 50
-
-# Решение
-sudo docker-compose -f /opt/vless/docker-compose.yml restart
-```
-
-### Проблема: Telegram бот не отвечает
-```bash
-# Проверка
-sudo docker logs telegram-bot
-echo $BOT_TOKEN
-echo $ADMIN_TELEGRAM_ID
-
-# Перезапуск
-sudo docker restart telegram-bot
-```
-
-### Проблема: Пользователи не могут подключиться
-```bash
-# Проверка портов
-sudo netstat -tlnp | grep -E ":(80|443)"
-sudo ufw status
-
-# Проверка конфигурации
-sudo cat /opt/vless/configs/config.json | jq '.'
-```
-
-### Проблема: Медленная скорость
-```bash
-# Мониторинг производительности
-htop
-sudo ./modules/monitoring.sh performance
-
-# Оптимизация
-sudo ./modules/maintenance_utils.sh optimize
-```
-
-## 🔄 Процедуры обслуживания
-
-### Ежедневные операции
-- Проверка статуса через `/status` в Telegram
-- Мониторинг логов: `sudo tail -f /opt/vless/logs/*.log`
-
-### Еженедельные операции
-- Создание резервной копии: `/backup` в Telegram
-- Обновление системы: `sudo ./modules/system_update.sh`
-- Анализ безопасности: `/security` в Telegram
-
-### Ежемесячные операции
-- Ротация ключей безопасности
-- Очистка старых логов и бэкапов
-- Анализ производительности и оптимизация
-
-## 📈 Метрики производительности
-
-### Базовые показатели
-- **Пропускная способность**: До 1 Gbps
-- **Задержка**: <10ms дополнительно
-- **Потребление RAM**: 50-100MB базовое
-- **Одновременные подключения**: 1000+ пользователей
-
-### Мониторинг метрик
-```bash
-# Статистика через Telegram
-/stats
-/performance
-
-# Командная строка
-sudo ./modules/monitoring.sh status
-sudo ./modules/monitoring.sh performance
-```
-
-## 🔧 Конфигурация разработки
-
-### Режим отладки
-```bash
-export DEBUG=1
-export VLESS_TEST_MODE=1
-export VLESS_LOG_LEVEL=DEBUG
-```
-
-### Запуск тестов
-```bash
-# Все тесты (72 теста)
-sudo ./tests/run_all_tests.sh
-
-# Отдельные модули
-sudo ./tests/test_installation.sh
-sudo ./tests/test_user_management.sh
-sudo ./tests/test_telegram_bot.py
-```
-
-## 📞 Контакты и поддержка
-
-### Документация
-- **README.md**: Основная документация
-- **docs/**: Подробные руководства
-- **API Reference**: docs/api_reference.md
-- **Architecture**: docs/architecture.md
-
-### При проблемах
-1. Изучить docs/troubleshooting.md
-2. Запустить диагностику: `sudo ./tests/run_all_tests.sh`
-3. Собрать логи: `sudo tar -czf logs.tar.gz /opt/vless/logs/`
-4. Создать issue с подробным описанием
-
-## 🎯 Статус проекта
-
-### ✅ Завершенные фазы (100%)
-1. **Фаза 1**: Подготовка инфраструктуры
-2. **Фаза 2**: Основной функционал VPN
-3. **Фаза 3**: Telegram интеграция
-4. **Фаза 4**: Безопасность и финализация
-5. **Фаза 5**: Тестирование и документация
-
-### 📊 Статистика проекта
-- **Файлов создано**: 50+
-- **Строк кода**: 15,000+
-- **Функций**: 150+
-- **Тестов**: 72 (90%+ покрытие)
-- **Документации**: 7 детальных руководств
-
-### 🚀 Готовность к продакшену
-- ✅ Функциональность VPN
-- ✅ Telegram управление
-- ✅ Корпоративная безопасность
-- ✅ Автозапуск и восстановление
-- ✅ Полная документация
-- ✅ Комплексное тестирование
-- ✅ Оптимизированная производительность
-
----
-
-**Важно**: Этот файл содержит ключевую информацию для быстрого понимания проекта. Для детального изучения обращайтесь к соответствующим файлам документации в папке `docs/`.
-
-**Версия документации**: 1.0.0
-**Последнее обновление**: 2025-09-19
-**Статус**: ГОТОВ К ПРОДАКШЕНУ ✅
+## Quick Troubleshooting
+- **Service not starting**: Check logs in `/opt/vless/logs/`
+- **Connection issues**: Verify UFW rules and ports
+- **Bot not responding**: Check token and admin IDs
+- **User can't connect**: Validate UUID and client config
+- **High resource usage**: Check monitoring metrics
+- **Backup failure**: Verify disk space and permissions

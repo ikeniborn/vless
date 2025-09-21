@@ -1,98 +1,281 @@
 #!/bin/bash
-# Security Hardening Module for VLESS VPN Project
-# Enhanced security configuration and hardening measures
-# Author: Claude Code
+
+# Security Hardening Module for VLESS+Reality VPN
+# This module implements comprehensive security measures including SSH hardening,
+# fail2ban setup, and system security baseline configuration
 # Version: 1.0
 
 set -euo pipefail
 
-# Get script directory
+# Import common utilities and process isolation
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common_utils.sh" 2>/dev/null || {
+    echo "Error: Cannot find common_utils.sh"
+    exit 1
+}
 
-# Load common utilities
-source "${SCRIPT_DIR}/common_utils.sh"
+# Import process isolation module
+source "${SCRIPT_DIR}/process_isolation/process_safe.sh" 2>/dev/null || {
+    log_warn "Process isolation module not found, using standard execution"
+}
+
+# Setup signal handlers if process isolation is available
+if command -v setup_signal_handlers >/dev/null 2>&1; then
+    setup_signal_handlers
+fi
 
 # Configuration
-readonly SECURITY_CONFIG_DIR="/etc/vless-security"
+readonly SECURITY_BACKUP_DIR="/opt/vless/backups/security"
+readonly SSH_CONFIG_BACKUP="${SECURITY_BACKUP_DIR}/sshd_config_$(date +%Y%m%d_%H%M%S).backup"
 readonly FAIL2BAN_CONFIG_DIR="/etc/fail2ban"
-readonly SYSCTL_CONFIG="/etc/sysctl.d/99-vless-security.conf"
-readonly AUDIT_LOG_DIR="/var/log/vless-audit"
-readonly SECURITY_LOG="/var/log/vless-security.log"
+readonly SECURITY_LOG="/opt/vless/logs/security.log"
 
-# Function to log security events
-log_security_event() {
-    local level="$1"
-    local message="$2"
-    local timestamp=$(get_timestamp)
-
-    echo "[$timestamp] [$level] $message" | sudo tee -a "$SECURITY_LOG" >/dev/null
-
-    case "$level" in
-        "ERROR"|"CRITICAL")
-            print_error "$message"
-            ;;
-        "WARNING")
-            print_warning "$message"
-            ;;
-        "INFO")
-            print_info "$message"
-            ;;
-        *)
-            echo "$message"
-            ;;
-    esac
+# Create security backup directory
+create_security_backup_dir() {
+    log_info "Creating security backup directory"
+    mkdir -p "${SECURITY_BACKUP_DIR}"
+    chmod 700 "${SECURITY_BACKUP_DIR}"
 }
 
-# Install fail2ban
-install_fail2ban() {
-    print_section "Installing Fail2ban"
+# Backup SSH configuration
+backup_ssh_config() {
+    log_info "Backing up SSH configuration"
 
-    if command -v fail2ban-server >/dev/null 2>&1; then
-        log_security_event "INFO" "Fail2ban already installed"
-        return 0
+    create_security_backup_dir
+
+    if [[ -f /etc/ssh/sshd_config ]]; then
+        cp /etc/ssh/sshd_config "${SSH_CONFIG_BACKUP}"
+        log_info "SSH config backed up to: ${SSH_CONFIG_BACKUP}"
+    else
+        log_warn "SSH config file not found at /etc/ssh/sshd_config"
+    fi
+}
+
+# Install security packages
+install_security_packages() {
+    log_info "Installing security packages"
+
+    local packages=(
+        "fail2ban"
+        "ufw"
+        "unattended-upgrades"
+        "apt-listchanges"
+        "logwatch"
+        "rkhunter"
+        "chkrootkit"
+    )
+
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        for package in "${packages[@]}"; do
+            if ! dpkg -l | grep -q "^ii  $package "; then
+                log_info "Installing $package"
+                apt-get install -y "$package" || log_warn "Failed to install $package"
+            else
+                log_info "$package is already installed"
+            fi
+        done
+    else
+        log_warn "APT package manager not found, skipping package installation"
+    fi
+}
+
+# Configure SSH hardening
+configure_ssh_hardening() {
+    log_info "Configuring SSH hardening"
+
+    if [[ ! -f /etc/ssh/sshd_config ]]; then
+        log_error "SSH config file not found"
+        return 1
     fi
 
-    # Update package list
-    log_security_event "INFO" "Updating package list for fail2ban installation"
-    sudo apt update -qq
+    # Backup first
+    backup_ssh_config
 
-    # Install fail2ban
-    log_security_event "INFO" "Installing fail2ban package"
-    sudo apt install -y fail2ban
+    # Create hardened SSH configuration
+    local ssh_config_additions="
+# VLESS VPN Security Hardening - Added $(date)
 
-    # Enable and start fail2ban
-    sudo systemctl enable fail2ban
-    sudo systemctl start fail2ban
+# Disable root login
+PermitRootLogin no
 
-    log_security_event "INFO" "Fail2ban installed and started successfully"
-    print_success "Fail2ban installed and configured"
+# Use protocol 2 only
+Protocol 2
+
+# Disable password authentication (enable only after setting up keys)
+# PasswordAuthentication no
+# PubkeyAuthentication yes
+
+# Disable empty passwords
+PermitEmptyPasswords no
+
+# Disable X11 forwarding
+X11Forwarding no
+
+# Disable user environment processing
+PermitUserEnvironment no
+
+# Use stronger ciphers and MACs
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha2-512
+
+# Key exchange algorithms
+KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+
+# Limit authentication attempts
+MaxAuthTries 3
+MaxStartups 10:30:60
+
+# Set login grace time
+LoginGraceTime 30
+
+# Disable host-based authentication
+HostbasedAuthentication no
+IgnoreRhosts yes
+
+# Disable unnecessary features
+AllowAgentForwarding no
+AllowTcpForwarding no
+GatewayPorts no
+
+# Log more information
+LogLevel VERBOSE
+
+# Disable GSSAPI
+GSSAPIAuthentication no
+"
+
+    # Apply SSH hardening gradually to avoid lockout
+    log_info "Applying SSH security settings (keeping password auth enabled for now)"
+
+    # First, apply non-breaking changes
+    {
+        echo "$ssh_config_additions"
+    } >> /etc/ssh/sshd_config
+
+    # Test SSH configuration
+    if sshd -t 2>/dev/null; then
+        log_info "SSH configuration test passed"
+
+        # Restart SSH service safely
+        if command -v systemctl >/dev/null 2>&1; then
+            if [[ $(type -t isolate_systemctl_command) == function ]]; then
+                isolate_systemctl_command "restart" "ssh" 30 || isolate_systemctl_command "restart" "sshd" 30
+            else
+                systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || log_warn "Could not restart SSH service"
+            fi
+        fi
+
+        log_info "SSH hardening applied successfully"
+        log_warn "Password authentication is still enabled. Disable it manually after setting up SSH keys."
+    else
+        log_error "SSH configuration test failed, reverting changes"
+        if [[ -f "${SSH_CONFIG_BACKUP}" ]]; then
+            cp "${SSH_CONFIG_BACKUP}" /etc/ssh/sshd_config
+            log_info "SSH configuration reverted"
+        fi
+        return 1
+    fi
 }
 
-# Configure fail2ban for SSH protection
-configure_fail2ban_ssh() {
-    print_section "Configuring Fail2ban for SSH Protection"
+# Setup SSH key authentication helper
+setup_ssh_keys() {
+    local username="$1"
+    local public_key="${2:-}"
 
-    local jail_local="$FAIL2BAN_CONFIG_DIR/jail.local"
+    log_info "Setting up SSH key authentication for user: $username"
 
-    log_security_event "INFO" "Creating fail2ban SSH jail configuration"
+    # Create user if doesn't exist
+    if ! id "$username" >/dev/null 2>&1; then
+        log_info "Creating user: $username"
+        useradd -m -s /bin/bash "$username"
+        usermod -aG sudo "$username"
+    fi
 
-    sudo tee "$jail_local" > /dev/null << 'EOF'
+    local user_home
+    user_home=$(getent passwd "$username" | cut -d: -f6)
+    local ssh_dir="${user_home}/.ssh"
+
+    # Create SSH directory
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+    chown "$username:$username" "$ssh_dir"
+
+    # Add public key if provided
+    if [[ -n "$public_key" ]]; then
+        echo "$public_key" >> "${ssh_dir}/authorized_keys"
+        chmod 600 "${ssh_dir}/authorized_keys"
+        chown "$username:$username" "${ssh_dir}/authorized_keys"
+        log_info "SSH public key added for user: $username"
+    else
+        log_info "SSH directory created for user: $username"
+        log_info "Add your public key to: ${ssh_dir}/authorized_keys"
+    fi
+}
+
+# Disable password authentication (use after SSH keys are set up)
+disable_password_auth() {
+    log_warn "Disabling SSH password authentication"
+
+    if [[ ! -f /etc/ssh/sshd_config ]]; then
+        log_error "SSH config file not found"
+        return 1
+    fi
+
+    # Backup configuration
+    backup_ssh_config
+
+    # Disable password authentication
+    sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+    sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+
+    # Test configuration
+    if sshd -t 2>/dev/null; then
+        log_info "SSH configuration test passed"
+
+        # Restart SSH service
+        if command -v systemctl >/dev/null 2>&1; then
+            if [[ $(type -t isolate_systemctl_command) == function ]]; then
+                isolate_systemctl_command "restart" "ssh" 30 || isolate_systemctl_command "restart" "sshd" 30
+            else
+                systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null
+            fi
+        fi
+
+        log_info "Password authentication disabled successfully"
+        log_warn "Ensure SSH key authentication is working before closing this session!"
+    else
+        log_error "SSH configuration test failed, reverting changes"
+        if [[ -f "${SSH_CONFIG_BACKUP}" ]]; then
+            cp "${SSH_CONFIG_BACKUP}" /etc/ssh/sshd_config
+        fi
+        return 1
+    fi
+}
+
+# Configure fail2ban
+setup_fail2ban() {
+    log_info "Configuring fail2ban"
+
+    if ! command -v fail2ban-server >/dev/null 2>&1; then
+        log_error "fail2ban is not installed"
+        return 1
+    fi
+
+    # Create custom fail2ban configuration
+    cat > "${FAIL2BAN_CONFIG_DIR}/jail.local" << 'EOF'
 [DEFAULT]
-# Ban hosts for 24 hours
-bantime = 86400
-
-# Check for attempts within 10 minutes
+# Ban settings
+bantime = 3600
 findtime = 600
-
-# Ban after 3 failed attempts
 maxretry = 3
 
-# Default action: ban IP with iptables and send email notification
-action = %(action_mwl)s
+# Ignore local addresses
+ignoreip = 127.0.0.1/8 ::1
 
-# Email configuration (if available)
-destemail = root@localhost
-sender = fail2ban@localhost
+# Email notifications (configure if needed)
+# destemail = admin@example.com
+# sender = fail2ban@example.com
 
 [sshd]
 enabled = true
@@ -100,113 +283,170 @@ port = ssh
 filter = sshd
 logpath = /var/log/auth.log
 maxretry = 3
-bantime = 86400
-findtime = 600
-
-[sshd-ddos]
-enabled = true
-port = ssh
-filter = sshd-ddos
-logpath = /var/log/auth.log
-maxretry = 2
-bantime = 86400
-findtime = 600
-
-[recidive]
-enabled = true
-filter = recidive
-logpath = /var/log/fail2ban.log
-action = %(action_mwl)s
-bantime = 604800  ; 1 week
-findtime = 86400   ; 1 day
-maxretry = 5
-EOF
-
-    # Create custom filter for VLESS-specific protection
-    sudo tee "$FAIL2BAN_CONFIG_DIR/filter.d/vless-auth.conf" > /dev/null << 'EOF'
-[Definition]
-# Fail2ban filter for VLESS authentication failures
-failregex = ^.*VLESS.*authentication failed.*from <HOST>.*$
-            ^.*VLESS.*invalid user.*from <HOST>.*$
-            ^.*VLESS.*connection rejected.*from <HOST>.*$
-
-ignoreregex =
-EOF
-
-    # Add VLESS jail
-    sudo tee -a "$jail_local" > /dev/null << 'EOF'
-
-[vless-auth]
-enabled = true
-port = 443,80
-filter = vless-auth
-logpath = /var/log/xray/access.log
-maxretry = 5
 bantime = 3600
-findtime = 300
+
+[apache-auth]
+enabled = false
+
+[apache-badbots]
+enabled = false
+
+[apache-noscript]
+enabled = false
+
+[apache-overflows]
+enabled = false
+
+[apache-nohome]
+enabled = false
+
+[nginx-http-auth]
+enabled = false
+
+[nginx-noscript]
+enabled = false
+
+[nginx-badbots]
+enabled = false
+
+[nginx-botsearch]
+enabled = false
 EOF
 
-    # Restart fail2ban to apply configuration
-    sudo systemctl restart fail2ban
+    # Create UFW action for fail2ban if UFW is available
+    if command -v ufw >/dev/null 2>&1; then
+        cat > "${FAIL2BAN_CONFIG_DIR}/action.d/ufw.conf" << 'EOF'
+[Definition]
+actionstart =
+actionstop =
+actioncheck =
+actionban = ufw insert 1 deny from <ip> to any comment "fail2ban-<name>"
+actionunban = ufw delete deny from <ip> to any
+EOF
+    fi
 
-    log_security_event "INFO" "Fail2ban SSH protection configured and activated"
-    print_success "Fail2ban configured for SSH and VLESS protection"
-}
-
-# Disable unnecessary services
-disable_unnecessary_services() {
-    print_section "Disabling Unnecessary Services"
-
-    local services_to_disable=(
-        "avahi-daemon"
-        "cups"
-        "bluetooth"
-        "ModemManager"
-        "whoopsie"
-        "apport"
-    )
-
-    for service in "${services_to_disable[@]}"; do
-        if systemctl is-enabled "$service" >/dev/null 2>&1; then
-            log_security_event "INFO" "Disabling unnecessary service: $service"
-            sudo systemctl disable "$service" >/dev/null 2>&1 || true
-            sudo systemctl stop "$service" >/dev/null 2>&1 || true
-            print_success "Disabled service: $service"
+    # Start and enable fail2ban
+    if command -v systemctl >/dev/null 2>&1; then
+        if [[ $(type -t isolate_systemctl_command) == function ]]; then
+            isolate_systemctl_command "enable" "fail2ban" 30
+            isolate_systemctl_command "start" "fail2ban" 30
         else
-            log_security_event "INFO" "Service $service not found or already disabled"
+            systemctl enable fail2ban 2>/dev/null || log_warn "Could not enable fail2ban"
+            systemctl start fail2ban 2>/dev/null || log_warn "Could not start fail2ban"
         fi
-    done
+    fi
+
+    log_info "fail2ban configured and started"
 }
 
-# Configure kernel parameters for security
-configure_kernel_security() {
-    print_section "Configuring Kernel Security Parameters"
+# Configure automatic security updates
+setup_automatic_updates() {
+    log_info "Configuring automatic security updates"
 
-    log_security_event "INFO" "Applying kernel security parameters"
+    if [[ ! -f /etc/apt/apt.conf.d/50unattended-upgrades ]]; then
+        log_warn "unattended-upgrades not found, skipping automatic updates"
+        return 0
+    fi
 
-    sudo tee "$SYSCTL_CONFIG" > /dev/null << 'EOF'
-# VLESS VPN Security Configuration
-# Network security
-net.ipv4.conf.default.rp_filter = 1
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
-net.ipv6.conf.all.accept_redirects = 0
-net.ipv6.conf.default.accept_redirects = 0
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
+    # Configure unattended upgrades for security updates only
+    cat > /etc/apt/apt.conf.d/20auto-upgrades << 'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+    # Configure which packages to auto-upgrade
+    sed -i 's|//\s*"${distro_id}:${distro_codename}-security";|        "${distro_id}:${distro_codename}-security";|' \
+        /etc/apt/apt.conf.d/50unattended-upgrades
+
+    # Enable automatic reboot for kernel updates if needed
+    sed -i 's|//Unattended-Upgrade::Automatic-Reboot "false";|Unattended-Upgrade::Automatic-Reboot "false";|' \
+        /etc/apt/apt.conf.d/50unattended-upgrades
+
+    log_info "Automatic security updates configured"
+}
+
+# Setup system security monitoring
+setup_security_monitoring() {
+    log_info "Setting up security monitoring"
+
+    # Create security monitoring script
+    cat > /usr/local/bin/vless-security-monitor << 'EOF'
+#!/bin/bash
+# VLESS VPN Security Monitoring Script
+
+SECURITY_LOG="/opt/vless/logs/security.log"
+mkdir -p "$(dirname "$SECURITY_LOG")"
+
+log_security() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$SECURITY_LOG"
+}
+
+# Check for failed login attempts
+failed_logins=$(grep "Failed password" /var/log/auth.log 2>/dev/null | tail -10 | wc -l)
+if [[ $failed_logins -gt 5 ]]; then
+    log_security "WARNING: $failed_logins failed login attempts detected"
+fi
+
+# Check for new users
+new_users=$(find /home -type d -mtime -1 2>/dev/null | wc -l)
+if [[ $new_users -gt 0 ]]; then
+    log_security "INFO: $new_users new user directories created"
+fi
+
+# Check system load
+load_avg=$(uptime | awk '{print $10}' | sed 's/,//')
+if (( $(echo "$load_avg > 2.0" | bc -l) )); then
+    log_security "WARNING: High system load detected: $load_avg"
+fi
+
+# Check disk usage
+disk_usage=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+if [[ $disk_usage -gt 90 ]]; then
+    log_security "WARNING: High disk usage: ${disk_usage}%"
+fi
+
+# Check for rootkit signatures (basic)
+if command -v rkhunter >/dev/null 2>&1; then
+    if rkhunter --check --sk 2>/dev/null | grep -q "Warning"; then
+        log_security "WARNING: rkhunter detected potential issues"
+    fi
+fi
+EOF
+
+    chmod +x /usr/local/bin/vless-security-monitor
+
+    # Create cron job for security monitoring
+    cat > /etc/cron.d/vless-security << 'EOF'
+# VLESS VPN Security Monitoring
+*/15 * * * * root /usr/local/bin/vless-security-monitor
+EOF
+
+    log_info "Security monitoring configured"
+}
+
+# Configure system kernel hardening
+configure_kernel_hardening() {
+    log_info "Configuring kernel security parameters"
+
+    # Create sysctl security configuration
+    cat > /etc/sysctl.d/99-vless-security.conf << 'EOF'
+# VLESS VPN Security Hardening
 
 # IP Spoofing protection
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.conf.default.log_martians = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.rp_filter = 1
 
 # Ignore ICMP redirects
-net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
 
-# Ignore ping requests
-net.ipv4.icmp_echo_ignore_all = 0
+# Ignore send redirects
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
 
 # Disable source packet routing
 net.ipv4.conf.all.accept_source_route = 0
@@ -214,402 +454,320 @@ net.ipv6.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
 net.ipv6.conf.default.accept_source_route = 0
 
-# TCP security
+# Log Martians
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+
+# Ignore ICMP ping requests
+net.ipv4.icmp_echo_ignore_all = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+
+# Ignore Directed pings
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# SYN flood protection
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_max_syn_backlog = 2048
 net.ipv4.tcp_synack_retries = 2
 net.ipv4.tcp_syn_retries = 5
 
-# Memory protection
+# Control buffer overflow attacks
+kernel.exec-shield = 1
+kernel.randomize_va_space = 2
+
+# Hide kernel pointers
+kernel.kptr_restrict = 1
+
+# Restrict dmesg
 kernel.dmesg_restrict = 1
-kernel.kptr_restrict = 2
 
-# Process security
-kernel.yama.ptrace_scope = 1
-
-# File system security
-fs.protected_hardlinks = 1
-fs.protected_symlinks = 1
-fs.suid_dumpable = 0
-
-# Network performance and security
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.ipv4.tcp_rmem = 4096 87380 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
-net.ipv4.tcp_congestion_control = bbr
+# Restrict perf events
+kernel.perf_event_paranoid = 2
 EOF
 
-    # Apply the configuration
-    sudo sysctl -p "$SYSCTL_CONFIG"
+    # Apply sysctl settings
+    sysctl -p /etc/sysctl.d/99-vless-security.conf 2>/dev/null || log_warn "Some sysctl settings could not be applied"
 
-    log_security_event "INFO" "Kernel security parameters applied successfully"
-    print_success "Kernel security parameters configured"
+    log_info "Kernel security parameters configured"
 }
 
-# Configure file system permissions
-secure_file_permissions() {
-    print_section "Securing File System Permissions"
+# Configure file permissions and security
+configure_file_security() {
+    log_info "Configuring file and directory security"
 
-    local files_to_secure=(
-        "/etc/passwd:644"
-        "/etc/group:644"
-        "/etc/shadow:600"
-        "/etc/gshadow:600"
-        "/etc/ssh/sshd_config:600"
-        "/boot/grub/grub.cfg:600"
-    )
+    # Secure /tmp directory
+    if ! mount | grep -q "tmpfs on /tmp"; then
+        log_info "Setting secure permissions on /tmp"
+        chmod 1777 /tmp
+    fi
 
-    for item in "${files_to_secure[@]}"; do
-        local file_path="${item%:*}"
-        local permissions="${item#*:}"
+    # Secure important system files
+    chmod 600 /etc/ssh/sshd_config 2>/dev/null || true
+    chmod 600 /etc/shadow 2>/dev/null || true
+    chmod 640 /etc/gshadow 2>/dev/null || true
 
-        if [[ -f "$file_path" ]]; then
-            log_security_event "INFO" "Securing permissions for: $file_path"
-            sudo chmod "$permissions" "$file_path"
-            print_success "Secured: $file_path ($permissions)"
+    # Disable unused network protocols
+    cat > /etc/modprobe.d/blacklist-rare-network.conf << 'EOF'
+# Disable rare network protocols for security
+install dccp /bin/true
+install sctp /bin/true
+install rds /bin/true
+install tipc /bin/true
+EOF
+
+    log_info "File security configured"
+}
+
+# Generate security report
+generate_security_report() {
+    local report_file="/opt/vless/logs/security_report_$(date +%Y%m%d_%H%M%S).txt"
+
+    log_info "Generating security report: $report_file"
+
+    {
+        echo "VLESS VPN Security Report - $(date)"
+        echo "================================================"
+        echo ""
+
+        echo "SSH Configuration Status:"
+        echo "------------------------"
+        if grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
+            echo "✓ Password authentication disabled"
+        else
+            echo "⚠ Password authentication enabled"
         fi
-    done
 
-    # Secure VLESS directories
-    if [[ -d "$VLESS_DIR" ]]; then
-        log_security_event "INFO" "Securing VLESS directory permissions"
-        sudo find "$VLESS_DIR" -type d -exec chmod 750 {} \;
-        sudo find "$VLESS_DIR" -type f -name "*.key" -exec chmod 600 {} \;
-        sudo find "$VLESS_DIR" -type f -name "*.crt" -exec chmod 644 {} \;
-        sudo find "$VLESS_DIR" -type f -name "*.json" -exec chmod 640 {} \;
-        print_success "VLESS directory permissions secured"
+        if grep -q "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null; then
+            echo "✓ Root login disabled"
+        else
+            echo "⚠ Root login may be enabled"
+        fi
+
+        echo ""
+        echo "Firewall Status:"
+        echo "---------------"
+        if command -v ufw >/dev/null 2>&1; then
+            ufw status | head -10
+        else
+            echo "UFW not installed"
+        fi
+
+        echo ""
+        echo "Fail2ban Status:"
+        echo "---------------"
+        if command -v fail2ban-client >/dev/null 2>&1; then
+            fail2ban-client status 2>/dev/null || echo "fail2ban not running"
+        else
+            echo "fail2ban not installed"
+        fi
+
+        echo ""
+        echo "System Updates:"
+        echo "--------------"
+        if command -v apt >/dev/null 2>&1; then
+            apt list --upgradable 2>/dev/null | wc -l | sed 's/^/Available updates: /'
+        fi
+
+        echo ""
+        echo "Security Monitoring:"
+        echo "------------------"
+        if [[ -f "$SECURITY_LOG" ]]; then
+            echo "Recent security events:"
+            tail -5 "$SECURITY_LOG" 2>/dev/null || echo "No recent events"
+        else
+            echo "Security monitoring not configured"
+        fi
+
+        echo ""
+        echo "Open Ports:"
+        echo "----------"
+        ss -tuln | grep LISTEN | head -10
+
+    } > "$report_file"
+
+    log_info "Security report generated: $report_file"
+
+    # Also log to main security log
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Security report generated: $report_file" >> "$SECURITY_LOG"
+}
+
+# Validate security configuration
+validate_security_config() {
+    log_info "Validating security configuration"
+
+    local issues=0
+
+    # Check SSH configuration
+    if ! sshd -t 2>/dev/null; then
+        log_error "SSH configuration has errors"
+        ((issues++))
     fi
-}
 
-# Setup automatic security updates
-setup_automatic_updates() {
-    print_section "Setting up Automatic Security Updates"
-
-    # Install unattended-upgrades
-    sudo apt update -qq
-    sudo apt install -y unattended-upgrades apt-listchanges
-
-    # Configure automatic updates
-    sudo tee "/etc/apt/apt.conf.d/50unattended-upgrades" > /dev/null << 'EOF'
-// Automatically upgrade packages from these origins
-Unattended-Upgrade::Allowed-Origins {
-    "${distro_id}:${distro_codename}";
-    "${distro_id}:${distro_codename}-security";
-    "${distro_id}ESMApps:${distro_codename}-apps-security";
-    "${distro_id}ESM:${distro_codename}-infra-security";
-};
-
-// List of packages to not update
-Unattended-Upgrade::Package-Blacklist {
-    // "vim";
-    // "libc6-dev";
-};
-
-// Automatically reboot system if required
-Unattended-Upgrade::Automatic-Reboot "false";
-
-// Reboot time
-Unattended-Upgrade::Automatic-Reboot-Time "02:00";
-
-// Remove unused automatically installed packages
-Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
-Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
-Unattended-Upgrade::Remove-Unused-Dependencies "true";
-
-// Enable logging
-Unattended-Upgrade::Debug "false";
-Unattended-Upgrade::Mail "root";
-Unattended-Upgrade::MailOnlyOnError "true";
-EOF
-
-    # Enable automatic updates
-    sudo tee "/etc/apt/apt.conf.d/20auto-upgrades" > /dev/null << 'EOF'
-APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Download-Upgradeable-Packages "1";
-APT::Periodic::AutocleanInterval "7";
-APT::Periodic::Unattended-Upgrade "1";
-EOF
-
-    # Enable and start the service
-    sudo systemctl enable unattended-upgrades
-    sudo systemctl start unattended-upgrades
-
-    log_security_event "INFO" "Automatic security updates configured and enabled"
-    print_success "Automatic security updates configured"
-}
-
-# Setup file integrity monitoring
-setup_file_integrity_monitoring() {
-    print_section "Setting up File Integrity Monitoring"
-
-    # Install AIDE (Advanced Intrusion Detection Environment)
-    sudo apt update -qq
-    sudo apt install -y aide aide-common
-
-    # Configure AIDE
-    sudo tee "/etc/aide/aide.conf.d/99-vless-monitoring" > /dev/null << 'EOF'
-# VLESS VPN File Integrity Monitoring
-
-# Monitor VLESS configuration files
-/opt/vless p+i+n+u+g+s+b+m+c+md5+sha256
-/etc/vless-security p+i+n+u+g+s+b+m+c+md5+sha256
-
-# Monitor system configuration
-/etc/ssh/sshd_config p+i+n+u+g+s+b+m+c+md5+sha256
-/etc/fail2ban p+i+n+u+g+s+b+m+c+md5+sha256
-/etc/sysctl.d p+i+n+u+g+s+b+m+c+md5+sha256
-
-# Monitor critical system files
-/etc/passwd p+i+n+u+g+s+b+m+c+md5+sha256
-/etc/group p+i+n+u+g+s+b+m+c+md5+sha256
-/etc/shadow p+i+n+u+g+s+b+m+c+md5+sha256
-/etc/sudoers p+i+n+u+g+s+b+m+c+md5+sha256
-
-# Monitor Docker configuration
-/etc/docker p+i+n+u+g+s+b+m+c+md5+sha256
-EOF
-
-    # Initialize AIDE database
-    log_security_event "INFO" "Initializing AIDE database - this may take several minutes"
-    sudo aideinit
-
-    # Create daily check script
-    sudo tee "/etc/cron.daily/aide-check" > /dev/null << 'EOF'
-#!/bin/bash
-# Daily AIDE integrity check
-
-AIDE_LOG="/var/log/aide.log"
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-
-echo "[$TIMESTAMP] Starting AIDE integrity check" >> "$AIDE_LOG"
-
-if aide --check > /tmp/aide-report 2>&1; then
-    echo "[$TIMESTAMP] AIDE check completed - no changes detected" >> "$AIDE_LOG"
-else
-    echo "[$TIMESTAMP] AIDE check detected changes:" >> "$AIDE_LOG"
-    cat /tmp/aide-report >> "$AIDE_LOG"
-
-    # Send alert if Telegram bot is configured
-    if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && [[ -n "${ADMIN_TELEGRAM_ID:-}" ]]; then
-        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${ADMIN_TELEGRAM_ID}" \
-            -d "text=🔒 AIDE Alert: File integrity changes detected on $(hostname). Check /var/log/aide.log for details." \
-            >/dev/null 2>&1 || true
+    # Check fail2ban status
+    if command -v fail2ban-client >/dev/null 2>&1; then
+        if ! fail2ban-client ping 2>/dev/null | grep -q "pong"; then
+            log_warn "fail2ban is not responding"
+            ((issues++))
+        fi
     fi
-fi
 
-rm -f /tmp/aide-report
-EOF
+    # Check UFW status
+    if command -v ufw >/dev/null 2>&1; then
+        if ! ufw status | grep -q "Status: active"; then
+            log_warn "UFW firewall is not active"
+            ((issues++))
+        fi
+    fi
 
-    sudo chmod +x "/etc/cron.daily/aide-check"
+    # Check for security monitoring
+    if [[ ! -f /usr/local/bin/vless-security-monitor ]]; then
+        log_warn "Security monitoring script not found"
+        ((issues++))
+    fi
 
-    log_security_event "INFO" "File integrity monitoring configured and enabled"
-    print_success "File integrity monitoring setup completed"
-}
+    if [[ $issues -eq 0 ]]; then
+        log_info "Security validation passed"
+    else
+        log_warn "Security validation found $issues issues"
+    fi
 
-# Configure audit logging
-setup_audit_logging() {
-    print_section "Setting up Security Audit Logging"
-
-    # Install auditd
-    sudo apt update -qq
-    sudo apt install -y auditd audispd-plugins
-
-    # Create audit log directory
-    ensure_directory "$AUDIT_LOG_DIR" "750" "root"
-
-    # Configure audit rules
-    sudo tee "/etc/audit/rules.d/99-vless-audit.rules" > /dev/null << 'EOF'
-# VLESS VPN Security Audit Rules
-
-# Monitor file access to VLESS configuration
--w /opt/vless -p wa -k vless_config_access
--w /etc/vless-security -p wa -k vless_security_access
-
-# Monitor SSH configuration changes
--w /etc/ssh/sshd_config -p wa -k ssh_config_change
-
-# Monitor authentication events
--w /var/log/auth.log -p wa -k auth_log_access
-
-# Monitor privilege escalation
--w /bin/su -p x -k privilege_escalation
--w /usr/bin/sudo -p x -k privilege_escalation
-
-# Monitor network configuration changes
--w /etc/network/ -p wa -k network_config_change
--w /etc/hosts -p wa -k network_config_change
--w /etc/hostname -p wa -k network_config_change
-
-# Monitor system calls for security events
--a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time_change
--a always,exit -F arch=b32 -S adjtimex -S settimeofday -S stime -k time_change
--a always,exit -F arch=b64 -S clock_settime -k time_change
--a always,exit -F arch=b32 -S clock_settime -k time_change
-
-# Monitor file permission changes
--a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=4294967295 -k perm_mod
--a always,exit -F arch=b32 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=4294967295 -k perm_mod
--a always,exit -F arch=b64 -S chown -S fchown -S fchownat -S lchown -F auid>=1000 -F auid!=4294967295 -k perm_mod
--a always,exit -F arch=b32 -S chown -S fchown -S fchownat -S lchown -F auid>=1000 -F auid!=4294967295 -k perm_mod
-EOF
-
-    # Enable and start auditd
-    sudo systemctl enable auditd
-    sudo systemctl restart auditd
-
-    log_security_event "INFO" "Security audit logging configured and enabled"
-    print_success "Security audit logging setup completed"
+    return $issues
 }
 
 # Main security hardening function
-apply_security_hardening() {
-    print_header "VLESS VPN Security Hardening"
+harden_system_security() {
+    log_info "Starting system security hardening"
 
-    log_security_event "INFO" "Starting security hardening process"
+    # Ensure running as root
+    if ! validate_root; then
+        log_error "Security hardening requires root privileges"
+        return 1
+    fi
 
-    # Ensure security configuration directory exists
-    ensure_directory "$SECURITY_CONFIG_DIR" "750" "root"
+    # Install security packages
+    install_security_packages
 
-    # Create security log file
-    sudo touch "$SECURITY_LOG"
-    sudo chmod 640 "$SECURITY_LOG"
+    # Configure SSH hardening
+    configure_ssh_hardening
 
-    # Apply security measures
-    install_fail2ban
-    configure_fail2ban_ssh
-    disable_unnecessary_services
-    configure_kernel_security
-    secure_file_permissions
+    # Setup fail2ban
+    setup_fail2ban
+
+    # Configure automatic updates
     setup_automatic_updates
-    setup_file_integrity_monitoring
-    setup_audit_logging
 
-    log_security_event "INFO" "Security hardening process completed successfully"
-    print_success "Security hardening completed successfully"
+    # Setup security monitoring
+    setup_security_monitoring
 
-    # Display security status
-    show_security_status
+    # Configure kernel hardening
+    configure_kernel_hardening
+
+    # Configure file security
+    configure_file_security
+
+    # Generate initial security report
+    generate_security_report
+
+    # Validate configuration
+    if validate_security_config; then
+        log_info "Security hardening completed successfully"
+    else
+        log_warn "Security hardening completed with warnings"
+    fi
+
+    log_info "Security hardening complete"
+    log_warn "Remember to:"
+    log_warn "1. Set up SSH keys before disabling password authentication"
+    log_warn "2. Test SSH access from another session"
+    log_warn "3. Review security report regularly"
 }
 
-# Show security status
-show_security_status() {
-    print_header "Security Status Report"
+# Interactive SSH key setup
+interactive_ssh_setup() {
+    echo "SSH Key Setup Wizard"
+    echo "==================="
 
-    echo "Security Services Status:"
-    printf "%-25s " "Fail2ban:"
-    if systemctl is-active --quiet fail2ban; then
-        echo -e "${GREEN}Active${NC}"
-    else
-        echo -e "${RED}Inactive${NC}"
+    read -p "Enter username for SSH key setup: " username
+    if [[ -z "$username" ]]; then
+        log_error "Username is required"
+        return 1
     fi
 
-    printf "%-25s " "Unattended Upgrades:"
-    if systemctl is-active --quiet unattended-upgrades; then
-        echo -e "${GREEN}Active${NC}"
-    else
-        echo -e "${RED}Inactive${NC}"
-    fi
+    echo "Please paste your SSH public key (or press Enter to skip):"
+    read -r public_key
 
-    printf "%-25s " "Auditd:"
-    if systemctl is-active --quiet auditd; then
-        echo -e "${GREEN}Active${NC}"
-    else
-        echo -e "${RED}Inactive${NC}"
-    fi
+    setup_ssh_keys "$username" "$public_key"
 
-    echo
-    echo "Security Configuration Files:"
-    printf "%-35s " "Fail2ban jail config:"
-    if [[ -f "$FAIL2BAN_CONFIG_DIR/jail.local" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Missing${NC}"
-    fi
-
-    printf "%-35s " "Kernel security parameters:"
-    if [[ -f "$SYSCTL_CONFIG" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Missing${NC}"
-    fi
-
-    printf "%-35s " "AIDE configuration:"
-    if [[ -f "/etc/aide/aide.conf.d/99-vless-monitoring" ]]; then
-        echo -e "${GREEN}Configured${NC}"
-    else
-        echo -e "${RED}Missing${NC}"
-    fi
-
-    echo
-    print_info "Security logs location: $SECURITY_LOG"
-    print_info "Audit logs location: $AUDIT_LOG_DIR"
-
-    # Show recent security events
-    if [[ -f "$SECURITY_LOG" ]]; then
-        echo
-        print_section "Recent Security Events (last 10)"
-        sudo tail -n 10 "$SECURITY_LOG" 2>/dev/null || echo "No recent events"
+    if [[ -n "$public_key" ]]; then
+        read -p "Do you want to disable password authentication now? (y/N): " -r
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            disable_password_auth
+        else
+            log_info "Password authentication remains enabled"
+            log_info "Run '$0 disable-password-auth' when ready"
+        fi
     fi
 }
 
-# Remove security hardening (for testing/rollback)
-remove_security_hardening() {
-    print_header "Removing Security Hardening"
-
-    log_security_event "WARNING" "Security hardening removal requested"
-
-    if ! prompt_yes_no "Are you sure you want to remove security hardening? This will reduce system security." "n"; then
-        print_info "Security hardening removal cancelled"
-        return 0
-    fi
-
-    # Stop and disable services
-    sudo systemctl stop fail2ban unattended-upgrades auditd 2>/dev/null || true
-    sudo systemctl disable fail2ban unattended-upgrades auditd 2>/dev/null || true
-
-    # Remove configuration files
-    sudo rm -f "$FAIL2BAN_CONFIG_DIR/jail.local"
-    sudo rm -f "$FAIL2BAN_CONFIG_DIR/filter.d/vless-auth.conf"
-    sudo rm -f "$SYSCTL_CONFIG"
-    sudo rm -f "/etc/aide/aide.conf.d/99-vless-monitoring"
-    sudo rm -f "/etc/audit/rules.d/99-vless-audit.rules"
-    sudo rm -f "/etc/cron.daily/aide-check"
-    sudo rm -f "/etc/apt/apt.conf.d/50unattended-upgrades"
-    sudo rm -f "/etc/apt/apt.conf.d/20auto-upgrades"
-
-    # Remove directories
-    sudo rm -rf "$SECURITY_CONFIG_DIR"
-
-    log_security_event "WARNING" "Security hardening removed - system security reduced"
-    print_warning "Security hardening removed. System is now less secure."
-}
-
-# Export functions
-export -f apply_security_hardening show_security_status remove_security_hardening
-export -f log_security_event install_fail2ban configure_fail2ban_ssh
-export -f disable_unnecessary_services configure_kernel_security secure_file_permissions
-export -f setup_automatic_updates setup_file_integrity_monitoring setup_audit_logging
-
-# Main execution if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    case "${1:-apply}" in
-        "apply"|"install"|"setup")
-            apply_security_hardening
+# Main script execution
+main() {
+    case "${1:-}" in
+        "harden"|"")
+            harden_system_security
             ;;
-        "status"|"show")
-            show_security_status
+        "ssh-setup")
+            interactive_ssh_setup
             ;;
-        "remove"|"uninstall")
-            remove_security_hardening
+        "disable-password-auth")
+            disable_password_auth
+            ;;
+        "report")
+            generate_security_report
+            ;;
+        "validate")
+            validate_security_config
+            ;;
+        "fail2ban")
+            setup_fail2ban
+            ;;
+        "monitoring")
+            setup_security_monitoring
+            ;;
+        "help"|"-h"|"--help")
+            cat << EOF
+Security Hardening Module for VLESS+Reality VPN
+
+Usage: $0 [command] [options]
+
+Commands:
+    harden                Complete security hardening (default)
+    ssh-setup            Interactive SSH key setup wizard
+    disable-password-auth Disable SSH password authentication
+    report               Generate security report
+    validate             Validate security configuration
+    fail2ban             Setup fail2ban only
+    monitoring           Setup security monitoring only
+    help                 Show this help message
+
+Examples:
+    $0 harden              # Complete system hardening
+    $0 ssh-setup           # Setup SSH keys interactively
+    $0 report              # Generate security report
+    $0 validate            # Check security configuration
+
+This module implements comprehensive security hardening including
+SSH configuration, fail2ban, automatic updates, and monitoring.
+EOF
             ;;
         *)
-            echo "Usage: $0 {apply|status|remove}"
-            echo "  apply   - Apply security hardening measures"
-            echo "  status  - Show current security status"
-            echo "  remove  - Remove security hardening (not recommended)"
+            log_error "Unknown command: $1"
+            log_info "Use '$0 help' for usage information"
             exit 1
             ;;
     esac
+}
+
+# Only run main if script is executed directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

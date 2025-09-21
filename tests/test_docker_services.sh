@@ -1,489 +1,574 @@
 #!/bin/bash
-
-# VLESS+Reality VPN - Docker Services Tests
-# Комплексные тесты для Docker контейнеров и сервисов
-# Версия: 1.0
-# Дата: 2025-09-19
+# ======================================================================================
+# VLESS+Reality VPN Management System - Docker Services Test Script
+# ======================================================================================
+# This script tests Docker installation, container management, and Xray functionality.
+# It validates Phase 2 implementation components.
+#
+# Author: Claude Code
+# Version: 1.0
+# Last Modified: 2025-09-21
+# ======================================================================================
 
 set -euo pipefail
 
-# Цвета для вывода
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Test configuration
+readonly TEST_NAME="Docker Services Test"
+readonly TEST_VERSION="1.0"
+readonly TEST_LOG="/tmp/vless_docker_test.log"
 
-# Глобальные переменные
-TEST_LOG="/tmp/vless_docker_services_test.log"
-FAILED_TESTS=0
-TOTAL_TESTS=0
-PROJECT_ROOT="/home/ikeniborn/Documents/Project/vless"
-DOCKER_COMPOSE_FILE="$PROJECT_ROOT/config/docker-compose.yml"
-TEST_CONTAINER_PREFIX="vless_test"
+# Source common utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=modules/common_utils.sh
+source "${PROJECT_ROOT}/modules/common_utils.sh"
+# shellcheck source=modules/docker_setup.sh
+source "${PROJECT_ROOT}/modules/docker_setup.sh"
+# shellcheck source=modules/container_management.sh
+source "${PROJECT_ROOT}/modules/container_management.sh"
 
-# Функции логирования
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1" | tee -a "$TEST_LOG"
+# Test counters
+TESTS_TOTAL=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+# ======================================================================================
+# TEST FRAMEWORK FUNCTIONS
+# ======================================================================================
+
+#
+# Initialize test environment
+#
+init_test_environment() {
+    log_info "Initializing test environment for ${TEST_NAME}"
+
+    # Create test log
+    touch "${TEST_LOG}"
+
+    # Ensure test directories exist
+    mkdir -p "${VLESS_ROOT}/config"
+    mkdir -p "${VLESS_ROOT}/logs"
+    mkdir -p "${VLESS_ROOT}/data"
+
+    # Copy test configurations if needed
+    if [[ -f "${PROJECT_ROOT}/config/docker-compose.yml" ]]; then
+        cp "${PROJECT_ROOT}/config/docker-compose.yml" "${VLESS_ROOT}/config/"
+    fi
+
+    if [[ -f "${PROJECT_ROOT}/config/xray_config_template.json" ]]; then
+        cp "${PROJECT_ROOT}/config/xray_config_template.json" "${VLESS_ROOT}/config/"
+    fi
+
+    log_info "Test environment initialized"
 }
 
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "$TEST_LOG"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1" | tee -a "$TEST_LOG"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$TEST_LOG"
-    ((FAILED_TESTS++))
-}
-
-# Функция выполнения тестов
+#
+# Run a test and track results
+#
+# Arguments:
+#   $1 - Test name
+#   $2 - Test function
+#
 run_test() {
     local test_name="$1"
     local test_function="$2"
 
-    ((TOTAL_TESTS++))
-    log_info "Выполняется тест: $test_name"
+    ((TESTS_TOTAL++))
 
-    if $test_function; then
-        log_success "Тест '$test_name' пройден"
+    log_info "Running test: ${test_name}"
+    echo "Test ${TESTS_TOTAL}: ${test_name}" >> "${TEST_LOG}"
+
+    if ${test_function} >> "${TEST_LOG}" 2>&1; then
+        ((TESTS_PASSED++))
+        log_info "✓ PASSED: ${test_name}"
+        echo "RESULT: PASSED" >> "${TEST_LOG}"
+    else
+        ((TESTS_FAILED++))
+        log_error "✗ FAILED: ${test_name}"
+        echo "RESULT: FAILED" >> "${TEST_LOG}"
+    fi
+
+    echo "----------------------------------------" >> "${TEST_LOG}"
+}
+
+#
+# Print test summary
+#
+print_test_summary() {
+    echo ""
+    log_info "Test Summary for ${TEST_NAME}"
+    echo "======================================"
+    echo "Total Tests: ${TESTS_TOTAL}"
+    echo "Passed: ${TESTS_PASSED}"
+    echo "Failed: ${TESTS_FAILED}"
+    echo "Success Rate: $(( (TESTS_PASSED * 100) / TESTS_TOTAL ))%"
+    echo "======================================"
+    echo "Detailed log: ${TEST_LOG}"
+    echo ""
+
+    if [[ ${TESTS_FAILED} -eq 0 ]]; then
+        log_info "All tests passed successfully!"
         return 0
     else
-        log_error "Тест '$test_name' провален"
+        log_error "${TESTS_FAILED} test(s) failed"
         return 1
     fi
 }
 
-# Функция очистки Docker ресурсов
-cleanup_docker_resources() {
-    log_info "Очистка Docker тестовых ресурсов..."
+# ======================================================================================
+# DOCKER INSTALLATION TESTS
+# ======================================================================================
 
-    # Остановка и удаление тестовых контейнеров
-    docker ps -a --filter "name=${TEST_CONTAINER_PREFIX}" --format "{{.ID}}" | while read -r container_id; do
-        if [[ -n "$container_id" ]]; then
-            docker stop "$container_id" >/dev/null 2>&1 || true
-            docker rm "$container_id" >/dev/null 2>&1 || true
-        fi
-    done
+#
+# Test Docker installation detection
+#
+test_docker_installation_check() {
+    echo "Testing Docker installation detection..."
 
-    # Удаление тестовых образов
-    docker images --filter "dangling=true" --format "{{.ID}}" | while read -r image_id; do
-        if [[ -n "$image_id" ]]; then
-            docker rmi "$image_id" >/dev/null 2>&1 || true
-        fi
-    done
-
-    # Очистка неиспользуемых сетей
-    docker network prune -f >/dev/null 2>&1 || true
+    # Test check function
+    if check_docker_installed; then
+        echo "Docker installation check: PASSED"
+        return 0
+    else
+        echo "Docker installation check: Docker not found or insufficient version"
+        return 1
+    fi
 }
 
-# Тест 1: Проверка установки Docker
-test_docker_installation() {
-    # Проверка наличия Docker
-    if ! command -v docker >/dev/null 2>&1; then
-        log_error "Docker не установлен"
+#
+# Test Docker Compose installation detection
+#
+test_docker_compose_check() {
+    echo "Testing Docker Compose installation detection..."
+
+    if check_docker_compose_installed; then
+        echo "Docker Compose installation check: PASSED"
+        return 0
+    else
+        echo "Docker Compose installation check: FAILED"
+        return 1
+    fi
+}
+
+#
+# Test Docker daemon configuration
+#
+test_docker_daemon_config() {
+    echo "Testing Docker daemon configuration..."
+
+    # Check if Docker daemon is running
+    if systemctl is-active docker &>/dev/null; then
+        echo "Docker daemon is running: PASSED"
+    else
+        echo "Docker daemon is not running: FAILED"
         return 1
     fi
 
-    # Проверка запуска Docker daemon
-    if ! docker info >/dev/null 2>&1; then
-        log_error "Docker daemon не запущен"
+    # Test Docker info command
+    if docker info &>/dev/null; then
+        echo "Docker daemon communication: PASSED"
+    else
+        echo "Docker daemon communication: FAILED"
         return 1
     fi
 
-    # Проверка версии Docker
-    local docker_version
-    docker_version=$(docker --version | cut -d' ' -f3 | cut -d',' -f1)
-
-    if [[ -z "$docker_version" ]]; then
-        log_error "Не удается определить версию Docker"
-        return 1
-    fi
-
-    log_info "Версия Docker: $docker_version"
     return 0
 }
 
-# Тест 2: Проверка Docker Compose
-test_docker_compose() {
-    # Проверка наличия Docker Compose (v2)
-    if docker compose version >/dev/null 2>&1; then
-        local compose_version
-        compose_version=$(docker compose version --short)
-        log_info "Версия Docker Compose: $compose_version"
-        return 0
-    elif command -v docker-compose >/dev/null 2>&1; then
-        local compose_version
-        compose_version=$(docker-compose --version | cut -d' ' -f3 | cut -d',' -f1)
-        log_info "Версия Docker Compose (legacy): $compose_version"
-        return 0
-    else
-        log_error "Docker Compose не установлен"
+# ======================================================================================
+# DOCKER COMPOSE CONFIGURATION TESTS
+# ======================================================================================
+
+#
+# Test Docker Compose file validation
+#
+test_compose_file_validation() {
+    echo "Testing Docker Compose file validation..."
+
+    local compose_file="${VLESS_ROOT}/config/docker-compose.yml"
+
+    if [[ ! -f "${compose_file}" ]]; then
+        echo "Docker Compose file not found: ${compose_file}"
         return 1
     fi
+
+    # Validate YAML syntax
+    export VLESS_ROOT
+    if docker compose -f "${compose_file}" config --quiet; then
+        echo "Docker Compose file syntax: PASSED"
+    else
+        echo "Docker Compose file syntax: FAILED"
+        return 1
+    fi
+
+    # Check required services
+    if docker compose -f "${compose_file}" config | grep -q "xray:"; then
+        echo "Xray service definition: PASSED"
+    else
+        echo "Xray service definition: MISSING"
+        return 1
+    fi
+
+    return 0
 }
 
-# Тест 3: Проверка конфигурации Docker Compose
-test_docker_compose_config() {
-    if [[ ! -f "$DOCKER_COMPOSE_FILE" ]]; then
-        log_error "Файл docker-compose.yml не найден: $DOCKER_COMPOSE_FILE"
+#
+# Test Xray configuration template
+#
+test_xray_config_template() {
+    echo "Testing Xray configuration template..."
+
+    local config_file="${VLESS_ROOT}/config/xray_config_template.json"
+
+    if [[ ! -f "${config_file}" ]]; then
+        echo "Xray configuration template not found: ${config_file}"
         return 1
     fi
 
-    # Проверка синтаксиса docker-compose.yml
-    if docker compose -f "$DOCKER_COMPOSE_FILE" config >/dev/null 2>&1; then
-        log_info "Конфигурация Docker Compose валидна"
-    elif command -v docker-compose >/dev/null 2>&1 && docker-compose -f "$DOCKER_COMPOSE_FILE" config >/dev/null 2>&1; then
-        log_info "Конфигурация Docker Compose валидна (legacy)"
+    # Validate JSON syntax
+    if python3 -m json.tool "${config_file}" > /dev/null 2>&1; then
+        echo "Xray configuration JSON syntax: PASSED"
     else
-        log_error "Ошибка в конфигурации Docker Compose"
+        echo "Xray configuration JSON syntax: FAILED"
         return 1
     fi
 
-    # Проверка наличия обязательных сервисов
-    local required_services=("xray" "telegram-bot")
+    # Check for required sections
+    local required_sections=("inbounds" "outbounds" "routing" "log")
 
-    for service in "${required_services[@]}"; do
-        if docker compose -f "$DOCKER_COMPOSE_FILE" config --services 2>/dev/null | grep -q "^${service}$"; then
-            log_info "Сервис '$service' найден в конфигурации"
-        elif command -v docker-compose >/dev/null 2>&1 && docker-compose -f "$DOCKER_COMPOSE_FILE" config --services 2>/dev/null | grep -q "^${service}$"; then
-            log_info "Сервис '$service' найден в конфигурации (legacy)"
+    for section in "${required_sections[@]}"; do
+        if grep -q "\"${section}\":" "${config_file}"; then
+            echo "Required section '${section}': FOUND"
         else
-            log_warning "Сервис '$service' не найден в конфигурации"
+            echo "Required section '${section}': MISSING"
+            return 1
         fi
     done
 
     return 0
 }
 
-# Тест 4: Проверка Docker образов
-test_docker_images() {
-    local required_images=(
-        "teddysun/xray:latest"
-        "python:3.11-slim"
+# ======================================================================================
+# CONTAINER MANAGEMENT TESTS
+# ======================================================================================
+
+#
+# Test container management module loading
+#
+test_container_management_module() {
+    echo "Testing container management module..."
+
+    # Test if functions are available
+    local required_functions=(
+        "start_xray_container"
+        "stop_xray_container"
+        "restart_xray_container"
+        "check_container_health"
+        "get_container_logs"
     )
 
-    for image in "${required_images[@]}"; do
-        log_info "Проверка доступности образа: $image"
-
-        # Попытка загрузить образ
-        if docker pull "$image" >/dev/null 2>&1; then
-            log_info "Образ '$image' успешно загружен"
+    for func in "${required_functions[@]}"; do
+        if declare -f "${func}" &>/dev/null; then
+            echo "Function '${func}': AVAILABLE"
         else
-            log_warning "Не удается загрузить образ '$image'"
+            echo "Function '${func}': MISSING"
+            return 1
         fi
     done
 
     return 0
 }
 
-# Тест 5: Проверка Docker сетей
-test_docker_networks() {
-    # Создание тестовой сети
-    local test_network="${TEST_CONTAINER_PREFIX}_network"
+#
+# Test Docker network functionality
+#
+test_docker_network() {
+    echo "Testing Docker network functionality..."
 
-    if docker network create "$test_network" >/dev/null 2>&1; then
-        log_info "Тестовая сеть '$test_network' создана"
-
-        # Проверка списка сетей
-        if docker network ls | grep -q "$test_network"; then
-            log_info "Тестовая сеть отображается в списке"
-        else
-            log_error "Тестовая сеть не найдена в списке"
-            return 1
-        fi
-
-        # Удаление тестовой сети
-        if docker network rm "$test_network" >/dev/null 2>&1; then
-            log_info "Тестовая сеть удалена"
-        else
-            log_warning "Не удается удалить тестовую сеть"
-        fi
+    # Test basic Docker networking
+    if docker network ls &>/dev/null; then
+        echo "Docker network command: PASSED"
     else
-        log_error "Не удается создать тестовую сеть"
+        echo "Docker network command: FAILED"
+        return 1
+    fi
+
+    # Check if default bridge network exists
+    if docker network ls | grep -q "bridge"; then
+        echo "Default bridge network: EXISTS"
+    else
+        echo "Default bridge network: MISSING"
         return 1
     fi
 
     return 0
 }
 
-# Тест 6: Проверка Docker volumes
+#
+# Test Docker volume functionality
+#
 test_docker_volumes() {
-    # Создание тестового volume
-    local test_volume="${TEST_CONTAINER_PREFIX}_volume"
+    echo "Testing Docker volume functionality..."
 
-    if docker volume create "$test_volume" >/dev/null 2>&1; then
-        log_info "Тестовый volume '$test_volume' создан"
-
-        # Проверка списка volumes
-        if docker volume ls | grep -q "$test_volume"; then
-            log_info "Тестовый volume отображается в списке"
-        else
-            log_error "Тестовый volume не найден в списке"
-            return 1
-        fi
-
-        # Удаление тестового volume
-        if docker volume rm "$test_volume" >/dev/null 2>&1; then
-            log_info "Тестовый volume удален"
-        else
-            log_warning "Не удается удалить тестовый volume"
-        fi
+    # Test volume command
+    if docker volume ls &>/dev/null; then
+        echo "Docker volume command: PASSED"
     else
-        log_error "Не удается создать тестовый volume"
+        echo "Docker volume command: FAILED"
+        return 1
+    fi
+
+    # Test creating temporary volume
+    local test_volume="vless_test_volume_$$"
+
+    if docker volume create "${test_volume}" &>/dev/null; then
+        echo "Volume creation: PASSED"
+
+        # Clean up test volume
+        docker volume rm "${test_volume}" &>/dev/null || true
+    else
+        echo "Volume creation: FAILED"
         return 1
     fi
 
     return 0
 }
 
-# Тест 7: Тест запуска простого контейнера
-test_container_lifecycle() {
-    local test_container="${TEST_CONTAINER_PREFIX}_hello"
+# ======================================================================================
+# INTEGRATION TESTS
+# ======================================================================================
 
-    # Запуск тестового контейнера
-    if docker run --name "$test_container" --rm -d alpine:latest sleep 10 >/dev/null 2>&1; then
-        log_info "Тестовый контейнер '$test_container' запущен"
+#
+# Test container configuration validation
+#
+test_container_config_validation() {
+    echo "Testing container configuration validation..."
 
-        # Проверка статуса контейнера
-        if docker ps | grep -q "$test_container"; then
-            log_info "Тестовый контейнер активен"
-        else
-            log_error "Тестовый контейнер не активен"
-            return 1
-        fi
-
-        # Ожидание завершения контейнера
-        sleep 2
-
-        # Выполнение команды в контейнере
-        if docker exec "$test_container" echo "Hello from container" >/dev/null 2>&1; then
-            log_info "Команда выполнена в контейнере"
-        else
-            log_warning "Не удается выполнить команду в контейнере"
-        fi
-
-        # Остановка контейнера
-        if docker stop "$test_container" >/dev/null 2>&1; then
-            log_info "Тестовый контейнер остановлен"
-        else
-            log_warning "Не удается остановить тестовый контейнер"
-        fi
+    # Test validation functions
+    if validate_compose_file; then
+        echo "Compose file validation function: PASSED"
     else
-        log_error "Не удается запустить тестовый контейнер"
+        echo "Compose file validation function: FAILED"
         return 1
     fi
 
     return 0
 }
 
-# Тест 8: Проверка портов и bind
-test_port_binding() {
-    local test_container="${TEST_CONTAINER_PREFIX}_nginx"
-    local test_port="18080"
+#
+# Test dry-run container operations
+#
+test_dry_run_container_operations() {
+    echo "Testing dry-run container operations..."
 
-    # Запуск контейнера с привязкой порта
-    if docker run --name "$test_container" -d -p "${test_port}:80" nginx:alpine >/dev/null 2>&1; then
-        log_info "Тестовый контейнер с привязкой порта запущен"
+    # Test Docker Compose config generation
+    export VLESS_ROOT
+    local compose_file="${VLESS_ROOT}/config/docker-compose.yml"
 
-        # Ожидание запуска сервиса
-        sleep 3
-
-        # Проверка доступности порта
-        if curl -s "http://localhost:${test_port}" >/dev/null 2>&1; then
-            log_info "Порт ${test_port} доступен"
-        else
-            log_warning "Порт ${test_port} недоступен"
-        fi
-
-        # Остановка и удаление контейнера
-        docker stop "$test_container" >/dev/null 2>&1
-        docker rm "$test_container" >/dev/null 2>&1
+    if docker compose -f "${compose_file}" config &>/dev/null; then
+        echo "Docker Compose config generation: PASSED"
     else
-        log_error "Не удается запустить контейнер с привязкой порта"
+        echo "Docker Compose config generation: FAILED"
         return 1
     fi
 
     return 0
 }
 
-# Тест 9: Проверка переменных окружения
-test_environment_variables() {
-    local test_container="${TEST_CONTAINER_PREFIX}_env"
-    local test_env_var="TEST_VAR=hello_world"
+#
+# Test system requirements for containers
+#
+test_system_requirements() {
+    echo "Testing system requirements for containers..."
 
-    # Запуск контейнера с переменной окружения
-    if docker run --name "$test_container" --rm -d -e "$test_env_var" alpine:latest sleep 5 >/dev/null 2>&1; then
-        log_info "Тестовый контейнер с переменной окружения запущен"
-
-        # Проверка переменной окружения
-        if docker exec "$test_container" env | grep -q "TEST_VAR=hello_world"; then
-            log_info "Переменная окружения установлена корректно"
-        else
-            log_error "Переменная окружения не установлена"
-            return 1
-        fi
-
-        # Остановка контейнера
-        docker stop "$test_container" >/dev/null 2>&1
-    else
-        log_error "Не удается запустить контейнер с переменной окружения"
-        return 1
-    fi
-
-    return 0
-}
-
-# Тест 10: Проверка ресурсов системы
-test_system_resources() {
-    # Проверка доступной памяти
-    local available_memory
-    available_memory=$(free -m | awk '/^Mem:/{print $7}')
-
-    if [[ "$available_memory" -lt 512 ]]; then
-        log_warning "Доступно мало памяти: ${available_memory}MB"
-    else
-        log_info "Доступная память: ${available_memory}MB"
-    fi
-
-    # Проверка дискового пространства
+    # Check available disk space
     local available_space
-    available_space=$(df / | awk '/\/$/{print $4}')
+    available_space=$(df /var/lib/docker 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
 
-    if [[ "$available_space" -lt 1048576 ]]; then  # Менее 1GB
-        log_warning "Доступно мало дискового пространства: ${available_space}KB"
+    if [[ ${available_space} -gt 1048576 ]]; then  # 1GB in KB
+        echo "Available disk space: SUFFICIENT ($(( available_space / 1024 / 1024 ))GB)"
     else
-        log_info "Доступное дисковое пространство: ${available_space}KB"
+        echo "Available disk space: INSUFFICIENT"
+        return 1
     fi
 
-    # Проверка использования Docker
-    local docker_info
-    docker_info=$(docker system df 2>/dev/null || echo "Docker system info unavailable")
-    log_info "Информация о Docker: $docker_info"
+    # Check memory
+    local available_memory
+    available_memory=$(free -m | awk 'NR==2{print $7}')
 
-    return 0
-}
-
-# Тест 11: Проверка логов контейнеров
-test_container_logs() {
-    local test_container="${TEST_CONTAINER_PREFIX}_logs"
-
-    # Запуск контейнера, который генерирует логи
-    if docker run --name "$test_container" --rm -d alpine:latest sh -c "echo 'Test log message'; sleep 3" >/dev/null 2>&1; then
-        log_info "Тестовый контейнер для логов запущен"
-
-        # Ожидание генерации логов
-        sleep 2
-
-        # Проверка логов
-        local logs
-        logs=$(docker logs "$test_container" 2>/dev/null)
-
-        if [[ "$logs" == *"Test log message"* ]]; then
-            log_info "Логи контейнера читаются корректно"
-        else
-            log_error "Не удается прочитать логи контейнера"
-            return 1
-        fi
-
-        # Остановка контейнера
-        docker stop "$test_container" >/dev/null 2>&1
+    if [[ ${available_memory} -gt 256 ]]; then
+        echo "Available memory: SUFFICIENT (${available_memory}MB)"
     else
-        log_error "Не удается запустить контейнер для тестирования логов"
+        echo "Available memory: INSUFFICIENT"
         return 1
     fi
 
     return 0
 }
 
-# Тест 12: Проверка health checks
-test_health_checks() {
-    local test_container="${TEST_CONTAINER_PREFIX}_health"
+# ======================================================================================
+# SECURITY TESTS
+# ======================================================================================
 
-    # Запуск контейнера с health check
-    if docker run --name "$test_container" --rm -d \
-        --health-cmd="curl -f http://localhost/ || exit 1" \
-        --health-interval=5s \
-        --health-timeout=3s \
-        --health-retries=3 \
-        nginx:alpine >/dev/null 2>&1; then
+#
+# Test Docker security configuration
+#
+test_docker_security() {
+    echo "Testing Docker security configuration..."
 
-        log_info "Тестовый контейнер с health check запущен"
+    # Check if Docker daemon is running as root
+    local docker_user
+    docker_user=$(ps -eo user,comm | grep dockerd | awk '{print $1}' | head -1)
 
-        # Ожидание health check
-        sleep 10
-
-        # Проверка статуса health check
-        local health_status
-        health_status=$(docker inspect --format='{{.State.Health.Status}}' "$test_container" 2>/dev/null)
-
-        if [[ "$health_status" == "healthy" ]]; then
-            log_info "Health check работает корректно"
-        else
-            log_warning "Health check status: $health_status"
-        fi
-
-        # Остановка контейнера
-        docker stop "$test_container" >/dev/null 2>&1
+    if [[ "${docker_user}" == "root" ]]; then
+        echo "Docker daemon user: CORRECT (root)"
     else
-        log_error "Не удается запустить контейнер с health check"
+        echo "Docker daemon user: INCORRECT (${docker_user})"
         return 1
+    fi
+
+    # Check Docker socket permissions
+    if [[ -S /var/run/docker.sock ]]; then
+        local socket_perms
+        socket_perms=$(stat -c %a /var/run/docker.sock)
+        echo "Docker socket permissions: ${socket_perms}"
     fi
 
     return 0
 }
 
-# Главная функция тестирования
+# ======================================================================================
+# PERFORMANCE TESTS
+# ======================================================================================
+
+#
+# Test Docker performance
+#
+test_docker_performance() {
+    echo "Testing Docker performance..."
+
+    # Test image pull performance
+    local start_time
+    start_time=$(date +%s)
+
+    if docker pull alpine:latest &>/dev/null; then
+        local end_time
+        end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+
+        echo "Image pull performance: ${duration} seconds"
+
+        # Clean up test image
+        docker rmi alpine:latest &>/dev/null || true
+
+        return 0
+    else
+        echo "Image pull test: FAILED"
+        return 1
+    fi
+}
+
+# ======================================================================================
+# MAIN TEST EXECUTION
+# ======================================================================================
+
+#
+# Run all Docker service tests
+#
+run_all_tests() {
+    log_info "Starting ${TEST_NAME} v${TEST_VERSION}"
+
+    init_test_environment
+
+    # Docker Installation Tests
+    run_test "Docker Installation Check" "test_docker_installation_check"
+    run_test "Docker Compose Check" "test_docker_compose_check"
+    run_test "Docker Daemon Configuration" "test_docker_daemon_config"
+
+    # Configuration Tests
+    run_test "Docker Compose File Validation" "test_compose_file_validation"
+    run_test "Xray Configuration Template" "test_xray_config_template"
+
+    # Container Management Tests
+    run_test "Container Management Module" "test_container_management_module"
+    run_test "Docker Network Functionality" "test_docker_network"
+    run_test "Docker Volume Functionality" "test_docker_volumes"
+
+    # Integration Tests
+    run_test "Container Configuration Validation" "test_container_config_validation"
+    run_test "Dry-run Container Operations" "test_dry_run_container_operations"
+    run_test "System Requirements" "test_system_requirements"
+
+    # Security Tests
+    run_test "Docker Security Configuration" "test_docker_security"
+
+    # Performance Tests
+    run_test "Docker Performance" "test_docker_performance"
+
+    print_test_summary
+}
+
+#
+# Main execution function
+#
 main() {
-    log_info "Начало тестирования Docker сервисов VLESS+Reality VPN"
-    echo "Лог-файл: $TEST_LOG" > "$TEST_LOG"
-    echo "Время начала: $(date)" >> "$TEST_LOG"
-    echo "========================================" >> "$TEST_LOG"
-
-    # Выполнение всех тестов
-    run_test "Установка Docker" test_docker_installation
-    run_test "Docker Compose" test_docker_compose
-    run_test "Конфигурация Docker Compose" test_docker_compose_config
-    run_test "Docker образы" test_docker_images
-    run_test "Docker сети" test_docker_networks
-    run_test "Docker volumes" test_docker_volumes
-    run_test "Жизненный цикл контейнера" test_container_lifecycle
-    run_test "Привязка портов" test_port_binding
-    run_test "Переменные окружения" test_environment_variables
-    run_test "Системные ресурсы" test_system_resources
-    run_test "Логи контейнеров" test_container_logs
-    run_test "Health checks" test_health_checks
-
-    # Очистка тестовых ресурсов
-    cleanup_docker_resources
-
-    # Итоговый отчет
-    echo "" | tee -a "$TEST_LOG"
-    echo "========================================" | tee -a "$TEST_LOG"
-    echo "ИТОГОВЫЙ ОТЧЕТ ТЕСТИРОВАНИЯ DOCKER СЕРВИСОВ" | tee -a "$TEST_LOG"
-    echo "========================================" | tee -a "$TEST_LOG"
-    echo "Всего тестов выполнено: $TOTAL_TESTS" | tee -a "$TEST_LOG"
-    echo "Тестов провалено: $FAILED_TESTS" | tee -a "$TEST_LOG"
-    echo "Тестов пройдено: $((TOTAL_TESTS - FAILED_TESTS))" | tee -a "$TEST_LOG"
-    echo "Время завершения: $(date)" | tee -a "$TEST_LOG"
-
-    if [[ $FAILED_TESTS -eq 0 ]]; then
-        log_success "ВСЕ ТЕСТЫ DOCKER СЕРВИСОВ ПРОЙДЕНЫ УСПЕШНО!"
-        exit 0
-    else
-        log_error "ОБНАРУЖЕНЫ ПРОБЛЕМЫ В ТЕСТАХ DOCKER СЕРВИСОВ"
-        echo "Подробности в логе: $TEST_LOG"
-        exit 1
-    fi
+    case "${1:-all}" in
+        "all")
+            run_all_tests
+            ;;
+        "docker")
+            init_test_environment
+            run_test "Docker Installation Check" "test_docker_installation_check"
+            run_test "Docker Compose Check" "test_docker_compose_check"
+            run_test "Docker Daemon Configuration" "test_docker_daemon_config"
+            print_test_summary
+            ;;
+        "config")
+            init_test_environment
+            run_test "Docker Compose File Validation" "test_compose_file_validation"
+            run_test "Xray Configuration Template" "test_xray_config_template"
+            print_test_summary
+            ;;
+        "container")
+            init_test_environment
+            run_test "Container Management Module" "test_container_management_module"
+            run_test "Docker Network Functionality" "test_docker_network"
+            run_test "Docker Volume Functionality" "test_docker_volumes"
+            print_test_summary
+            ;;
+        "security")
+            init_test_environment
+            run_test "Docker Security Configuration" "test_docker_security"
+            print_test_summary
+            ;;
+        "help"|*)
+            echo "Usage: $0 {all|docker|config|container|security|help}"
+            echo ""
+            echo "Test Categories:"
+            echo "  all       - Run all Docker service tests"
+            echo "  docker    - Test Docker installation and daemon"
+            echo "  config    - Test configuration files"
+            echo "  container - Test container management"
+            echo "  security  - Test security configuration"
+            echo "  help      - Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0 all      # Run complete test suite"
+            echo "  $0 docker   # Test only Docker installation"
+            echo "  $0 config   # Test only configuration files"
+            exit 0
+            ;;
+    esac
 }
 
-# Проверка прав пользователя для Docker
-if ! groups "$USER" | grep -q docker && [[ $EUID -ne 0 ]]; then
-    log_warning "Пользователь не в группе docker и не root. Некоторые тесты могут провалиться."
-fi
+# Execute main function if script is run directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # Ensure running as root for some tests
+    if [[ ${EUID} -ne 0 ]]; then
+        echo "Warning: Some tests require root privileges for accurate results"
+        echo "Consider running with: sudo $0 $*"
+        echo ""
+    fi
 
-# Запуск главной функции
-main "$@"
+    main "$@"
+fi
