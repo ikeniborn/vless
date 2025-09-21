@@ -67,6 +67,44 @@ sudo cat /opt/vless/configs/config.json | jq '.' > xray_config.json
 
 ## 🛠️ Проблемы установки
 
+### Ошибка: "WHITE: unbound variable"
+
+**Симптомы:**
+```
+/home/ikeniborn/vless/modules/common_utils.sh: line 57: WHITE: unbound variable
+✗ Installation interrupted. Exit code: 1
+```
+
+**Причина:**
+Переменные цветов не были корректно определены при условной проверке в `common_utils.sh`.
+
+**Решение:**
+Проблема исправлена в последней версии. Обновите репозиторий:
+```bash
+git pull origin master
+
+# Или вручную исправьте modules/common_utils.sh
+# Замените блок на строках 27-38:
+[[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && readonly BLUE='\033[0;34m'
+[[ -z "${CYAN:-}" ]] && readonly CYAN='\033[0;36m'
+[[ -z "${PURPLE:-}" ]] && readonly PURPLE='\033[0;35m'
+[[ -z "${WHITE:-}" ]] && readonly WHITE='\033[1;37m'
+[[ -z "${BOLD:-}" ]] && readonly BOLD='\033[1m'
+[[ -z "${NC:-}" ]] && readonly NC='\033[0m'
+```
+
+**Проверка исправления:**
+```bash
+# Тест загрузки модуля
+bash -c 'source modules/common_utils.sh && check_color_variables'
+
+# Повторный запуск установки
+sudo bash install.sh
+```
+
 ### Ошибка: "Permission denied"
 
 **Симптомы:**

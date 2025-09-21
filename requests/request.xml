@@ -11,23 +11,13 @@
         </architecture>
     </project>
     <context>
-        Скрпит для устанвоки и управления сервером VPN по протоколу VLESS+REality.
-        Функции:
-        1. Установка сервиса в докер с помощью docker compose. Обновление всех пакетов ооперационной системы
-        2. Настройка конфиграций в каталоге /opt/vless c с храением всех конфиграуий
-        3. Управление доступом через бота телеграмм админа: создание новых пользователей, удаление пользвоателей
-        4. ПЕреустанвока сервера
-        5. Удаление сервера
-        6. Настройка файрволла UFW
-        Документация по проктоклу https://xtls.github.io/en/development/protocols/vless.html
-        Задача сервиса обеспечить доступ по ВПН черрез домашние сети вайфай или мобильные сетти без запрета трафика. 
-        Безопасность трафика так же важна
+        sudo bash install.sh
+        При выполеннии ошибка 
+        ║                    /home/ikeniborn/vless/modules/common_utils.sh: line 57: WHITE: unbound variable
+✗ Installation interrupted. Exit code: 1
     </context>
     <requirements>
-        <point number="1">Реализовать набор скрпитов</point>
-        <point number="2">Предусмотретть модульность</point>
-        <point number="3">Реализлизовать  итеграцию с телеграмм</point>
-        <point number="3">Протестировать функционал</point>
+        <point number="1">Исправить ошибку </point>
     </requirements>
     <tasks>
         <task number="1">

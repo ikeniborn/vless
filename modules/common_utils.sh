@@ -24,18 +24,16 @@ readonly MODULES_DIR="$PROJECT_DIR/modules"
 readonly TESTS_DIR="$PROJECT_DIR/tests"
 readonly VLESS_DIR="/opt/vless"
 
-# Color definitions (check if already defined)
-if [[ -z "${RED:-}" ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[1;33m'
-    readonly BLUE='\033[0;34m'
-    readonly CYAN='\033[0;36m'
-    readonly PURPLE='\033[0;35m'
-    readonly WHITE='\033[1;37m'
-    readonly BOLD='\033[1m'
-    readonly NC='\033[0m'
-fi
+# Color definitions - check each variable individually
+[[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && readonly BLUE='\033[0;34m'
+[[ -z "${CYAN:-}" ]] && readonly CYAN='\033[0;36m'
+[[ -z "${PURPLE:-}" ]] && readonly PURPLE='\033[0;35m'
+[[ -z "${WHITE:-}" ]] && readonly WHITE='\033[1;37m'
+[[ -z "${BOLD:-}" ]] && readonly BOLD='\033[1m'
+[[ -z "${NC:-}" ]] && readonly NC='\033[0m'
 
 # Unicode symbols
 readonly CHECK_MARK="✓"
@@ -46,18 +44,24 @@ readonly ARROW_RIGHT="→"
 
 # Print functions with consistent formatting
 print_header() {
+    # Ensure color variables are defined
+    local white_color="${WHITE:-\033[1;37m}"
+    local blue_color="${BLUE:-\033[0;34m}"
+    local nc_color="${NC:-\033[0m}"
+    local bold_color="${BOLD:-\033[1m}"
+
     local title="$1"
     local width=60
     local padding=$(( (width - ${#title} - 2) / 2 ))
 
     echo
-    echo -e "${BLUE}╔$(printf '═%.0s' $(seq 1 $width))╗${NC}"
-    printf "${BLUE}║${NC}"
+    echo -e "${blue_color}╔$(printf '═%.0s' $(seq 1 $width))╗${nc_color}"
+    printf "${blue_color}║${nc_color}"
     printf "%*s" $padding ""
-    printf "${WHITE}${BOLD}%s${NC}" "$title"
+    printf "${white_color}${bold_color}%s${nc_color}" "$title"
     printf "%*s" $((width - padding - ${#title})) ""
-    printf "${BLUE}║${NC}\n"
-    echo -e "${BLUE}╚$(printf '═%.0s' $(seq 1 $width))╝${NC}"
+    printf "${blue_color}║${nc_color}\n"
+    echo -e "${blue_color}╚$(printf '═%.0s' $(seq 1 $width))╝${nc_color}"
     echo
 }
 
@@ -355,6 +359,9 @@ wait_for_service() {
 
 # Progress indication functions
 show_progress() {
+    local cyan_color="${CYAN:-\033[0;36m}"
+    local nc_color="${NC:-\033[0m}"
+
     local current="$1"
     local total="$2"
     local description="${3:-Processing}"
@@ -363,7 +370,7 @@ show_progress() {
     local completed=$((percentage / 2))
     local remaining=$((50 - completed))
 
-    printf "\r${CYAN}%s:${NC} [" "$description"
+    printf "\r${cyan_color}%s:${nc_color} [" "$description"
     printf "%*s" $completed | tr ' ' '='
     printf "%*s" $remaining | tr ' ' '-'
     printf "] %d%% (%d/%d)" $percentage $current $total
@@ -374,6 +381,9 @@ show_progress() {
 }
 
 spinner() {
+    local cyan_color="${CYAN:-\033[0;36m}"
+    local nc_color="${NC:-\033[0m}"
+
     local pid="$1"
     local message="${2:-Working}"
     local delay=0.1
@@ -381,7 +391,7 @@ spinner() {
 
     while kill -0 "$pid" 2>/dev/null; do
         for (( i=0; i<${#chars}; i++ )); do
-            printf "\r${CYAN}%s${NC} %s" "${chars:$i:1}" "$message"
+            printf "\r${cyan_color}%s${nc_color} %s" "${chars:$i:1}" "$message"
             sleep $delay
         done
     done
@@ -490,6 +500,25 @@ load_module() {
     fi
 }
 
+# Check if all color variables are properly defined
+check_color_variables() {
+    local required_colors=("RED" "GREEN" "YELLOW" "BLUE" "CYAN" "PURPLE" "WHITE" "BOLD" "NC")
+    local missing_colors=()
+
+    for color in "${required_colors[@]}"; do
+        if [[ -z "${!color:-}" ]]; then
+            missing_colors+=("$color")
+        fi
+    done
+
+    if [[ ${#missing_colors[@]} -gt 0 ]]; then
+        echo "WARNING: Missing color variables: ${missing_colors[*]}" >&2
+        return 1
+    fi
+
+    return 0
+}
+
 # Export all functions
 export -f print_header print_section print_info print_success print_warning print_error print_step
 export -f get_os_info get_architecture get_kernel_version get_system_uptime get_memory_info get_disk_info
@@ -503,7 +532,7 @@ export -f read_config_value write_config_value
 export -f show_system_info
 export -f generate_random_string generate_uuid
 export -f get_timestamp get_timestamp_filename
-export -f load_module
+export -f load_module check_color_variables
 
 # Export constants
 export PROJECT_NAME PROJECT_VERSION PROJECT_DIR CONFIG_DIR MODULES_DIR TESTS_DIR VLESS_DIR
