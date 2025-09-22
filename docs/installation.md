@@ -1,772 +1,577 @@
-# VLESS+Reality VPN Management System - Installation Guide
+# Installation Guide
 
-This comprehensive installation guide provides step-by-step instructions for installing and configuring the VLESS+Reality VPN Management System.
+Complete installation guide for the VLESS+Reality VPN Management System.
 
 ## Table of Contents
 
-- [System Requirements](#system-requirements)
-- [Pre-Installation Checklist](#pre-installation-checklist)
-- [Installation Methods](#installation-methods)
-- [Step-by-Step Installation](#step-by-step-installation)
-- [Post-Installation Configuration](#post-installation-configuration)
-- [Verification and Testing](#verification-and-testing)
-- [Troubleshooting Installation Issues](#troubleshooting-installation-issues)
-- [Advanced Installation Options](#advanced-installation-options)
+1. [Prerequisites](#prerequisites)
+2. [System Preparation](#system-preparation)
+3. [Installation Methods](#installation-methods)
+4. [Phase-by-Phase Installation](#phase-by-phase-installation)
+5. [Post-Installation Configuration](#post-installation-configuration)
+6. [Verification](#verification)
+7. [Troubleshooting](#troubleshooting)
 
-## System Requirements
+## Prerequisites
 
-### Minimum Requirements
+### Hardware Requirements
 
-| Component | Specification |
-|-----------|---------------|
-| **Operating System** | Ubuntu 20.04 LTS or newer |
-| **CPU** | 1 core (x86_64) |
-| **RAM** | 1GB |
-| **Storage** | 10GB free space |
-| **Network** | Public IP address |
-| **Bandwidth** | 100 Mbps |
+#### Minimum Requirements
+- **CPU**: 1 core (x86_64 architecture)
+- **RAM**: 1GB available memory
+- **Storage**: 20GB free disk space
+- **Network**: Stable internet connection (100Mbps+)
 
-### Recommended Requirements
+#### Recommended Requirements
+- **CPU**: 2+ cores (x86_64 architecture)
+- **RAM**: 2GB+ available memory
+- **Storage**: 50GB+ SSD storage
+- **Network**: High-speed connection (1Gbps+)
 
-| Component | Specification |
-|-----------|---------------|
-| **Operating System** | Ubuntu 22.04 LTS |
-| **CPU** | 2+ cores (x86_64) |
-| **RAM** | 2GB+ |
-| **Storage** | 20GB+ SSD |
-| **Network** | Static public IP or domain |
-| **Bandwidth** | 1 Gbps+ |
+### Software Requirements
 
-### Supported Operating Systems
+#### Supported Operating Systems
+- **Ubuntu**: 20.04 LTS, 22.04 LTS (recommended)
+- **Debian**: 11 (Bullseye), 12 (Bookworm)
+- **CentOS**: 8+, Stream 9
+- **RHEL**: 8+, 9+
+- **Rocky Linux**: 8+, 9+
 
-- ✅ **Ubuntu 20.04 LTS** (Recommended)
-- ✅ **Ubuntu 22.04 LTS** (Recommended)
-- ✅ **Ubuntu 24.04 LTS**
-- ✅ **Debian 11** (Bullseye)
-- ✅ **Debian 12** (Bookworm)
-- ⚠️ **CentOS 8** (Limited support)
-- ⚠️ **RHEL 8+** (Limited support)
+#### Required Permissions
+- Root access or sudo privileges
+- Ability to install packages
+- Network configuration permissions
+- Firewall management access
 
-### Network Requirements
+#### Network Requirements
+- **Public IP Address**: Required for external access
+- **Domain Name**: Optional but recommended
+- **Ports**: 443 (HTTPS), 80 (HTTP), custom ports as needed
+- **DNS**: Proper DNS resolution capabilities
 
-#### Required Ports
-- **Port 80** (HTTP) - For Let's Encrypt certificate generation
-- **Port 443** (HTTPS) - Main VPN service port
-- **Port 22** (SSH) - Administrative access
-- **Custom VPN Port** - If different from 443
+## System Preparation
 
-#### Firewall Considerations
-- Ensure ports are open in cloud provider security groups
-- UFW will be configured automatically during installation
-- iptables rules will be managed by the system
+### 1. Update System Packages
 
-#### Domain Requirements (Recommended)
-- Domain name pointing to your server IP
-- DNS A record configured
-- Ability to modify DNS records for certificate validation
+```bash
+# Ubuntu/Debian
+sudo apt update && sudo apt upgrade -y
 
-## Pre-Installation Checklist
+# CentOS/RHEL/Rocky
+sudo dnf update -y
+# or for older systems
+sudo yum update -y
+```
 
-### Server Preparation
+### 2. Install Essential Dependencies
 
-1. **Update System Packages**
-   ```bash
-   sudo apt update && sudo apt upgrade -y
-   sudo apt autoremove -y
-   ```
+```bash
+# Ubuntu/Debian
+sudo apt install -y curl wget git unzip software-properties-common
 
-2. **Install Essential Tools**
-   ```bash
-   sudo apt install -y curl wget git unzip software-properties-common
-   ```
+# CentOS/RHEL/Rocky
+sudo dnf install -y curl wget git unzip epel-release
+```
 
-3. **Verify System Architecture**
-   ```bash
-   uname -m  # Should output x86_64
-   ```
+### 3. Configure Firewall (Optional but Recommended)
 
-4. **Check Available Disk Space**
-   ```bash
-   df -h  # Ensure at least 10GB free space
-   ```
+```bash
+# Ubuntu/Debian - UFW
+sudo ufw allow ssh
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
 
-5. **Verify Internet Connectivity**
-   ```bash
-   ping -c 4 google.com
-   ```
+# CentOS/RHEL/Rocky - firewalld
+sudo systemctl enable firewalld
+sudo systemctl start firewalld
+sudo firewall-cmd --permanent --add-service=ssh
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
+```
 
-### Network Configuration
+### 4. Set System Timezone
 
-1. **Verify Public IP Address**
-   ```bash
-   curl -4 ifconfig.co
-   ```
+```bash
+# Set to UTC (recommended for servers)
+sudo timedatectl set-timezone UTC
 
-2. **Test Port Connectivity** (if behind firewall)
-   ```bash
-   # Test from external machine
-   telnet YOUR_SERVER_IP 443
-   telnet YOUR_SERVER_IP 80
-   ```
-
-3. **Configure DNS** (if using domain)
-   ```bash
-   # Verify DNS propagation
-   nslookup your-domain.com
-   dig your-domain.com A
-   ```
-
-### Security Preparation
-
-1. **Secure SSH Access**
-   ```bash
-   # Create SSH key pair (if not already done)
-   ssh-keygen -t rsa -b 4096
-
-   # Copy public key to server
-   ssh-copy-id user@your-server-ip
-
-   # Disable password authentication (recommended)
-   sudo nano /etc/ssh/sshd_config
-   # Set: PasswordAuthentication no
-   sudo systemctl restart sshd
-   ```
-
-2. **Create Non-Root User** (if not already exists)
-   ```bash
-   sudo adduser vlessadmin
-   sudo usermod -aG sudo vlessadmin
-   ```
+# Or set to your local timezone
+sudo timedatectl set-timezone America/New_York
+```
 
 ## Installation Methods
 
-### Method 1: Automated Installation (Recommended)
+### Method 1: Interactive Installation (Recommended)
 
-The easiest way to install the system using the automated installation script.
+The interactive installation provides a guided setup process with menu-driven configuration.
 
 ```bash
-# Download the repository
-git clone https://github.com/your-username/vless-reality-vpn.git
-cd vless-reality-vpn
+# Clone the repository
+git clone https://github.com/yourusername/vless.git
+cd vless
 
 # Make installation script executable
 chmod +x install.sh
 
-# Run installation
+# Run interactive installation
 sudo ./install.sh
 ```
 
-### Method 2: Interactive Installation
+### Method 2: Automated Installation
 
-For users who want more control over the installation process.
-
-```bash
-# Run installation with interactive prompts
-sudo ./install.sh --interactive
-```
-
-### Method 3: Custom Configuration Installation
-
-For advanced users with specific configuration requirements.
+For automated deployments, you can use environment variables to pre-configure the installation.
 
 ```bash
-# Create custom configuration file
-cp config/example.env config/custom.env
-nano config/custom.env
+# Set environment variables
+export VLESS_PORT=443
+export REALITY_DOMAIN="www.microsoft.com"
+export REALITY_PORT=443
+export SSL_EMAIL="admin@yourdomain.com"
+export ENABLE_FIREWALL=true
 
-# Run installation with custom config
-sudo ./install.sh --config config/custom.env
+# Run automated installation
+sudo ./install.sh --auto
 ```
 
-### Method 4: Manual Installation
+### Method 3: Docker Installation
 
-For expert users who want complete control over each step.
+Deploy using Docker containers for isolated environment.
 
 ```bash
-# Run individual installation phases
-sudo ./install.sh --phase validate_environment
-sudo ./install.sh --phase setup_foundation
-sudo ./install.sh --phase install_dependencies
-# ... continue with other phases
+# Clone repository
+git clone https://github.com/yourusername/vless.git
+cd vless
+
+# Deploy with Docker Compose
+sudo docker-compose up -d
 ```
 
-## Step-by-Step Installation
+## Phase-by-Phase Installation
 
-### Step 1: Download and Prepare Installation
+The installation process is divided into five phases for modular deployment and easier troubleshooting.
 
-1. **Connect to Your Server**
-   ```bash
-   ssh user@your-server-ip
-   ```
+### Phase 1: Core Infrastructure Setup
 
-2. **Update System**
-   ```bash
-   sudo apt update && sudo apt upgrade -y
-   ```
+**Purpose**: Establishes the foundation system components.
 
-3. **Download Installation Files**
-   ```bash
-   # Method A: Clone from Git repository
-   git clone https://github.com/your-username/vless-reality-vpn.git
-   cd vless-reality-vpn
+**Components Installed**:
+- System directories (`/opt/vless/`)
+- Base dependencies (Docker, Python3, etc.)
+- Core utilities and logging system
+- Initial configuration templates
 
-   # Method B: Download release archive
-   wget https://github.com/your-username/vless-reality-vpn/archive/latest.tar.gz
-   tar -xzf latest.tar.gz
-   cd vless-reality-vpn-*
-   ```
+**Installation Steps**:
+1. System compatibility verification
+2. Dependency installation
+3. Directory structure creation
+4. Permission configuration
+5. Core utility setup
 
-4. **Verify Installation Files**
-   ```bash
-   # Check file integrity
-   ls -la install.sh modules/ config/
+**Expected Duration**: 5-10 minutes
 
-   # Verify script permissions
-   chmod +x install.sh
-   ```
+**Verification**:
+```bash
+# Check system directories
+ls -la /opt/vless/
 
-### Step 2: Configure Installation Options
+# Verify dependencies
+docker --version
+python3 --version
 
-1. **Review Installation Script Options**
-   ```bash
-   ./install.sh --help
-   ```
+# Test logging system
+sudo /opt/vless/scripts/common_utils.sh test
+```
 
-2. **Create Configuration File** (optional)
-   ```bash
-   # Copy example configuration
-   cp config/example.env config/installation.env
+### Phase 2: VLESS Server Implementation
 
-   # Edit configuration
-   nano config/installation.env
-   ```
+**Purpose**: Deploys the core VLESS+Reality server infrastructure.
 
-   Example configuration:
-   ```bash
-   # Domain Configuration
-   DOMAIN=vpn.example.com
-   EMAIL=admin@example.com
+**Components Installed**:
+- Xray-core server
+- Reality configuration
+- TLS certificate management
+- Docker containers
+- Network configuration
 
-   # VPN Configuration
-   VLESS_PORT=443
-   ENABLE_REALITY=true
+**Installation Steps**:
+1. Xray-core installation
+2. Reality protocol configuration
+3. TLS certificate generation
+4. Docker container deployment
+5. Network interface setup
 
-   # Security Settings
-   ENABLE_FIREWALL=true
-   SECURITY_LEVEL=high
+**Expected Duration**: 10-15 minutes
 
-   # Optional Components
-   INSTALL_TELEGRAM_BOT=true
-   INSTALL_WEB_DASHBOARD=true
-   ENABLE_MONITORING=true
-   ```
+**Verification**:
+```bash
+# Check Xray service
+sudo systemctl status xray
 
-### Step 3: Run Installation
+# Verify container status
+sudo docker ps
 
-1. **Start Installation Process**
-   ```bash
-   # Basic installation
-   sudo ./install.sh
+# Test network connectivity
+curl -I https://your-server-ip
+```
 
-   # Installation with custom configuration
-   sudo ./install.sh --config config/installation.env
+### Phase 3: User Management System
 
-   # Verbose installation for troubleshooting
-   sudo ./install.sh --verbose
-   ```
+**Purpose**: Implements comprehensive user management capabilities.
 
-2. **Monitor Installation Progress**
-   The installation script will display progress for each phase:
+**Components Installed**:
+- User database system
+- Configuration generation tools
+- QR code generator
+- User quota management
+- Configuration templates
 
-   ```
-   =====================================
-   VLESS+Reality VPN Installation
-   =====================================
+**Installation Steps**:
+1. User database initialization
+2. Management script deployment
+3. Configuration template setup
+4. QR code generator installation
+5. Quota system configuration
 
-   Phase 1/9: Environment Validation     [✓]
-   Phase 2/9: Foundation Setup          [✓]
-   Phase 3/9: Dependencies Installation [✓]
-   Phase 4/9: Docker Setup              [✓]
-   Phase 5/9: Core Installation         [⟳]
-   Phase 6/9: Security Hardening        [ ]
-   Phase 7/9: Service Configuration     [ ]
-   Phase 8/9: Optional Components       [ ]
-   Phase 9/9: Testing & Validation      [ ]
-   ```
+**Expected Duration**: 5-10 minutes
 
-3. **Interactive Configuration**
-   During installation, you may be prompted for:
+**Verification**:
+```bash
+# Test user management
+sudo /opt/vless/scripts/user_management.sh list
 
-   ```
-   🌐 Domain Configuration
-   Enter your domain name (or press Enter for IP-only setup): vpn.example.com
-   Enter your email for Let's Encrypt certificates: admin@example.com
+# Verify QR generator
+python3 /opt/vless/modules/qr_generator.py --test
 
-   🔧 VPN Configuration
-   Choose VPN port [443]: 443
-   Enable Reality technology? [Y/n]: Y
+# Check database
+sqlite3 /opt/vless/users/users.db ".tables"
+```
 
-   🔒 Security Configuration
-   Security level (basic/standard/high) [standard]: high
-   Enable firewall? [Y/n]: Y
+### Phase 4: Security and Monitoring
 
-   🤖 Optional Components
-   Install Telegram bot? [y/N]: y
-   Install web dashboard? [y/N]: y
-   Enable monitoring? [Y/n]: Y
-   ```
+**Purpose**: Hardens system security and implements monitoring.
 
-### Step 4: Post-Installation Configuration
+**Components Installed**:
+- Security hardening configurations
+- System monitoring tools
+- Log management system
+- Firewall rules
+- Intrusion detection
 
-1. **Verify Installation**
-   ```bash
-   # Check installation status
-   sudo /opt/vless/scripts/status.sh
+**Installation Steps**:
+1. Security policy implementation
+2. Monitoring system deployment
+3. Log rotation configuration
+4. Firewall rule application
+5. Security scanning setup
 
-   # Verify service status
-   sudo systemctl status vless-vpn
-   ```
+**Expected Duration**: 10-15 minutes
 
-2. **Configure Telegram Bot** (if installed)
-   ```bash
-   # Setup Telegram bot
-   sudo /opt/vless/scripts/telegram_bot_manager.sh setup
+**Verification**:
+```bash
+# Check security status
+sudo /opt/vless/scripts/security_hardening.sh status
 
-   # Add admin user
-   sudo /opt/vless/scripts/telegram_bot_manager.sh add_admin YOUR_TELEGRAM_ID
-   ```
+# Verify monitoring
+sudo /opt/vless/scripts/monitoring.sh check
 
-3. **Create First VPN User**
-   ```bash
-   # Create admin user
-   sudo /opt/vless/scripts/user_management.sh add admin
+# Review security logs
+sudo journalctl -u vless --since "1 hour ago"
+```
 
-   # Generate configuration
-   sudo /opt/vless/scripts/user_management.sh config admin
-   sudo /opt/vless/scripts/qr_generator.py admin
-   ```
+### Phase 5: Advanced Features
 
-### Step 5: SSL/TLS Certificate Setup
+**Purpose**: Deploys optional advanced features and integrations.
 
-1. **Automatic Certificate Generation** (with domain)
-   ```bash
-   # Certificates are generated automatically during installation
-   # Verify certificate status
-   sudo /opt/vless/scripts/cert_management.sh status
-   ```
+**Components Installed**:
+- Telegram bot integration
+- Web dashboard (optional)
+- API endpoints
+- Backup automation
+- Advanced analytics
 
-2. **Manual Certificate Setup** (if needed)
-   ```bash
-   # Generate certificates manually
-   sudo /opt/vless/scripts/cert_management.sh generate
+**Installation Steps**:
+1. Telegram bot deployment
+2. Web dashboard setup (if selected)
+3. API service configuration
+4. Backup system activation
+5. Analytics integration
 
-   # Setup automatic renewal
-   sudo /opt/vless/scripts/cert_management.sh auto_renew
-   ```
+**Expected Duration**: 15-20 minutes
 
-3. **Self-Signed Certificate** (for testing)
-   ```bash
-   # Generate self-signed certificate
-   sudo /opt/vless/scripts/cert_management.sh self_signed
-   ```
+**Verification**:
+```bash
+# Test Telegram bot
+sudo systemctl status telegram-bot
+
+# Check API endpoints
+curl http://localhost:8080/api/status
+
+# Verify backup system
+sudo /opt/vless/scripts/backup_restore.sh test
+```
 
 ## Post-Installation Configuration
 
-### Initial System Configuration
+### 1. Configure Environment Variables
 
-1. **Configure System Settings**
-   ```bash
-   # Set timezone
-   sudo timedatectl set-timezone UTC
+Edit the main configuration file:
 
-   # Configure NTP
-   sudo systemctl enable systemd-timesyncd
-   sudo systemctl start systemd-timesyncd
-   ```
+```bash
+sudo nano /opt/vless/config/environment.conf
+```
 
-2. **Configure Log Rotation**
-   ```bash
-   # Setup log rotation
-   sudo /opt/vless/scripts/maintenance_utils.sh setup_log_rotation
-   ```
+Key configurations:
+```bash
+# Server settings
+VLESS_PORT=443
+REALITY_DOMAIN="www.microsoft.com"
+REALITY_PORT=443
+SERVER_NAME="your-domain.com"
 
-3. **Configure Automated Backups**
-   ```bash
-   # Setup daily backups
-   sudo /opt/vless/scripts/backup_restore.sh schedule_backups \
-     --daily --time "02:00" --retention 30d
-   ```
+# Security settings
+SSL_EMAIL="admin@yourdomain.com"
+ENABLE_FIREWALL=true
+AUTO_UPDATE=true
 
-### Security Hardening
+# Telegram bot (optional)
+TELEGRAM_BOT_TOKEN="your_bot_token"
+TELEGRAM_ADMIN_ID="your_admin_id"
 
-1. **Apply Security Hardening**
-   ```bash
-   # Apply all security measures
-   sudo /opt/vless/scripts/security_hardening.sh apply_all
+# Monitoring
+ENABLE_MONITORING=true
+LOG_LEVEL="INFO"
+ALERT_EMAIL="alerts@yourdomain.com"
+```
 
-   # Configure firewall
-   sudo /opt/vless/scripts/ufw_config.sh setup
-   ```
+### 2. Create Administrative User
 
-2. **Configure SSH Security**
-   ```bash
-   # Harden SSH configuration
-   sudo /opt/vless/scripts/security_hardening.sh ssh_harden
-   ```
+```bash
+# Create first admin user
+sudo /opt/vless/scripts/user_management.sh add admin --role=admin
 
-3. **Setup Fail2Ban** (optional)
-   ```bash
-   # Install and configure Fail2Ban
-   sudo /opt/vless/scripts/security_hardening.sh setup_fail2ban
-   ```
+# Generate configuration
+sudo /opt/vless/scripts/user_management.sh config admin
+```
 
-### Monitoring Configuration
+### 3. Configure Telegram Bot (Optional)
 
-1. **Setup System Monitoring**
-   ```bash
-   # Configure monitoring
-   sudo /opt/vless/scripts/monitoring.sh setup
+If you enabled the Telegram bot in Phase 5:
 
-   # Setup alerts
-   sudo /opt/vless/scripts/monitoring.sh setup_alerts \
-     --cpu-threshold 80 --memory-threshold 85
-   ```
+```bash
+# Set bot token
+sudo /opt/vless/scripts/telegram_bot_manager.sh configure
 
-2. **Configure Performance Monitoring**
-   ```bash
-   # Enable performance logging
-   sudo /opt/vless/scripts/monitoring.sh enable_performance_logging
-   ```
+# Start bot service
+sudo systemctl enable telegram-bot
+sudo systemctl start telegram-bot
+```
 
-## Verification and Testing
+### 4. Set Up Monitoring Alerts
 
-### System Verification
+```bash
+# Configure email alerts
+sudo /opt/vless/scripts/monitoring.sh setup-alerts
 
-1. **Verify Service Status**
-   ```bash
-   # Check all services
-   sudo systemctl status vless-vpn
-   sudo systemctl status docker
-   sudo systemctl status nginx
+# Set monitoring intervals
+sudo /opt/vless/scripts/monitoring.sh configure
+```
 
-   # Verify Docker containers
-   sudo docker ps
-   ```
+### 5. Configure Automated Backups
 
-2. **Test Network Connectivity**
-   ```bash
-   # Test VPN port connectivity
-   sudo /opt/vless/scripts/monitoring.sh test_connectivity
+```bash
+# Set up daily backups
+sudo /opt/vless/scripts/backup_restore.sh schedule
 
-   # Test SSL certificate
-   sudo /opt/vless/scripts/cert_management.sh test
-   ```
+# Test backup system
+sudo /opt/vless/scripts/backup_restore.sh backup --test
+```
 
-3. **Verify File Permissions**
-   ```bash
-   # Check critical file permissions
-   sudo /opt/vless/scripts/maintenance_utils.sh verify_permissions
-   ```
+## Verification
 
-### User Configuration Testing
+### 1. System Health Check
 
-1. **Create Test User**
-   ```bash
-   # Create test user
-   sudo /opt/vless/scripts/user_management.sh add testuser
+Run the comprehensive system check:
 
-   # Generate configuration
-   sudo /opt/vless/scripts/user_management.sh config testuser
-   sudo /opt/vless/scripts/qr_generator.py testuser
-   ```
+```bash
+sudo /opt/vless/scripts/system_check.sh
+```
 
-2. **Test User Connection**
-   ```bash
-   # Monitor connections
-   sudo /opt/vless/scripts/monitoring.sh connections
+### 2. Service Status Verification
 
-   # Test specific user
-   sudo /opt/vless/scripts/monitoring.sh test_user testuser
-   ```
+```bash
+# Check all services
+sudo systemctl status xray
+sudo systemctl status docker
+sudo systemctl status telegram-bot
 
-### Telegram Bot Testing
+# View service logs
+sudo journalctl -u xray -f
+```
 
-1. **Test Bot Functionality**
-   ```bash
-   # Start bot
-   sudo systemctl start vless-telegram-bot
+### 3. Network Connectivity Test
 
-   # Check bot status
-   sudo systemctl status vless-telegram-bot
-   ```
+```bash
+# Test external connectivity
+curl -I https://your-server-ip:443
 
-2. **Test Bot Commands**
-   - Send `/start` to your bot
-   - Test `/status` command
-   - Test user management commands
+# Test VLESS connection
+/opt/vless/scripts/test_connection.sh
+```
 
-### Performance Testing
+### 4. User Management Test
 
-1. **Run Performance Tests**
-   ```bash
-   # System performance test
-   sudo /opt/vless/scripts/monitoring.sh performance_test
+```bash
+# Create test user
+sudo /opt/vless/scripts/user_management.sh add testuser
 
-   # Load testing
-   sudo /opt/vless/scripts/monitoring.sh load_test
-   ```
+# Generate configuration
+sudo /opt/vless/scripts/user_management.sh config testuser
 
-2. **Benchmark Network Performance**
-   ```bash
-   # Network throughput test
-   sudo /opt/vless/scripts/monitoring.sh network_benchmark
-   ```
+# Verify user in database
+sudo /opt/vless/scripts/user_management.sh list
+```
 
-## Troubleshooting Installation Issues
+### 5. Security Verification
 
-### Common Installation Problems
+```bash
+# Run security audit
+sudo /opt/vless/scripts/security_hardening.sh audit
+
+# Check firewall status
+sudo ufw status
+# or
+sudo firewall-cmd --list-all
+```
+
+## Troubleshooting
+
+### Common Installation Issues
 
 #### 1. Permission Denied Errors
-```bash
-# Problem: Permission denied during installation
-# Solution: Ensure running with sudo
-sudo ./install.sh
 
-# Check file permissions
+**Problem**: Installation fails with permission errors.
+
+**Solution**:
+```bash
+# Ensure running as root or with sudo
+sudo su -
+./install.sh
+
+# Or fix file permissions
 chmod +x install.sh
-chmod +x modules/*.sh
+sudo chown root:root install.sh
 ```
 
-#### 2. Network Connectivity Issues
-```bash
-# Problem: Cannot download dependencies
-# Solution: Check internet connectivity
-ping -c 4 8.8.8.8
-curl -I https://github.com
+#### 2. Package Installation Failures
 
-# Check DNS resolution
-nslookup github.com
+**Problem**: Dependencies fail to install.
+
+**Solution**:
+```bash
+# Update package repositories
+sudo apt update
+# or
+sudo dnf clean all && sudo dnf update
+
+# Install missing dependencies manually
+sudo apt install curl wget git python3 python3-pip
 ```
 
-#### 3. Docker Installation Fails
+#### 3. Docker Installation Issues
+
+**Problem**: Docker service fails to start.
+
+**Solution**:
 ```bash
-# Problem: Docker installation fails
-# Solution: Manual Docker installation
+# Restart Docker service
+sudo systemctl restart docker
+
+# Check Docker status
+sudo systemctl status docker
+
+# Reinstall Docker if necessary
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
-sudo usermod -aG docker $USER
-
-# Then retry installation
-sudo ./install.sh --skip-docker
 ```
 
-#### 4. Certificate Generation Fails
+#### 4. Port Conflicts
+
+**Problem**: Required ports are already in use.
+
+**Solution**:
 ```bash
-# Problem: Let's Encrypt certificate generation fails
-# Solution: Check domain DNS and firewall
-nslookup your-domain.com
-sudo ufw status
+# Check port usage
+sudo netstat -tlnp | grep :443
 
-# Test HTTP connectivity
-curl -I http://your-domain.com
+# Kill conflicting processes
+sudo systemctl stop nginx
+sudo systemctl stop apache2
 
+# Or configure alternative ports
+export VLESS_PORT=8443
+```
+
+#### 5. Certificate Issues
+
+**Problem**: SSL certificate generation fails.
+
+**Solution**:
+```bash
 # Manual certificate generation
-sudo /opt/vless/scripts/cert_management.sh generate --manual
+sudo /opt/vless/scripts/cert_management.sh generate
+
+# Check certificate status
+sudo /opt/vless/scripts/cert_management.sh status
+
+# Use alternative CA
+export CERT_CA="letsencrypt"
 ```
 
-#### 5. Service Startup Failures
-```bash
-# Problem: VPN service fails to start
-# Solution: Check logs and configuration
-sudo journalctl -u vless-vpn -n 50
-sudo /opt/vless/scripts/configure.sh validate
+### Installation Logs
 
-# Restart services
-sudo systemctl restart docker
-sudo systemctl restart vless-vpn
+All installation activities are logged to:
+- **Main log**: `/opt/vless/logs/installation.log`
+- **Error log**: `/opt/vless/logs/installation_errors.log`
+- **System log**: `journalctl -u vless-installer`
+
+### Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check the logs**: Review installation and service logs
+2. **Verify requirements**: Ensure all prerequisites are met
+3. **Run diagnostics**: Use built-in diagnostic tools
+4. **Consult documentation**: Check the troubleshooting guide
+5. **Seek support**: Contact support or community forums
+
+### Recovery Options
+
+#### 1. Partial Installation Recovery
+
+```bash
+# Resume installation from specific phase
+sudo ./install.sh --resume --phase=3
 ```
 
-### Installation Log Analysis
-
-1. **View Installation Logs**
-   ```bash
-   # View installation log
-   sudo tail -f /opt/vless/logs/installation.log
-
-   # Check error logs
-   sudo grep -i error /opt/vless/logs/installation.log
-   ```
-
-2. **Debug Mode Installation**
-   ```bash
-   # Run installation in debug mode
-   sudo ./install.sh --verbose --debug
-
-   # Enable detailed logging
-   export DEBUG=1
-   sudo -E ./install.sh
-   ```
-
-### System Diagnostics
-
-1. **Run System Diagnostics**
-   ```bash
-   # Comprehensive system check
-   sudo /opt/vless/scripts/maintenance_utils.sh check_system_health
-
-   # Generate diagnostic report
-   sudo /opt/vless/scripts/maintenance_utils.sh generate_diagnostics
-   ```
-
-2. **Check System Resources**
-   ```bash
-   # Check disk space
-   df -h
-
-   # Check memory usage
-   free -h
-
-   # Check system load
-   uptime
-   ```
-
-## Advanced Installation Options
-
-### Custom Installation Phases
-
-Execute specific installation phases individually:
+#### 2. Complete Reinstallation
 
 ```bash
-# Phase 1: Environment validation
-sudo ./install.sh --phase validate_environment
+# Uninstall existing installation
+sudo /opt/vless/scripts/uninstall.sh
 
-# Phase 2: Foundation setup
-sudo ./install.sh --phase setup_foundation
-
-# Phase 3: Dependencies installation
-sudo ./install.sh --phase install_dependencies
-
-# Phase 4: Docker setup
-sudo ./install.sh --phase setup_docker
-
-# Phase 5: Core installation
-sudo ./install.sh --phase install_core
-
-# Phase 6: Security hardening
-sudo ./install.sh --phase security_hardening
-
-# Phase 7: Service configuration
-sudo ./install.sh --phase configure_services
-
-# Phase 8: Optional components
-sudo ./install.sh --phase install_optional
-
-# Phase 9: Testing and validation
-sudo ./install.sh --phase validate_installation
+# Clean installation
+sudo ./install.sh --clean
 ```
 
-### Installation with Custom Configuration
-
-1. **Create Advanced Configuration File**
-   ```bash
-   cat > config/advanced.env << EOF
-   # Network Configuration
-   VLESS_PORT=8443
-   REALITY_PORT=443
-   ENABLE_GRPC=true
-
-   # Performance Settings
-   MAX_CONNECTIONS=1000
-   BUFFER_SIZE=4096
-
-   # Security Settings
-   SECURITY_LEVEL=maximum
-   ENABLE_DPI_BYPASS=true
-
-   # Monitoring
-   ENABLE_METRICS=true
-   METRICS_PORT=9090
-
-   # Backup Configuration
-   BACKUP_RETENTION=90d
-   BACKUP_COMPRESSION=true
-
-   # Telegram Bot
-   BOT_WEBHOOK_MODE=true
-   BOT_WEBHOOK_PORT=8443
-   EOF
-   ```
-
-2. **Run Installation with Advanced Configuration**
-   ```bash
-   sudo ./install.sh --config config/advanced.env --verbose
-   ```
-
-### Multi-Server Installation
-
-For deploying across multiple servers:
-
-1. **Prepare Master Configuration**
-   ```bash
-   # Create master configuration
-   cat > config/master.env << EOF
-   # Master server configuration
-   ROLE=master
-   CLUSTER_MODE=true
-   CLUSTER_SECRET=your_secret_key
-
-   # Database configuration for user sync
-   ENABLE_DATABASE_SYNC=true
-   DATABASE_HOST=master.example.com
-   EOF
-   ```
-
-2. **Prepare Worker Configuration**
-   ```bash
-   # Create worker configuration
-   cat > config/worker.env << EOF
-   # Worker server configuration
-   ROLE=worker
-   CLUSTER_MODE=true
-   CLUSTER_SECRET=your_secret_key
-   MASTER_HOST=master.example.com
-
-   # Sync configuration from master
-   SYNC_USERS=true
-   SYNC_CONFIG=true
-   EOF
-   ```
-
-### Container-Only Installation
-
-For Docker-only deployment:
+#### 3. Backup Recovery
 
 ```bash
-# Install only Docker components
-sudo ./install.sh --container-only
-
-# Use Docker Compose
-sudo docker-compose up -d
-
-# Configure through container
-sudo docker exec -it vless-vpn /opt/vless/scripts/configure.sh
-```
-
-### Development Installation
-
-For development and testing:
-
-```bash
-# Install in development mode
-sudo ./install.sh --dev-mode
-
-# Enable debug logging
-sudo ./install.sh --dev-mode --debug
-
-# Skip production security measures
-sudo ./install.sh --dev-mode --skip-security
+# Restore from backup
+sudo /opt/vless/scripts/backup_restore.sh restore /path/to/backup
 ```
 
 ---
 
-This installation guide provides comprehensive instructions for installing the VLESS+Reality VPN Management System. Follow the appropriate method based on your requirements and technical expertise. For additional support, refer to the troubleshooting section or consult the user guide.
+**Next Steps**: After successful installation, proceed to the [User Guide](user_guide.md) for system usage instructions.

@@ -1,489 +1,556 @@
 #!/bin/bash
-# ======================================================================================
-# VLESS+Reality VPN Management System - Common Utilities Module
-# ======================================================================================
-# This module provides core utility functions for logging, validation, and system operations.
-# All scripts in the VLESS VPN system depend on these utilities.
+
+# VLESS+Reality VPN Management System - Common Utilities
+# Version: 1.0.0
+# Description: Core logging, error handling, and utility functions
 #
-# Author: Claude Code
-# Version: 1.0
-# Last Modified: 2025-09-21
-# ======================================================================================
+# This module provides:
+# - Colored logging with timestamp and log levels
+# - Error handling with exit codes
+# - Input validation functions
+# - System information detection
+# - Network connectivity checks
+# - Process isolation for EPERM prevention
 
 set -euo pipefail
 
-# Global Variables
-# Set variables if not already defined
-if [[ -z "${SCRIPT_DIR:-}" ]]; then
-    readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-fi
-if [[ -z "${VLESS_ROOT:-}" ]]; then
-    readonly VLESS_ROOT="/opt/vless"
-fi
-if [[ -z "${LOG_DIR:-}" ]]; then
-    readonly LOG_DIR="${VLESS_ROOT}/logs"
-fi
-if [[ -z "${CONFIG_DIR:-}" ]]; then
-    readonly CONFIG_DIR="${VLESS_ROOT}/config"
-fi
-if [[ -z "${BACKUP_DIR:-}" ]]; then
-    readonly BACKUP_DIR="${VLESS_ROOT}/backups"
-fi
-if [[ -z "${CERT_DIR:-}" ]]; then
-    readonly CERT_DIR="${VLESS_ROOT}/certs"
-fi
-if [[ -z "${USER_DIR:-}" ]]; then
-    readonly USER_DIR="${VLESS_ROOT}/users"
-fi
-
-# Color codes for output formatting
-if [[ -z "${RED:-}" ]]; then readonly RED='\033[0;31m'; fi
-if [[ -z "${GREEN:-}" ]]; then readonly GREEN='\033[0;32m'; fi
-if [[ -z "${YELLOW:-}" ]]; then readonly YELLOW='\033[1;33m'; fi
-if [[ -z "${BLUE:-}" ]]; then readonly BLUE='\033[0;34m'; fi
-if [[ -z "${PURPLE:-}" ]]; then readonly PURPLE='\033[0;35m'; fi
-if [[ -z "${CYAN:-}" ]]; then readonly CYAN='\033[0;36m'; fi
-if [[ -z "${WHITE:-}" ]]; then readonly WHITE='\033[1;37m'; fi
-if [[ -z "${NC:-}" ]]; then readonly NC='\033[0m'; fi # No Color
+# Color codes for logging
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly PURPLE='\033[0;35m'
+readonly CYAN='\033[0;36m'
+readonly WHITE='\033[1;37m'
+readonly NC='\033[0m' # No Color
 
 # Log levels
-if [[ -z "${LOG_LEVEL_DEBUG:-}" ]]; then readonly LOG_LEVEL_DEBUG=0; fi
-if [[ -z "${LOG_LEVEL_INFO:-}" ]]; then readonly LOG_LEVEL_INFO=1; fi
-if [[ -z "${LOG_LEVEL_WARN:-}" ]]; then readonly LOG_LEVEL_WARN=2; fi
-if [[ -z "${LOG_LEVEL_ERROR:-}" ]]; then readonly LOG_LEVEL_ERROR=3; fi
+readonly LOG_DEBUG=0
+readonly LOG_INFO=1
+readonly LOG_WARN=2
+readonly LOG_ERROR=3
+readonly LOG_FATAL=4
 
-# Current log level (can be overridden by environment variable)
-CURRENT_LOG_LEVEL=${VLESS_LOG_LEVEL:-$LOG_LEVEL_INFO}
+# Global configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOG_LEVEL=${LOG_LEVEL:-$LOG_INFO}
+LOG_FILE="${LOG_FILE:-/var/log/vless-vpn.log}"
 
-# ======================================================================================
-# LOGGING FUNCTIONS
-# ======================================================================================
+# Process isolation variables
+declare -a CHILD_PROCESSES=()
+CLEANUP_REGISTERED=false
 
-# Function: get_timestamp
-# Description: Generate formatted timestamp for logging
-# Returns: Current timestamp in YYYY-MM-DD HH:MM:SS format
+# Setup signal handlers for process isolation
+setup_signal_handlers() {
+    if [[ "${CLEANUP_REGISTERED}" == "false" ]]; then
+        trap 'cleanup_child_processes; exit 130' INT
+        trap 'cleanup_child_processes; exit 143' TERM
+        trap 'cleanup_child_processes' EXIT
+        CLEANUP_REGISTERED=true
+    fi
+}
+
+# Clean up child processes to prevent EPERM errors
+cleanup_child_processes() {
+    local pid
+    for pid in "${CHILD_PROCESSES[@]}"; do
+        if kill -0 "${pid}" 2>/dev/null; then
+            log_debug "Cleaning up child process: ${pid}"
+            kill -TERM "${pid}" 2>/dev/null || true
+            sleep 1
+            if kill -0 "${pid}" 2>/dev/null; then
+                kill -KILL "${pid}" 2>/dev/null || true
+            fi
+        fi
+    done
+    CHILD_PROCESSES=()
+}
+
+# Register a child process for cleanup
+register_child_process() {
+    local pid=$1
+    CHILD_PROCESSES+=("${pid}")
+}
+
+# Get current timestamp
 get_timestamp() {
     date '+%Y-%m-%d %H:%M:%S'
 }
 
-# Function: log_to_file
-# Description: Write log message to file with rotation support
-# Parameters: $1 - log level, $2 - message
-log_to_file() {
-    local level="$1"
-    local message="$2"
-    local log_file="${LOG_DIR}/vless.log"
+# Get log level name
+get_log_level_name() {
+    local level=$1
+    case $level in
+        $LOG_DEBUG) echo "DEBUG" ;;
+        $LOG_INFO)  echo "INFO"  ;;
+        $LOG_WARN)  echo "WARN"  ;;
+        $LOG_ERROR) echo "ERROR" ;;
+        $LOG_FATAL) echo "FATAL" ;;
+        *)          echo "UNKNOWN" ;;
+    esac
+}
 
-    # Create log directory if it doesn't exist
-    [[ ! -d "$LOG_DIR" ]] && mkdir -p "$LOG_DIR"
+# Base logging function
+log_message() {
+    local level=$1
+    local color=$2
+    shift 2
+    local message="$*"
 
-    # Write to log file
-    echo "[$(get_timestamp)] [$level] $message" >> "$log_file"
+    [[ $level -lt $LOG_LEVEL ]] && return 0
 
-    # Rotate log if it gets too large (>10MB)
-    if [[ -f "$log_file" ]] && [[ $(stat -f%z "$log_file" 2>/dev/null || stat -c%s "$log_file" 2>/dev/null || echo 0) -gt 10485760 ]]; then
-        mv "$log_file" "${log_file}.$(date +%Y%m%d_%H%M%S)"
-        touch "$log_file"
+    local timestamp
+    timestamp=$(get_timestamp)
+    local level_name
+    level_name=$(get_log_level_name "$level")
+
+    # Console output with color
+    echo -e "${color}[${timestamp}] [${level_name}] ${message}${NC}" >&2
+
+    # File output without color (if log file is writable)
+    if [[ -w "$(dirname "$LOG_FILE")" ]] 2>/dev/null; then
+        echo "[${timestamp}] [${level_name}] ${message}" >> "$LOG_FILE" 2>/dev/null || true
     fi
 }
 
-# Function: log_debug
-# Description: Log debug message (gray color, only shown when debug enabled)
-# Parameters: $* - message to log
-log_debug() {
-    [[ $CURRENT_LOG_LEVEL -gt $LOG_LEVEL_DEBUG ]] && return
-    local message="$*"
-    echo -e "${WHITE}[DEBUG]${NC} $message" >&2
-    log_to_file "DEBUG" "$message"
+# Specific log level functions
+log_debug() { log_message $LOG_DEBUG "$CYAN" "$@"; }
+log_info()  { log_message $LOG_INFO "$WHITE" "$@"; }
+log_warn()  { log_message $LOG_WARN "$YELLOW" "$@"; }
+log_error() { log_message $LOG_ERROR "$RED" "$@"; }
+log_fatal() { log_message $LOG_FATAL "$PURPLE" "$@"; }
+
+# Success logging
+log_success() { log_message $LOG_INFO "$GREEN" "$@"; }
+
+# Error handling with exit codes
+die() {
+    local exit_code=${2:-1}
+    log_fatal "$1"
+    cleanup_child_processes
+    exit "$exit_code"
 }
 
-# Function: log_info
-# Description: Log informational message (blue color)
-# Parameters: $* - message to log
-log_info() {
-    [[ $CURRENT_LOG_LEVEL -gt $LOG_LEVEL_INFO ]] && return
-    local message="$*"
-    echo -e "${BLUE}[INFO]${NC} $message"
-    log_to_file "INFO" "$message"
-}
-
-# Function: log_warn
-# Description: Log warning message (yellow color)
-# Parameters: $* - message to log
-log_warn() {
-    [[ $CURRENT_LOG_LEVEL -gt $LOG_LEVEL_WARN ]] && return
-    local message="$*"
-    echo -e "${YELLOW}[WARN]${NC} $message" >&2
-    log_to_file "WARN" "$message"
-}
-
-# Function: log_error
-# Description: Log error message (red color)
-# Parameters: $* - message to log
-log_error() {
-    local message="$*"
-    echo -e "${RED}[ERROR]${NC} $message" >&2
-    log_to_file "ERROR" "$message"
-}
-
-# Function: log_success
-# Description: Log success message (green color)
-# Parameters: $* - message to log
-log_success() {
-    local message="$*"
-    echo -e "${GREEN}[SUCCESS]${NC} $message"
-    log_to_file "SUCCESS" "$message"
-}
-
-# ======================================================================================
-# VALIDATION FUNCTIONS
-# ======================================================================================
-
-# Function: validate_root
-# Description: Ensure script is running with root privileges
-# Returns: 0 if root, exits with error if not
-validate_root() {
+# Check if running as root
+require_root() {
     if [[ $EUID -ne 0 ]]; then
-        log_error "This script must be run as root. Please use sudo."
-        exit 1
+        die "This script must be run as root. Please use sudo." 2
     fi
-    log_debug "Root privileges validated"
 }
 
-# Function: validate_system
-# Description: Check if the system is a supported Linux distribution
-# Returns: 0 if supported, 1 if not
-validate_system() {
-    local supported_distros=("ubuntu" "debian")
-    local distro=""
-
-    if [[ -f /etc/os-release ]]; then
-        distro=$(grep "^ID=" /etc/os-release | cut -d'=' -f2 | tr -d '"')
-    else
-        log_error "Cannot determine Linux distribution"
-        return 1
+# Check if NOT running as root
+require_non_root() {
+    if [[ $EUID -eq 0 ]]; then
+        die "This script should not be run as root." 3
     fi
-
-    for supported in "${supported_distros[@]}"; do
-        if [[ "$distro" == "$supported" ]]; then
-            log_info "System validated: $distro"
-            return 0
-        fi
-    done
-
-    log_error "Unsupported distribution: $distro. Supported: ${supported_distros[*]}"
-    return 1
 }
 
-# Function: check_internet
-# Description: Verify internet connectivity
-# Returns: 0 if connected, 1 if not
-check_internet() {
-    local test_hosts=("8.8.8.8" "1.1.1.1" "google.com")
+# Validate input parameters
+validate_not_empty() {
+    local value="$1"
+    local name="$2"
 
-    for host in "${test_hosts[@]}"; do
-        if ping -c 1 -W 5 "$host" &>/dev/null; then
-            log_debug "Internet connectivity verified via $host"
-            return 0
-        fi
-    done
-
-    log_error "No internet connectivity detected"
-    return 1
+    if [[ -z "$value" ]]; then
+        die "Parameter '$name' cannot be empty" 4
+    fi
 }
 
-# Function: validate_port
-# Description: Validate if port number is in valid range and available
-# Parameters: $1 - port number
-# Returns: 0 if valid and available, 1 if not
-validate_port() {
-    local port="$1"
+# Validate UUID format
+validate_uuid() {
+    local uuid="$1"
+    local uuid_pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
-    # Check if port is a number
-    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
-        log_error "Invalid port: $port (not a number)"
+    if [[ ! $uuid =~ $uuid_pattern ]]; then
         return 1
     fi
-
-    # Check port range
-    if [[ $port -lt 1 || $port -gt 65535 ]]; then
-        log_error "Invalid port: $port (must be 1-65535)"
-        return 1
-    fi
-
-    # Check if port is available
-    if ss -tulpn | grep -q ":$port "; then
-        log_error "Port $port is already in use"
-        return 1
-    fi
-
-    log_debug "Port $port is valid and available"
     return 0
 }
 
-# ======================================================================================
-# SYSTEM UTILITY FUNCTIONS
-# ======================================================================================
-
-# Function: backup_file
-# Description: Create a timestamped backup of a file
-# Parameters: $1 - file path
-# Returns: 0 on success, 1 on failure
-backup_file() {
-    local file_path="$1"
-    local backup_suffix=$(date +%Y%m%d_%H%M%S)
-    local backup_path="${file_path}.backup.${backup_suffix}"
-
-    if [[ ! -f "$file_path" ]]; then
-        log_warn "File does not exist: $file_path"
-        return 1
-    fi
-
-    if cp "$file_path" "$backup_path"; then
-        log_info "File backed up: $file_path -> $backup_path"
-        return 0
-    else
-        log_error "Failed to backup file: $file_path"
-        return 1
-    fi
-}
-
-# Function: generate_uuid
-# Description: Generate a UUID v4 for user identification
-# Returns: UUID string
+# Generate UUID v4
 generate_uuid() {
-    # Try different methods to generate UUID
-    if command -v uuidgen &>/dev/null; then
-        uuidgen
-    elif [[ -f /proc/sys/kernel/random/uuid ]]; then
-        cat /proc/sys/kernel/random/uuid
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
     else
-        # Fallback: generate pseudo-random UUID
-        python3 -c "import uuid; print(str(uuid.uuid4()))" 2>/dev/null || \
-        perl -e 'use UUID; UUID::generate($uuid); UUID::unparse($uuid, $uuid_string); print $uuid_string' 2>/dev/null || \
-        echo "$(date +%s)-$(shuf -i 1000-9999 -n 1)-$(shuf -i 1000-9999 -n 1)-$(shuf -i 1000-9999 -n 1)"
+        # Fallback UUID generation
+        python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || \
+        die "UUID generation failed. Please install uuidgen or python3."
     fi
 }
 
-# Function: is_service_running
-# Description: Check if a systemd service is running
-# Parameters: $1 - service name
-# Returns: 0 if running, 1 if not
-is_service_running() {
-    local service_name="$1"
+# Validate port number
+validate_port() {
+    local port="$1"
 
-    if systemctl is-active --quiet "$service_name"; then
-        log_debug "Service $service_name is running"
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 || "$port" -gt 65535 ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Check if port is in use
+is_port_in_use() {
+    local port="$1"
+    netstat -tuln 2>/dev/null | grep -q ":${port} " || \
+    ss -tuln 2>/dev/null | grep -q ":${port} " || \
+    return 1
+}
+
+# Detect system distribution
+detect_distribution() {
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        echo "${ID,,}"
+    elif command -v lsb_release >/dev/null 2>&1; then
+        lsb_release -si | tr '[:upper:]' '[:lower:]'
+    else
+        echo "unknown"
+    fi
+}
+
+# Detect system architecture
+detect_architecture() {
+    case "$(uname -m)" in
+        x86_64)  echo "amd64" ;;
+        aarch64) echo "arm64" ;;
+        armv7l)  echo "armhf" ;;
+        *)       echo "$(uname -m)" ;;
+    esac
+}
+
+# Get system information
+get_system_info() {
+    local distribution
+    local architecture
+    local kernel
+
+    distribution=$(detect_distribution)
+    architecture=$(detect_architecture)
+    kernel=$(uname -r)
+
+    cat << EOF
+Distribution: $distribution
+Architecture: $architecture
+Kernel: $kernel
+EOF
+}
+
+# Check network connectivity
+check_network_connectivity() {
+    local test_hosts=("8.8.8.8" "1.1.1.1" "google.com")
+    local host
+
+    for host in "${test_hosts[@]}"; do
+        if ping -c 1 -W 3 "$host" >/dev/null 2>&1; then
+            log_debug "Network connectivity confirmed via $host"
+            return 0
+        fi
+    done
+
+    log_error "No network connectivity detected"
+    return 1
+}
+
+# Check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Install package if not present
+install_package_if_missing() {
+    local package="$1"
+    local install_cmd="${2:-}"
+
+    if ! command_exists "$package" && ! dpkg -l | grep -q "^ii.*${package}"; then
+        log_info "Installing missing package: $package"
+
+        if [[ -n "$install_cmd" ]]; then
+            eval "$install_cmd"
+        else
+            apt-get update -qq && apt-get install -y "$package"
+        fi
+
+        if ! command_exists "$package"; then
+            die "Failed to install package: $package" 5
+        fi
+
+        log_success "Successfully installed: $package"
+    fi
+}
+
+# Safe file backup
+backup_file() {
+    local file="$1"
+    local backup_suffix="${2:-.backup.$(date +%Y%m%d_%H%M%S)}"
+
+    if [[ -f "$file" ]]; then
+        local backup_file="${file}${backup_suffix}"
+        cp "$file" "$backup_file"
+        log_debug "Backed up $file to $backup_file"
+        echo "$backup_file"
+    fi
+}
+
+# Restore file from backup
+restore_file() {
+    local backup_file="$1"
+    local original_file="${backup_file%%.backup.*}"
+
+    if [[ -f "$backup_file" ]]; then
+        cp "$backup_file" "$original_file"
+        log_info "Restored $original_file from backup"
         return 0
     else
-        log_debug "Service $service_name is not running"
+        log_error "Backup file not found: $backup_file"
         return 1
     fi
 }
 
-# Function: wait_for_service
-# Description: Wait for a service to start with timeout
-# Parameters: $1 - service name, $2 - timeout in seconds (default: 30)
-# Returns: 0 if service starts, 1 if timeout
-wait_for_service() {
-    local service_name="$1"
+# Create directory with proper permissions
+create_directory() {
+    local dir="$1"
+    local permissions="${2:-755}"
+    local owner="${3:-}"
+
+    if [[ ! -d "$dir" ]]; then
+        mkdir -p "$dir"
+        chmod "$permissions" "$dir"
+
+        if [[ -n "$owner" ]]; then
+            chown "$owner" "$dir"
+        fi
+
+        log_debug "Created directory: $dir (permissions: $permissions)"
+    fi
+}
+
+# Secure file creation
+create_secure_file() {
+    local file="$1"
+    local content="$2"
+    local permissions="${3:-600}"
+    local owner="${4:-}"
+
+    echo "$content" > "$file"
+    chmod "$permissions" "$file"
+
+    if [[ -n "$owner" ]]; then
+        chown "$owner" "$file"
+    fi
+
+    log_debug "Created secure file: $file (permissions: $permissions)"
+}
+
+# Wait for condition with timeout
+wait_for_condition() {
+    local condition_cmd="$1"
     local timeout="${2:-30}"
+    local interval="${3:-1}"
     local elapsed=0
 
-    log_info "Waiting for service $service_name to start (timeout: ${timeout}s)..."
-
     while [[ $elapsed -lt $timeout ]]; do
-        if is_service_running "$service_name"; then
-            log_success "Service $service_name started successfully"
+        if eval "$condition_cmd"; then
             return 0
         fi
-        sleep 2
-        elapsed=$((elapsed + 2))
+        sleep "$interval"
+        ((elapsed += interval))
     done
 
-    log_error "Timeout waiting for service $service_name to start"
+    log_error "Timeout waiting for condition: $condition_cmd"
     return 1
 }
 
-# ======================================================================================
-# FILE AND DIRECTORY FUNCTIONS
-# ======================================================================================
+# Process isolation functions to prevent EPERM errors
 
-# Function: create_directory
-# Description: Create directory with proper permissions
-# Parameters: $1 - directory path, $2 - permissions (default: 755), $3 - owner (default: root:root)
-create_directory() {
-    local dir_path="$1"
-    local permissions="${2:-755}"
-    local owner="${3:-root:root}"
+# Safe execute with timeout and cleanup
+safe_execute() {
+    local timeout="$1"
+    shift
+    local cmd=("$@")
 
-    if [[ -d "$dir_path" ]]; then
-        log_debug "Directory already exists: $dir_path"
-        return 0
-    fi
+    setup_signal_handlers
 
-    if mkdir -p "$dir_path"; then
-        chmod "$permissions" "$dir_path"
-        chown "$owner" "$dir_path"
-        log_info "Created directory: $dir_path (permissions: $permissions, owner: $owner)"
+    log_debug "Executing with timeout ${timeout}s: ${cmd[*]}"
+
+    timeout "${timeout}" "${cmd[@]}" &
+    local pid=$!
+    register_child_process "$pid"
+
+    if wait "$pid"; then
+        log_debug "Command completed successfully: ${cmd[*]}"
         return 0
     else
-        log_error "Failed to create directory: $dir_path"
-        return 1
+        local exit_code=$?
+        log_error "Command failed with exit code $exit_code: ${cmd[*]}"
+        return $exit_code
     fi
 }
 
-# Function: ensure_file_exists
-# Description: Ensure a file exists, create if it doesn't
-# Parameters: $1 - file path, $2 - permissions (default: 644), $3 - owner (default: root:root)
-ensure_file_exists() {
-    local file_path="$1"
-    local permissions="${2:-644}"
-    local owner="${3:-root:root}"
+# Isolated systemctl command
+isolate_systemctl_command() {
+    local action="$1"
+    local service="$2"
+    local timeout="${3:-30}"
 
-    if [[ ! -f "$file_path" ]]; then
-        touch "$file_path"
-        chmod "$permissions" "$file_path"
-        chown "$owner" "$file_path"
-        log_info "Created file: $file_path"
-    fi
+    setup_signal_handlers
+    log_debug "Executing systemctl $action $service with timeout ${timeout}s"
+
+    case "$action" in
+        start|stop|restart|reload)
+            safe_execute "$timeout" systemctl "$action" "$service"
+            ;;
+        enable|disable)
+            safe_execute "$timeout" systemctl "$action" "$service"
+            ;;
+        status)
+            safe_execute "$timeout" systemctl "$action" "$service" --no-pager
+            ;;
+        *)
+            log_error "Unsupported systemctl action: $action"
+            return 1
+            ;;
+    esac
 }
 
-# ======================================================================================
-# NETWORK UTILITY FUNCTIONS
-# ======================================================================================
+# Interruptible sleep
+interruptible_sleep() {
+    local duration="$1"
+    local check_interval="${2:-5}"
+    local elapsed=0
 
-# Function: get_public_ip
-# Description: Get the public IP address of the server
-# Returns: Public IP address
-get_public_ip() {
-    local ip=""
-    local services=("https://ifconfig.me/ip" "https://icanhazip.com" "https://ipecho.net/plain")
+    setup_signal_handlers
 
-    for service in "${services[@]}"; do
-        ip=$(curl -s --max-time 10 "$service" 2>/dev/null | tr -d '\n\r')
-        if [[ -n "$ip" && "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "$ip"
-            return 0
+    while [[ $elapsed -lt $duration ]]; do
+        local sleep_time=$check_interval
+        if [[ $((elapsed + check_interval)) -gt $duration ]]; then
+            sleep_time=$((duration - elapsed))
         fi
-    done
 
-    log_error "Failed to determine public IP address"
-    return 1
+        sleep "$sleep_time" &
+        local pid=$!
+        register_child_process "$pid"
+
+        if ! wait "$pid"; then
+            log_debug "Sleep interrupted"
+            return 130
+        fi
+
+        elapsed=$((elapsed + sleep_time))
+    done
 }
 
-# Function: validate_ip
-# Description: Validate IP address format
-# Parameters: $1 - IP address
-# Returns: 0 if valid, 1 if not
-validate_ip() {
-    local ip="$1"
-    local ip_regex='^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+# Controlled tail with auto-stop
+controlled_tail() {
+    local file="$1"
+    local timeout="${2:-60}"
+    local max_lines="${3:-100}"
 
-    if [[ $ip =~ $ip_regex ]]; then
-        # Check each octet is 0-255
-        IFS='.' read -r -a octets <<< "$ip"
-        for octet in "${octets[@]}"; do
-            if [[ $octet -gt 255 ]]; then
-                return 1
+    setup_signal_handlers
+    log_debug "Tailing $file for ${timeout}s (max ${max_lines} lines)"
+
+    timeout "$timeout" tail -n "$max_lines" -f "$file" &
+    local pid=$!
+    register_child_process "$pid"
+
+    wait "$pid" 2>/dev/null || true
+}
+
+# Get external IP address
+get_external_ip() {
+    local ip_services=("ifconfig.me" "ipinfo.io/ip" "icanhazip.com")
+    local service
+
+    for service in "${ip_services[@]}"; do
+        if ip=$(curl -s --connect-timeout 10 "$service" 2>/dev/null); then
+            if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                echo "$ip"
+                return 0
             fi
-        done
-        return 0
-    fi
+        fi
+    done
+
+    log_warn "Failed to detect external IP address"
     return 1
 }
 
-# ======================================================================================
-# PACKAGE MANAGEMENT FUNCTIONS
-# ======================================================================================
+# Verify file integrity with checksum
+verify_file_checksum() {
+    local file="$1"
+    local expected_checksum="$2"
+    local algorithm="${3:-sha256}"
 
-# Function: update_package_cache
-# Description: Update package manager cache
-update_package_cache() {
-    log_info "Updating package cache..."
-    if apt-get update -qq; then
-        log_success "Package cache updated"
+    if [[ ! -f "$file" ]]; then
+        log_error "File not found: $file"
+        return 1
+    fi
+
+    local actual_checksum
+    case "$algorithm" in
+        md5)    actual_checksum=$(md5sum "$file" | cut -d' ' -f1) ;;
+        sha1)   actual_checksum=$(sha1sum "$file" | cut -d' ' -f1) ;;
+        sha256) actual_checksum=$(sha256sum "$file" | cut -d' ' -f1) ;;
+        *)      log_error "Unsupported checksum algorithm: $algorithm"; return 1 ;;
+    esac
+
+    if [[ "$actual_checksum" == "$expected_checksum" ]]; then
+        log_debug "File checksum verified: $file"
         return 0
     else
-        log_error "Failed to update package cache"
+        log_error "File checksum mismatch: $file"
+        log_error "Expected: $expected_checksum"
+        log_error "Actual: $actual_checksum"
         return 1
     fi
 }
 
-# Function: install_package
-# Description: Install a package with error handling
-# Parameters: $1 - package name
-# Returns: 0 on success, 1 on failure
-install_package() {
-    local package="$1"
+# Human readable file size
+human_readable_size() {
+    local size="$1"
+    local units=("B" "KB" "MB" "GB" "TB")
+    local unit_index=0
 
-    log_info "Installing package: $package"
-    if apt-get install -y "$package" &>/dev/null; then
-        log_success "Package installed: $package"
-        return 0
+    while [[ $size -gt 1024 && $unit_index -lt ${#units[@]} ]]; do
+        size=$((size / 1024))
+        ((unit_index++))
+    done
+
+    echo "${size}${units[$unit_index]}"
+}
+
+# Initialize logging
+init_logging() {
+    local log_dir
+    log_dir=$(dirname "$LOG_FILE")
+
+    if [[ ! -d "$log_dir" ]]; then
+        mkdir -p "$log_dir" 2>/dev/null || true
+    fi
+
+    if [[ -w "$log_dir" ]]; then
+        touch "$LOG_FILE" 2>/dev/null || true
+        if [[ -f "$LOG_FILE" ]]; then
+            log_debug "Logging initialized: $LOG_FILE"
+        fi
     else
-        log_error "Failed to install package: $package"
-        return 1
+        log_warn "Cannot write to log file: $LOG_FILE"
+        log_warn "Logging to console only"
     fi
 }
 
-# Function: is_package_installed
-# Description: Check if a package is installed
-# Parameters: $1 - package name
-# Returns: 0 if installed, 1 if not
-is_package_installed() {
-    local package="$1"
+# Export functions for use in other scripts
+export -f log_debug log_info log_warn log_error log_fatal log_success
+export -f die require_root require_non_root
+export -f validate_not_empty validate_uuid generate_uuid validate_port is_port_in_use
+export -f detect_distribution detect_architecture get_system_info
+export -f check_network_connectivity command_exists install_package_if_missing
+export -f backup_file restore_file create_directory create_secure_file
+export -f wait_for_condition safe_execute isolate_systemctl_command
+export -f interruptible_sleep controlled_tail setup_signal_handlers
+export -f cleanup_child_processes register_child_process
+export -f get_external_ip verify_file_checksum human_readable_size
+export -f init_logging get_timestamp
 
-    if dpkg -l | grep -q "^ii  $package "; then
-        log_debug "Package $package is installed"
-        return 0
-    else
-        log_debug "Package $package is not installed"
-        return 1
-    fi
-}
+# Initialize logging on source
+init_logging
 
-# ======================================================================================
-# ERROR HANDLING AND CLEANUP
-# ======================================================================================
-
-# Function: cleanup_on_exit
-# Description: Cleanup function to be called on script exit
-cleanup_on_exit() {
-    local exit_code=$?
-    if [[ $exit_code -ne 0 ]]; then
-        log_error "Script exited with error code: $exit_code"
-    fi
-}
-
-# Function: setup_error_handling
-# Description: Setup error handling and cleanup
-setup_error_handling() {
-    set -euo pipefail
-    trap cleanup_on_exit EXIT
-}
-
-# ======================================================================================
-# INITIALIZATION
-# ======================================================================================
-
-# Function: init_common_utils
-# Description: Initialize common utilities
-init_common_utils() {
-    # Create necessary directories
-    create_directory "$VLESS_ROOT" "755" "root:root"
-    create_directory "$LOG_DIR" "755" "root:root"
-    create_directory "$CONFIG_DIR" "700" "root:root"
-    create_directory "$BACKUP_DIR" "700" "root:root"
-    create_directory "$CERT_DIR" "700" "root:root"
-    create_directory "$USER_DIR" "700" "root:root"
-
-    log_info "Common utilities initialized"
-}
-
-# Auto-initialize if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    validate_root
-    init_common_utils
-    log_success "Common utilities module loaded successfully"
-fi
+log_debug "Common utilities module loaded successfully"

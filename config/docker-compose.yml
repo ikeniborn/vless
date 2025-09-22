@@ -1,184 +1,140 @@
 version: '3.8'
 
-# ======================================================================================
-# VLESS+Reality VPN Management System - Docker Compose Configuration
-# ======================================================================================
-# This Docker Compose file defines the Xray service with VLESS+Reality support.
-# It includes proper networking, volume management, and health monitoring.
-#
-# Author: Claude Code
-# Version: 1.0
-# Last Modified: 2025-09-21
-# ======================================================================================
-
 services:
   xray:
     image: teddysun/xray:latest
     container_name: vless-xray
     restart: unless-stopped
-
-    # Network configuration
-    network_mode: host
-
-    # Port mappings (when not using host networking)
-    # ports:
-    #   - "443:443"     # HTTPS port for Reality
-    #   - "80:80"       # HTTP port for fallback
-
-    # Environment variables
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - /opt/vless/config:/etc/xray:ro
+      - /opt/vless/logs:/var/log/xray
+      - /opt/vless/certs:/opt/certs:ro
     environment:
       - TZ=UTC
-      - XRAY_LOCATION_ASSET=/usr/share/xray
-
-    # Volume mounts
-    volumes:
-      # Xray configuration
-      - ${VLESS_ROOT:-/opt/vless}/config/xray_config.json:/etc/xray/config.json:ro
-
-      # Logs directory
-      - ${VLESS_ROOT:-/opt/vless}/logs:/var/log/xray:rw
-
-      # Certificates directory
-      - ${VLESS_ROOT:-/opt/vless}/certs:/etc/ssl/xray:ro
-
-      # Data directory for persistence
-      - xray_data:/var/lib/xray:rw
-
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 128M
-          cpus: '0.2'
-
-    # Health check
+    networks:
+      - vless-network
     healthcheck:
-      test: ["CMD", "pgrep", "-x", "xray"]
+      test: ["CMD", "xray", "test", "-c", "/etc/xray/config.json"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-
-    # Logging configuration
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-        labels: "service=xray"
-
-    # Process isolation
-    pid: "container"
-
-    # Capabilities (drop all, add only what's needed)
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
-      - NET_ADMIN
-
-    # User namespace (run as non-root when possible)
-    # user: "1000:1000"  # Uncomment if running as non-root
-
-  # Optional: Monitoring container
-  xray-monitor:
-    image: alpine:latest
-    container_name: vless-monitor
-    restart: unless-stopped
-
-    # Monitoring script
-    command: |
-      sh -c '
-        apk add --no-cache curl procps &&
-        while true; do
-          if pgrep -f xray > /dev/null; then
-            echo "$(date): Xray is running"
-          else
-            echo "$(date): WARNING - Xray is not running!"
-          fi
-          sleep 60
-        done
-      '
-
-    # Share network with Xray for monitoring
-    network_mode: "service:xray"
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: '0.1'
-
-    # Logging
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     logging:
-      driver: json-file
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:alpine
+    container_name: vless-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /opt/vless/logs:/var/log/nginx
+    environment:
+      - TZ=UTC
+    networks:
+      - vless-network
+    depends_on:
+      - xray
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:noexec,nosuid,size=50m
+      - /var/run:noexec,nosuid,size=10m
+      - /tmp:noexec,nosuid,size=10m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: vless-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *  # Daily at 4 AM
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr://telegram://TOKEN@telegram?channels=CHAT_ID
+      - TZ=UTC
+    networks:
+      - vless-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
-        labels: "service=monitor"
-
-    # Only start if monitoring is enabled
     profiles:
-      - monitoring
+      - auto-update
 
-# Named volumes
+networks:
+  vless-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: vless-br0
+
 volumes:
-  xray_data:
+  xray-config:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${VLESS_ROOT:-/opt/vless}/data
-    name: vless_xray_data
+      device: /opt/vless/config
 
-# Networks (if needed for custom networking)
-networks:
-  vless_network:
-    driver: bridge
-    name: vless_network
-    ipam:
-      config:
-        - subnet: 172.20.0.0/24
-          gateway: 172.20.0.1
+  xray-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/vless/logs
 
-# ======================================================================================
-# Environment Variables Reference:
-# ======================================================================================
-# VLESS_ROOT           - Root directory for VLESS installation (default: /opt/vless)
-# TZ                   - Timezone for containers (default: UTC)
-# XRAY_LOG_LEVEL       - Log level for Xray (error, warning, info, debug)
-#
-# ======================================================================================
-# Usage Examples:
-# ======================================================================================
-# Start services:           docker compose up -d
-# Start with monitoring:     docker compose --profile monitoring up -d
-# View logs:                 docker compose logs -f xray
-# Stop services:             docker compose down
-# Restart Xray:              docker compose restart xray
-# Update containers:         docker compose pull && docker compose up -d
-#
-# ======================================================================================
-# Health Check Commands:
-# ======================================================================================
-# Check container status:    docker compose ps
-# View health status:        docker inspect --format='{{.State.Health.Status}}' vless-xray
-# Manual health check:       docker exec vless-xray pgrep -x xray
-#
-# ======================================================================================
-# Troubleshooting:
-# ======================================================================================
-# View container logs:       docker compose logs xray
-# Execute shell in container: docker compose exec xray sh
-# Check configuration:       docker compose config
-# Validate config syntax:    docker compose config --quiet
-#
-# ======================================================================================
+  xray-certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/vless/certs

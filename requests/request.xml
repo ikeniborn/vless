@@ -1,10 +1,10 @@
 <request>
     <role>
         Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
-        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, Telegram инттеграция, тестирование и отладку.
+        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
     </role>
     <project>
-        <name>VLESS+Retality VPN</name>
+        <name>VLESS+Reality VPN</name>
         <architecture>
             <program_language>Bash, Python</program_language>
             <infrastructure>Docker Compose</infrastructure>
@@ -13,12 +13,14 @@
     <context>
         Скрпит для устанвоки и управления сервером VPN по протоколу VLESS+REality.
         Функции:
-        1. Установка сервиса в докер с помощью docker compose. Обновление всех пакетов операционной системы
-        2. Настройка конфиграций в каталоге /opt/vless c с храением всех конфиграуий
-        3. управление (Добавление, Удаление) пользвоателеями. Генерация qrcodes для подключения
-        4. ПЕреустанвока сервера
-        5. Удаление сервера
-        6. Настройка файрволла UFW с проверкой существубщих правил. Созхранением старых правил и добавления нужныхх для сервера.
+        1. Обновление всех пакетов операционной системы
+        2. Установка сервиса в докер с помощью docker compose. 
+        3. Настройка конфиграций в каталоге /opt/vless c с храением всех конфиграуий
+        4 управление (Добавление, Удаление) пользвоателеями. Генерация qrcodes для подключения
+        5. ПЕреустанвока сервера
+        6. Удаление сервера
+        7. Настройка файрволла UFW с проверкой существубщих правил. Созхранением старых правил и добавления нужныхх для сервера.
+
         Документация по проктоклу https://xtls.github.io/en/development/protocols/vless.html
         Задача сервиса обеспечить доступ по ВПН черрез домашние сети вайфай или мобильные сетти без запрета трафика. 
         Безопасность трафика так же важна
@@ -46,7 +48,9 @@
             </step>
             <step number="3">
                 <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses.xml</action>
-                <output_file>/requests/analyses.xml</output_file>
+                <requests_directory path="requests/">
+                    <file path="analyses.xml"/>
+                </requests_directory>
             </step>
             <step number="4">
                 <action>Приступить к задаче task 2</action>
@@ -54,12 +58,16 @@
         </task>
         <task number="2">
             <step number="1">
-                <input_file>/requests/analyses.xml</input_file>
+                <requests_directory path="requests/">
+                    <file path="analyses.xml"/>
+                </requests_directory>
                 <action>Сформировать план задач c помощью субагента на основании /requests/analyses.xml</action>
             </step>
             <step number="2">
                 <action>Сохранить план в формате xml в каталоге /requests с названием plan.xml</action>
-                <output_file>/requests/plan.xml</output_file>
+                <requests_directory path="requests/">
+                    <file path="plan.xml"/>
+                </requests_directory>
             </step>
             <step number="3">
                 <action>Приступить к задаче task 3</action>
@@ -67,7 +75,9 @@
         </task>
         <task number="3">
             <step number="1">
-                <input_file>/requests/plan.xml</input_file>
+                <requests_directory path="requests/">
+                    <file path="plan.xml"/>
+                </requests_directory>
                 <action>Выполнить план задач /requests/plan.xml шаг за шагом с помощью субагентов</action>
             </step>
             <step number="2">
@@ -78,7 +88,9 @@
             </step>
             <step number="3">
                 <action>Созранить результаты плана в /requests/result.md</action>
-                <output_file>/requests/result.md</output_file>
+                <requests_directory path="requests/">
+                    <file path="result.md"/>
+                </requests_directory>
             </step>
             <step number="4">
                 <action>Приступить к задаче task 4</action>
@@ -86,7 +98,7 @@
         </task>
         <task number="4">
             <step number="1">
-                <test_directory>/tests</test_directory>
+                <test_directory path="tests/"/>
                 <action>Реализовать тесты на новый или измененный функционал. Сохранить в каталоге /tests</action>
             </step>
             <step number="2">
@@ -98,11 +110,13 @@
         </task>
         <task number="5">
             <step number="1">
-                <documentation_directory>/docs</documentation_directory>
+                <documentation_directory path="docs/"/>
                 <action>Обновить документацию в /docs и README.md</action>
             </step>
             <step number="2">
-                <input_file>CLAUDE.md</input_file>
+                <root_directory path="/">
+                    <file path="CLAUDE.md<"/>
+                </root_directory>
                 <action>Обновить память проекта CLAUDE.md</action>
                 <best_practice>
                     <tip number="1">Be specific: “Use 2-space indentation” is better than “Format code properly”.</tip>

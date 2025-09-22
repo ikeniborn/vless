@@ -1,927 +1,527 @@
 #!/bin/bash
-# ======================================================================================
-# VLESS+Reality VPN Management System - User Management Tests
-# ======================================================================================
-# This script provides comprehensive testing for the user management functionality
-# including CRUD operations, configuration generation, and database operations.
-#
-# Author: Claude Code
-# Version: 1.0
-# Last Modified: 2025-09-21
-# ======================================================================================
+
+# VLESS+Reality VPN Management System - User Management Unit Tests
+# Version: 1.0.0
+# Description: Unit tests for user_management.sh module
 
 set -euo pipefail
 
-# Test configuration
+# Import test framework
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-MODULES_DIR="${PROJECT_ROOT}/modules"
+source "${SCRIPT_DIR}/test_framework.sh"
 
-# Source required modules
-source "${MODULES_DIR}/common_utils.sh"
+# Initialize test suite
+init_test_framework "User Management Unit Tests"
 
-# Test specific variables
-readonly TEST_USER_DIR="/tmp/vless_test_users"
-readonly TEST_BACKUP_DIR="/tmp/vless_test_backups"
-readonly TEST_CONFIG_DIR="/tmp/vless_test_config"
-readonly TEST_LOG_DIR="/tmp/vless_test_logs"
-readonly TEST_DATABASE="${TEST_USER_DIR}/users.json"
+# Test configuration
+TEST_DB_FILE=""
+TEST_CONFIG_DIR=""
 
-# Override global variables for testing
-export USER_DIR="$TEST_USER_DIR"
-export BACKUP_DIR="$TEST_BACKUP_DIR"
-export CONFIG_DIR="$TEST_CONFIG_DIR"
-export LOG_DIR="$TEST_LOG_DIR"
-export VLESS_ROOT="/tmp/vless_test"
-
-# Test counters
-TESTS_TOTAL=0
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-# ======================================================================================
-# TEST FRAMEWORK FUNCTIONS
-# ======================================================================================
-
-# Function: setup_test_environment
-# Description: Initialize test environment
+# Setup test environment
 setup_test_environment() {
-    log_info "Setting up test environment..."
+    # Create temporary directories for testing
+    TEST_CONFIG_DIR=$(create_temp_dir)
+    TEST_DB_FILE="${TEST_CONFIG_DIR}/test_users.json"
 
-    # Clean up any existing test data
-    cleanup_test_environment
+    # Create mock config files
+    mkdir -p "${TEST_CONFIG_DIR}/config"
+    cat > "${TEST_CONFIG_DIR}/config/xray_config_template.json" << 'EOF'
+{
+    "inbounds": [
+        {
+            "port": 443,
+            "protocol": "vless",
+            "settings": {
+                "clients": []
+            }
+        }
+    ]
+}
+EOF
 
-    # Create test directories
-    mkdir -p "$TEST_USER_DIR"
-    mkdir -p "$TEST_BACKUP_DIR"
-    mkdir -p "$TEST_CONFIG_DIR"
-    mkdir -p "$TEST_LOG_DIR"
-    mkdir -p "${TEST_USER_DIR}/configs"
-    mkdir -p "${TEST_USER_DIR}/qr_codes"
-    mkdir -p "${TEST_USER_DIR}/exports"
+    # Mock external dependencies
+    mock_command "systemctl" "success" ""
+    mock_command "docker" "success" ""
 
-    # Set permissions
-    chmod 700 "$TEST_USER_DIR" "$TEST_BACKUP_DIR" "$TEST_CONFIG_DIR" "$TEST_LOG_DIR"
-
-    log_success "Test environment setup completed"
+    # Set environment variables for testing
+    export USER_DB_FILE="$TEST_DB_FILE"
+    export PROJECT_ROOT="$TEST_CONFIG_DIR"
 }
 
-# Function: cleanup_test_environment
-# Description: Clean up test environment
+# Cleanup test environment
 cleanup_test_environment() {
-    if [[ -d "/tmp/vless_test" ]]; then
-        rm -rf "/tmp/vless_test"
-    fi
-    if [[ -d "$TEST_USER_DIR" ]]; then
-        rm -rf "$TEST_USER_DIR"
-    fi
-    if [[ -d "$TEST_BACKUP_DIR" ]]; then
-        rm -rf "$TEST_BACKUP_DIR"
-    fi
-    if [[ -d "$TEST_CONFIG_DIR" ]]; then
-        rm -rf "$TEST_CONFIG_DIR"
-    fi
-    if [[ -d "$TEST_LOG_DIR" ]]; then
-        rm -rf "$TEST_LOG_DIR"
-    fi
+    cleanup_temp_files
+    [[ -n "$TEST_CONFIG_DIR" ]] && rm -rf "$TEST_CONFIG_DIR"
 }
 
-# Function: run_test
-# Description: Run a single test with error handling
-# Parameters: $1 - test name, $2 - test function
-run_test() {
-    local test_name="$1"
-    local test_function="$2"
+# Helper function to source modules with mocked dependencies
+source_modules() {
+    # Create a temporary common_utils with mocked functions
+    local temp_common_utils
+    temp_common_utils=$(create_temp_file)
+    cat > "$temp_common_utils" << 'EOF'
+#!/bin/bash
+set -euo pipefail
 
-    ((TESTS_TOTAL++))
+# Mock common utilities functions
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly NC='\033[0m'
 
-    echo ""
-    log_info "Running test: $test_name"
-    echo "----------------------------------------"
+readonly LOG_DEBUG=0
+readonly LOG_INFO=1
+readonly LOG_WARN=2
+readonly LOG_ERROR=3
 
-    if $test_function; then
-        ((TESTS_PASSED++))
-        log_success "PASSED: $test_name"
-    else
-        ((TESTS_FAILED++))
-        log_error "FAILED: $test_name"
-    fi
+LOG_LEVEL=${LOG_LEVEL:-$LOG_INFO}
 
-    echo "----------------------------------------"
-}
+log_info() { echo "[INFO] $*"; }
+log_error() { echo "[ERROR] $*" >&2; }
+log_warn() { echo "[WARN] $*" >&2; }
+log_debug() { echo "[DEBUG] $*"; }
 
-# Function: assert_equals
-# Description: Assert that two values are equal
-# Parameters: $1 - expected, $2 - actual, $3 - description
-assert_equals() {
-    local expected="$1"
-    local actual="$2"
-    local description="$3"
-
-    if [[ "$expected" == "$actual" ]]; then
-        log_debug "ASSERT PASS: $description"
-        return 0
-    else
-        log_error "ASSERT FAIL: $description"
-        log_error "  Expected: '$expected'"
-        log_error "  Actual: '$actual'"
-        return 1
-    fi
-}
-
-# Function: assert_not_empty
-# Description: Assert that a value is not empty
-# Parameters: $1 - value, $2 - description
-assert_not_empty() {
+validate_not_empty() {
     local value="$1"
-    local description="$2"
-
-    if [[ -n "$value" ]]; then
-        log_debug "ASSERT PASS: $description"
-        return 0
-    else
-        log_error "ASSERT FAIL: $description (value is empty)"
-        return 1
-    fi
+    local param_name="$2"
+    [[ -n "$value" ]] || { log_error "Parameter $param_name cannot be empty"; return 1; }
 }
 
-# Function: assert_file_exists
-# Description: Assert that a file exists
-# Parameters: $1 - file path, $2 - description
-assert_file_exists() {
-    local file_path="$1"
-    local description="$2"
-
-    if [[ -f "$file_path" ]]; then
-        log_debug "ASSERT PASS: $description"
-        return 0
-    else
-        log_error "ASSERT FAIL: $description (file not found: $file_path)"
-        return 1
-    fi
+validate_email() {
+    local email="$1"
+    [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]
 }
 
-# Function: assert_command_success
-# Description: Assert that a command succeeds
-# Parameters: $* - command to run
-assert_command_success() {
-    local description="Command execution"
-    if [[ "${*: -1}" =~ ^[A-Z] ]]; then
-        description="${*: -1}"
-        set -- "${@:1:$(($#-1))}"
-    fi
-
-    if "$@" >/dev/null 2>&1; then
-        log_debug "ASSERT PASS: $description"
-        return 0
-    else
-        log_error "ASSERT FAIL: $description"
-        return 1
-    fi
+validate_uuid() {
+    local uuid="$1"
+    [[ "$uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
 }
 
-# ======================================================================================
-# USER MANAGEMENT TESTS
-# ======================================================================================
-
-# Function: test_user_database_initialization
-# Description: Test user database initialization
-test_user_database_initialization() {
-    source "${MODULES_DIR}/user_database.sh"
-
-    # Test database initialization
-    if ! init_user_database; then
-        return 1
-    fi
-
-    # Verify database file exists
-    if ! assert_file_exists "$TEST_DATABASE" "Database file created"; then
-        return 1
-    fi
-
-    # Verify database content
-    local db_content
-    db_content=$(cat "$TEST_DATABASE")
-
-    if ! echo "$db_content" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    assert 'metadata' in data
-    assert 'users' in data
-    assert isinstance(data['users'], list)
-    assert len(data['users']) == 0
-    print('Database structure valid')
-except Exception as e:
-    print(f'Database structure invalid: {e}')
-    sys.exit(1)
-"; then
-        return 1
-    fi
-
-    log_debug "Database initialization test passed"
-    return 0
+generate_uuid() {
+    echo "$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "550e8400-e29b-41d4-a716-446655440000")"
 }
 
-# Function: test_add_user
-# Description: Test adding users
-test_add_user() {
-    source "${MODULES_DIR}/user_management.sh"
+handle_error() {
+    local message="$1"
+    local exit_code="${2:-1}"
+    log_error "$message"
+    return "$exit_code"
+}
+EOF
 
-    # Initialize database
+    # Create a temporary user_database with mocked functions
+    local temp_user_db
+    temp_user_db=$(create_temp_file)
+    cat > "$temp_user_db" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+
+USER_DB_FILE="${USER_DB_FILE:-/tmp/test_users.json}"
+
+init_user_database() {
+    [[ ! -f "$USER_DB_FILE" ]] && echo "[]" > "$USER_DB_FILE"
+}
+
+add_user_to_db() {
+    local email="$1"
+    local uuid="$2"
+    local name="${3:-}"
+    local flow="${4:-}"
+
     init_user_database
+
+    local user_entry="{\"email\":\"$email\",\"uuid\":\"$uuid\",\"name\":\"$name\",\"flow\":\"$flow\",\"created\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"active\":true}"
+
+    # Simple JSON array append (not production quality, but works for testing)
+    local current_content
+    current_content=$(cat "$USER_DB_FILE")
+    if [[ "$current_content" == "[]" ]]; then
+        echo "[$user_entry]" > "$USER_DB_FILE"
+    else
+        # Remove closing bracket and add new entry
+        echo "${current_content%]}, $user_entry]" > "$USER_DB_FILE"
+    fi
+}
+
+remove_user_from_db() {
+    local uuid="$1"
+    init_user_database
+
+    # For testing, just mark as removed
+    local temp_file
+    temp_file=$(mktemp)
+    jq --arg uuid "$uuid" 'map(select(.uuid != $uuid))' "$USER_DB_FILE" > "$temp_file" 2>/dev/null || {
+        # Fallback if jq is not available
+        grep -v "\"uuid\":\"$uuid\"" "$USER_DB_FILE" > "$temp_file" || echo "[]" > "$temp_file"
+    }
+    mv "$temp_file" "$USER_DB_FILE"
+}
+
+get_user_by_uuid() {
+    local uuid="$1"
+    init_user_database
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -r --arg uuid "$uuid" '.[] | select(.uuid == $uuid) | .email' "$USER_DB_FILE" 2>/dev/null || echo ""
+    else
+        grep "\"uuid\":\"$uuid\"" "$USER_DB_FILE" | sed 's/.*"email":"\([^"]*\)".*/\1/' || echo ""
+    fi
+}
+
+list_all_users() {
+    init_user_database
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -r '.[] | "\(.email) \(.uuid) \(.name // "N/A")"' "$USER_DB_FILE" 2>/dev/null || echo ""
+    else
+        cat "$USER_DB_FILE"
+    fi
+}
+
+user_exists() {
+    local email="$1"
+    init_user_database
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -e --arg email "$email" '.[] | select(.email == $email)' "$USER_DB_FILE" >/dev/null 2>&1
+    else
+        grep -q "\"email\":\"$email\"" "$USER_DB_FILE" 2>/dev/null
+    fi
+}
+EOF
+
+    # Source the mock modules
+    source "$temp_common_utils"
+    source "$temp_user_db"
+
+    # Now source the actual user management module
+    # Temporarily override the source commands in user_management.sh
+    local temp_user_mgmt
+    temp_user_mgmt=$(create_temp_file)
+
+    # Copy user_management.sh but replace the source lines with our mocks
+    sed "s|source.*common_utils.sh|source $temp_common_utils|g; s|source.*user_database.sh|source $temp_user_db|g" \
+        "${SCRIPT_DIR}/../modules/user_management.sh" > "$temp_user_mgmt"
+
+    source "$temp_user_mgmt"
+}
+
+# Test functions
+
+test_add_user_function() {
+    source_modules
+
+    local test_email="test@example.com"
+    local test_name="Test User"
 
     # Test adding a user
-    if ! add_user "testuser1" "test1@example.com" "Test User 1"; then
-        return 1
+    if add_user "$test_email" "$test_name"; then
+        pass_test "Should successfully add user"
+    else
+        fail_test "Should successfully add user"
+        return
     fi
 
-    # Verify user was added
-    if ! user_exists "testuser1"; then
-        log_error "User not found after adding"
-        return 1
+    # Verify user was added to database
+    if user_exists "$test_email"; then
+        pass_test "User should exist in database after adding"
+    else
+        fail_test "User should exist in database after adding"
     fi
-
-    # Test adding another user
-    if ! add_user "testuser2" "test2@example.com" "Test User 2"; then
-        return 1
-    fi
-
-    # Verify both users exist
-    local user_count
-    user_count=$(get_user_count)
-    if ! assert_equals "2" "$user_count" "User count after adding two users"; then
-        return 1
-    fi
-
-    # Test duplicate user (should fail)
-    if add_user "testuser1" "duplicate@example.com" "Duplicate User" 2>/dev/null; then
-        log_error "Duplicate user addition should have failed"
-        return 1
-    fi
-
-    log_debug "Add user test passed"
-    return 0
 }
 
-# Function: test_remove_user
-# Description: Test removing users
-test_remove_user() {
-    source "${MODULES_DIR}/user_management.sh"
+test_add_user_with_custom_uuid() {
+    source_modules
 
-    # Initialize and add test users
-    init_user_database
-    add_user "removetest1" "remove1@example.com" "Remove Test 1"
-    add_user "removetest2" "remove2@example.com" "Remove Test 2"
+    local test_email="custom@example.com"
+    local custom_uuid="550e8400-e29b-41d4-a716-446655440000"
 
-    # Verify initial state
-    local initial_count
-    initial_count=$(get_user_count)
-    if ! assert_equals "2" "$initial_count" "Initial user count"; then
-        return 1
+    # Test adding user with custom UUID
+    if add_user "$test_email" "" "" false "$custom_uuid"; then
+        pass_test "Should successfully add user with custom UUID"
+    else
+        fail_test "Should successfully add user with custom UUID"
+        return
     fi
 
-    # Remove first user
-    if ! remove_user "removetest1"; then
-        return 1
+    # Verify the specific UUID was used
+    local stored_user
+    stored_user=$(get_user_by_uuid "$custom_uuid")
+    assert_equals "$test_email" "$stored_user" "Should find user by custom UUID"
+}
+
+test_add_user_invalid_input() {
+    source_modules
+
+    # Test with empty email
+    if ! add_user "" "Test User" 2>/dev/null; then
+        pass_test "Should reject empty email"
+    else
+        fail_test "Should reject empty email"
+    fi
+
+    # Test with invalid email format
+    if ! add_user "invalid-email" "Test User" 2>/dev/null; then
+        pass_test "Should reject invalid email format"
+    else
+        fail_test "Should reject invalid email format"
+    fi
+
+    # Test with invalid custom UUID
+    if ! add_user "test@example.com" "Test User" "" false "invalid-uuid" 2>/dev/null; then
+        pass_test "Should reject invalid UUID format"
+    else
+        fail_test "Should reject invalid UUID format"
+    fi
+}
+
+test_remove_user_function() {
+    source_modules
+
+    local test_email="remove@example.com"
+    local test_uuid
+
+    # First add a user
+    add_user "$test_email" "Remove Test"
+    test_uuid=$(generate_uuid)
+
+    # Add user with known UUID for testing
+    add_user_to_db "$test_email" "$test_uuid" "Remove Test"
+
+    # Test removing the user
+    if remove_user "$test_email"; then
+        pass_test "Should successfully remove user"
+    else
+        fail_test "Should successfully remove user"
+        return
     fi
 
     # Verify user was removed
-    if user_exists "removetest1"; then
-        log_error "User still exists after removal"
-        return 1
+    if ! user_exists "$test_email"; then
+        pass_test "User should not exist after removal"
+    else
+        fail_test "User should not exist after removal"
     fi
-
-    # Verify count decreased
-    local after_removal_count
-    after_removal_count=$(get_user_count)
-    if ! assert_equals "1" "$after_removal_count" "User count after removal"; then
-        return 1
-    fi
-
-    # Test removing non-existent user (should fail)
-    if remove_user "nonexistent" 2>/dev/null; then
-        log_error "Removing non-existent user should have failed"
-        return 1
-    fi
-
-    log_debug "Remove user test passed"
-    return 0
 }
 
-# Function: test_list_users
-# Description: Test user listing functionality
-test_list_users() {
-    source "${MODULES_DIR}/user_management.sh"
+test_remove_nonexistent_user() {
+    source_modules
 
-    # Initialize and add test users
-    init_user_database
-    add_user "listtest1" "list1@example.com" "List Test 1"
-    add_user "listtest2" "list2@example.com" "List Test 2"
-    add_user "listtest3" "list3@example.com" "List Test 3"
-
-    # Test table format listing
-    local table_output
-    table_output=$(list_users table 2>/dev/null)
-
-    # Verify output contains user information
-    if ! echo "$table_output" | grep -q "listtest1"; then
-        log_error "Table output missing user listtest1"
-        return 1
+    # Test removing a user that doesn't exist
+    if ! remove_user "nonexistent@example.com" 2>/dev/null; then
+        pass_test "Should fail to remove nonexistent user"
+    else
+        fail_test "Should fail to remove nonexistent user"
     fi
-
-    if ! echo "$table_output" | grep -q "listtest2"; then
-        log_error "Table output missing user listtest2"
-        return 1
-    fi
-
-    # Test JSON format listing
-    local json_output
-    json_output=$(list_users json 2>/dev/null)
-
-    # Verify JSON is valid and contains users
-    if ! echo "$json_output" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    assert isinstance(data, list)
-    assert len(data) == 3
-    usernames = [user.get('username') for user in data]
-    assert 'listtest1' in usernames
-    assert 'listtest2' in usernames
-    assert 'listtest3' in usernames
-    print('JSON output valid')
-except Exception as e:
-    print(f'JSON output invalid: {e}')
-    sys.exit(1)
-"; then
-        return 1
-    fi
-
-    log_debug "List users test passed"
-    return 0
 }
 
-# Function: test_user_config_generation
-# Description: Test user configuration generation
+test_list_users_function() {
+    source_modules
+
+    # Add some test users
+    add_user "user1@example.com" "User One"
+    add_user "user2@example.com" "User Two"
+
+    # Test listing users
+    local user_list
+    user_list=$(list_users)
+
+    assert_not_equals "" "$user_list" "User list should not be empty"
+    assert_contains "$user_list" "user1@example.com" "Should contain first user"
+    assert_contains "$user_list" "user2@example.com" "Should contain second user"
+}
+
+test_get_user_config_function() {
+    source_modules
+
+    local test_email="config@example.com"
+    local test_uuid
+
+    # Add a test user
+    add_user "$test_email" "Config Test"
+
+    # Mock the UUID for testing
+    test_uuid="550e8400-e29b-41d4-a716-446655440000"
+    add_user_to_db "$test_email" "$test_uuid" "Config Test"
+
+    # Test getting user config
+    local config
+    config=$(get_user_config "$test_email")
+
+    assert_not_equals "" "$config" "Config should not be empty"
+    assert_contains "$config" "$test_uuid" "Config should contain user UUID"
+    assert_contains "$config" "vless://" "Config should be a VLESS URL"
+}
+
+test_search_users_function() {
+    source_modules
+
+    # Add test users
+    add_user "john.doe@example.com" "John Doe"
+    add_user "jane.smith@example.com" "Jane Smith"
+    add_user "bob.jones@company.com" "Bob Jones"
+
+    # Test searching by email domain
+    local search_result
+    search_result=$(search_users "example.com")
+
+    assert_contains "$search_result" "john.doe@example.com" "Should find john.doe"
+    assert_contains "$search_result" "jane.smith@example.com" "Should find jane.smith"
+    assert_not_contains "$search_result" "bob.jones@company.com" "Should not find bob.jones"
+
+    # Test searching by name
+    search_result=$(search_users "John")
+    assert_contains "$search_result" "john.doe@example.com" "Should find user by name"
+}
+
+test_user_statistics_function() {
+    source_modules
+
+    # Add some users
+    add_user "stats1@example.com" "Stats User 1"
+    add_user "stats2@example.com" "Stats User 2"
+    add_user "stats3@example.com" "Stats User 3"
+
+    # Test getting statistics
+    local stats
+    stats=$(get_user_statistics)
+
+    assert_not_equals "" "$stats" "Statistics should not be empty"
+    assert_contains "$stats" "3" "Should show count of 3 users"
+}
+
+test_bulk_user_operations() {
+    source_modules
+
+    # Create a test file with user list
+    local user_list_file
+    user_list_file=$(create_temp_file)
+    cat > "$user_list_file" << 'EOF'
+bulk1@example.com,Bulk User 1
+bulk2@example.com,Bulk User 2
+bulk3@example.com,Bulk User 3
+EOF
+
+    # Test bulk add (if function exists)
+    if declare -f bulk_add_users >/dev/null; then
+        if bulk_add_users "$user_list_file"; then
+            pass_test "Bulk add users should succeed"
+
+            # Verify all users were added
+            for email in "bulk1@example.com" "bulk2@example.com" "bulk3@example.com"; do
+                if user_exists "$email"; then
+                    pass_test "Bulk added user $email should exist"
+                else
+                    fail_test "Bulk added user $email should exist"
+                fi
+            done
+        else
+            fail_test "Bulk add users should succeed"
+        fi
+    else
+        skip_test "bulk_add_users function not implemented"
+    fi
+}
+
 test_user_config_generation() {
-    source "${MODULES_DIR}/user_management.sh"
-
-    # Initialize and add test user
-    init_user_database
-    add_user "configtest" "config@example.com" "Config Test User"
-
-    # Test VLESS configuration generation
-    if ! generate_user_config "configtest" "vless"; then
-        return 1
-    fi
-
-    # Verify configuration file was created
-    local config_file="${USER_DIR}/configs/configtest_vless.txt"
-    if ! assert_file_exists "$config_file" "VLESS config file created"; then
-        return 1
-    fi
-
-    # Verify configuration content
-    local config_content
-    config_content=$(cat "$config_file")
-
-    if ! echo "$config_content" | grep -q "vless://"; then
-        log_error "VLESS config missing vless:// prefix"
-        return 1
-    fi
-
-    # Test JSON configuration generation
-    if ! generate_user_config "configtest" "json"; then
-        return 1
-    fi
-
-    # Verify JSON configuration file
-    local json_config_file="${USER_DIR}/configs/configtest_json.txt"
-    if ! assert_file_exists "$json_config_file" "JSON config file created"; then
-        return 1
-    fi
-
-    # Verify JSON configuration is valid
-    if ! python3 -c "
-import json
-try:
-    with open('$json_config_file', 'r') as f:
-        data = json.load(f)
-    assert 'outbounds' in data
-    assert 'inbounds' in data
-    print('JSON config valid')
-except Exception as e:
-    print(f'JSON config invalid: {e}')
-    exit(1)
-"; then
-        return 1
-    fi
-
-    log_debug "User config generation test passed"
-    return 0
-}
-
-# Function: test_user_update
-# Description: Test user information updates
-test_user_update() {
-    source "${MODULES_DIR}/user_management.sh"
-
-    # Initialize and add test user
-    init_user_database
-    add_user "updatetest" "update@example.com" "Update Test User"
-
-    # Test updating email
-    if ! update_user "updatetest" "email" "newemail@example.com"; then
-        return 1
-    fi
-
-    # Verify update
-    local updated_email
-    updated_email=$(get_user_info "updatetest" "email")
-    if ! assert_equals "newemail@example.com" "$updated_email" "Updated email"; then
-        return 1
-    fi
-
-    # Test updating description
-    if ! update_user "updatetest" "description" "Updated Description"; then
-        return 1
-    fi
-
-    # Verify description update
-    local updated_description
-    updated_description=$(get_user_info "updatetest" "description")
-    if ! assert_equals "Updated Description" "$updated_description" "Updated description"; then
-        return 1
-    fi
-
-    log_debug "User update test passed"
-    return 0
-}
-
-# ======================================================================================
-# DATABASE MANAGEMENT TESTS
-# ======================================================================================
-
-# Function: test_database_backup_restore
-# Description: Test database backup and restore functionality
-test_database_backup_restore() {
-    source "${MODULES_DIR}/user_database.sh"
-
-    # Initialize database and add test data
-    init_user_database
-    source "${MODULES_DIR}/user_management.sh"
-    add_user "backuptest1" "backup1@example.com" "Backup Test 1"
-    add_user "backuptest2" "backup2@example.com" "Backup Test 2"
-
-    # Create backup
-    local backup_path
-    backup_path=$(backup_user_database "test_backup")
-    if [[ -z "$backup_path" ]]; then
-        log_error "Backup creation failed"
-        return 1
-    fi
-
-    # Verify backup file exists
-    if ! assert_file_exists "$backup_path" "Backup file created"; then
-        return 1
-    fi
-
-    # Modify database
-    add_user "backuptest3" "backup3@example.com" "Backup Test 3"
-    local modified_count
-    modified_count=$(get_user_count)
-
-    # Restore from backup
-    if ! restore_user_database "$backup_path"; then
-        return 1
-    fi
-
-    # Verify restoration
-    local restored_count
-    restored_count=$(get_user_count)
-    if ! assert_equals "2" "$restored_count" "User count after restore"; then
-        return 1
-    fi
-
-    # Verify specific users exist
-    if ! user_exists "backuptest1"; then
-        log_error "User backuptest1 not found after restore"
-        return 1
-    fi
-
-    if ! user_exists "backuptest2"; then
-        log_error "User backuptest2 not found after restore"
-        return 1
-    fi
-
-    # Verify user3 was removed by restore
-    if user_exists "backuptest3"; then
-        log_error "User backuptest3 should not exist after restore"
-        return 1
-    fi
-
-    log_debug "Database backup/restore test passed"
-    return 0
-}
-
-# Function: test_user_export_import
-# Description: Test user data export and import
-test_user_export_import() {
-    source "${MODULES_DIR}/user_database.sh"
-
-    # Initialize database and add test data
-    init_user_database
-    source "${MODULES_DIR}/user_management.sh"
-    add_user "exporttest1" "export1@example.com" "Export Test 1"
-    add_user "exporttest2" "export2@example.com" "Export Test 2"
-
-    # Test JSON export
-    local export_file="${TEST_USER_DIR}/test_export.json"
-    if ! export_users "json" "$export_file"; then
-        return 1
-    fi
-
-    # Verify export file exists and is valid
-    if ! assert_file_exists "$export_file" "Export file created"; then
-        return 1
-    fi
-
-    # Verify export content
-    if ! python3 -c "
-import json
-try:
-    with open('$export_file', 'r') as f:
-        data = json.load(f)
-    assert 'users' in data
-    assert len(data['users']) == 2
-    usernames = [user.get('username') for user in data['users']]
-    assert 'exporttest1' in usernames
-    assert 'exporttest2' in usernames
-    print('Export content valid')
-except Exception as e:
-    print(f'Export content invalid: {e}')
-    exit(1)
-"; then
-        return 1
-    fi
-
-    # Test import to new database
-    rm -f "$TEST_DATABASE"
-    init_user_database
-
-    if ! import_users "$export_file" "json" "replace"; then
-        return 1
-    fi
-
-    # Verify import
-    local imported_count
-    imported_count=$(get_user_count)
-    if ! assert_equals "2" "$imported_count" "User count after import"; then
-        return 1
-    fi
-
-    if ! user_exists "exporttest1"; then
-        log_error "User exporttest1 not found after import"
-        return 1
-    fi
-
-    log_debug "User export/import test passed"
-    return 0
-}
-
-# ======================================================================================
-# CONFIGURATION TEMPLATES TESTS
-# ======================================================================================
-
-# Function: test_config_templates
-# Description: Test configuration template generation
-test_config_templates() {
-    source "${MODULES_DIR}/config_templates.sh"
-
-    # Initialize templates
-    init_config_templates
-
-    # Initialize user database and add test user
-    source "${MODULES_DIR}/user_database.sh"
-    init_user_database
-    source "${MODULES_DIR}/user_management.sh"
-    add_user "templatetest" "template@example.com" "Template Test User"
-
-    # Test different configuration formats
-    local formats=("xray" "v2ray" "clash" "sing-box" "vless-url")
-
-    for format in "${formats[@]}"; do
-        log_debug "Testing $format configuration generation"
-
-        if ! generate_config_for_user "templatetest" "$format"; then
-            log_error "Failed to generate $format configuration"
-            return 1
-        fi
-
-        # Verify configuration file was created
-        local config_file
-        config_file=$(find "${USER_DIR}/exports/templatetest" -name "*_${format}_*" -type f | head -1)
-
-        if [[ -z "$config_file" ]]; then
-            log_error "Configuration file not found for format: $format"
-            return 1
-        fi
-
-        # Basic content validation
-        local config_content
-        config_content=$(cat "$config_file")
-
-        case "$format" in
-            "vless-url")
-                if ! echo "$config_content" | grep -q "vless://"; then
-                    log_error "VLESS URL format invalid"
-                    return 1
-                fi
-                ;;
-            "xray"|"v2ray"|"sing-box")
-                if ! echo "$config_content" | python3 -c "
-import json, sys
-try:
-    json.load(sys.stdin)
-    print('Valid JSON')
-except:
-    exit(1)
-" >/dev/null; then
-                    log_error "Invalid JSON in $format configuration"
-                    return 1
-                fi
-                ;;
-            "clash")
-                if ! echo "$config_content" | grep -q "proxies:"; then
-                    log_error "Invalid YAML in clash configuration"
-                    return 1
-                fi
-                ;;
-        esac
-    done
-
-    log_debug "Configuration templates test passed"
-    return 0
-}
-
-# ======================================================================================
-# QR CODE GENERATION TESTS
-# ======================================================================================
-
-# Function: test_qr_code_generation
-# Description: Test QR code generation (if dependencies available)
-test_qr_code_generation() {
-    # Check if QR code generation dependencies are available
-    if ! python3 -c "import qrcode" 2>/dev/null; then
-        log_warn "QR code dependencies not available, skipping QR tests"
-        return 0
-    fi
-
-    # Initialize user database and add test user
-    source "${MODULES_DIR}/user_database.sh"
-    init_user_database
-    source "${MODULES_DIR}/user_management.sh"
-    add_user "qrtest" "qr@example.com" "QR Test User"
-
-    # Test QR code generation
-    local qr_script="${MODULES_DIR}/qr_generator.py"
-
-    # Test terminal QR generation (basic functionality)
-    if ! python3 "$qr_script" "qrtest" --no-terminal --format terminal 2>/dev/null; then
-        log_error "QR code generation failed"
-        return 1
-    fi
-
-    # Test PNG QR generation
-    if ! python3 "$qr_script" "qrtest" --no-terminal --format png 2>/dev/null; then
-        log_error "PNG QR code generation failed"
-        return 1
-    fi
-
-    # Verify QR code file was created
-    local qr_files
-    qr_files=$(find "${USER_DIR}/qr_codes" -name "qrtest_qr_*.png" -type f | wc -l)
-
-    if [[ $qr_files -eq 0 ]]; then
-        log_error "No QR code files found"
-        return 1
-    fi
-
-    log_debug "QR code generation test passed"
-    return 0
-}
-
-# ======================================================================================
-# INTEGRATION TESTS
-# ======================================================================================
-
-# Function: test_full_user_workflow
-# Description: Test complete user management workflow
-test_full_user_workflow() {
-    # Source all required modules
-    source "${MODULES_DIR}/user_database.sh"
-    source "${MODULES_DIR}/user_management.sh"
-    source "${MODULES_DIR}/config_templates.sh"
-
-    # Initialize all systems
-    init_user_database
-    init_config_templates
-
-    # Step 1: Add multiple users
-    local users=("user1:email1@test.com:User One" "user2:email2@test.com:User Two" "user3:email3@test.com:User Three")
-
-    for user_info in "${users[@]}"; do
-        IFS=':' read -r username email description <<< "$user_info"
-
-        if ! add_user "$username" "$email" "$description"; then
-            log_error "Failed to add user: $username"
-            return 1
-        fi
-    done
-
-    # Step 2: Verify all users exist
-    local total_users
-    total_users=$(get_user_count)
-    if ! assert_equals "3" "$total_users" "Total users after adding"; then
-        return 1
-    fi
-
-    # Step 3: Generate configurations for all users
-    for user_info in "${users[@]}"; do
-        IFS=':' read -r username email description <<< "$user_info"
-
-        if ! generate_user_config "$username" "vless"; then
-            log_error "Failed to generate config for user: $username"
-            return 1
-        fi
-    done
-
-    # Step 4: Update user information
-    if ! update_user "user2" "description" "Updated User Two"; then
-        return 1
-    fi
-
-    # Step 5: Create backup
-    local backup_path
-    backup_path=$(backup_user_database "workflow_test")
-    if [[ -z "$backup_path" ]]; then
-        return 1
-    fi
-
-    # Step 6: Remove a user
-    if ! remove_user "user3"; then
-        return 1
-    fi
-
-    # Verify user was removed
-    if user_exists "user3"; then
-        log_error "User3 should have been removed"
-        return 1
-    fi
-
-    # Step 7: Export remaining users
-    local export_file="${TEST_USER_DIR}/workflow_export.json"
-    if ! export_users "json" "$export_file"; then
-        return 1
-    fi
-
-    # Step 8: Restore from backup
-    if ! restore_user_database "$backup_path"; then
-        return 1
-    fi
-
-    # Verify user3 is back
-    if ! user_exists "user3"; then
-        log_error "User3 should be restored"
-        return 1
-    fi
-
-    log_debug "Full user workflow test passed"
-    return 0
-}
-
-# ======================================================================================
-# MAIN TEST EXECUTION
-# ======================================================================================
-
-# Function: run_all_tests
-# Description: Execute all test suites
-run_all_tests() {
-    log_info "Starting VLESS User Management Test Suite"
-    log_info "=========================================="
-
-    # Setup test environment
-    setup_test_environment
-
-    # Run individual test suites
-    run_test "Database Initialization" "test_user_database_initialization"
-    run_test "Add User" "test_add_user"
-    run_test "Remove User" "test_remove_user"
-    run_test "List Users" "test_list_users"
-    run_test "User Config Generation" "test_user_config_generation"
-    run_test "User Update" "test_user_update"
-    run_test "Database Backup/Restore" "test_database_backup_restore"
-    run_test "User Export/Import" "test_user_export_import"
-    run_test "Configuration Templates" "test_config_templates"
-    run_test "QR Code Generation" "test_qr_code_generation"
-    run_test "Full User Workflow" "test_full_user_workflow"
-
-    # Display test results
-    echo ""
-    echo "=========================================="
-    log_info "Test Results Summary"
-    echo "=========================================="
-    echo "Total Tests: $TESTS_TOTAL"
-    echo "Passed: $TESTS_PASSED"
-    echo "Failed: $TESTS_FAILED"
-    echo "Success Rate: $(( TESTS_PASSED * 100 / TESTS_TOTAL ))%"
-
-    # Cleanup test environment
-    cleanup_test_environment
-
-    if [[ $TESTS_FAILED -eq 0 ]]; then
-        log_success "All tests passed successfully!"
-        return 0
+    source_modules
+
+    local test_email="genconfig@example.com"
+    local test_uuid="550e8400-e29b-41d4-a716-446655440000"
+
+    # Add user to database
+    add_user_to_db "$test_email" "$test_uuid" "Gen Config Test"
+
+    # Mock server configuration
+    export SERVER_IP="198.51.100.1"
+    export SERVER_PORT="443"
+
+    # Test config generation
+    if declare -f generate_client_config >/dev/null; then
+        local config
+        config=$(generate_client_config "$test_email")
+
+        assert_not_equals "" "$config" "Generated config should not be empty"
+        assert_contains "$config" "$test_uuid" "Config should contain user UUID"
+        assert_contains "$config" "$SERVER_IP" "Config should contain server IP"
+        assert_contains "$config" "$SERVER_PORT" "Config should contain server port"
     else
-        log_error "$TESTS_FAILED test(s) failed"
-        return 1
+        skip_test "generate_client_config function not found"
     fi
 }
 
-# Function: run_specific_test
-# Description: Run a specific test by name
-# Parameters: $1 - test name
-run_specific_test() {
-    local test_name="$1"
+test_user_data_validation() {
+    source_modules
 
-    setup_test_environment
+    # Test email validation within user management context
+    local valid_emails=("test@example.com" "user.name@domain.co.uk" "123@test-domain.org")
+    local invalid_emails=("invalid" "@domain.com" "user@" "user space@domain.com")
 
-    case "$test_name" in
-        "database") run_test "Database Initialization" "test_user_database_initialization" ;;
-        "add") run_test "Add User" "test_add_user" ;;
-        "remove") run_test "Remove User" "test_remove_user" ;;
-        "list") run_test "List Users" "test_list_users" ;;
-        "config") run_test "User Config Generation" "test_user_config_generation" ;;
-        "update") run_test "User Update" "test_user_update" ;;
-        "backup") run_test "Database Backup/Restore" "test_database_backup_restore" ;;
-        "export") run_test "User Export/Import" "test_user_export_import" ;;
-        "templates") run_test "Configuration Templates" "test_config_templates" ;;
-        "qr") run_test "QR Code Generation" "test_qr_code_generation" ;;
-        "workflow") run_test "Full User Workflow" "test_full_user_workflow" ;;
-        *)
-            log_error "Unknown test: $test_name"
-            echo "Available tests: database, add, remove, list, config, update, backup, export, templates, qr, workflow"
-            cleanup_test_environment
-            return 1
-            ;;
-    esac
+    for email in "${valid_emails[@]}"; do
+        if validate_email "$email"; then
+            pass_test "Should validate email: $email"
+        else
+            fail_test "Should validate email: $email"
+        fi
+    done
 
-    cleanup_test_environment
-
-    if [[ $TESTS_FAILED -eq 0 ]]; then
-        log_success "Test passed successfully!"
-        return 0
-    else
-        log_error "Test failed"
-        return 1
-    fi
+    for email in "${invalid_emails[@]}"; do
+        if ! validate_email "$email" 2>/dev/null; then
+            pass_test "Should reject invalid email: $email"
+        else
+            fail_test "Should reject invalid email: $email"
+        fi
+    done
 }
 
-# ======================================================================================
-# MAIN EXECUTION
-# ======================================================================================
+test_concurrent_user_operations() {
+    source_modules
 
+    # Test that concurrent operations don't corrupt the database
+    local temp_script
+    temp_script=$(create_temp_file)
+
+    cat > "$temp_script" << EOF
+#!/bin/bash
+source_modules() {
+    $(declare -f source_modules)
+}
+source_modules
+add_user "concurrent\$1@example.com" "Concurrent User \$1"
+EOF
+    chmod +x "$temp_script"
+
+    # Run multiple instances in background
+    "$temp_script" "1" &
+    "$temp_script" "2" &
+    "$temp_script" "3" &
+    wait
+
+    # Verify all users were added
+    local user_count=0
+    for i in 1 2 3; do
+        if user_exists "concurrent${i}@example.com"; then
+            ((user_count++))
+        fi
+    done
+
+    assert_equals "3" "$user_count" "All concurrent users should be added"
+}
+
+# Main execution
 main() {
-    # Parse command line arguments
-    case "${1:-all}" in
-        "all")
-            run_all_tests
-            ;;
-        "help")
-            echo "Usage: $0 [test_name|all|help]"
-            echo ""
-            echo "Available tests:"
-            echo "  database   - Database initialization tests"
-            echo "  add        - Add user tests"
-            echo "  remove     - Remove user tests"
-            echo "  list       - List users tests"
-            echo "  config     - Configuration generation tests"
-            echo "  update     - User update tests"
-            echo "  backup     - Backup/restore tests"
-            echo "  export     - Export/import tests"
-            echo "  templates  - Configuration templates tests"
-            echo "  qr         - QR code generation tests"
-            echo "  workflow   - Full workflow integration test"
-            echo "  all        - Run all tests (default)"
-            ;;
-        *)
-            run_specific_test "$1"
-            ;;
-    esac
+    setup_test_environment
+    trap cleanup_test_environment EXIT
+
+    # Run all test functions
+    run_all_test_functions
+
+    # Finalize test suite
+    finalize_test_suite
 }
 
-# Run main function if script is executed directly
+# Only run main if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

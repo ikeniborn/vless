@@ -1,731 +1,568 @@
 #!/bin/bash
 
-# VLESS+Reality VPN - System Update Management
-# Safe system updates with rollback capability
-# Version: 1.0
-# Author: VLESS Management System
+# VLESS+Reality VPN Management System - System Update Module
+# Version: 1.0.0
+# Description: Automated system updates and package management
+#
+# This module provides:
+# - Distribution detection (Ubuntu/Debian)
+# - Package manager update (apt)
+# - Essential package installation
+# - System reboot handling if required
 
 set -euo pipefail
 
-# Source common utilities
+# Import common utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common_utils.sh"
 
-# Configuration
-readonly UPDATE_LOG="/opt/vless/logs/updates.log"
-readonly UPDATE_STATE_DIR="/opt/vless/updates"
-readonly UPDATE_LOCK_FILE="/opt/vless/updates/update.lock"
-readonly ROLLBACK_SNAPSHOT_DIR="/opt/vless/updates/snapshots"
-readonly PRE_UPDATE_BACKUP_DIR="/opt/vless/updates/backups"
-readonly UPDATE_CONFIG_FILE="/opt/vless/config/update_config.conf"
+# Essential packages required for the system
+readonly ESSENTIAL_PACKAGES=(
+    "curl"
+    "wget"
+    "gnupg2"
+    "software-properties-common"
+    "apt-transport-https"
+    "ca-certificates"
+    "lsb-release"
+    "jq"
+    "net-tools"
+    "netstat-nat"
+    "iptables"
+    "ufw"
+    "unzip"
+    "zip"
+    "tar"
+    "gzip"
+    "uuid-runtime"
+    "python3"
+    "python3-pip"
+)
 
-# Update sources
-readonly XRAY_RELEASE_URL="https://api.github.com/repos/XTLS/Xray-core/releases/latest"
-readonly SYSTEM_UPDATE_SOURCES=("security" "recommended")
+# Development packages (optional but recommended)
+readonly DEV_PACKAGES=(
+    "git"
+    "vim"
+    "nano"
+    "htop"
+    "tree"
+    "screen"
+    "tmux"
+)
 
-# Initialize update system
-init_update_system() {
-    log_info "Initializing update system..."
-
-    # Create directories
-    create_directory_safe "${UPDATE_STATE_DIR}"
-    create_directory_safe "${ROLLBACK_SNAPSHOT_DIR}"
-    create_directory_safe "${PRE_UPDATE_BACKUP_DIR}"
-
-    # Create default update configuration
-    if [[ ! -f "${UPDATE_CONFIG_FILE}" ]]; then
-        create_update_config
-    fi
-
-    # Set permissions
-    chmod 700 "${UPDATE_STATE_DIR}"
-    chmod 700 "${ROLLBACK_SNAPSHOT_DIR}"
-    chmod 700 "${PRE_UPDATE_BACKUP_DIR}"
-
-    log_info "Update system initialized successfully"
-}
-
-# Create update configuration
-create_update_config() {
-    cat > "${UPDATE_CONFIG_FILE}" << 'EOF'
-# VLESS VPN Update Configuration
-
-# Automatic updates (true/false)
-AUTO_SECURITY_UPDATES=true
-AUTO_XRAY_UPDATES=false
-AUTO_SYSTEM_UPDATES=false
-
-# Update schedule (cron format)
-SECURITY_UPDATE_SCHEDULE="0 4 * * 1"  # Weekly on Monday at 4 AM
-XRAY_UPDATE_SCHEDULE="0 5 1 * *"      # Monthly on 1st at 5 AM
-SYSTEM_UPDATE_SCHEDULE="0 6 15 * *"   # Monthly on 15th at 6 AM
-
-# Notification settings
-NOTIFY_ON_UPDATES=true
-NOTIFY_ON_FAILURES=true
-
-# Rollback settings
-AUTO_ROLLBACK_ON_FAILURE=true
-ROLLBACK_TIMEOUT_MINUTES=10
-
-# Backup settings
-BACKUP_BEFORE_UPDATE=true
-KEEP_UPDATE_BACKUPS=5
-
-# Update sources
-ENABLE_SECURITY_UPDATES=true
-ENABLE_RECOMMENDED_UPDATES=true
-ENABLE_PROPOSED_UPDATES=false
-EOF
-
-    log_info "Update configuration created"
-}
-
-# Check for updates
-check_for_updates() {
-    local update_type="${1:-all}"
-
-    log_info "Checking for available updates..."
-
-    local updates_available=false
-
-    case "${update_type}" in
-        "all"|"system")
-            if check_system_updates; then
-                updates_available=true
-            fi
-            ;;
-        "all"|"xray")
-            if check_xray_updates; then
-                updates_available=true
-            fi
-            ;;
-        "all"|"security")
-            if check_security_updates; then
-                updates_available=true
-            fi
-            ;;
-    esac
-
-    if [[ "${updates_available}" == "true" ]]; then
-        log_info "Updates are available"
+# Check if system reboot is required
+check_reboot_required() {
+    if [[ -f /var/run/reboot-required ]]; then
+        log_warn "System reboot is required after updates"
         return 0
-    else
-        log_info "No updates available"
-        return 1
     fi
+    return 1
 }
 
-# Check system updates
-check_system_updates() {
-    log_info "Checking for system package updates..."
+# Update package repositories
+update_package_repositories() {
+    log_info "Updating package repositories..."
 
     # Update package lists
-    apt-get update > /dev/null 2>&1
-
-    # Check for upgradable packages
-    local upgradable_count
-    upgradable_count=$(apt list --upgradable 2>/dev/null | grep -v "WARNING" | wc -l)
-
-    if [[ ${upgradable_count} -gt 1 ]]; then
-        log_info "Found $((upgradable_count - 1)) system package(s) to update"
-
-        # List upgradable packages
-        echo "System packages available for update:"
-        apt list --upgradable 2>/dev/null | grep -v "WARNING" | tail -n +2 | \
-        while read -r line; do
-            echo "  ${line}"
-        done
-
-        return 0
-    else
-        log_info "No system package updates available"
-        return 1
-    fi
-}
-
-# Check Xray updates
-check_xray_updates() {
-    log_info "Checking for Xray updates..."
-
-    # Get current version
-    local current_version
-    current_version=$(docker exec vless-xray xray version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")
-
-    # Get latest version from GitHub
-    local latest_version
-    latest_version=$(curl -s "${XRAY_RELEASE_URL}" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' || echo "unknown")
-
-    if [[ "${current_version}" != "${latest_version}" && "${latest_version}" != "unknown" ]]; then
-        log_info "Xray update available: ${current_version} → ${latest_version}"
-        echo "Xray update available:"
-        echo "  Current version: ${current_version}"
-        echo "  Latest version:  ${latest_version}"
-        return 0
-    else
-        log_info "Xray is up to date (${current_version})"
-        return 1
-    fi
-}
-
-# Check security updates
-check_security_updates() {
-    log_info "Checking for security updates..."
-
-    # Check for security updates
-    local security_updates
-    security_updates=$(apt list --upgradable 2>/dev/null | grep -i security | wc -l)
-
-    if [[ ${security_updates} -gt 0 ]]; then
-        log_info "Found ${security_updates} security update(s)"
-
-        echo "Security updates available:"
-        apt list --upgradable 2>/dev/null | grep -i security | \
-        while read -r line; do
-            echo "  ${line}"
-        done
-
-        return 0
-    else
-        log_info "No security updates available"
-        return 1
-    fi
-}
-
-# Prepare for update
-prepare_update() {
-    local update_type="$1"
-
-    log_info "Preparing for ${update_type} update..."
-
-    # Check if another update is running
-    if [[ -f "${UPDATE_LOCK_FILE}" ]]; then
-        local lock_pid
-        lock_pid=$(cat "${UPDATE_LOCK_FILE}")
-        if kill -0 "${lock_pid}" 2>/dev/null; then
-            log_error "Another update is already running (PID: ${lock_pid})"
-            return 1
-        else
-            log_warn "Stale lock file found, removing..."
-            rm -f "${UPDATE_LOCK_FILE}"
-        fi
-    fi
-
-    # Create lock file
-    echo $$ > "${UPDATE_LOCK_FILE}"
-
-    # Create update session directory
-    local session_id
-    session_id="update_$(date '+%Y%m%d_%H%M%S')"
-    local session_dir="${UPDATE_STATE_DIR}/${session_id}"
-
-    create_directory_safe "${session_dir}"
-
-    # Save session info
-    cat > "${session_dir}/session_info" << EOF
-UPDATE_TYPE=${update_type}
-START_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-SESSION_ID=${session_id}
-PID=$$
-EOF
-
-    echo "${session_dir}"
-}
-
-# Create system snapshot
-create_system_snapshot() {
-    local session_dir="$1"
-    local snapshot_name="$2"
-
-    log_info "Creating system snapshot: ${snapshot_name}"
-
-    local snapshot_dir="${session_dir}/snapshots/${snapshot_name}"
-    create_directory_safe "${snapshot_dir}"
-
-    # Snapshot system state
-    cat > "${snapshot_dir}/system_state" << EOF
-SNAPSHOT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-HOSTNAME=$(hostname)
-KERNEL_VERSION=$(uname -r)
-DOCKER_VERSION=$(docker --version)
-DOCKER_COMPOSE_VERSION=$(docker-compose --version)
-DISK_USAGE=$(df -h /)
-MEMORY_INFO=$(free -h)
-NETWORK_CONFIG=$(ip route show)
-RUNNING_CONTAINERS=$(docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}")
-SYSTEM_SERVICES=$(systemctl list-units --type=service --state=running --no-pager)
-INSTALLED_PACKAGES=$(dpkg -l | grep "^ii" | wc -l)
-EOF
-
-    # Snapshot package state
-    dpkg -l > "${snapshot_dir}/packages.list"
-
-    # Snapshot Docker state
-    docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}" > "${snapshot_dir}/docker_images.list"
-    docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" > "${snapshot_dir}/docker_containers.list"
-
-    # Snapshot configuration
-    if [[ -d "/opt/vless/config" ]]; then
-        cp -r /opt/vless/config "${snapshot_dir}/"
-    fi
-
-    log_info "System snapshot created: ${snapshot_name}"
-}
-
-# Apply system updates
-apply_system_updates() {
-    local session_dir="$1"
-    local auto_approve="${2:-false}"
-
-    log_info "Applying system updates..."
-
-    # Create pre-update snapshot
-    create_system_snapshot "${session_dir}" "pre_update"
-
-    # Create pre-update backup
-    if [[ -f "${SCRIPT_DIR}/backup_restore.sh" ]]; then
-        log_info "Creating pre-update backup..."
-        "${SCRIPT_DIR}/backup_restore.sh" full "Pre-update backup $(date '+%Y%m%d_%H%M%S')"
-    fi
-
-    # Update package lists
-    apt-get update
-
-    # Apply updates
-    if [[ "${auto_approve}" == "true" ]]; then
-        DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-    else
-        apt-get upgrade
-    fi
-
-    # Clean up
-    apt-get autoremove -y
-    apt-get autoclean
-
-    # Create post-update snapshot
-    create_system_snapshot "${session_dir}" "post_update"
-
-    log_info "System updates applied successfully"
-}
-
-# Apply Xray updates
-apply_xray_updates() {
-    local session_dir="$1"
-
-    log_info "Applying Xray updates..."
-
-    # Create pre-update snapshot
-    create_system_snapshot "${session_dir}" "pre_xray_update"
-
-    # Stop Xray container
-    log_info "Stopping Xray container..."
-    docker-compose -f /opt/vless/docker-compose.yml stop xray
-
-    # Pull latest image
-    log_info "Pulling latest Xray image..."
-    docker pull ghcr.io/xtls/xray-core:latest
-
-    # Remove old container
-    docker-compose -f /opt/vless/docker-compose.yml rm -f xray
-
-    # Start new container
-    log_info "Starting updated Xray container..."
-    docker-compose -f /opt/vless/docker-compose.yml up -d xray
-
-    # Wait for container to start
-    sleep 10
-
-    # Validate update
-    if ! docker ps | grep -q "vless-xray"; then
-        log_error "Xray container failed to start after update"
+    if ! apt-get update -qq; then
+        log_error "Failed to update package repositories"
         return 1
     fi
 
-    # Create post-update snapshot
-    create_system_snapshot "${session_dir}" "post_xray_update"
-
-    log_info "Xray update applied successfully"
-}
-
-# Validate update
-validate_update() {
-    local session_dir="$1"
-    local update_type="$2"
-
-    log_info "Validating ${update_type} update..."
-
-    local validation_failed=false
-
-    # Basic system checks
-    if ! is_service_running "docker"; then
-        log_error "Docker service is not running after update"
-        validation_failed=true
-    fi
-
-    if [[ "${update_type}" == "xray" || "${update_type}" == "all" ]]; then
-        # Check Xray container
-        if ! docker ps | grep -q "vless-xray"; then
-            log_error "Xray container is not running after update"
-            validation_failed=true
-        fi
-
-        # Test Xray functionality
-        if ! docker exec vless-xray xray version > /dev/null 2>&1; then
-            log_error "Xray is not responding after update"
-            validation_failed=true
-        fi
-    fi
-
-    # Check configuration integrity
-    if [[ -f "/opt/vless/config/xray_config.json" ]]; then
-        if ! docker exec vless-xray xray -test -config /etc/xray/config.json > /dev/null 2>&1; then
-            log_error "Xray configuration validation failed after update"
-            validation_failed=true
-        fi
-    fi
-
-    # Check disk space
-    local disk_usage
-    disk_usage=$(df /opt/vless | tail -1 | awk '{print $5}' | sed 's/%//')
-    if [[ ${disk_usage} -gt 95 ]]; then
-        log_error "Critical disk space after update: ${disk_usage}%"
-        validation_failed=true
-    fi
-
-    if [[ "${validation_failed}" == "true" ]]; then
-        log_error "Update validation failed"
-        return 1
-    else
-        log_info "Update validation passed"
-        return 0
-    fi
-}
-
-# Rollback update
-rollback_update() {
-    local session_dir="$1"
-    local reason="${2:-"Manual rollback"}"
-
-    log_info "Rolling back update: ${reason}"
-
-    # Check if pre-update snapshot exists
-    local pre_snapshot="${session_dir}/snapshots/pre_update"
-    if [[ ! -d "${pre_snapshot}" ]]; then
-        log_error "No pre-update snapshot found for rollback"
-        return 1
-    fi
-
-    # Stop services
-    log_info "Stopping services for rollback..."
-    systemctl stop vless-vpn 2>/dev/null || true
-    docker-compose -f /opt/vless/docker-compose.yml down 2>/dev/null || true
-
-    # Restore configuration
-    if [[ -d "${pre_snapshot}/config" ]]; then
-        log_info "Restoring configuration..."
-        rm -rf /opt/vless/config
-        cp -r "${pre_snapshot}/config" /opt/vless/
-    fi
-
-    # Rollback Docker images if needed
-    if [[ -f "${pre_snapshot}/docker_images.list" ]]; then
-        log_info "Checking Docker image rollback..."
-        # This is complex and risky, so we'll just restart with current config
-        docker-compose -f /opt/vless/docker-compose.yml up -d
-    fi
-
-    # Restart services
-    log_info "Restarting services..."
-    systemctl start vless-vpn 2>/dev/null || true
-
-    # Create rollback record
-    cat > "${session_dir}/rollback_info" << EOF
-ROLLBACK_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-ROLLBACK_REASON=${reason}
-ROLLBACK_SUCCESS=true
-EOF
-
-    log_info "Rollback completed successfully"
-}
-
-# Cleanup update session
-cleanup_update_session() {
-    local session_dir="$1"
-    local success="${2:-false}"
-
-    # Remove lock file
-    rm -f "${UPDATE_LOCK_FILE}"
-
-    # Update session status
-    cat >> "${session_dir}/session_info" << EOF
-END_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-SUCCESS=${success}
-EOF
-
-    # Cleanup old sessions (keep last 10)
-    find "${UPDATE_STATE_DIR}" -maxdepth 1 -type d -name "update_*" | \
-    sort | head -n -10 | xargs rm -rf 2>/dev/null || true
-
-    log_info "Update session cleanup completed"
-}
-
-# Schedule automatic updates
-schedule_updates() {
-    log_info "Setting up automatic update scheduling..."
-
-    # Create update script
-    local auto_update_script="/opt/vless/bin/auto_update.sh"
-    create_directory_safe "$(dirname "${auto_update_script}")"
-
-    cat > "${auto_update_script}" << 'EOF'
-#!/bin/bash
-# Automatic update script for VLESS VPN
-
-set -euo pipefail
-
-# Source update functions
-source /opt/vless/modules/system_update.sh
-
-# Load configuration
-source /opt/vless/config/update_config.conf 2>/dev/null || true
-
-# Default values if config not loaded
-AUTO_SECURITY_UPDATES=${AUTO_SECURITY_UPDATES:-true}
-AUTO_ROLLBACK_ON_FAILURE=${AUTO_ROLLBACK_ON_FAILURE:-true}
-
-# Determine update type based on schedule
-UPDATE_TYPE="security"
-case "$(date +%u-%d)" in
-    "7-01"|"7-15")  # Sunday, 1st or 15th
-        UPDATE_TYPE="system"
-        ;;
-    "1-01")         # Monday, 1st of month
-        UPDATE_TYPE="xray"
-        ;;
-esac
-
-# Run appropriate update
-case "${UPDATE_TYPE}" in
-    "security")
-        if [[ "${AUTO_SECURITY_UPDATES}" == "true" ]]; then
-            log_info "Running automatic security updates..."
-            apply_updates "security" true
-        fi
-        ;;
-    "system")
-        if [[ "${AUTO_SYSTEM_UPDATES}" == "true" ]]; then
-            log_info "Running automatic system updates..."
-            apply_updates "system" true
-        fi
-        ;;
-    "xray")
-        if [[ "${AUTO_XRAY_UPDATES}" == "true" ]]; then
-            log_info "Running automatic Xray updates..."
-            apply_updates "xray" true
-        fi
-        ;;
-esac
-EOF
-
-    chmod +x "${auto_update_script}"
-
-    # Add cron jobs
-    local cron_entries=(
-        "0 4 * * 1 ${auto_update_script} >> /opt/vless/logs/updates.log 2>&1"  # Weekly
-    )
-
-    for entry in "${cron_entries[@]}"; do
-        if ! crontab -l 2>/dev/null | grep -q "${auto_update_script}"; then
-            (crontab -l 2>/dev/null; echo "${entry}") | crontab -
-        fi
-    done
-
-    log_info "Automatic updates scheduled"
-}
-
-# Apply updates (main function)
-apply_updates() {
-    local update_type="$1"
-    local auto_approve="${2:-false}"
-
-    log_info "Starting ${update_type} update process..."
-
-    # Prepare update session
-    local session_dir
-    session_dir=$(prepare_update "${update_type}")
-
-    # Cleanup function
-    cleanup_on_exit() {
-        cleanup_update_session "${session_dir}" "${success:-false}"
-    }
-    trap cleanup_on_exit EXIT
-
-    local success=false
-
-    # Apply updates based on type
-    case "${update_type}" in
-        "system")
-            if apply_system_updates "${session_dir}" "${auto_approve}"; then
-                if validate_update "${session_dir}" "${update_type}"; then
-                    success=true
-                fi
-            fi
-            ;;
-        "xray")
-            if apply_xray_updates "${session_dir}"; then
-                if validate_update "${session_dir}" "${update_type}"; then
-                    success=true
-                fi
-            fi
-            ;;
-        "security")
-            if apply_system_updates "${session_dir}" "${auto_approve}"; then
-                if validate_update "${session_dir}" "${update_type}"; then
-                    success=true
-                fi
-            fi
-            ;;
-        "all")
-            local all_success=true
-            if ! apply_system_updates "${session_dir}" "${auto_approve}"; then
-                all_success=false
-            fi
-            if ! apply_xray_updates "${session_dir}"; then
-                all_success=false
-            fi
-            if [[ "${all_success}" == "true" ]] && validate_update "${session_dir}" "${update_type}"; then
-                success=true
-            fi
-            ;;
-        *)
-            log_error "Unknown update type: ${update_type}"
-            return 1
-            ;;
-    esac
-
-    # Handle update failure
-    if [[ "${success}" != "true" ]]; then
-        log_error "Update failed"
-
-        # Auto rollback if enabled
-        if [[ "${AUTO_ROLLBACK_ON_FAILURE:-true}" == "true" ]]; then
-            log_info "Attempting automatic rollback..."
-            if rollback_update "${session_dir}" "Automatic rollback due to update failure"; then
-                log_info "Automatic rollback completed"
-            else
-                log_error "Automatic rollback failed"
-            fi
-        fi
-
-        return 1
-    fi
-
-    log_info "${update_type} update completed successfully"
+    log_success "Package repositories updated successfully"
     return 0
 }
 
-# Show update status
-update_status() {
-    echo "=== VLESS VPN Update System Status ==="
-    echo
+# Upgrade system packages
+upgrade_system_packages() {
+    local upgrade_type="${1:-safe}"  # safe, full, or security
 
-    # Check if update is running
-    if [[ -f "${UPDATE_LOCK_FILE}" ]]; then
-        local lock_pid
-        lock_pid=$(cat "${UPDATE_LOCK_FILE}")
-        if kill -0 "${lock_pid}" 2>/dev/null; then
-            echo "Status: Update in progress (PID: ${lock_pid})"
-        else
-            echo "Status: Stale lock file found"
-        fi
-    else
-        echo "Status: No update running"
-    fi
+    log_info "Upgrading system packages (type: $upgrade_type)..."
 
-    echo
-
-    # Show last update sessions
-    echo "Recent update sessions:"
-    if [[ -d "${UPDATE_STATE_DIR}" ]]; then
-        find "${UPDATE_STATE_DIR}" -maxdepth 1 -type d -name "update_*" | \
-        sort -r | head -5 | \
-        while read -r session_dir; do
-            if [[ -f "${session_dir}/session_info" ]]; then
-                local session_id=$(basename "${session_dir}")
-                local update_type=$(grep "UPDATE_TYPE=" "${session_dir}/session_info" | cut -d'=' -f2)
-                local start_time=$(grep "START_TIME=" "${session_dir}/session_info" | cut -d'=' -f2-)
-                local success=$(grep "SUCCESS=" "${session_dir}/session_info" 2>/dev/null | cut -d'=' -f2 || echo "unknown")
-
-                printf "  %-30s %-10s %-20s %s\n" "${session_id}" "${update_type}" "${start_time}" "${success}"
+    case "$upgrade_type" in
+        "safe")
+            # Safe upgrade - only upgrade packages without removing any
+            if ! apt-get upgrade -y -qq; then
+                log_error "Safe package upgrade failed"
+                return 1
             fi
-        done
-    fi
-
-    echo
-
-    # Show available updates
-    echo "Available updates:"
-    check_for_updates "all" > /dev/null && echo "  Updates available - run 'check' command for details" || echo "  No updates available"
-
-    echo
-
-    # Show configuration
-    if [[ -f "${UPDATE_CONFIG_FILE}" ]]; then
-        echo "Update configuration:"
-        grep -E "^(AUTO_|ENABLE_)" "${UPDATE_CONFIG_FILE}" | \
-        while IFS='=' read -r key value; do
-            printf "  %-25s: %s\n" "${key}" "${value}"
-        done
-    fi
-}
-
-# Main function
-main() {
-    case "${1:-}" in
-        "init")
-            init_update_system
             ;;
-        "check")
-            check_for_updates "${2:-all}"
-            ;;
-        "apply")
-            apply_updates "${2:-system}" "${3:-false}"
-            ;;
-        "rollback")
-            if [[ -z "${2:-}" ]]; then
-                log_error "Please specify session directory for rollback"
-                exit 1
+        "full")
+            # Full upgrade - may install/remove packages as needed
+            if ! apt-get dist-upgrade -y -qq; then
+                log_error "Full package upgrade failed"
+                return 1
             fi
-            rollback_update "$2" "${3:-Manual rollback}"
             ;;
-        "schedule")
-            schedule_updates
-            ;;
-        "status")
-            update_status
+        "security")
+            # Security-only updates
+            if ! apt-get upgrade -y -qq -o Dir::Etc::SourceList=/etc/apt/sources.list.d/security.list; then
+                log_warn "Security-only upgrade not available, performing safe upgrade"
+                if ! apt-get upgrade -y -qq; then
+                    log_error "Security package upgrade failed"
+                    return 1
+                fi
+            fi
             ;;
         *)
-            echo "Usage: $0 {command} [options]"
-            echo
-            echo "Commands:"
-            echo "  init                     Initialize update system"
-            echo "  check [type]             Check for updates (type: all|system|xray|security)"
-            echo "  apply <type> [auto]      Apply updates (auto: true for non-interactive)"
-            echo "  rollback <session>       Rollback from update session"
-            echo "  schedule                 Setup automatic updates"
-            echo "  status                   Show update system status"
-            echo
-            echo "Update types:"
-            echo "  system                   System package updates"
-            echo "  xray                     Xray core updates"
-            echo "  security                 Security updates only"
-            echo "  all                      All update types"
-            exit 1
+            log_error "Invalid upgrade type: $upgrade_type (use: safe, full, security)"
+            return 1
             ;;
     esac
+
+    log_success "System packages upgraded successfully"
+    return 0
 }
 
-# Execute main function if script is run directly
+# Install essential packages
+install_essential_packages() {
+    local failed_packages=()
+    local package
+
+    log_info "Installing essential packages..."
+
+    # Check which packages are missing
+    local missing_packages=()
+    for package in "${ESSENTIAL_PACKAGES[@]}"; do
+        if ! dpkg -l | grep -q "^ii.*${package}"; then
+            missing_packages+=("$package")
+        fi
+    done
+
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        log_success "All essential packages are already installed"
+        return 0
+    fi
+
+    log_info "Installing ${#missing_packages[@]} missing packages: ${missing_packages[*]}"
+
+    # Install missing packages
+    if ! apt-get install -y -qq "${missing_packages[@]}"; then
+        log_warn "Bulk installation failed, trying individual packages..."
+
+        # Try installing packages individually
+        for package in "${missing_packages[@]}"; do
+            if ! apt-get install -y -qq "$package"; then
+                log_error "Failed to install package: $package"
+                failed_packages+=("$package")
+            else
+                log_success "Installed package: $package"
+            fi
+        done
+    else
+        log_success "All essential packages installed successfully"
+    fi
+
+    # Report failed installations
+    if [[ ${#failed_packages[@]} -gt 0 ]]; then
+        log_error "Failed to install ${#failed_packages[@]} packages: ${failed_packages[*]}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Install development packages (optional)
+install_development_packages() {
+    local failed_packages=()
+    local package
+
+    log_info "Installing development packages (optional)..."
+
+    for package in "${DEV_PACKAGES[@]}"; do
+        if ! dpkg -l | grep -q "^ii.*${package}"; then
+            if apt-get install -y -qq "$package"; then
+                log_success "Installed development package: $package"
+            else
+                log_warn "Failed to install development package: $package (non-critical)"
+                failed_packages+=("$package")
+            fi
+        fi
+    done
+
+    if [[ ${#failed_packages[@]} -eq 0 ]]; then
+        log_success "All development packages installed successfully"
+    else
+        log_warn "Some development packages failed to install (non-critical): ${failed_packages[*]}"
+    fi
+
+    return 0
+}
+
+# Clean package cache
+clean_package_cache() {
+    log_info "Cleaning package cache..."
+
+    # Remove downloaded package files
+    if apt-get clean; then
+        log_debug "Package cache cleaned"
+    fi
+
+    # Remove orphaned packages
+    if apt-get autoremove -y -qq; then
+        log_debug "Orphaned packages removed"
+    fi
+
+    # Remove unnecessary package files
+    if apt-get autoclean -qq; then
+        log_debug "Unnecessary package files removed"
+    fi
+
+    log_success "Package cache cleaned successfully"
+    return 0
+}
+
+# Configure automatic updates
+configure_automatic_updates() {
+    log_info "Configuring automatic security updates..."
+
+    # Install unattended-upgrades if not present
+    install_package_if_missing "unattended-upgrades"
+
+    # Configure unattended-upgrades
+    local unattended_config="/etc/apt/apt.conf.d/50unattended-upgrades"
+    local auto_config="/etc/apt/apt.conf.d/20auto-upgrades"
+
+    # Backup existing configuration
+    if [[ -f "$unattended_config" ]]; then
+        backup_file "$unattended_config"
+    fi
+
+    # Create unattended-upgrades configuration
+    cat > "$unattended_config" << 'EOF'
+// Automatically upgrade packages from these repositories
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Packages to never automatically upgrade
+Unattended-Upgrade::Package-Blacklist {
+    // "vim";
+    // "libc6-dev";
+    "linux-image*";
+    "linux-headers*";
+    "linux-modules*";
+    "docker*";
+    "containerd*";
+};
+
+// Split the upgrade into the smallest possible chunks so that
+// they can be interrupted with SIGTERM
+Unattended-Upgrade::MinimalSteps "true";
+
+// Install upgrades when the machine is shutting down
+Unattended-Upgrade::InstallOnShutdown "false";
+
+// Send email to this address for problems or packages upgrades
+//Unattended-Upgrade::Mail "";
+
+// Set this value to "true" to get emails only on errors
+Unattended-Upgrade::MailOnlyOnError "true";
+
+// Remove unused automatically installed kernel-related packages
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+// Do automatic removal of newly unused dependencies after the upgrade
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+
+// Do automatic removal of unused packages after the upgrade
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Automatically reboot WITHOUT CONFIRMATION if required
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// Automatically reboot even if there are users currently logged in
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+
+// If automatic reboot is enabled and needed, reboot at the specific time
+//Unattended-Upgrade::Automatic-Reboot-Time "02:00";
+
+// Use apt bandwidth limit feature
+//Acquire::http::Dl-Limit "70";
+
+// Enable logging to syslog
+Unattended-Upgrade::SyslogEnable "true";
+Unattended-Upgrade::SyslogFacility "daemon";
+
+// Verbose logging
+Unattended-Upgrade::Verbose "false";
+Unattended-Upgrade::Debug "false";
+EOF
+
+    # Create auto-upgrades configuration
+    cat > "$auto_config" << 'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
+    log_success "Automatic security updates configured"
+    return 0
+}
+
+# Check system compatibility
+check_system_compatibility() {
+    local distribution
+    local version
+    local architecture
+
+    log_info "Checking system compatibility..."
+
+    distribution=$(detect_distribution)
+    architecture=$(detect_architecture)
+
+    case "$distribution" in
+        "ubuntu")
+            source /etc/os-release
+            version="$VERSION_ID"
+            if [[ $(echo "$version >= 20.04" | bc -l) -eq 1 ]]; then
+                log_success "Ubuntu $version detected - compatible"
+            else
+                log_warn "Ubuntu $version detected - may have compatibility issues (recommended: 20.04+)"
+            fi
+            ;;
+        "debian")
+            source /etc/os-release
+            version="$VERSION_ID"
+            if [[ $(echo "$version >= 10" | bc -l) -eq 1 ]]; then
+                log_success "Debian $version detected - compatible"
+            else
+                log_warn "Debian $version detected - may have compatibility issues (recommended: 10+)"
+            fi
+            ;;
+        *)
+            log_warn "Unsupported distribution: $distribution"
+            log_warn "This system is designed for Ubuntu 20.04+ or Debian 10+"
+            return 1
+            ;;
+    esac
+
+    case "$architecture" in
+        "amd64"|"arm64"|"armhf")
+            log_success "Architecture $architecture detected - compatible"
+            ;;
+        *)
+            log_warn "Unsupported architecture: $architecture"
+            log_warn "Supported architectures: amd64, arm64, armhf"
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+# Get system status summary
+get_system_status() {
+    local distribution
+    local version
+    local architecture
+    local kernel
+    local uptime
+    local load
+    local memory
+    local disk
+
+    distribution=$(detect_distribution)
+    architecture=$(detect_architecture)
+    kernel=$(uname -r)
+    uptime=$(uptime -p 2>/dev/null || uptime)
+    load=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+    memory=$(free -h | awk '/^Mem:/ {print $3"/"$2}')
+    disk=$(df -h / | awk 'NR==2 {print $3"/"$2" ("$5" used)"}')
+
+    cat << EOF
+
+=== System Status Summary ===
+Distribution: $distribution
+Architecture: $architecture
+Kernel: $kernel
+Uptime: $uptime
+Load Average: $load
+Memory Usage: $memory
+Disk Usage: $disk
+$(check_reboot_required && echo "Reboot Required: YES" || echo "Reboot Required: NO")
+
+EOF
+}
+
+# Main system update function
+perform_system_update() {
+    local upgrade_type="${1:-safe}"
+    local install_dev="${2:-false}"
+    local configure_auto="${3:-true}"
+
+    log_info "Starting system update process..."
+
+    # Check system compatibility
+    if ! check_system_compatibility; then
+        log_warn "System compatibility check failed, continuing anyway..."
+    fi
+
+    # Ensure we have root privileges
+    require_root
+
+    # Check network connectivity
+    if ! check_network_connectivity; then
+        die "Network connectivity required for system updates" 6
+    fi
+
+    # Update package repositories
+    if ! update_package_repositories; then
+        die "Failed to update package repositories" 7
+    fi
+
+    # Upgrade system packages
+    if ! upgrade_system_packages "$upgrade_type"; then
+        die "Failed to upgrade system packages" 8
+    fi
+
+    # Install essential packages
+    if ! install_essential_packages; then
+        die "Failed to install essential packages" 9
+    fi
+
+    # Install development packages if requested
+    if [[ "$install_dev" == "true" ]]; then
+        install_development_packages
+    fi
+
+    # Configure automatic updates if requested
+    if [[ "$configure_auto" == "true" ]]; then
+        configure_automatic_updates
+    fi
+
+    # Clean package cache
+    clean_package_cache
+
+    # Check if reboot is required
+    if check_reboot_required; then
+        log_warn "System reboot is required to complete the update process"
+        log_warn "Please reboot the system when convenient"
+    fi
+
+    log_success "System update completed successfully"
+    get_system_status
+}
+
+# Handle system reboot
+handle_system_reboot() {
+    local force="${1:-false}"
+
+    if check_reboot_required; then
+        if [[ "$force" == "true" ]]; then
+            log_warn "Forcing system reboot in 10 seconds..."
+            log_warn "Press Ctrl+C to cancel"
+
+            for i in {10..1}; do
+                echo -n "$i... "
+                sleep 1
+            done
+            echo
+
+            log_info "Rebooting system now..."
+            reboot
+        else
+            log_warn "System reboot is required but not forced"
+            log_warn "Run with --force-reboot to reboot automatically"
+            return 1
+        fi
+    else
+        log_info "No system reboot required"
+        return 0
+    fi
+}
+
+# Display help information
+show_help() {
+    cat << EOF
+VLESS+Reality VPN System Update Module
+
+Usage: $0 [OPTIONS]
+
+Options:
+    --upgrade-type TYPE    Upgrade type: safe, full, or security (default: safe)
+    --install-dev         Install development packages
+    --no-auto-updates     Skip automatic update configuration
+    --force-reboot        Force reboot if required
+    --status              Show system status only
+    --help                Show this help message
+
+Examples:
+    $0                           # Safe system update
+    $0 --upgrade-type full       # Full system upgrade
+    $0 --install-dev            # Include development packages
+    $0 --status                 # Show system status only
+    $0 --force-reboot           # Force reboot if required
+
+EOF
+}
+
+# Main execution
+main() {
+    local upgrade_type="safe"
+    local install_dev="false"
+    local configure_auto="true"
+    local force_reboot="false"
+    local status_only="false"
+
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --upgrade-type)
+                upgrade_type="$2"
+                shift 2
+                ;;
+            --install-dev)
+                install_dev="true"
+                shift
+                ;;
+            --no-auto-updates)
+                configure_auto="false"
+                shift
+                ;;
+            --force-reboot)
+                force_reboot="true"
+                shift
+                ;;
+            --status)
+                status_only="true"
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+
+    # Setup signal handlers for process isolation
+    setup_signal_handlers
+
+    # Show status only if requested
+    if [[ "$status_only" == "true" ]]; then
+        get_system_status
+        exit 0
+    fi
+
+    # Perform system update
+    perform_system_update "$upgrade_type" "$install_dev" "$configure_auto"
+
+    # Handle reboot if requested
+    if [[ "$force_reboot" == "true" ]]; then
+        handle_system_reboot "true"
+    fi
+}
+
+# Run main function if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi

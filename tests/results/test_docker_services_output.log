@@ -1,6 +1,0 @@
-Warning: Some tests require root privileges for accurate results
-Consider running with: sudo ./test_docker_services.sh 
-
-[0;34m[INFO][0m Starting Docker Services Test v1.0
-[0;34m[INFO][0m Initializing test environment for Docker Services Test
-mkdir: cannot create directory ‘/opt/vless/data’: Permission denied

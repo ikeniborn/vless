@@ -1,5 +1,0 @@
-[0;34m[INFO][0m Starting Phase 2 (Docker Infrastructure) Integration Tests
-[0;34m[INFO][0m Initializing Phase 2 Integration Test Environment
-Phase 2 Integration Test Started: Sun Sep 21 09:54:26 PM MSK 2025
-=======================================
-[0;31m[ERROR][0m This script must be run as root. Please use sudo.

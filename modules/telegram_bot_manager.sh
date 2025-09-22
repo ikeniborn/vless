@@ -1,553 +1,752 @@
 #!/bin/bash
 
-# VLESS+Reality VPN - Telegram Bot Management Script
-# Management utilities for the Telegram bot service
-# Version: 1.0
-# Author: VLESS Management System
+# VLESS+Reality VPN Management System - Telegram Bot Manager
+# Version: 1.0.0
+# Description: Telegram bot deployment and management
+#
+# Features:
+# - Bot installation and configuration
+# - Service management
+# - Dependency installation
+# - Security configuration
+# - Monitoring and health checks
+# - Process isolation for EPERM prevention
 
 set -euo pipefail
 
-# Source common utilities
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/common_utils.sh"
+# Import common utilities
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SOURCE_DIR}/common_utils.sh"
+
+# Setup signal handlers
+setup_signal_handlers
 
 # Configuration
-readonly BOT_SERVICE="vless-vpn"
-readonly BOT_CONFIG_FILE="/opt/vless/config/bot_config.env"
-readonly BOT_SCRIPT="/opt/vless/modules/telegram_bot.py"
-readonly BOT_LOG_FILE="/opt/vless/logs/telegram_bot.log"
-readonly ADMIN_DB_FILE="/opt/vless/config/bot_admins.db"
-readonly SERVICE_FILE="/etc/systemd/system/vless-vpn.service"
+readonly BOT_CONFIG_DIR="/opt/vless/config"
+readonly BOT_LOG_DIR="/opt/vless/logs"
+readonly BOT_DATA_DIR="/opt/vless/data/telegram"
+readonly BOT_CONFIG_FILE="${BOT_CONFIG_DIR}/bot_config.env"
+readonly BOT_SCRIPT="${SOURCE_DIR}/telegram_bot.py"
+readonly BOT_SERVICE_FILE="/etc/systemd/system/vless-telegram-bot.service"
+readonly BOT_REQUIREMENTS_FILE="${SOURCE_DIR}/../requirements.txt"
 
-# Bot status functions
-bot_status() {
-    echo "=== VLESS VPN Telegram Bot Status ==="
-    echo
+# Python virtual environment
+readonly VENV_DIR="/opt/vless/venv"
+readonly PYTHON_EXECUTABLE="${VENV_DIR}/bin/python"
+readonly PIP_EXECUTABLE="${VENV_DIR}/bin/pip"
 
-    # Service status
-    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
-        echo "Service Status: ✅ Running"
-        local since
-        since=$(systemctl show "${BOT_SERVICE}" --property=ActiveEnterTimestamp --value)
-        echo "Started: ${since}"
-    else
-        echo "Service Status: ❌ Stopped"
-    fi
+# Initialize Telegram bot manager
+init_telegram_bot_manager() {
+    log_info "Initializing Telegram bot manager"
 
-    # Configuration status
-    if [[ -f "${BOT_CONFIG_FILE}" ]]; then
-        echo "Configuration: ✅ Found"
+    # Create directories
+    create_directory "$BOT_CONFIG_DIR" "750" "vless:vless"
+    create_directory "$BOT_LOG_DIR" "750" "vless:vless"
+    create_directory "$BOT_DATA_DIR" "750" "vless:vless"
 
-        # Check required settings
-        if grep -q "^BOT_TOKEN=" "${BOT_CONFIG_FILE}" && \
-           grep -q "^ADMIN_CHAT_ID=" "${BOT_CONFIG_FILE}"; then
-            echo "Required Settings: ✅ Configured"
-        else
-            echo "Required Settings: ❌ Missing BOT_TOKEN or ADMIN_CHAT_ID"
-        fi
-    else
-        echo "Configuration: ❌ Missing"
-    fi
+    # Install system dependencies
+    install_system_dependencies
 
-    # Process information
-    if pgrep -f "telegram_bot.py" > /dev/null; then
-        local pid
-        pid=$(pgrep -f "telegram_bot.py")
-        local memory
-        memory=$(ps -p "${pid}" -o rss= | awk '{printf "%.1f MB", $1/1024}' 2>/dev/null || echo "Unknown")
-        echo "Process ID: ${pid}"
-        echo "Memory Usage: ${memory}"
-    fi
+    # Setup Python virtual environment
+    setup_python_environment
 
-    # Log file info
-    if [[ -f "${BOT_LOG_FILE}" ]]; then
-        local log_size
-        log_size=$(du -sh "${BOT_LOG_FILE}" | cut -f1)
-        local last_modified
-        last_modified=$(stat -c %y "${BOT_LOG_FILE}" | cut -d'.' -f1)
-        echo "Log File: ${log_size} (${last_modified})"
-    else
-        echo "Log File: Not found"
-    fi
-
-    # Admin count
-    if [[ -f "${ADMIN_DB_FILE}" ]]; then
-        local admin_count
-        admin_count=$(sqlite3 "${ADMIN_DB_FILE}" "SELECT COUNT(*) FROM admins WHERE active = 1" 2>/dev/null || echo "0")
-        echo "Admin Users: ${admin_count}"
-    else
-        echo "Admin Database: Not initialized"
-    fi
-
-    echo
+    log_success "Telegram bot manager initialized"
 }
 
-# Start bot service
-start_bot() {
-    log_info "Starting Telegram bot service..."
+# Install system dependencies
+install_system_dependencies() {
+    log_info "Installing system dependencies for Telegram bot"
 
-    # Validate configuration before starting
+    # Python and pip
+    install_package_if_missing "python3"
+    install_package_if_missing "python3-pip"
+    install_package_if_missing "python3-venv"
+
+    # Image processing libraries
+    install_package_if_missing "libjpeg-dev"
+    install_package_if_missing "zlib1g-dev"
+    install_package_if_missing "libpng-dev"
+
+    # Additional dependencies
+    install_package_if_missing "curl"
+    install_package_if_missing "wget"
+
+    log_success "System dependencies installed"
+}
+
+# Setup Python virtual environment
+setup_python_environment() {
+    log_info "Setting up Python virtual environment"
+
+    # Create virtual environment if it doesn't exist
+    if [[ ! -d "$VENV_DIR" ]]; then
+        python3 -m venv "$VENV_DIR"
+        log_debug "Created Python virtual environment: $VENV_DIR"
+    fi
+
+    # Activate virtual environment and upgrade pip
+    source "${VENV_DIR}/bin/activate"
+
+    # Upgrade pip
+    "${PIP_EXECUTABLE}" install --upgrade pip
+
+    # Install Python packages
+    install_python_packages
+
+    log_success "Python virtual environment setup completed"
+}
+
+# Install Python packages
+install_python_packages() {
+    log_info "Installing Python packages for Telegram bot"
+
+    # Required packages
+    local packages=(
+        "python-telegram-bot==20.7"
+        "qrcode[pil]==7.4.2"
+        "Pillow==10.1.0"
+        "requests==2.31.0"
+        "aiohttp==3.9.1"
+    )
+
+    local package
+    for package in "${packages[@]}"; do
+        log_debug "Installing Python package: $package"
+        if ! "${PIP_EXECUTABLE}" install "$package"; then
+            log_error "Failed to install Python package: $package"
+            return 1
+        fi
+    done
+
+    # Verify installations
+    local verification_imports=(
+        "telegram"
+        "qrcode"
+        "PIL"
+        "requests"
+        "aiohttp"
+    )
+
+    local import_module
+    for import_module in "${verification_imports[@]}"; do
+        if ! "${PYTHON_EXECUTABLE}" -c "import $import_module" 2>/dev/null; then
+            log_error "Failed to verify Python module: $import_module"
+            return 1
+        fi
+    done
+
+    log_success "Python packages installed and verified"
+}
+
+# Configure Telegram bot
+configure_telegram_bot() {
+    local bot_token="$1"
+    local admin_chat_id="${2:-}"
+
+    log_info "Configuring Telegram bot"
+
+    # Validate bot token format
+    if [[ ! "$bot_token" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
+        log_error "Invalid bot token format"
+        return 1
+    fi
+
+    # Test bot token
+    log_info "Testing bot token"
+    local test_response
+    test_response=$(curl -s "https://api.telegram.org/bot${bot_token}/getMe")
+
+    if ! echo "$test_response" | jq -e '.ok' >/dev/null 2>&1; then
+        log_error "Bot token test failed. Please check your token."
+        return 1
+    fi
+
+    local bot_username
+    bot_username=$(echo "$test_response" | jq -r '.result.username')
+    log_info "Bot token verified. Bot username: @$bot_username"
+
+    # Create bot configuration
+    create_bot_config "$bot_token" "$admin_chat_id"
+
+    # Create authorized users file
+    create_authorized_users_file "$admin_chat_id"
+
+    # Set proper permissions
+    chmod 600 "$BOT_CONFIG_FILE"
+    chown vless:vless "$BOT_CONFIG_FILE"
+
+    log_success "Telegram bot configured successfully"
+}
+
+# Create bot configuration file
+create_bot_config() {
+    local bot_token="$1"
+    local admin_chat_id="${2:-}"
+
+    cat > "$BOT_CONFIG_FILE" << EOF
+# VLESS Telegram Bot Configuration
+# Generated by telegram bot manager
+
+# Bot credentials
+TELEGRAM_BOT_TOKEN="$bot_token"
+TELEGRAM_ADMIN_CHAT_ID="$admin_chat_id"
+
+# Bot settings
+BOT_NAME="VLESS VPN Manager"
+BOT_DESCRIPTION="Remote management bot for VLESS VPN"
+BOT_TIMEZONE="UTC"
+
+# Security settings
+MAX_FAILED_ATTEMPTS=3
+LOCKOUT_DURATION=300
+SESSION_TIMEOUT=3600
+
+# Logging settings
+LOG_LEVEL="INFO"
+LOG_FILE="/opt/vless/logs/telegram_bot.log"
+AUDIT_LOG_FILE="/opt/vless/logs/telegram_bot_audit.log"
+
+# Feature toggles
+ENABLE_USER_MANAGEMENT=true
+ENABLE_CONFIG_GENERATION=true
+ENABLE_MONITORING=true
+ENABLE_BACKUP_MANAGEMENT=true
+ENABLE_LOG_ACCESS=true
+
+# Rate limiting
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS=10
+RATE_LIMIT_WINDOW=60
+
+# Webhook settings (optional)
+WEBHOOK_ENABLED=false
+WEBHOOK_URL=""
+WEBHOOK_SECRET=""
+
+EOF
+
+    log_debug "Bot configuration file created: $BOT_CONFIG_FILE"
+}
+
+# Create authorized users file
+create_authorized_users_file() {
+    local admin_chat_id="${1:-}"
+
+    local authorized_users_file="${BOT_CONFIG_DIR}/authorized_users.json"
+
+    if [[ -n "$admin_chat_id" ]]; then
+        cat > "$authorized_users_file" << EOF
+{
+  "$admin_chat_id": {
+    "username": "admin",
+    "role": "admin",
+    "added_at": "$(date -Iseconds)",
+    "permissions": ["all"],
+    "notes": "Initial admin user"
+  }
+}
+EOF
+    else
+        echo "{}" > "$authorized_users_file"
+    fi
+
+    chmod 600 "$authorized_users_file"
+    chown vless:vless "$authorized_users_file"
+
+    log_debug "Authorized users file created: $authorized_users_file"
+}
+
+# Create systemd service
+create_bot_service() {
+    log_info "Creating systemd service for Telegram bot"
+
+    cat > "$BOT_SERVICE_FILE" << EOF
+[Unit]
+Description=VLESS Telegram Bot
+After=network.target vless-vpn.service
+Wants=vless-vpn.service
+
+[Service]
+Type=simple
+User=vless
+Group=vless
+WorkingDirectory=$SOURCE_DIR
+Environment=PATH=$VENV_DIR/bin
+ExecStart=$PYTHON_EXECUTABLE $BOT_SCRIPT
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/vless
+
+# Resource limits
+LimitNOFILE=65536
+MemoryHigh=512M
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+
+    chmod 644 "$BOT_SERVICE_FILE"
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    log_success "Systemd service created: $BOT_SERVICE_FILE"
+}
+
+# Start Telegram bot service
+start_bot_service() {
+    log_info "Starting Telegram bot service"
+
+    # Validate configuration
     if ! validate_bot_config; then
         log_error "Bot configuration validation failed"
         return 1
     fi
 
-    # Install service if not exists
-    if [[ ! -f "${SERVICE_FILE}" ]]; then
-        log_info "Installing systemd service..."
-        install_bot_service
-    fi
-
-    # Start service
-    systemctl start "${BOT_SERVICE}"
+    # Enable and start service
+    isolate_systemctl_command "enable" "vless-telegram-bot" 30
+    isolate_systemctl_command "start" "vless-telegram-bot" 30
 
     # Wait for service to start
-    sleep 3
-
-    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
-        log_info "Telegram bot started successfully"
-
-        # Test bot connection
-        test_bot_connection
+    if wait_for_condition "systemctl is-active vless-telegram-bot >/dev/null 2>&1" 30 1; then
+        log_success "Telegram bot service started successfully"
+        return 0
     else
-        log_error "Failed to start Telegram bot"
+        log_error "Failed to start Telegram bot service"
         return 1
     fi
 }
 
-# Stop bot service
-stop_bot() {
-    log_info "Stopping Telegram bot service..."
+# Stop Telegram bot service
+stop_bot_service() {
+    log_info "Stopping Telegram bot service"
 
-    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
-        systemctl stop "${BOT_SERVICE}"
-        log_info "Telegram bot stopped"
-    else
-        log_warn "Telegram bot is not running"
-    fi
+    isolate_systemctl_command "stop" "vless-telegram-bot" 30
+    isolate_systemctl_command "disable" "vless-telegram-bot" 30
+
+    log_success "Telegram bot service stopped"
 }
 
-# Restart bot service
-restart_bot() {
-    log_info "Restarting Telegram bot service..."
+# Restart Telegram bot service
+restart_bot_service() {
+    log_info "Restarting Telegram bot service"
 
-    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
-        systemctl restart "${BOT_SERVICE}"
-    else
-        start_bot
-        return $?
-    fi
+    isolate_systemctl_command "restart" "vless-telegram-bot" 30
 
     # Wait for service to restart
-    sleep 3
-
-    if systemctl is-active "${BOT_SERVICE}" > /dev/null 2>&1; then
-        log_info "Telegram bot restarted successfully"
+    if wait_for_condition "systemctl is-active vless-telegram-bot >/dev/null 2>&1" 30 1; then
+        log_success "Telegram bot service restarted successfully"
+        return 0
     else
-        log_error "Failed to restart Telegram bot"
+        log_error "Failed to restart Telegram bot service"
         return 1
     fi
 }
 
-# Enable bot service
-enable_bot() {
-    log_info "Enabling Telegram bot service for auto-start..."
+# Get bot service status
+get_bot_status() {
+    log_info "Getting Telegram bot service status"
 
-    # Install service if not exists
-    if [[ ! -f "${SERVICE_FILE}" ]]; then
-        install_bot_service
+    echo "=== VLESS Telegram Bot Status ==="
+    echo ""
+
+    # Service status
+    echo "Service Status:"
+    if systemctl is-active vless-telegram-bot >/dev/null 2>&1; then
+        echo "  Status: 🟢 Active"
+        echo "  Uptime: $(systemctl show vless-telegram-bot --property=ActiveEnterTimestamp --value | xargs -I {} date -d {} '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo 'Unknown')"
+    else
+        echo "  Status: 🔴 Inactive"
     fi
 
-    systemctl enable "${BOT_SERVICE}"
-    log_info "Telegram bot service enabled"
-}
+    # Service enabled status
+    if systemctl is-enabled vless-telegram-bot >/dev/null 2>&1; then
+        echo "  Auto-start: 🟢 Enabled"
+    else
+        echo "  Auto-start: 🔴 Disabled"
+    fi
 
-# Disable bot service
-disable_bot() {
-    log_info "Disabling Telegram bot service..."
+    echo ""
 
-    systemctl disable "${BOT_SERVICE}"
-    log_info "Telegram bot service disabled"
-}
+    # Configuration status
+    echo "Configuration:"
+    if [[ -f "$BOT_CONFIG_FILE" ]]; then
+        echo "  Config file: 🟢 Present"
 
-# Install systemd service
-install_bot_service() {
-    log_info "Installing Telegram bot systemd service..."
+        # Check if bot token is configured
+        if grep -q "TELEGRAM_BOT_TOKEN=" "$BOT_CONFIG_FILE" && [[ -n "$(grep "TELEGRAM_BOT_TOKEN=" "$BOT_CONFIG_FILE" | cut -d'=' -f2 | tr -d '"')" ]]; then
+            echo "  Bot token: 🟢 Configured"
+        else
+            echo "  Bot token: 🔴 Not configured"
+        fi
 
-    # Copy service file
-    cp "/opt/vless/config/vless-vpn.service" "${SERVICE_FILE}"
+        # Check admin chat ID
+        if grep -q "TELEGRAM_ADMIN_CHAT_ID=" "$BOT_CONFIG_FILE" && [[ -n "$(grep "TELEGRAM_ADMIN_CHAT_ID=" "$BOT_CONFIG_FILE" | cut -d'=' -f2 | tr -d '"')" ]]; then
+            echo "  Admin chat ID: 🟢 Configured"
+        else
+            echo "  Admin chat ID: 🔴 Not configured"
+        fi
+    else
+        echo "  Config file: 🔴 Missing"
+    fi
 
-    # Reload systemd
-    systemctl daemon-reload
+    echo ""
 
-    log_info "Systemd service installed"
-}
+    # Python environment status
+    echo "Python Environment:"
+    if [[ -d "$VENV_DIR" ]]; then
+        echo "  Virtual env: 🟢 Present"
+    else
+        echo "  Virtual env: 🔴 Missing"
+    fi
 
-# Uninstall systemd service
-uninstall_bot_service() {
-    log_info "Uninstalling Telegram bot systemd service..."
+    if [[ -x "$PYTHON_EXECUTABLE" ]]; then
+        echo "  Python: 🟢 Available"
+        echo "  Version: $("$PYTHON_EXECUTABLE" --version 2>/dev/null || echo 'Unknown')"
+    else
+        echo "  Python: 🔴 Not available"
+    fi
 
-    # Stop and disable service
-    systemctl stop "${BOT_SERVICE}" 2>/dev/null || true
-    systemctl disable "${BOT_SERVICE}" 2>/dev/null || true
+    echo ""
 
-    # Remove service file
-    rm -f "${SERVICE_FILE}"
+    # Recent logs
+    echo "Recent Logs:"
+    if [[ -f "${BOT_LOG_DIR}/telegram_bot.log" ]]; then
+        echo "  Last 5 log entries:"
+        tail -5 "${BOT_LOG_DIR}/telegram_bot.log" 2>/dev/null | sed 's/^/    /' || echo "    No recent logs"
+    else
+        echo "  Log file not found"
+    fi
 
-    # Reload systemd
-    systemctl daemon-reload
+    echo ""
 
-    log_info "Systemd service uninstalled"
+    # Authorized users
+    echo "Authorized Users:"
+    local authorized_users_file="${BOT_CONFIG_DIR}/authorized_users.json"
+    if [[ -f "$authorized_users_file" ]]; then
+        local user_count
+        user_count=$(jq '. | length' "$authorized_users_file" 2>/dev/null || echo "0")
+        echo "  Count: $user_count"
+    else
+        echo "  Authorized users file not found"
+    fi
 }
 
 # Validate bot configuration
 validate_bot_config() {
-    log_info "Validating bot configuration..."
+    log_debug "Validating bot configuration"
 
-    local errors=0
+    local validation_errors=0
 
     # Check if config file exists
-    if [[ ! -f "${BOT_CONFIG_FILE}" ]]; then
-        log_error "Configuration file not found: ${BOT_CONFIG_FILE}"
-        return 1
-    fi
-
-    # Check required settings
-    if ! grep -q "^BOT_TOKEN=" "${BOT_CONFIG_FILE}" || \
-       grep -q "^BOT_TOKEN=$" "${BOT_CONFIG_FILE}"; then
-        log_error "BOT_TOKEN is not set in configuration"
-        ((errors++))
-    fi
-
-    if ! grep -q "^ADMIN_CHAT_ID=" "${BOT_CONFIG_FILE}" || \
-       grep -q "^ADMIN_CHAT_ID=$" "${BOT_CONFIG_FILE}"; then
-        log_error "ADMIN_CHAT_ID is not set in configuration"
-        ((errors++))
-    fi
-
-    # Check bot script exists
-    if [[ ! -f "${BOT_SCRIPT}" ]]; then
-        log_error "Bot script not found: ${BOT_SCRIPT}"
-        ((errors++))
-    fi
-
-    # Check Python dependencies
-    if ! python3 -c "import telegram" 2>/dev/null; then
-        log_error "python-telegram-bot library not installed"
-        ((errors++))
-    fi
-
-    if [[ ${errors} -eq 0 ]]; then
-        log_info "Configuration validation passed"
-        return 0
+    if [[ ! -f "$BOT_CONFIG_FILE" ]]; then
+        log_error "Bot configuration file not found: $BOT_CONFIG_FILE"
+        ((validation_errors++))
     else
-        log_error "Configuration validation failed with ${errors} error(s)"
-        return 1
-    fi
-}
+        # Check bot token
+        local bot_token
+        bot_token=$(grep "TELEGRAM_BOT_TOKEN=" "$BOT_CONFIG_FILE" | cut -d'=' -f2 | tr -d '"' || echo "")
 
-# Test bot connection
-test_bot_connection() {
-    log_info "Testing bot connection..."
-
-    # Wait a moment for bot to initialize
-    sleep 5
-
-    # Check if bot is responsive by looking at logs
-    if [[ -f "${BOT_LOG_FILE}" ]]; then
-        local recent_log
-        recent_log=$(tail -20 "${BOT_LOG_FILE}" | grep -E "(Started|Running|Bot)" | tail -1)
-
-        if [[ -n "${recent_log}" ]]; then
-            log_info "Bot appears to be running: ${recent_log}"
-        else
-            log_warn "No recent bot activity in logs"
+        if [[ -z "$bot_token" ]]; then
+            log_error "Bot token not configured"
+            ((validation_errors++))
+        elif [[ ! "$bot_token" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
+            log_error "Invalid bot token format"
+            ((validation_errors++))
         fi
-    else
-        log_warn "Bot log file not found"
-    fi
-}
-
-# Setup bot configuration
-setup_bot_config() {
-    local bot_token="$1"
-    local admin_chat_id="$2"
-
-    log_info "Setting up bot configuration..."
-
-    # Validate inputs
-    if [[ -z "${bot_token}" || -z "${admin_chat_id}" ]]; then
-        log_error "Bot token and admin chat ID are required"
-        return 1
     fi
 
-    # Update configuration file
-    if [[ -f "${BOT_CONFIG_FILE}" ]]; then
-        # Update existing config
-        sed -i "s/^BOT_TOKEN=.*/BOT_TOKEN=${bot_token}/" "${BOT_CONFIG_FILE}"
-        sed -i "s/^ADMIN_CHAT_ID=.*/ADMIN_CHAT_ID=${admin_chat_id}/" "${BOT_CONFIG_FILE}"
-    else
-        log_error "Configuration file not found"
-        return 1
+    # Check Python environment
+    if [[ ! -d "$VENV_DIR" ]]; then
+        log_error "Python virtual environment not found: $VENV_DIR"
+        ((validation_errors++))
     fi
 
-    log_info "Bot configuration updated"
-    log_info "Please restart the bot service to apply changes"
-}
-
-# Add admin user
-add_admin() {
-    local user_id="$1"
-    local username="${2:-"Unknown"}"
-
-    log_info "Adding admin user: ${user_id}"
-
-    # Initialize admin database if needed
-    if [[ ! -f "${ADMIN_DB_FILE}" ]]; then
-        init_admin_db
+    if [[ ! -x "$PYTHON_EXECUTABLE" ]]; then
+        log_error "Python executable not found: $PYTHON_EXECUTABLE"
+        ((validation_errors++))
     fi
 
-    # Add admin to database
-    sqlite3 "${ADMIN_DB_FILE}" "
-        INSERT OR REPLACE INTO admins (user_id, username, added_by, added_at, active)
-        VALUES (${user_id}, '${username}', 'manual', datetime('now'), 1);
-    "
-
-    log_info "Admin user added successfully"
-}
-
-# Remove admin user
-remove_admin() {
-    local user_id="$1"
-
-    log_info "Removing admin user: ${user_id}"
-
-    if [[ ! -f "${ADMIN_DB_FILE}" ]]; then
-        log_error "Admin database not found"
-        return 1
+    # Check bot script
+    if [[ ! -f "$BOT_SCRIPT" ]]; then
+        log_error "Bot script not found: $BOT_SCRIPT"
+        ((validation_errors++))
     fi
 
-    sqlite3 "${ADMIN_DB_FILE}" "
-        UPDATE admins SET active = 0 WHERE user_id = ${user_id};
-    "
+    # Test Python modules
+    local required_modules=("telegram" "qrcode" "PIL")
+    local module
+    for module in "${required_modules[@]}"; do
+        if ! "$PYTHON_EXECUTABLE" -c "import $module" 2>/dev/null; then
+            log_error "Required Python module not found: $module"
+            ((validation_errors++))
+        fi
+    done
 
-    log_info "Admin user removed successfully"
-}
-
-# List admin users
-list_admins() {
-    log_info "Admin users:"
-
-    if [[ ! -f "${ADMIN_DB_FILE}" ]]; then
-        log_warn "Admin database not found"
+    if [[ $validation_errors -eq 0 ]]; then
+        log_success "Bot configuration validation passed"
         return 0
+    else
+        log_error "Bot configuration validation failed with $validation_errors errors"
+        return 1
     fi
-
-    sqlite3 "${ADMIN_DB_FILE}" -header -column "
-        SELECT user_id, username, added_by, added_at, active
-        FROM admins
-        ORDER BY added_at DESC;
-    "
 }
 
-# Initialize admin database
-init_admin_db() {
-    log_info "Initializing admin database..."
+# Update bot dependencies
+update_bot_dependencies() {
+    log_info "Updating bot dependencies"
 
-    sqlite3 "${ADMIN_DB_FILE}" "
-        CREATE TABLE IF NOT EXISTS admins (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            added_by TEXT,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            active INTEGER DEFAULT 1
-        );
-    "
+    # Update Python packages
+    "${PIP_EXECUTABLE}" install --upgrade pip
 
-    log_info "Admin database initialized"
+    # Update required packages
+    local packages=(
+        "python-telegram-bot"
+        "qrcode[pil]"
+        "Pillow"
+        "requests"
+        "aiohttp"
+    )
+
+    local package
+    for package in "${packages[@]}"; do
+        log_debug "Updating Python package: $package"
+        "${PIP_EXECUTABLE}" install --upgrade "$package"
+    done
+
+    log_success "Bot dependencies updated"
+}
+
+# Add authorized user
+add_authorized_user() {
+    local chat_id="$1"
+    local username="${2:-user}"
+    local role="${3:-user}"
+
+    log_info "Adding authorized user: $username (ID: $chat_id)"
+
+    local authorized_users_file="${BOT_CONFIG_DIR}/authorized_users.json"
+
+    # Create file if it doesn't exist
+    if [[ ! -f "$authorized_users_file" ]]; then
+        echo "{}" > "$authorized_users_file"
+        chmod 600 "$authorized_users_file"
+        chown vless:vless "$authorized_users_file"
+    fi
+
+    # Add user
+    local updated_users
+    updated_users=$(jq --arg id "$chat_id" --arg username "$username" --arg role "$role" --arg timestamp "$(date -Iseconds)" '
+        .[$id] = {
+            "username": $username,
+            "role": $role,
+            "added_at": $timestamp,
+            "permissions": (if $role == "admin" then ["all"] else ["status", "config_generation"] end),
+            "notes": "Added via bot manager"
+        }
+    ' "$authorized_users_file")
+
+    echo "$updated_users" > "$authorized_users_file"
+
+    log_success "Authorized user added: $username"
+}
+
+# Remove authorized user
+remove_authorized_user() {
+    local chat_id="$1"
+
+    log_info "Removing authorized user: $chat_id"
+
+    local authorized_users_file="${BOT_CONFIG_DIR}/authorized_users.json"
+
+    if [[ ! -f "$authorized_users_file" ]]; then
+        log_error "Authorized users file not found"
+        return 1
+    fi
+
+    # Remove user
+    local updated_users
+    updated_users=$(jq --arg id "$chat_id" 'del(.[$id])' "$authorized_users_file")
+
+    echo "$updated_users" > "$authorized_users_file"
+
+    log_success "Authorized user removed: $chat_id"
 }
 
 # View bot logs
-view_logs() {
+view_bot_logs() {
     local lines="${1:-50}"
+    local log_type="${2:-main}"
 
-    if [[ -f "${BOT_LOG_FILE}" ]]; then
-        echo "=== Last ${lines} lines of bot log ==="
-        tail -n "${lines}" "${BOT_LOG_FILE}"
+    log_info "Viewing bot logs (last $lines lines, type: $log_type)"
+
+    case "$log_type" in
+        "main")
+            local log_file="${BOT_LOG_DIR}/telegram_bot.log"
+            ;;
+        "audit")
+            local log_file="${BOT_LOG_DIR}/telegram_bot_audit.log"
+            ;;
+        "systemd")
+            log_file=""
+            ;;
+        *)
+            log_error "Invalid log type: $log_type"
+            return 1
+            ;;
+    esac
+
+    if [[ "$log_type" == "systemd" ]]; then
+        journalctl -u vless-telegram-bot -n "$lines" --no-pager
+    elif [[ -f "$log_file" ]]; then
+        tail -n "$lines" "$log_file"
     else
-        echo "Bot log file not found: ${BOT_LOG_FILE}"
-    fi
-}
-
-# Follow bot logs
-follow_logs() {
-    if [[ -f "${BOT_LOG_FILE}" ]]; then
-        echo "Following bot logs (Ctrl+C to stop)..."
-        tail -f "${BOT_LOG_FILE}"
-    else
-        echo "Bot log file not found: ${BOT_LOG_FILE}"
-    fi
-}
-
-# Clear bot logs
-clear_logs() {
-    if [[ -f "${BOT_LOG_FILE}" ]]; then
-        log_info "Clearing bot logs..."
-        > "${BOT_LOG_FILE}"
-        log_info "Bot logs cleared"
-    else
-        log_warn "Bot log file not found"
-    fi
-}
-
-# Install Python dependencies
-install_dependencies() {
-    log_info "Installing Python dependencies..."
-
-    # Check if pip is available
-    if ! command -v pip3 &> /dev/null; then
-        log_info "Installing pip..."
-        apt-get update
-        apt-get install -y python3-pip
-    fi
-
-    # Install requirements
-    if [[ -f "/opt/vless/requirements.txt" ]]; then
-        pip3 install -r /opt/vless/requirements.txt
-        log_info "Dependencies installed successfully"
-    else
-        log_error "Requirements file not found"
+        log_error "Log file not found: $log_file"
         return 1
     fi
 }
 
-# Update bot
-update_bot() {
-    log_info "Updating Telegram bot..."
+# Test bot functionality
+test_bot() {
+    log_info "Testing bot functionality"
 
-    # Stop bot
-    stop_bot
+    # Check if service is running
+    if ! systemctl is-active vless-telegram-bot >/dev/null 2>&1; then
+        log_error "Bot service is not running"
+        return 1
+    fi
 
-    # Update dependencies
-    install_dependencies
+    # Test bot token via API
+    if [[ -f "$BOT_CONFIG_FILE" ]]; then
+        source "$BOT_CONFIG_FILE"
 
-    # Restart bot
-    start_bot
+        if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+            local test_response
+            test_response=$(curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe")
 
-    log_info "Bot update completed"
+            if echo "$test_response" | jq -e '.ok' >/dev/null 2>&1; then
+                local bot_info
+                bot_info=$(echo "$test_response" | jq -r '.result | "@\(.username) (\(.first_name))"')
+                log_success "Bot API test passed: $bot_info"
+            else
+                log_error "Bot API test failed"
+                return 1
+            fi
+        else
+            log_error "Bot token not configured"
+            return 1
+        fi
+    else
+        log_error "Bot configuration file not found"
+        return 1
+    fi
+
+    # Check recent activity
+    local log_file="${BOT_LOG_DIR}/telegram_bot.log"
+    if [[ -f "$log_file" ]]; then
+        local recent_activity
+        recent_activity=$(tail -10 "$log_file" | grep "$(date '+%Y-%m-%d')" | wc -l)
+        if [[ $recent_activity -gt 0 ]]; then
+            log_info "Recent bot activity detected ($recent_activity log entries today)"
+        else
+            log_warn "No recent bot activity detected"
+        fi
+    fi
+
+    log_success "Bot functionality test completed"
 }
 
-# Main function
+# Main function for command line usage
 main() {
-    case "${1:-}" in
-        "status")
-            bot_status
+    case "${1:-help}" in
+        "init")
+            init_telegram_bot_manager
+            ;;
+        "configure")
+            if [[ -z "${2:-}" ]]; then
+                log_error "Bot token required: $0 configure <bot_token> [admin_chat_id]"
+                exit 1
+            fi
+            configure_telegram_bot "$2" "${3:-}"
+            create_bot_service
             ;;
         "start")
-            start_bot
+            start_bot_service
             ;;
         "stop")
-            stop_bot
+            stop_bot_service
             ;;
         "restart")
-            restart_bot
+            restart_bot_service
             ;;
-        "enable")
-            enable_bot
-            ;;
-        "disable")
-            disable_bot
-            ;;
-        "install")
-            install_bot_service
-            ;;
-        "uninstall")
-            uninstall_bot_service
+        "status")
+            get_bot_status
             ;;
         "validate")
             validate_bot_config
             ;;
-        "setup")
-            if [[ -z "${2:-}" || -z "${3:-}" ]]; then
-                echo "Usage: $0 setup <bot_token> <admin_chat_id>"
-                exit 1
-            fi
-            setup_bot_config "$2" "$3"
+        "update")
+            update_bot_dependencies
             ;;
-        "add-admin")
+        "add-user")
             if [[ -z "${2:-}" ]]; then
-                echo "Usage: $0 add-admin <user_id> [username]"
+                log_error "Chat ID required: $0 add-user <chat_id> [username] [role]"
                 exit 1
             fi
-            add_admin "$2" "${3:-}"
+            add_authorized_user "$2" "${3:-user}" "${4:-user}"
             ;;
-        "remove-admin")
+        "remove-user")
             if [[ -z "${2:-}" ]]; then
-                echo "Usage: $0 remove-admin <user_id>"
+                log_error "Chat ID required: $0 remove-user <chat_id>"
                 exit 1
             fi
-            remove_admin "$2"
-            ;;
-        "list-admins")
-            list_admins
+            remove_authorized_user "$2"
             ;;
         "logs")
-            view_logs "${2:-50}"
-            ;;
-        "follow-logs")
-            follow_logs
-            ;;
-        "clear-logs")
-            clear_logs
-            ;;
-        "install-deps")
-            install_dependencies
-            ;;
-        "update")
-            update_bot
+            view_bot_logs "${2:-50}" "${3:-main}"
             ;;
         "test")
-            test_bot_connection
+            test_bot
             ;;
-        *)
-            echo "Usage: $0 {command} [options]"
-            echo
-            echo "Service Management:"
-            echo "  status              Show bot service status"
-            echo "  start               Start bot service"
-            echo "  stop                Stop bot service"
-            echo "  restart             Restart bot service"
-            echo "  enable              Enable auto-start"
-            echo "  disable             Disable auto-start"
-            echo
-            echo "Installation:"
-            echo "  install             Install systemd service"
-            echo "  uninstall           Remove systemd service"
-            echo "  install-deps        Install Python dependencies"
-            echo "  update              Update bot and dependencies"
-            echo
-            echo "Configuration:"
-            echo "  validate            Validate configuration"
-            echo "  setup <token> <id>  Setup bot configuration"
-            echo "  test                Test bot connection"
-            echo
-            echo "Admin Management:"
-            echo "  add-admin <id>      Add admin user"
-            echo "  remove-admin <id>   Remove admin user"
-            echo "  list-admins         List admin users"
-            echo
-            echo "Logging:"
-            echo "  logs [lines]        View bot logs"
-            echo "  follow-logs         Follow logs in real-time"
-            echo "  clear-logs          Clear log file"
-            exit 1
+        "help"|*)
+            echo "VLESS Telegram Bot Manager Usage:"
+            echo "  $0 init                                    - Initialize bot manager"
+            echo "  $0 configure <token> [admin_id]            - Configure bot"
+            echo "  $0 start                                   - Start bot service"
+            echo "  $0 stop                                    - Stop bot service"
+            echo "  $0 restart                                 - Restart bot service"
+            echo "  $0 status                                  - Show bot status"
+            echo "  $0 validate                                - Validate configuration"
+            echo "  $0 update                                  - Update dependencies"
+            echo "  $0 add-user <chat_id> [username] [role]    - Add authorized user"
+            echo "  $0 remove-user <chat_id>                   - Remove authorized user"
+            echo "  $0 logs [lines] [type]                     - View logs (main/audit/systemd)"
+            echo "  $0 test                                    - Test bot functionality"
             ;;
     esac
 }
 
-# Execute main function if script is run directly
+# Export functions
+export -f init_telegram_bot_manager install_system_dependencies setup_python_environment
+export -f install_python_packages configure_telegram_bot create_bot_config
+export -f create_authorized_users_file create_bot_service start_bot_service
+export -f stop_bot_service restart_bot_service get_bot_status validate_bot_config
+export -f update_bot_dependencies add_authorized_user remove_authorized_user
+export -f view_bot_logs test_bot
+
+# Run main function if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
+
+log_debug "Telegram bot manager module loaded successfully"

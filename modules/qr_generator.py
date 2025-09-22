@@ -1,498 +1,310 @@
 #!/usr/bin/env python3
-"""
-======================================================================================
-VLESS+Reality VPN Management System - QR Code Generator Module
-======================================================================================
-This module provides QR code generation functionality for easy client configuration
-import. Supports both image generation and terminal ASCII display.
 
-Author: Claude Code
-Version: 1.0
-Last Modified: 2025-09-21
-======================================================================================
+"""
+VLESS+Reality VPN Management System - QR Code Generator
+Version: 1.0.0
+Description: Python-based QR code generation for mobile clients
+
+This module provides:
+- QR code generation from VLESS URLs
+- PNG output with customizable size
+- Batch QR code generation
+- ASCII QR code for terminal display
+- Error correction level configuration
 """
 
-import sys
-import os
-import json
-import re
 import argparse
+import json
+import os
+import sys
+import tempfile
 from pathlib import Path
-from datetime import datetime
+from typing import Optional, Dict, Any, List
 
 try:
     import qrcode
-    from qrcode.image.styledpil import StyledPilImage
-    from qrcode.image.styles.moduledrawers import RoundedModuleDrawer
-    from qrcode.image.styles.colormasks import SquareGradiantColorMask
-    QRCODE_AVAILABLE = True
+    from qrcode.constants import ERROR_CORRECT_L, ERROR_CORRECT_M, ERROR_CORRECT_Q, ERROR_CORRECT_H
 except ImportError:
-    QRCODE_AVAILABLE = False
+    print("Error: qrcode library not installed. Install with: pip3 install qrcode[pil]", file=sys.stderr)
+    sys.exit(1)
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+    print("Warning: PIL library not available. PNG output will be limited.", file=sys.stderr)
 
-# Constants
-SCRIPT_DIR = Path(__file__).parent
-USER_DIR = Path("/opt/vless/users")
-USER_DATABASE = USER_DIR / "users.json"
-QR_OUTPUT_DIR = USER_DIR / "qr_codes"
 
-# Default QR code settings
-QR_VERSION = 1
-QR_ERROR_CORRECT = qrcode.constants.ERROR_CORRECT_M
-QR_BOX_SIZE = 10
-QR_BORDER = 4
-
-class Logger:
-    """Simple logger for consistent output formatting"""
-
-    @staticmethod
-    def info(message):
-        print(f"[INFO] {message}")
-
-    @staticmethod
-    def error(message):
-        print(f"[ERROR] {message}", file=sys.stderr)
-
-    @staticmethod
-    def success(message):
-        print(f"[SUCCESS] {message}")
-
-    @staticmethod
-    def warn(message):
-        print(f"[WARN] {message}")
-
-class VLESSQRGenerator:
-    """VLESS QR Code generator with multiple output formats"""
+class QRGenerator:
+    """QR Code generator for VLESS configurations"""
 
     def __init__(self):
-        self.logger = Logger()
-        self.ensure_directories()
+        self.error_correction_levels = {
+            'L': ERROR_CORRECT_L,  # ~7%
+            'M': ERROR_CORRECT_M,  # ~15%
+            'Q': ERROR_CORRECT_Q,  # ~25%
+            'H': ERROR_CORRECT_H   # ~30%
+        }
 
-    def ensure_directories(self):
-        """Ensure necessary directories exist"""
+    def generate_qr_ascii(self, text: str, error_correction: str = 'M') -> str:
+        """Generate ASCII QR code for terminal display"""
         try:
-            QR_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            os.chmod(QR_OUTPUT_DIR, 0o700)
-            self.logger.info(f"QR output directory ready: {QR_OUTPUT_DIR}")
-        except Exception as e:
-            self.logger.error(f"Failed to create QR output directory: {e}")
-            sys.exit(1)
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=self.error_correction_levels[error_correction],
+                box_size=1,
+                border=2,
+            )
+            qr.add_data(text)
+            qr.make(fit=True)
 
-    def get_user_info(self, identifier):
-        """Get user information by username or UUID"""
-        if not USER_DATABASE.exists():
-            self.logger.error("User database not found")
-            return None
+            # Generate ASCII representation
+            matrix = qr.get_matrix()
+            ascii_qr = []
+
+            for row in matrix:
+                line = ""
+                for cell in row:
+                    line += "██" if cell else "  "
+                ascii_qr.append(line)
+
+            return "\n".join(ascii_qr)
+
+        except Exception as e:
+            raise Exception(f"Failed to generate ASCII QR code: {e}")
+
+    def generate_qr_png(self, text: str, output_file: str, size: int = 300,
+                       error_correction: str = 'M') -> bool:
+        """Generate PNG QR code"""
+        if not PIL_AVAILABLE:
+            raise Exception("PIL library required for PNG generation")
 
         try:
-            with open(USER_DATABASE, 'r') as f:
-                data = json.load(f)
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=self.error_correction_levels[error_correction],
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(text)
+            qr.make(fit=True)
 
-            users = data.get('users', [])
-            for user in users:
-                if (user.get('username') == identifier or
-                    user.get('uuid') == identifier):
-                    return user
+            # Create QR code image
+            img = qr.make_image(fill_color="black", back_color="white")
 
-            self.logger.error(f"User not found: {identifier}")
-            return None
+            # Resize if needed
+            if size != 300:
+                img = img.resize((size, size), Image.Resampling.LANCZOS)
+
+            # Save image
+            img.save(output_file, "PNG")
+            return True
 
         except Exception as e:
-            self.logger.error(f"Failed to read user database: {e}")
-            return None
+            raise Exception(f"Failed to generate PNG QR code: {e}")
 
-    def get_server_ip(self):
-        """Get server public IP address"""
-        import subprocess
-        import urllib.request
+    def generate_qr_batch(self, vless_urls: List[Dict[str, str]],
+                         output_dir: str, format_type: str = 'png') -> List[str]:
+        """Generate QR codes for multiple VLESS URLs"""
+        os.makedirs(output_dir, exist_ok=True)
+        generated_files = []
 
-        # Try multiple services to get public IP
-        services = [
-            "https://ifconfig.me/ip",
-            "https://icanhazip.com",
-            "https://ipecho.net/plain"
-        ]
+        for i, url_data in enumerate(vless_urls):
+            email = url_data.get('email', f'user_{i}')
+            vless_url = url_data.get('url', '')
 
-        for service in services:
-            try:
-                with urllib.request.urlopen(service, timeout=10) as response:
-                    ip = response.read().decode().strip()
-                    if self.validate_ip(ip):
-                        return ip
-            except Exception:
+            if not vless_url:
+                print(f"Warning: Empty URL for user {email}", file=sys.stderr)
                 continue
 
-        # Fallback: try to get from system
-        try:
-            result = subprocess.run(
-                ["ip", "route", "get", "8.8.8.8"],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'src' in line:
-                        ip = line.split('src')[1].strip().split()[0]
-                        if self.validate_ip(ip):
-                            return ip
-        except Exception:
-            pass
+            # Sanitize filename
+            safe_email = "".join(c for c in email if c.isalnum() or c in "._-")
 
-        self.logger.error("Failed to determine server IP address")
-        return None
+            if format_type == 'png':
+                output_file = os.path.join(output_dir, f"{safe_email}_qr.png")
+                try:
+                    self.generate_qr_png(vless_url, output_file)
+                    generated_files.append(output_file)
+                    print(f"Generated PNG QR code: {output_file}")
+                except Exception as e:
+                    print(f"Error generating PNG for {email}: {e}", file=sys.stderr)
 
-    def validate_ip(self, ip):
-        """Validate IP address format"""
-        pattern = r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-        return re.match(pattern, ip) is not None
+            elif format_type == 'ascii':
+                output_file = os.path.join(output_dir, f"{safe_email}_qr.txt")
+                try:
+                    ascii_qr = self.generate_qr_ascii(vless_url)
+                    with open(output_file, 'w') as f:
+                        f.write(f"QR Code for: {email}\n")
+                        f.write(f"VLESS URL: {vless_url}\n\n")
+                        f.write(ascii_qr)
+                    generated_files.append(output_file)
+                    print(f"Generated ASCII QR code: {output_file}")
+                except Exception as e:
+                    print(f"Error generating ASCII for {email}: {e}", file=sys.stderr)
 
-    def validate_vless_url(self, url):
+        return generated_files
+
+    def validate_vless_url(self, url: str) -> bool:
         """Validate VLESS URL format"""
-        vless_pattern = r'^vless://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@[\w\.-]+:\d+\?.*#.*$'
-        return re.match(vless_pattern, url, re.IGNORECASE) is not None
+        if not url.startswith('vless://'):
+            return False
 
-    def generate_vless_url(self, user_info, server_ip):
-        """Generate VLESS connection URL"""
-        if not user_info or not server_ip:
-            return None
+        # Basic validation - should contain essential components
+        required_params = ['@', ':', '?', 'type=', 'security=']
+        return all(param in url for param in required_params)
 
-        username = user_info.get('username', 'unknown')
-        uuid = user_info.get('uuid')
-        port = 443  # Default VLESS port
 
-        # VLESS URL format for Reality
-        vless_url = (
-            f"vless://{uuid}@{server_ip}:{port}"
-            f"?type=tcp&security=reality&pbk=&fp=chrome"
-            f"&sni=www.google.com&sid=&spx=%2F&flow=xtls-rprx-vision"
-            f"#{username}"
-        )
+def load_users_from_database(db_file: str) -> List[Dict[str, str]]:
+    """Load users from JSON database and generate VLESS URLs"""
+    try:
+        with open(db_file, 'r') as f:
+            db_data = json.load(f)
 
-        if not self.validate_vless_url(vless_url):
-            self.logger.error(f"Generated invalid VLESS URL for user: {username}")
-            return None
+        users = db_data.get('users', {})
+        vless_urls = []
 
-        return vless_url
+        # This is a simplified version - in practice, you'd need server config
+        server_ip = "YOUR_SERVER_IP"
+        server_port = "443"
+        sni_domain = "www.microsoft.com"
+        public_key = "YOUR_PUBLIC_KEY"
+        short_id = "YOUR_SHORT_ID"
 
-    def create_qr_code(self, data, version=None, error_correct=None, box_size=None, border=None):
-        """Create QR code object with specified parameters"""
-        if not QRCODE_AVAILABLE:
-            raise ImportError("qrcode library is not available")
-
-        qr = qrcode.QRCode(
-            version=version or QR_VERSION,
-            error_correction=error_correct or QR_ERROR_CORRECT,
-            box_size=box_size or QR_BOX_SIZE,
-            border=border or QR_BORDER,
-        )
-
-        qr.add_data(data)
-        qr.make(fit=True)
-
-        return qr
-
-    def generate_basic_qr_image(self, qr_code, fill_color='black', back_color='white'):
-        """Generate basic QR code image"""
-        return qr_code.make_image(fill_color=fill_color, back_color=back_color)
-
-    def generate_styled_qr_image(self, qr_code):
-        """Generate styled QR code image with enhanced appearance"""
-        if not PIL_AVAILABLE:
-            self.logger.warn("PIL not available, generating basic QR code")
-            return self.generate_basic_qr_image(qr_code)
-
-        try:
-            # Create styled QR code with rounded modules and gradient
-            img = qr_code.make_image(
-                image_factory=StyledPilImage,
-                module_drawer=RoundedModuleDrawer(),
-                color_mask=SquareGradiantColorMask(
-                    back_color=(255, 255, 255),  # White background
-                    center_color=(0, 0, 0),      # Black center
-                    edge_color=(100, 100, 100)   # Gray edge
+        for uuid, user_data in users.items():
+            if user_data.get('status') == 'active':
+                email = user_data.get('email', 'unknown')
+                vless_url = (
+                    f"vless://{uuid}@{server_ip}:{server_port}"
+                    f"?type=tcp&security=reality&sni={sni_domain}"
+                    f"&fp=chrome&pbk={public_key}&sid={short_id}"
+                    f"&flow=xtls-rprx-vision#{email}"
                 )
-            )
-            return img
-        except Exception as e:
-            self.logger.warn(f"Failed to create styled QR code: {e}")
-            return self.generate_basic_qr_image(qr_code)
 
-    def add_logo_to_qr(self, qr_image, logo_path=None):
-        """Add logo to center of QR code (if logo provided)"""
-        if not logo_path or not Path(logo_path).exists() or not PIL_AVAILABLE:
-            return qr_image
+                vless_urls.append({
+                    'email': email,
+                    'uuid': uuid,
+                    'url': vless_url
+                })
 
-        try:
-            logo = Image.open(logo_path)
+        return vless_urls
 
-            # Calculate logo size (about 1/5 of QR code size)
-            qr_width, qr_height = qr_image.size
-            logo_size = min(qr_width, qr_height) // 5
+    except FileNotFoundError:
+        raise Exception(f"Database file not found: {db_file}")
+    except json.JSONDecodeError:
+        raise Exception(f"Invalid JSON in database file: {db_file}")
+    except Exception as e:
+        raise Exception(f"Error loading users from database: {e}")
 
-            # Resize logo
-            logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
-
-            # Calculate position to center logo
-            logo_pos = (
-                (qr_width - logo_size) // 2,
-                (qr_height - logo_size) // 2
-            )
-
-            # Paste logo onto QR code
-            qr_image.paste(logo, logo_pos)
-
-            return qr_image
-
-        except Exception as e:
-            self.logger.warn(f"Failed to add logo to QR code: {e}")
-            return qr_image
-
-    def save_qr_image(self, qr_image, output_path, add_text_info=True, user_info=None):
-        """Save QR code image with optional text information"""
-        try:
-            if add_text_info and user_info and PIL_AVAILABLE:
-                # Add text information below QR code
-                qr_image = self.add_text_to_qr(qr_image, user_info)
-
-            qr_image.save(output_path)
-            os.chmod(output_path, 0o600)
-            self.logger.success(f"QR code saved: {output_path}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to save QR code: {e}")
-            return False
-
-    def add_text_to_qr(self, qr_image, user_info):
-        """Add user information text below QR code"""
-        try:
-            # Create new image with extra space for text
-            img_width, img_height = qr_image.size
-            text_height = 100
-            new_height = img_height + text_height
-
-            new_image = Image.new('RGB', (img_width, new_height), 'white')
-            new_image.paste(qr_image, (0, 0))
-
-            # Draw text
-            draw = ImageDraw.Draw(new_image)
-
-            # Try to use a better font, fallback to default
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-            except:
-                font = ImageFont.load_default()
-
-            # Add user information
-            username = user_info.get('username', 'Unknown')
-            created_date = user_info.get('created_date', '')[:10]  # Just date part
-
-            text_lines = [
-                f"User: {username}",
-                f"Created: {created_date}",
-                f"VLESS+Reality Configuration"
-            ]
-
-            y_offset = img_height + 10
-            for line in text_lines:
-                # Calculate text width for centering
-                bbox = draw.textbbox((0, 0), line, font=font)
-                text_width = bbox[2] - bbox[0]
-                x_pos = (img_width - text_width) // 2
-
-                draw.text((x_pos, y_offset), line, fill='black', font=font)
-                y_offset += 25
-
-            return new_image
-
-        except Exception as e:
-            self.logger.warn(f"Failed to add text to QR code: {e}")
-            return qr_image
-
-    def display_qr_terminal(self, qr_code):
-        """Display QR code in terminal using ASCII characters"""
-        try:
-            # Use the qrcode library's terminal display
-            qr_code.print_ascii(invert=True)
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to display QR code in terminal: {e}")
-            return False
-
-    def generate_qr_for_user(self, identifier, output_format='png', styled=True, terminal_display=True):
-        """Generate QR code for a specific user"""
-        if not QRCODE_AVAILABLE:
-            self.logger.error("QR code generation requires 'qrcode' library")
-            self.logger.error("Install with: pip3 install qrcode[pil]")
-            return False
-
-        # Get user information
-        user_info = self.get_user_info(identifier)
-        if not user_info:
-            return False
-
-        # Get server IP
-        server_ip = self.get_server_ip()
-        if not server_ip:
-            return False
-
-        # Generate VLESS URL
-        vless_url = self.generate_vless_url(user_info, server_ip)
-        if not vless_url:
-            return False
-
-        username = user_info.get('username')
-        self.logger.info(f"Generating QR code for user: {username}")
-
-        try:
-            # Create QR code
-            qr_code = self.create_qr_code(vless_url)
-
-            # Display in terminal if requested
-            if terminal_display:
-                print(f"\nQR Code for user: {username}")
-                print("=" * 50)
-                self.display_qr_terminal(qr_code)
-                print("=" * 50)
-                print(f"VLESS URL: {vless_url}")
-                print("=" * 50)
-
-            # Generate image if PNG format requested
-            if output_format.lower() == 'png':
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_filename = f"{username}_qr_{timestamp}.png"
-                output_path = QR_OUTPUT_DIR / output_filename
-
-                # Create QR image (styled or basic)
-                if styled and PIL_AVAILABLE:
-                    qr_image = self.generate_styled_qr_image(qr_code)
-                else:
-                    qr_image = self.generate_basic_qr_image(qr_code)
-
-                # Save QR image
-                if self.save_qr_image(qr_image, output_path, True, user_info):
-                    self.logger.success(f"QR code image generated: {output_path}")
-                    return True
-                else:
-                    return False
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to generate QR code for user {username}: {e}")
-            return False
-
-    def batch_generate_qr_codes(self, output_format='png', styled=True):
-        """Generate QR codes for all users"""
-        if not USER_DATABASE.exists():
-            self.logger.error("User database not found")
-            return False
-
-        try:
-            with open(USER_DATABASE, 'r') as f:
-                data = json.load(f)
-
-            users = data.get('users', [])
-            if not users:
-                self.logger.warn("No users found in database")
-                return True
-
-            success_count = 0
-            total_count = len(users)
-
-            self.logger.info(f"Generating QR codes for {total_count} users...")
-
-            for user in users:
-                username = user.get('username')
-                if self.generate_qr_for_user(username, output_format, styled, False):
-                    success_count += 1
-                else:
-                    self.logger.error(f"Failed to generate QR code for user: {username}")
-
-            self.logger.success(f"Generated QR codes for {success_count}/{total_count} users")
-            return success_count == total_count
-
-        except Exception as e:
-            self.logger.error(f"Failed to batch generate QR codes: {e}")
-            return False
 
 def main():
-    """Main function for command line usage"""
+    """Main function"""
     parser = argparse.ArgumentParser(
-        description="VLESS QR Code Generator",
+        description="VLESS+Reality VPN QR Code Generator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s user123                    # Generate QR for specific user
-  %(prog)s user123 --no-terminal      # Generate without terminal display
-  %(prog)s --batch                    # Generate for all users
-  %(prog)s user123 --basic            # Generate basic QR without styling
+  # Generate ASCII QR code for VLESS URL
+  %(prog)s --text "vless://uuid@server:443?..." --format ascii
+
+  # Generate PNG QR code
+  %(prog)s --text "vless://uuid@server:443?..." --format png --output qr.png
+
+  # Generate QR codes for all users in database
+  %(prog)s --database /opt/vless/users/users.json --batch-output ./qr_codes/
+
+  # Generate QR code with custom settings
+  %(prog)s --text "vless://uuid@server:443?..." --format png --size 500 --error-correction H
         """
     )
 
-    parser.add_argument(
-        'user_identifier',
-        nargs='?',
-        help='Username or UUID to generate QR code for'
-    )
+    # Input options
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument('--text', type=str, help='VLESS URL text to encode')
+    input_group.add_argument('--database', type=str, help='Path to user database JSON file')
+    input_group.add_argument('--file', type=str, help='File containing VLESS URLs (one per line)')
 
-    parser.add_argument(
-        '--batch',
-        action='store_true',
-        help='Generate QR codes for all users'
-    )
+    # Output options
+    parser.add_argument('--format', choices=['ascii', 'png'], default='ascii',
+                       help='Output format (default: ascii)')
+    parser.add_argument('--output', type=str, help='Output file for PNG format')
+    parser.add_argument('--batch-output', type=str, help='Output directory for batch generation')
 
-    parser.add_argument(
-        '--format',
-        choices=['png', 'terminal'],
-        default='png',
-        help='Output format (default: png)'
-    )
+    # QR code options
+    parser.add_argument('--size', type=int, default=300,
+                       help='PNG image size in pixels (default: 300)')
+    parser.add_argument('--error-correction', choices=['L', 'M', 'Q', 'H'], default='M',
+                       help='Error correction level (default: M)')
 
-    parser.add_argument(
-        '--basic',
-        action='store_true',
-        help='Generate basic QR code without styling'
-    )
-
-    parser.add_argument(
-        '--no-terminal',
-        action='store_true',
-        help='Skip terminal display of QR code'
-    )
+    # Other options
+    parser.add_argument('--validate', action='store_true',
+                       help='Validate VLESS URL format before generating QR code')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Enable verbose output')
 
     args = parser.parse_args()
 
-    # Check if running as root
-    if os.geteuid() != 0:
-        print("[ERROR] This script must be run as root")
-        sys.exit(1)
+    try:
+        generator = QRGenerator()
 
-    generator = VLESSQRGenerator()
+        if args.text:
+            # Single VLESS URL
+            if args.validate and not generator.validate_vless_url(args.text):
+                print("Error: Invalid VLESS URL format", file=sys.stderr)
+                return 1
 
-    if args.batch:
-        success = generator.batch_generate_qr_codes(
-            output_format=args.format,
-            styled=not args.basic
-        )
-        sys.exit(0 if success else 1)
+            if args.format == 'ascii':
+                ascii_qr = generator.generate_qr_ascii(args.text, args.error_correction)
+                print(ascii_qr)
 
-    elif args.user_identifier:
-        success = generator.generate_qr_for_user(
-            args.user_identifier,
-            output_format=args.format,
-            styled=not args.basic,
-            terminal_display=not args.no_terminal
-        )
-        sys.exit(0 if success else 1)
+            elif args.format == 'png':
+                output_file = args.output or 'qr_code.png'
+                generator.generate_qr_png(args.text, output_file, args.size, args.error_correction)
+                print(f"PNG QR code generated: {output_file}")
 
-    else:
-        parser.print_help()
-        sys.exit(1)
+        elif args.database:
+            # Batch generation from database
+            output_dir = args.batch_output or './qr_codes'
+            vless_urls = load_users_from_database(args.database)
 
-if __name__ == "__main__":
-    main()
+            if not vless_urls:
+                print("No active users found in database", file=sys.stderr)
+                return 1
+
+            if args.verbose:
+                print(f"Found {len(vless_urls)} active users")
+
+            generated_files = generator.generate_qr_batch(vless_urls, output_dir, args.format)
+            print(f"Generated {len(generated_files)} QR codes in {output_dir}")
+
+        elif args.file:
+            # Batch generation from file
+            output_dir = args.batch_output or './qr_codes'
+
+            try:
+                with open(args.file, 'r') as f:
+                    urls = [line.strip() for line in f if line.strip()]
+
+                vless_urls = []
+                for i, url in enumerate(urls):
+                    vless_urls.append({
+                        'email': f'user_{i+1}',
+                        'url': url
+                    })
+
+                generated_files = generator.generate_qr_batch(vless_urls, output_dir, args.format)
+                print(f"Generated {len(generated_files)} QR codes in {output_dir}")
+
+            except FileNotFoundError:
+                print(f"Error: File not found: {args.file}", file=sys.stderr)
+                return 1
+
+        return 0
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

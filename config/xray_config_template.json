@@ -1,62 +1,20 @@
 {
-  "_comment": "VLESS+Reality VPN Management System - Xray Configuration Template",
-  "_author": "Claude Code",
-  "_version": "1.0",
-  "_last_modified": "2025-09-21",
-  "_description": "Complete Xray configuration template with VLESS+Reality protocol support",
-
   "log": {
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log",
     "loglevel": "warning",
-    "dnsLog": false
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
   },
-
-  "api": {
-    "services": ["HandlerService", "LoggerService", "StatsService"],
-    "tag": "api"
-  },
-
-  "stats": {},
-
-  "policy": {
-    "levels": {
-      "0": {
-        "handshake": 4,
-        "connIdle": 300,
-        "uplinkOnly": 2,
-        "downlinkOnly": 5,
-        "statsUserUplink": true,
-        "statsUserDownlink": true
-      }
-    },
-    "system": {
-      "statsInboundUplink": true,
-      "statsInboundDownlink": true,
-      "statsOutboundUplink": true,
-      "statsOutboundDownlink": true
-    }
-  },
-
   "inbounds": [
     {
-      "_comment": "VLESS+Reality inbound configuration",
+      "tag": "vless-reality",
       "port": 443,
       "protocol": "vless",
-      "tag": "vless-reality-in",
       "settings": {
-        "clients": [
-          {
-            "_comment": "Template user - will be replaced by user management system",
-            "id": "{{USER_UUID}}",
-            "email": "{{USER_EMAIL}}",
-            "flow": "xtls-rprx-vision"
-          }
-        ],
+        "clients": [],
         "decryption": "none",
         "fallbacks": [
           {
-            "dest": "{{FALLBACK_DEST}}",
+            "dest": "80",
             "xver": 1
           }
         ]
@@ -66,54 +24,37 @@
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "{{REALITY_DEST}}",
+          "dest": "www.microsoft.com:443",
           "xver": 0,
           "serverNames": [
-            "{{SERVER_NAME_1}}",
-            "{{SERVER_NAME_2}}"
+            "www.microsoft.com"
           ],
-          "privateKey": "{{REALITY_PRIVATE_KEY}}",
-          "minClientVer": "",
-          "maxClientVer": "",
-          "maxTimeDiff": 0,
+          "privateKey": "REPLACE_WITH_GENERATED_PRIVATE_KEY",
           "shortIds": [
-            "{{SHORT_ID_1}}",
-            "{{SHORT_ID_2}}",
-            "{{SHORT_ID_3}}",
-            "{{SHORT_ID_4}}"
+            "REPLACE_WITH_GENERATED_SHORT_ID"
           ]
         }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"]
       }
     },
     {
-      "_comment": "API inbound for management",
-      "listen": "127.0.0.1",
-      "port": 62789,
-      "protocol": "dokodemo-door",
-      "tag": "api-in",
+      "tag": "fallback-http",
+      "port": 80,
+      "protocol": "http",
       "settings": {
-        "address": "127.0.0.1"
+        "timeout": 300,
+        "accounts": []
       }
     }
   ],
-
   "outbounds": [
     {
-      "_comment": "Direct outbound connection",
-      "protocol": "freedom",
       "tag": "direct",
-      "settings": {
-        "domainStrategy": "UseIPv4"
-      }
+      "protocol": "freedom",
+      "settings": {}
     },
     {
-      "_comment": "Block outbound for blocked traffic",
-      "protocol": "blackhole",
       "tag": "blocked",
+      "protocol": "blackhole",
       "settings": {
         "response": {
           "type": "http"
@@ -121,122 +62,21 @@
       }
     }
   ],
-
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
       {
-        "_comment": "API traffic routing",
-        "type": "field",
-        "inboundTag": ["api-in"],
-        "outboundTag": "api"
-      },
-      {
-        "_comment": "Block BitTorrent traffic",
         "type": "field",
         "protocol": ["bittorrent"],
         "outboundTag": "blocked"
       },
       {
-        "_comment": "Block common malware domains",
-        "type": "field",
-        "domain": [
-          "geosite:malware",
-          "geosite:phishing"
-        ],
-        "outboundTag": "blocked"
-      },
-      {
-        "_comment": "Direct traffic for local networks",
         "type": "field",
         "ip": [
-          "10.0.0.0/8",
-          "172.16.0.0/12",
-          "192.168.0.0/16",
-          "127.0.0.0/8"
+          "geoip:private"
         ],
         "outboundTag": "blocked"
-      },
-      {
-        "_comment": "Default rule - allow all other traffic",
-        "type": "field",
-        "network": "tcp,udp",
-        "outboundTag": "direct"
       }
     ]
-  },
-
-  "dns": {
-    "servers": [
-      {
-        "address": "1.1.1.1",
-        "port": 53,
-        "domains": [
-          "geosite:geolocation-!cn"
-        ]
-      },
-      {
-        "address": "8.8.8.8",
-        "port": 53,
-        "domains": [
-          "geosite:google",
-          "geosite:youtube"
-        ]
-      },
-      {
-        "address": "223.5.5.5",
-        "port": 53,
-        "domains": [
-          "geosite:cn"
-        ]
-      },
-      "localhost"
-    ],
-    "queryStrategy": "UseIPv4",
-    "disableCache": false,
-    "disableFallback": false
-  },
-
-  "_template_variables": {
-    "_comment": "These variables need to be replaced during configuration generation",
-    "USER_UUID": "Generated UUID for each user",
-    "USER_EMAIL": "User identifier/email",
-    "FALLBACK_DEST": "Fallback destination (e.g., nginx:80)",
-    "REALITY_DEST": "Reality destination (e.g., www.microsoft.com:443)",
-    "SERVER_NAME_1": "Primary server name (e.g., www.microsoft.com)",
-    "SERVER_NAME_2": "Secondary server name (e.g., www.bing.com)",
-    "REALITY_PRIVATE_KEY": "Generated Reality private key",
-    "SHORT_ID_1": "Generated short ID 1 (hex, 2-16 chars)",
-    "SHORT_ID_2": "Generated short ID 2 (hex, 2-16 chars)",
-    "SHORT_ID_3": "Generated short ID 3 (hex, 2-16 chars)",
-    "SHORT_ID_4": "Generated short ID 4 (hex, 2-16 chars)"
-  },
-
-  "_configuration_notes": {
-    "reality_setup": "Reality requires a real website as destination. Microsoft/Bing are recommended.",
-    "certificates": "Reality doesn't require certificates as it mimics real TLS connections.",
-    "port_443": "Using port 443 makes the traffic look like regular HTTPS.",
-    "flow_control": "xtls-rprx-vision provides the best performance and security.",
-    "fallback": "Fallback destination should serve real content (nginx with static pages).",
-    "client_config": "Clients need the public key and server names to connect.",
-    "short_ids": "Short IDs should be unique and randomly generated hex strings.",
-    "logging": "Adjust log level based on debugging needs (error, warning, info, debug)."
-  },
-
-  "_security_considerations": {
-    "private_key": "Keep the Reality private key secure - it's critical for security.",
-    "user_uuids": "Each user must have a unique UUID for proper access control.",
-    "server_names": "Use popular, stable websites as server names for better camouflage.",
-    "short_ids": "Rotate short IDs periodically for enhanced security.",
-    "access_logs": "Monitor access logs for suspicious activity.",
-    "blocked_traffic": "Block dangerous protocols and malware domains by default."
-  },
-
-  "_performance_tuning": {
-    "connection_limits": "Adjust handshake and idle timeouts based on usage patterns.",
-    "stats_collection": "Enable stats for monitoring but may impact performance slightly.",
-    "dns_optimization": "Use appropriate DNS servers for different geographic regions.",
-    "routing_efficiency": "Order routing rules from most specific to least specific.",
-    "log_levels": "Use 'warning' or 'error' in production to reduce I/O overhead."
   }
 }

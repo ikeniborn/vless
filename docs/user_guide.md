@@ -1,236 +1,250 @@
-# VLESS+Reality VPN Management System - User Guide
+# User Guide
 
-This comprehensive user guide provides detailed instructions for using and managing the VLESS+Reality VPN Management System.
+Complete user manual for the VLESS+Reality VPN Management System.
 
 ## Table of Contents
 
-- [Getting Started](#getting-started)
-- [User Management](#user-management)
-- [Client Configuration](#client-configuration)
-- [System Administration](#system-administration)
-- [Telegram Bot Usage](#telegram-bot-usage)
-- [Monitoring and Maintenance](#monitoring-and-maintenance)
-- [Advanced Configuration](#advanced-configuration)
-- [Best Practices](#best-practices)
+1. [Getting Started](#getting-started)
+2. [User Management](#user-management)
+3. [Client Configuration](#client-configuration)
+4. [Telegram Bot Usage](#telegram-bot-usage)
+5. [Monitoring and Analytics](#monitoring-and-analytics)
+6. [Backup and Recovery](#backup-and-recovery)
+7. [Advanced Configuration](#advanced-configuration)
+8. [Best Practices](#best-practices)
 
 ## Getting Started
 
+### First Time Setup
+
+After installation, you'll need to perform initial configuration:
+
+1. **Access the System**
+   ```bash
+   # Switch to root user
+   sudo su -
+
+   # Navigate to system directory
+   cd /opt/vless
+   ```
+
+2. **Create Your First User**
+   ```bash
+   # Create an admin user
+   ./scripts/user_management.sh add admin --role=admin
+
+   # Create a regular user
+   ./scripts/user_management.sh add john_doe
+   ```
+
+3. **Generate Client Configuration**
+   ```bash
+   # Generate configuration for user
+   ./scripts/user_management.sh config john_doe
+
+   # Generate QR code for mobile apps
+   ./scripts/user_management.sh qr john_doe
+   ```
+
 ### System Overview
 
-The VLESS+Reality VPN Management System provides:
-- High-performance VPN service using VLESS protocol with Reality technology
-- Web-based administration dashboard
-- Telegram bot for remote management
-- Automated backup and monitoring
-- Comprehensive user management
+The VLESS+Reality VPN system provides:
+- **Secure VPN Access**: Using VLESS protocol with Reality obfuscation
+- **User Management**: Complete user lifecycle management
+- **Remote Control**: Telegram bot for remote administration
+- **Monitoring**: Real-time system and user monitoring
+- **Backup**: Automated backup and recovery capabilities
 
-### First Steps After Installation
+### Command Line Interface
 
-1. **Verify Installation**
-   ```bash
-   sudo /opt/vless/scripts/status.sh
-   ```
+All system operations can be performed via command line scripts located in `/opt/vless/scripts/`:
 
-2. **Check Service Status**
-   ```bash
-   sudo systemctl status vless-vpn
-   ```
-
-3. **Create Your First User**
-   ```bash
-   sudo /opt/vless/scripts/user_management.sh add admin
-   ```
-
-4. **Access Web Dashboard** (if enabled)
-   - Navigate to: `https://your-domain.com/dashboard`
-   - Login with admin credentials
+- `user_management.sh` - User operations
+- `monitoring.sh` - System monitoring
+- `backup_restore.sh` - Backup operations
+- `security_hardening.sh` - Security management
+- `telegram_bot_manager.sh` - Bot management
 
 ## User Management
 
 ### Adding Users
 
-#### Interactive User Creation
+#### Basic User Creation
 ```bash
-sudo /opt/vless/scripts/user_management.sh add
-```
-This will prompt for:
-- Username (required)
-- Email address (optional)
-- Expiration date (optional)
-- Traffic limit (optional)
-- Additional notes (optional)
+# Create a standard user
+./scripts/user_management.sh add username
 
-#### Quick User Creation
+# Create user with specific quota (in GB)
+./scripts/user_management.sh add username --quota=50
+
+# Create user with expiration date
+./scripts/user_management.sh add username --expires="2024-12-31"
+
+# Create admin user
+./scripts/user_management.sh add username --role=admin
+```
+
+#### Advanced User Creation
 ```bash
-# Basic user
-sudo /opt/vless/scripts/user_management.sh add john
-
-# User with email
-sudo /opt/vless/scripts/user_management.sh add john --email john@example.com
-
-# User with expiration (30 days)
-sudo /opt/vless/scripts/user_management.sh add john --expire 30d
-
-# User with traffic limit (100GB)
-sudo /opt/vless/scripts/user_management.sh add john --limit 100GB
-```
-
-#### Bulk User Creation
-Create a file `users.txt` with user details:
-```
-john,john@example.com,30d,50GB
-jane,jane@example.com,60d,100GB
-admin,admin@example.com,365d,unlimited
-```
-
-Then import:
-```bash
-sudo /opt/vless/scripts/user_management.sh bulk_add users.txt
+# Create user with custom settings
+./scripts/user_management.sh add username \
+  --quota=100 \
+  --expires="2024-12-31" \
+  --max-connections=5 \
+  --description="John Doe - Marketing Team"
 ```
 
 ### Managing Existing Users
 
-#### List All Users
+#### View Users
 ```bash
-# Basic list
-sudo /opt/vless/scripts/user_management.sh list
+# List all users
+./scripts/user_management.sh list
 
-# Detailed list with statistics
-sudo /opt/vless/scripts/user_management.sh list --detailed
+# Show detailed user information
+./scripts/user_management.sh info username
 
-# Export user list
-sudo /opt/vless/scripts/user_management.sh list --export users_export.json
+# Show user statistics
+./scripts/user_management.sh stats username
 ```
 
-#### Get User Information
+#### Modify Users
 ```bash
-# Basic user info
-sudo /opt/vless/scripts/user_management.sh info john
+# Update user quota
+./scripts/user_management.sh modify username --quota=200
 
-# Detailed user statistics
-sudo /opt/vless/scripts/user_management.sh stats john
+# Extend expiration date
+./scripts/user_management.sh modify username --expires="2025-06-30"
 
-# User connection history
-sudo /opt/vless/scripts/user_management.sh history john
+# Change user role
+./scripts/user_management.sh modify username --role=admin
+
+# Update description
+./scripts/user_management.sh modify username --description="Updated info"
 ```
 
-#### Modify User Settings
+#### User Status Management
 ```bash
-# Update email
-sudo /opt/vless/scripts/user_management.sh update john --email newemail@example.com
+# Disable user temporarily
+./scripts/user_management.sh disable username
 
-# Extend expiration
-sudo /opt/vless/scripts/user_management.sh update john --expire +30d
+# Enable disabled user
+./scripts/user_management.sh enable username
 
-# Change traffic limit
-sudo /opt/vless/scripts/user_management.sh update john --limit 200GB
+# Reset user traffic usage
+./scripts/user_management.sh reset-traffic username
 
-# Reset user data usage
-sudo /opt/vless/scripts/user_management.sh reset john --usage
-```
-
-#### Disable/Enable Users
-```bash
-# Temporarily disable user
-sudo /opt/vless/scripts/user_management.sh disable john
-
-# Re-enable user
-sudo /opt/vless/scripts/user_management.sh enable john
-
-# Check user status
-sudo /opt/vless/scripts/user_management.sh status john
+# Reset user password/key
+./scripts/user_management.sh reset-key username
 ```
 
 #### Remove Users
 ```bash
-# Remove user (with confirmation)
-sudo /opt/vless/scripts/user_management.sh remove john
+# Delete user (with confirmation)
+./scripts/user_management.sh delete username
 
-# Force remove without confirmation
-sudo /opt/vless/scripts/user_management.sh remove john --force
+# Force delete without confirmation
+./scripts/user_management.sh delete username --force
 
-# Remove and backup user data
-sudo /opt/vless/scripts/user_management.sh remove john --backup
+# Delete expired users
+./scripts/user_management.sh cleanup-expired
 ```
 
-### User Configuration Management
+### User Quotas and Limits
 
-#### Generate Client Configurations
+#### Traffic Quotas
 ```bash
-# Generate configuration for specific user
-sudo /opt/vless/scripts/user_management.sh config john
+# Set monthly quota (in GB)
+./scripts/user_management.sh modify username --quota=50
 
-# Generate QR code
-sudo /opt/vless/scripts/qr_generator.py john
+# Set unlimited quota
+./scripts/user_management.sh modify username --quota=unlimited
 
-# Generate all formats (config + QR + links)
-sudo /opt/vless/scripts/user_management.sh export john
+# Check quota usage
+./scripts/user_management.sh quota username
 ```
 
-#### Configuration Formats
-The system supports multiple configuration formats:
-
-1. **JSON Configuration**: Full client configuration in JSON format
-2. **URI Format**: One-line configuration URI for easy sharing
-3. **QR Code**: Visual QR code for mobile client scanning
-4. **Config Files**: Platform-specific configuration files
-
-#### Download Configuration Files
+#### Connection Limits
 ```bash
-# Save configuration to file
-sudo /opt/vless/scripts/user_management.sh config john > john_config.json
+# Set maximum simultaneous connections
+./scripts/user_management.sh modify username --max-connections=3
 
-# Save QR code as image
-sudo /opt/vless/scripts/qr_generator.py john --output john_qr.png
+# View current connections
+./scripts/user_management.sh connections username
+```
 
-# Export user package (all formats)
-sudo /opt/vless/scripts/user_management.sh package john --output john_package.zip
+#### Time-based Restrictions
+```bash
+# Set account expiration
+./scripts/user_management.sh modify username --expires="2024-12-31"
+
+# Set access schedule (optional feature)
+./scripts/user_management.sh modify username --schedule="09:00-17:00"
 ```
 
 ## Client Configuration
 
-### Supported Clients
+### Generating Configuration Files
 
-The VLESS+Reality configuration works with:
+#### Standard Configuration
+```bash
+# Generate JSON configuration
+./scripts/user_management.sh config username
 
-#### Desktop Clients
-- **v2rayN** (Windows) - Recommended
-- **v2rayNG** (Android) - Recommended
-- **v2rayU** (macOS)
-- **Qv2ray** (Cross-platform)
-- **Clash** (with VLESS support)
+# Generate configuration with custom server name
+./scripts/user_management.sh config username --server="vpn.yourdomain.com"
 
-#### Mobile Clients
-- **v2rayNG** (Android)
-- **Shadowrocket** (iOS)
-- **QuantumultX** (iOS)
-- **Clash** (iOS/Android)
+# Generate configuration for specific client
+./scripts/user_management.sh config username --client="v2rayN"
+```
 
-### Client Setup Instructions
+#### QR Code Generation
+```bash
+# Generate QR code for mobile apps
+./scripts/user_management.sh qr username
 
-#### Windows (v2rayN)
-1. Download and install v2rayN
-2. Run as administrator
-3. Right-click system tray icon → "Import bulk URL from clipboard"
-4. Paste your configuration URI
-5. Select the imported server and test connection
+# Save QR code to file
+./scripts/user_management.sh qr username --output="/tmp/username_qr.png"
 
-#### Android (v2rayNG)
-1. Install v2rayNG from Google Play Store
-2. Open the app
-3. Tap "+" → "Import config from QR code"
-4. Scan the QR code provided by the system
-5. Tap the server entry to connect
+# Generate QR with custom size
+./scripts/user_management.sh qr username --size=512
+```
 
-#### iOS (Shadowrocket)
-1. Install Shadowrocket from App Store
-2. Open the app
-3. Tap "+" → "Type" → "Subscribe"
-4. Paste your configuration URI
-5. Toggle the connection switch
+### Client-Specific Configurations
 
-#### Manual Configuration
-For advanced users, manual configuration parameters:
+#### v2rayN (Windows)
+```bash
+# Generate v2rayN configuration
+./scripts/user_management.sh config username --client="v2rayN"
+```
+
+Configuration will include:
+- Server address and port
+- User ID and encryption
+- Reality settings
+- Transport configuration
+
+#### v2rayNG (Android)
+```bash
+# Generate QR code for scanning
+./scripts/user_management.sh qr username --client="v2rayNG"
+```
+
+#### iOS Clients (Shadowrocket, FairVPN)
+```bash
+# Generate iOS-compatible configuration
+./scripts/user_management.sh config username --client="iOS"
+```
+
+#### Qv2ray (Linux/macOS)
+```bash
+# Generate Qv2ray configuration
+./scripts/user_management.sh config username --client="qv2ray"
+```
+
+### Manual Client Setup
+
+If automatic configuration generation isn't available for your client, use these settings:
 
 ```json
 {
@@ -238,11 +252,11 @@ For advanced users, manual configuration parameters:
   "settings": {
     "vnext": [
       {
-        "address": "your-domain.com",
+        "address": "YOUR_SERVER_IP",
         "port": 443,
         "users": [
           {
-            "id": "user-uuid",
+            "id": "USER_UUID",
             "encryption": "none",
             "flow": "xtls-rprx-vision"
           }
@@ -256,608 +270,317 @@ For advanced users, manual configuration parameters:
     "realitySettings": {
       "serverName": "www.microsoft.com",
       "fingerprint": "chrome",
-      "show": false,
-      "publicKey": "reality-public-key",
-      "shortId": "short-id"
+      "shortId": "SHORT_ID",
+      "publicKey": "PUBLIC_KEY"
     }
   }
 }
 ```
 
-### Connection Testing
-
-#### Verify Client Connection
-```bash
-# Check active connections
-sudo /opt/vless/scripts/monitoring.sh connections
-
-# Monitor specific user
-sudo /opt/vless/scripts/monitoring.sh user_activity john
-
-# Test connection from server side
-sudo /opt/vless/scripts/monitoring.sh test_user john
-```
-
-#### Troubleshoot Connection Issues
-```bash
-# Check server logs for user
-sudo /opt/vless/scripts/monitoring.sh user_logs john
-
-# Verify user configuration
-sudo /opt/vless/scripts/user_management.sh verify john
-
-# Test network connectivity
-sudo /opt/vless/scripts/monitoring.sh test_connectivity
-```
-
-## System Administration
-
-### Service Management
-
-#### Start/Stop/Restart Services
-```bash
-# Control main VPN service
-sudo systemctl start vless-vpn
-sudo systemctl stop vless-vpn
-sudo systemctl restart vless-vpn
-
-# Control related services
-sudo systemctl restart docker
-sudo systemctl restart nginx
-```
-
-#### Service Status and Logs
-```bash
-# Check service status
-sudo systemctl status vless-vpn
-
-# View live logs
-sudo journalctl -u vless-vpn -f
-
-# View logs for specific time period
-sudo journalctl -u vless-vpn --since "1 hour ago"
-
-# Export logs
-sudo journalctl -u vless-vpn --since "24 hours ago" > vless_logs.txt
-```
-
-### Configuration Management
-
-#### Main Configuration Files
-- `/opt/vless/config/vless.env` - Main VPN configuration
-- `/opt/vless/config/xray_config.json` - Xray core configuration
-- `/opt/vless/config/bot.env` - Telegram bot settings
-- `/opt/vless/config/monitoring.env` - Monitoring configuration
-
-#### Update Configuration
-```bash
-# Edit main configuration
-sudo nano /opt/vless/config/vless.env
-
-# Apply configuration changes
-sudo /opt/vless/scripts/configure.sh reload
-
-# Validate configuration
-sudo /opt/vless/scripts/configure.sh validate
-```
-
-#### Common Configuration Changes
-
-**Change VPN Port:**
-```bash
-sudo /opt/vless/scripts/configure.sh --port 8443
-sudo systemctl restart vless-vpn
-```
-
-**Update Domain:**
-```bash
-sudo /opt/vless/scripts/configure.sh --domain new-domain.com
-sudo /opt/vless/scripts/cert_management.sh renew
-```
-
-**Modify Security Settings:**
-```bash
-sudo /opt/vless/scripts/security_hardening.sh configure
-```
-
-### Certificate Management
-
-#### SSL/TLS Certificates
-```bash
-# Check certificate status
-sudo /opt/vless/scripts/cert_management.sh status
-
-# Renew certificates
-sudo /opt/vless/scripts/cert_management.sh renew
-
-# Generate new certificates
-sudo /opt/vless/scripts/cert_management.sh generate
-
-# Setup automatic renewal
-sudo /opt/vless/scripts/cert_management.sh auto_renew
-```
-
-#### Reality Key Management
-```bash
-# Generate new Reality keys
-sudo /opt/vless/scripts/cert_management.sh reality_keys
-
-# Rotate Reality configuration
-sudo /opt/vless/scripts/cert_management.sh rotate_reality
-
-# Update all user configurations with new keys
-sudo /opt/vless/scripts/user_management.sh update_all --reality-keys
-```
-
 ## Telegram Bot Usage
 
-### Bot Setup and Configuration
+### Bot Setup
 
-#### Initial Bot Setup
-1. Create bot with @BotFather on Telegram
-2. Get bot token
-3. Configure the bot:
+1. **Configure Bot Token**
    ```bash
-   sudo /opt/vless/scripts/telegram_bot_manager.sh setup
-   ```
-4. Add yourself as admin:
-   ```bash
-   sudo /opt/vless/scripts/telegram_bot_manager.sh add_admin YOUR_TELEGRAM_ID
+   # Set bot token
+   ./scripts/telegram_bot_manager.sh configure
    ```
 
-#### Bot Configuration
-Edit bot settings:
-```bash
-sudo nano /opt/vless/config/bot.env
-```
+2. **Start Bot Service**
+   ```bash
+   # Enable and start bot
+   systemctl enable telegram-bot
+   systemctl start telegram-bot
+   ```
 
-Key settings:
-```bash
-BOT_TOKEN=your_bot_token_here
-ADMIN_USER_ID=your_telegram_id
-ENABLE_NOTIFICATIONS=true
-ALERT_THRESHOLD_CPU=80
-ALERT_THRESHOLD_MEMORY=85
-NOTIFICATION_INTERVAL=3600
-```
+3. **Verify Bot Status**
+   ```bash
+   # Check bot status
+   ./scripts/telegram_bot_manager.sh status
+   ```
 
-### Bot Commands and Usage
+### Bot Commands
 
-#### Basic Commands
-- `/start` - Initialize bot and show welcome message
-- `/help` - Display all available commands
-- `/status` - Show system status and metrics
-- `/users` - User management interface
-- `/settings` - Bot configuration options
+#### Authentication Commands
+- `/start` - Initialize bot and authenticate
+- `/auth <admin_code>` - Authenticate as admin
+- `/logout` - Logout from bot
 
 #### User Management Commands
-- `/adduser <username>` - Add new VPN user
-- `/removeuser <username>` - Remove VPN user
-- `/listusers` - Show all users with status
-- `/userinfo <username>` - Get detailed user information
-- `/qr <username>` - Generate and send QR code
+- `/users` - List all users
+- `/adduser <username>` - Create new user
+- `/userinfo <username>` - Get user details
 - `/config <username>` - Get user configuration
+- `/qr <username>` - Get QR code
+- `/deleteuser <username>` - Delete user
 
-#### System Management Commands
+#### System Commands
+- `/status` - System status overview
+- `/stats` - System statistics
+- `/logs` - Recent system logs
 - `/backup` - Create system backup
-- `/restore` - Restore from backup
-- `/maintenance` - Enter/exit maintenance mode
-- `/update` - Check for and apply updates
-- `/logs` - View recent system logs
-- `/restart` - Restart VPN service
+- `/restart` - Restart services
 
 #### Monitoring Commands
-- `/stats` - Detailed system statistics
-- `/connections` - Show active VPN connections
-- `/traffic` - Traffic usage statistics
-- `/alerts` - Configure system alerts
-- `/health` - System health check
+- `/monitor` - Real-time monitoring
+- `/alerts` - Recent alerts
+- `/traffic` - Traffic statistics
 
-### Interactive Bot Interface
+### Bot Security
 
-#### User Management Interface
-```
-User: /users
-Bot: 👥 User Management
-
-     Current Users: 5
-     Active Connections: 3
-
-     [➕ Add User] [📋 List Users]
-     [📊 User Stats] [🔧 Settings]
-
-User: [Clicks "Add User"]
-Bot: ➕ Add New User
-
-     Please enter username:
-
-User: john
-Bot: ✅ User 'john' created!
-
-     📱 QR Code: [QR_CODE_IMAGE]
-     📋 Config: [CONFIG_TEXT]
-
-     [👥 Back to Users] [➕ Add Another]
-```
-
-#### System Status Interface
-```
-User: /status
-Bot: 🖥️ System Status
-
-     🟢 VPN Service: Running
-     📊 CPU: 25% | RAM: 45% | Disk: 60%
-     🌐 Active Connections: 8
-     ⏱️ Uptime: 12 days, 5 hours
-
-     [📈 Detailed Stats] [🔄 Refresh]
-     [⚙️ Settings] [🛠️ Maintenance]
-```
-
-### Bot Notifications and Alerts
-
-#### Automatic Notifications
-The bot can send automatic notifications for:
-- New user connections
-- System alerts (high CPU, memory, disk usage)
-- Service failures or restarts
-- Backup completion
-- Security events
-
-#### Configure Notifications
+#### Admin Authentication
 ```bash
-# Enable all notifications
-sudo /opt/vless/scripts/telegram_bot_manager.sh notifications enable
+# Generate admin authentication code
+./scripts/telegram_bot_manager.sh generate-auth-code
 
-# Configure specific alerts
-sudo /opt/vless/scripts/telegram_bot_manager.sh alerts \
-  --cpu-threshold 80 \
-  --memory-threshold 85 \
-  --disk-threshold 90
-
-# Set notification intervals
-sudo /opt/vless/scripts/telegram_bot_manager.sh notifications \
-  --interval 3600 --quiet-hours "22:00-08:00"
+# Set admin user ID
+./scripts/telegram_bot_manager.sh set-admin <telegram_user_id>
 ```
 
-## Monitoring and Maintenance
+#### Security Features
+- Command rate limiting
+- Admin-only sensitive commands
+- Secure token storage
+- Activity logging
+
+## Monitoring and Analytics
 
 ### System Monitoring
 
-#### Real-time Monitoring
+#### Real-time Status
 ```bash
-# Monitor system in real-time
-sudo /opt/vless/scripts/monitoring.sh monitor
+# System overview
+./scripts/monitoring.sh status
 
-# Monitor with specific intervals
-sudo /opt/vless/scripts/monitoring.sh monitor --interval 30
+# Detailed system info
+./scripts/monitoring.sh info
 
-# Monitor specific metrics
-sudo /opt/vless/scripts/monitoring.sh monitor --cpu --memory --disk
+# Resource usage
+./scripts/monitoring.sh resources
 ```
 
-#### Performance Metrics
+#### Service Monitoring
 ```bash
-# Generate performance report
-sudo /opt/vless/scripts/monitoring.sh report
+# Check all services
+./scripts/monitoring.sh services
 
-# Historical performance data
-sudo /opt/vless/scripts/monitoring.sh history --period 7d
+# Check specific service
+./scripts/monitoring.sh check xray
 
-# Export metrics for analysis
-sudo /opt/vless/scripts/monitoring.sh export --format csv --period 30d
+# Service logs
+./scripts/monitoring.sh logs xray
 ```
 
-#### Connection Monitoring
+### Traffic Analytics
+
+#### User Traffic
 ```bash
-# Monitor active VPN connections
-sudo /opt/vless/scripts/monitoring.sh connections
+# All users traffic summary
+./scripts/monitoring.sh traffic
 
-# User activity monitoring
-sudo /opt/vless/scripts/monitoring.sh user_activity
+# Specific user traffic
+./scripts/monitoring.sh traffic username
 
-# Traffic analysis
-sudo /opt/vless/scripts/monitoring.sh traffic --detailed
+# Traffic by date range
+./scripts/monitoring.sh traffic --from="2024-01-01" --to="2024-01-31"
 ```
 
-### System Maintenance
-
-#### Routine Maintenance
+#### System Performance
 ```bash
-# Enter maintenance mode
-sudo /opt/vless/scripts/maintenance_utils.sh enable_maintenance_mode
+# Performance metrics
+./scripts/monitoring.sh performance
 
-# Perform system optimization
-sudo /opt/vless/scripts/maintenance_utils.sh optimize_system
+# Network statistics
+./scripts/monitoring.sh network
 
-# Clean up logs and temporary files
-sudo /opt/vless/scripts/maintenance_utils.sh cleanup
-
-# Exit maintenance mode
-sudo /opt/vless/scripts/maintenance_utils.sh disable_maintenance_mode
+# Connection statistics
+./scripts/monitoring.sh connections
 ```
 
-#### Health Checks
+### Alerts and Notifications
+
+#### Configure Alerts
 ```bash
-# Comprehensive system health check
-sudo /opt/vless/scripts/maintenance_utils.sh check_system_health
+# Setup email alerts
+./scripts/monitoring.sh setup-alerts --email="admin@domain.com"
 
-# Generate diagnostic report
-sudo /opt/vless/scripts/maintenance_utils.sh generate_diagnostics
-
-# Verify all components
-sudo /opt/vless/scripts/maintenance_utils.sh verify_installation
+# Configure thresholds
+./scripts/monitoring.sh set-threshold cpu 80
+./scripts/monitoring.sh set-threshold memory 90
+./scripts/monitoring.sh set-threshold disk 85
 ```
 
-#### Log Management
+#### Alert Types
+- High CPU usage
+- Memory exhaustion
+- Disk space low
+- Service failures
+- Security events
+- User quota exceeded
+
+## Backup and Recovery
+
+### Creating Backups
+
+#### Manual Backup
 ```bash
-# Rotate logs
-sudo /opt/vless/scripts/maintenance_utils.sh rotate_logs
+# Full system backup
+./scripts/backup_restore.sh backup
 
-# Archive old logs
-sudo /opt/vless/scripts/maintenance_utils.sh archive_logs
+# Configuration-only backup
+./scripts/backup_restore.sh backup --config-only
 
-# Clean up log files
-sudo /opt/vless/scripts/maintenance_utils.sh cleanup_logs --older-than 30d
+# User data backup
+./scripts/backup_restore.sh backup --users-only
 ```
 
-### Backup and Recovery
-
-#### Manual Backups
+#### Automated Backups
 ```bash
-# Create full system backup
-sudo /opt/vless/scripts/backup_restore.sh create_full_backup
+# Schedule daily backups
+./scripts/backup_restore.sh schedule daily
 
-# Create configuration backup only
-sudo /opt/vless/scripts/backup_restore.sh create_config_backup
+# Schedule weekly backups
+./scripts/backup_restore.sh schedule weekly
 
-# Create user data backup only
-sudo /opt/vless/scripts/backup_restore.sh create_users_backup
+# Set backup retention
+./scripts/backup_restore.sh retention 30
 ```
 
-#### Automated Backup Setup
-```bash
-# Setup daily backups at 2 AM
-sudo /opt/vless/scripts/backup_restore.sh schedule_backups \
-  --daily --time "02:00" --retention 30d
+### Restoring from Backup
 
-# Setup weekly backups on Sunday
-sudo /opt/vless/scripts/backup_restore.sh schedule_backups \
-  --weekly --day sunday --time "03:00" --retention 12w
+#### Full Restoration
+```bash
+# Restore complete system
+./scripts/backup_restore.sh restore /path/to/backup.tar.gz
+
+# Restore with verification
+./scripts/backup_restore.sh restore /path/to/backup.tar.gz --verify
 ```
 
-#### Restore Operations
+#### Selective Restoration
 ```bash
-# List available backups
-sudo /opt/vless/scripts/backup_restore.sh list_backups
+# Restore only configuration
+./scripts/backup_restore.sh restore /path/to/backup.tar.gz --config-only
 
-# Restore from specific backup
-sudo /opt/vless/scripts/backup_restore.sh restore \
-  --backup backup_20231201_120000.tar.gz
-
-# Verify backup before restore
-sudo /opt/vless/scripts/backup_restore.sh verify \
-  --backup backup_20231201_120000.tar.gz
+# Restore only user data
+./scripts/backup_restore.sh restore /path/to/backup.tar.gz --users-only
 ```
 
-### Update Management
+### Backup Storage
 
-#### System Updates
+#### Local Storage
+Backups are stored in `/opt/vless/backup/` by default.
+
+#### Remote Storage (Optional)
 ```bash
-# Check for available updates
-sudo /opt/vless/scripts/system_update.sh check_updates
+# Configure remote backup storage
+./scripts/backup_restore.sh configure-remote \
+  --type="s3" \
+  --bucket="your-backup-bucket" \
+  --region="us-east-1"
 
-# Apply system updates
-sudo /opt/vless/scripts/system_update.sh apply_updates
-
-# Apply security updates only
-sudo /opt/vless/scripts/system_update.sh security_updates
-```
-
-#### Xray Core Updates
-```bash
-# Check for Xray core updates
-sudo /opt/vless/scripts/system_update.sh check_xray_updates
-
-# Update Xray core
-sudo /opt/vless/scripts/system_update.sh update_xray
-
-# Rollback to previous version
-sudo /opt/vless/scripts/system_update.sh rollback_xray
+# Upload backup to remote storage
+./scripts/backup_restore.sh upload backup_file.tar.gz
 ```
 
 ## Advanced Configuration
 
-### Custom Xray Configuration
+### Custom Reality Settings
 
-#### Configuration Templates
-Create custom configuration templates in `/opt/vless/config/templates/`:
+#### Configure Reality Domain
+```bash
+# Set custom reality domain
+./scripts/config_management.sh set reality-domain "www.cloudflare.com"
 
-```json
-{
-  "log": {
-    "loglevel": "warning",
-    "access": "/opt/vless/logs/access.log",
-    "error": "/opt/vless/logs/error.log"
-  },
-  "inbounds": [
-    {
-      "port": 443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.microsoft.com:443",
-          "xver": 0,
-          "serverNames": ["www.microsoft.com"],
-          "privateKey": "PRIVATE_KEY_HERE",
-          "shortIds": ["SHORT_ID_HERE"]
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ]
-}
+# Set multiple reality domains
+./scripts/config_management.sh set reality-domains \
+  "www.microsoft.com,www.apple.com,www.google.com"
 ```
 
-#### Apply Custom Configuration
+#### Reality Fingerprint
 ```bash
-# Validate custom configuration
-sudo /opt/vless/scripts/configure.sh validate --config custom_config.json
+# Set browser fingerprint
+./scripts/config_management.sh set fingerprint chrome
 
-# Apply custom configuration
-sudo /opt/vless/scripts/configure.sh apply --config custom_config.json
-
-# Backup current config and apply new one
-sudo /opt/vless/scripts/configure.sh apply --config custom_config.json --backup
+# Available fingerprints: chrome, firefox, safari, edge
 ```
 
-### Network Optimization
+### Network Configuration
 
-#### TCP Optimization
+#### Port Configuration
 ```bash
-# Apply network optimizations
-sudo /opt/vless/scripts/maintenance_utils.sh optimize_network
+# Change VLESS port
+./scripts/config_management.sh set port 8443
 
-# Configure TCP settings
-echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
-echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
-sudo sysctl -p
+# Add alternative ports
+./scripts/config_management.sh add-port 2053
 ```
 
-#### Firewall Configuration
+#### Multi-Domain Setup
 ```bash
-# Configure advanced firewall rules
-sudo /opt/vless/scripts/ufw_config.sh advanced_setup
-
-# Add custom firewall rules
-sudo /opt/vless/scripts/ufw_config.sh add_rule --port 8080 --protocol tcp
-
-# Configure port forwarding
-sudo /opt/vless/scripts/ufw_config.sh port_forward --from 80 --to 8080
+# Add multiple server domains
+./scripts/config_management.sh add-domain "vpn1.yourdomain.com"
+./scripts/config_management.sh add-domain "vpn2.yourdomain.com"
 ```
 
-### Multi-Domain Setup
+### Performance Tuning
 
-#### Configure Multiple Domains
+#### Connection Limits
 ```bash
-# Add additional domain
-sudo /opt/vless/scripts/configure.sh add_domain --domain vpn2.example.com
+# Set global connection limits
+./scripts/config_management.sh set max-connections 1000
 
-# Configure domain-specific certificates
-sudo /opt/vless/scripts/cert_management.sh setup_domain --domain vpn2.example.com
-
-# Update DNS records
-sudo /opt/vless/scripts/configure.sh update_dns --domain vpn2.example.com
+# Set per-user limits
+./scripts/config_management.sh set user-max-connections 10
 ```
 
-### Load Balancing
-
-#### Configure Load Balancing
+#### Buffer Sizes
 ```bash
-# Setup load balancer
-sudo /opt/vless/scripts/configure.sh load_balancer --enable
+# Optimize buffer sizes for performance
+./scripts/config_management.sh set read-buffer 32768
+./scripts/config_management.sh set write-buffer 32768
+```
 
-# Add backend servers
-sudo /opt/vless/scripts/configure.sh add_backend --server 192.168.1.100
-sudo /opt/vless/scripts/configure.sh add_backend --server 192.168.1.101
+### Security Hardening
 
-# Configure health checks
-sudo /opt/vless/scripts/configure.sh health_check --interval 30 --timeout 5
+#### Additional Security Measures
+```bash
+# Enable additional security features
+./scripts/security_hardening.sh enable fail2ban
+./scripts/security_hardening.sh enable port-knocking
+./scripts/security_hardening.sh enable geo-blocking
+
+# Configure allowed countries
+./scripts/security_hardening.sh set allowed-countries "US,CA,GB"
 ```
 
 ## Best Practices
 
-### Security Best Practices
+### User Management
+1. **Regular Cleanup**: Remove expired and unused accounts
+2. **Quota Management**: Set appropriate quotas based on usage patterns
+3. **Access Control**: Use admin roles for administrative users
+4. **Documentation**: Maintain user descriptions and contact information
 
-1. **Regular Updates**
-   - Enable automatic security updates
-   - Monitor for Xray core updates
-   - Keep system packages current
+### Security
+1. **Regular Updates**: Keep system and dependencies updated
+2. **Monitor Logs**: Review security and access logs regularly
+3. **Backup Verification**: Test backup restoration procedures
+4. **Access Restriction**: Limit admin access to trusted users only
 
-2. **User Management**
-   - Use strong, unique usernames
-   - Set appropriate expiration dates
-   - Monitor user activity regularly
-   - Remove unused accounts promptly
+### Performance
+1. **Resource Monitoring**: Monitor CPU, memory, and network usage
+2. **Connection Limits**: Set appropriate connection limits
+3. **Log Rotation**: Configure log rotation to prevent disk space issues
+4. **Regular Maintenance**: Perform routine system maintenance
 
-3. **Access Control**
-   - Limit admin access to trusted users
-   - Use Telegram bot for remote management
-   - Implement IP whitelisting for admin access
-   - Enable two-factor authentication where possible
-
-4. **Monitoring**
-   - Set up alerts for unusual activity
-   - Monitor resource usage trends
-   - Review logs regularly
-   - Implement automated health checks
-
-### Performance Optimization
-
-1. **Resource Management**
-   - Monitor CPU and memory usage
-   - Optimize Xray configuration for your use case
-   - Use appropriate server specifications
-   - Implement resource limits for users
-
-2. **Network Optimization**
-   - Enable BBR congestion control
-   - Optimize TCP settings
-   - Use CDN for static content
-   - Monitor bandwidth usage
-
-3. **Storage Management**
-   - Implement log rotation
-   - Clean up old backups regularly
-   - Monitor disk usage
-   - Use compression for backups
-
-### Backup and Recovery Best Practices
-
-1. **Backup Strategy**
-   - Implement 3-2-1 backup rule
-   - Test restore procedures regularly
-   - Store backups in multiple locations
-   - Encrypt sensitive backup data
-
-2. **Recovery Planning**
-   - Document recovery procedures
-   - Test disaster recovery scenarios
-   - Maintain emergency contact information
-   - Keep offline copies of critical configurations
-
-### Operational Best Practices
-
-1. **Documentation**
-   - Keep configuration changes documented
-   - Maintain user management records
-   - Document custom modifications
-   - Update contact information regularly
-
-2. **Change Management**
-   - Test changes in staging environment
-   - Implement gradual rollouts
-   - Maintain rollback procedures
-   - Schedule maintenance windows
-
-3. **Monitoring and Alerting**
-   - Set appropriate alert thresholds
-   - Implement escalation procedures
-   - Monitor key performance indicators
-   - Review and adjust alerts regularly
+### Troubleshooting
+1. **Log Analysis**: Check system and service logs for errors
+2. **Network Testing**: Verify network connectivity and port accessibility
+3. **Service Status**: Ensure all required services are running
+4. **Configuration Validation**: Verify configuration file syntax
 
 ---
 
-This user guide provides comprehensive information for managing your VLESS+Reality VPN system. For additional help, refer to the troubleshooting guide or contact support through the appropriate channels.
+**Next Steps**: For technical details and API documentation, see the [API Reference](api_reference.md). For troubleshooting assistance, consult the [Troubleshooting Guide](troubleshooting.md).

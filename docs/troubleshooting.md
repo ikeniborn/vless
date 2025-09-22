@@ -1,1320 +1,814 @@
-# VLESS+Reality VPN Management System - Troubleshooting Guide
+# Troubleshooting Guide
 
-This comprehensive troubleshooting guide helps diagnose and resolve common issues with the VLESS+Reality VPN Management System.
+Comprehensive troubleshooting guide for the VLESS+Reality VPN Management System.
 
 ## Table of Contents
 
-- [Quick Diagnostics](#quick-diagnostics)
-- [Installation Issues](#installation-issues)
-- [Service Problems](#service-problems)
-- [Connection Issues](#connection-issues)
-- [Performance Problems](#performance-problems)
-- [Certificate Issues](#certificate-issues)
-- [User Management Problems](#user-management-problems)
-- [Telegram Bot Issues](#telegram-bot-issues)
-- [System Resource Issues](#system-resource-issues)
-- [Network Configuration Problems](#network-configuration-problems)
-- [Log Analysis](#log-analysis)
-- [Emergency Recovery](#emergency-recovery)
-- [Getting Support](#getting-support)
+1. [General Troubleshooting](#general-troubleshooting)
+2. [Installation Issues](#installation-issues)
+3. [Service Problems](#service-problems)
+4. [Connection Issues](#connection-issues)
+5. [User Management Problems](#user-management-problems)
+6. [Performance Issues](#performance-issues)
+7. [Security Concerns](#security-concerns)
+8. [Telegram Bot Issues](#telegram-bot-issues)
+9. [Configuration Problems](#configuration-problems)
+10. [System Recovery](#system-recovery)
+11. [Log Analysis](#log-analysis)
+12. [Getting Help](#getting-help)
 
-## Quick Diagnostics
+## General Troubleshooting
 
-### System Health Check
+### First Steps
 
-Before diving into specific issues, run the comprehensive system health check:
+Before diving into specific issues, always start with these basic troubleshooting steps:
 
-```bash
-# Quick system status
-sudo /opt/vless/scripts/status.sh
+1. **Check System Status**
+   ```bash
+   sudo systemctl status xray
+   sudo systemctl status docker
+   sudo docker ps
+   ```
 
-# Comprehensive health check
-sudo /opt/vless/scripts/maintenance_utils.sh check_system_health
+2. **Verify Log Files**
+   ```bash
+   sudo journalctl -u xray -f
+   sudo journalctl -u docker -f
+   tail -f /opt/vless/logs/*.log
+   ```
 
-# Generate detailed diagnostics
-sudo /opt/vless/scripts/maintenance_utils.sh generate_diagnostics
-```
+3. **Test Network Connectivity**
+   ```bash
+   ping 8.8.8.8
+   curl -I https://www.google.com
+   netstat -tlnp | grep :443
+   ```
 
-### Service Status Check
+4. **Check Disk Space**
+   ```bash
+   df -h
+   du -sh /opt/vless/*
+   ```
 
-```bash
-# Check all critical services
-sudo systemctl status vless-vpn
-sudo systemctl status docker
-sudo systemctl status nginx
-sudo systemctl status vless-telegram-bot
-
-# Quick service overview
-sudo /opt/vless/scripts/monitoring.sh status --detailed
-```
-
-### Basic Connectivity Test
-
-```bash
-# Test network connectivity
-sudo /opt/vless/scripts/monitoring.sh test_connectivity
-
-# Test VPN port
-telnet localhost 443
-
-# Test certificate validity
-sudo /opt/vless/scripts/cert_management.sh status
-```
+5. **Verify Permissions**
+   ```bash
+   ls -la /opt/vless/
+   sudo find /opt/vless -type f -not -perm -644
+   ```
 
 ## Installation Issues
 
-### Installation Fails During Dependency Installation
+### Problem: Installation Script Fails
 
-**Symptoms:**
-- Installation stops during package installation
-- Package manager errors
-- Missing dependencies
+#### Symptom
+Installation script exits with errors or hangs indefinitely.
 
-**Diagnostic Commands:**
-```bash
-# Check package manager status
-sudo apt update
-sudo apt list --upgradable
+#### Common Causes
+- Insufficient permissions
+- Network connectivity issues
+- Package repository problems
+- Disk space shortage
 
-# Check for broken packages
-sudo apt --fix-broken install
-sudo dpkg --configure -a
+#### Solutions
 
-# Check disk space
-df -h
-```
-
-**Solutions:**
-
-1. **Update Package Lists:**
+1. **Permission Issues**
    ```bash
-   sudo apt update && sudo apt upgrade -y
-   sudo apt autoremove -y
+   # Ensure running as root
+   sudo su -
+   ./install.sh
+
+   # Or fix script permissions
+   chmod +x install.sh
+   chown root:root install.sh
    ```
 
-2. **Fix Broken Packages:**
+2. **Network Issues**
    ```bash
-   sudo apt --fix-broken install
-   sudo dpkg --reconfigure -a
+   # Test internet connectivity
+   ping 8.8.8.8
+
+   # Check DNS resolution
+   nslookup google.com
+
+   # Configure alternative DNS
+   echo "nameserver 8.8.8.8" >> /etc/resolv.conf
    ```
 
-3. **Clear Package Cache:**
+3. **Package Repository Issues**
    ```bash
-   sudo apt clean
+   # Ubuntu/Debian
+   sudo apt update
+   sudo apt install -f
+
+   # CentOS/RHEL
+   sudo dnf clean all
+   sudo dnf update
+   ```
+
+4. **Disk Space Issues**
+   ```bash
+   # Check available space
+   df -h
+
+   # Clean temporary files
+   sudo apt autoremove
    sudo apt autoclean
+
+   # Clean Docker
+   sudo docker system prune -a
    ```
 
-4. **Retry Installation:**
+### Problem: Dependencies Installation Fails
+
+#### Symptom
+Required packages fail to install during setup.
+
+#### Solutions
+
+1. **Update Package Lists**
    ```bash
-   sudo ./install.sh --force
+   # Ubuntu/Debian
+   sudo apt update && sudo apt upgrade
+
+   # CentOS/RHEL
+   sudo dnf update
    ```
 
-### Docker Installation Fails
-
-**Symptoms:**
-- Docker service won't start
-- Permission denied errors
-- Container runtime errors
-
-**Diagnostic Commands:**
-```bash
-# Check Docker status
-sudo systemctl status docker
-sudo docker --version
-
-# Check Docker daemon logs
-sudo journalctl -u docker -n 50
-
-# Test Docker functionality
-sudo docker run hello-world
-```
-
-**Solutions:**
-
-1. **Manual Docker Installation:**
+2. **Install Missing Dependencies Manually**
    ```bash
-   # Remove existing Docker
-   sudo apt remove docker docker-engine docker.io containerd runc
+   # Core dependencies
+   sudo apt install curl wget git unzip python3 python3-pip
 
-   # Install Docker manually
+   # Docker
    curl -fsSL https://get.docker.com -o get-docker.sh
    sudo sh get-docker.sh
-
-   # Add user to docker group
-   sudo usermod -aG docker $USER
-   newgrp docker
    ```
 
-2. **Fix Docker Permissions:**
+3. **Alternative Package Sources**
    ```bash
-   sudo chown root:docker /var/run/docker.sock
-   sudo chmod 666 /var/run/docker.sock
+   # Add universe repository (Ubuntu)
+   sudo add-apt-repository universe
+
+   # Enable EPEL (CentOS/RHEL)
+   sudo dnf install epel-release
    ```
 
-3. **Restart Docker Service:**
+### Problem: Docker Installation Fails
+
+#### Solutions
+
+1. **Remove Existing Docker**
    ```bash
-   sudo systemctl restart docker
+   sudo systemctl stop docker
+   sudo apt remove docker docker-engine docker.io containerd runc
+   sudo apt autoremove
+   ```
+
+2. **Clean Installation**
+   ```bash
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo sh get-docker.sh
    sudo systemctl enable docker
+   sudo systemctl start docker
    ```
 
-### Permission Denied During Installation
-
-**Symptoms:**
-- "Permission denied" errors
-- Cannot create directories
-- Cannot write configuration files
-
-**Solutions:**
-
-1. **Run with Proper Privileges:**
+3. **Verify Installation**
    ```bash
-   # Ensure running as root or with sudo
-   sudo ./install.sh
-   ```
-
-2. **Check File Permissions:**
-   ```bash
-   # Make installation script executable
-   chmod +x install.sh
-   chmod +x modules/*.sh
-   ```
-
-3. **Fix Directory Permissions:**
-   ```bash
-   sudo chown -R root:root /opt/vless/
-   sudo chmod -R 755 /opt/vless/scripts/
-   ```
-
-### Certificate Generation Fails
-
-**Symptoms:**
-- Let's Encrypt certificate generation fails
-- Domain validation errors
-- Certificate authority errors
-
-**Diagnostic Commands:**
-```bash
-# Check domain DNS resolution
-nslookup your-domain.com
-dig your-domain.com A
-
-# Test HTTP connectivity
-curl -I http://your-domain.com
-
-# Check firewall
-sudo ufw status
-```
-
-**Solutions:**
-
-1. **Verify Domain Configuration:**
-   ```bash
-   # Ensure domain points to server IP
-   nslookup your-domain.com
-   curl -4 ifconfig.co  # Compare with your server IP
-   ```
-
-2. **Check Firewall Settings:**
-   ```bash
-   # Ensure ports 80 and 443 are open
-   sudo ufw allow 80
-   sudo ufw allow 443
-   sudo ufw reload
-   ```
-
-3. **Manual Certificate Generation:**
-   ```bash
-   # Generate certificates manually
-   sudo /opt/vless/scripts/cert_management.sh generate --manual
-   ```
-
-4. **Use Self-Signed Certificates (temporary):**
-   ```bash
-   sudo /opt/vless/scripts/cert_management.sh self_signed
+   sudo docker --version
+   sudo docker run hello-world
    ```
 
 ## Service Problems
 
-### VPN Service Won't Start
+### Problem: Xray Service Won't Start
 
-**Symptoms:**
-- `systemctl start vless-vpn` fails
-- Service shows "failed" status
-- Users cannot connect
+#### Symptom
+Xray service fails to start or crashes immediately.
 
-**Diagnostic Commands:**
+#### Diagnostic Commands
 ```bash
-# Check service status and logs
-sudo systemctl status vless-vpn -l
-sudo journalctl -u vless-vpn -n 50
-sudo journalctl -u vless-vpn --since "1 hour ago"
-
-# Check Xray configuration
-sudo /opt/vless/scripts/configure.sh validate
-
-# Check Docker containers
-sudo docker ps -a
-sudo docker logs vless-xray
+sudo systemctl status xray
+sudo journalctl -u xray -f
+sudo /usr/local/bin/xray -test -config /opt/vless/config/config.json
 ```
 
-**Solutions:**
+#### Common Solutions
 
-1. **Restart Docker Service:**
+1. **Configuration Errors**
    ```bash
-   sudo systemctl restart docker
-   sudo systemctl restart vless-vpn
+   # Test configuration
+   sudo /usr/local/bin/xray -test -config /opt/vless/config/config.json
+
+   # Regenerate configuration
+   sudo /opt/vless/scripts/config_templates.sh generate
    ```
 
-2. **Check Configuration:**
+2. **Port Conflicts**
    ```bash
-   # Validate Xray configuration
-   sudo /opt/vless/scripts/configure.sh validate
-
-   # Regenerate configuration if needed
-   sudo /opt/vless/scripts/configure.sh regenerate
-   ```
-
-3. **Check Port Conflicts:**
-   ```bash
-   # Check if port is already in use
+   # Check port usage
    sudo netstat -tlnp | grep :443
-   sudo lsof -i :443
 
-   # Stop conflicting services
-   sudo systemctl stop nginx
-   sudo systemctl stop apache2
+   # Kill conflicting processes
+   sudo fuser -k 443/tcp
+
+   # Change port in configuration
+   sudo nano /opt/vless/config/config.json
    ```
 
-4. **Rebuild Container:**
+3. **Permission Issues**
    ```bash
-   # Stop and remove container
-   sudo docker stop vless-xray
-   sudo docker rm vless-xray
-
-   # Restart service
-   sudo systemctl restart vless-vpn
+   # Fix file permissions
+   sudo chown -R xray:xray /opt/vless/config/
+   sudo chmod 600 /opt/vless/config/config.json
    ```
 
-### Service Starts But Users Can't Connect
+4. **Missing Certificates**
+   ```bash
+   # Generate new certificates
+   sudo /opt/vless/scripts/cert_management.sh generate
 
-**Symptoms:**
-- Service shows as "running"
-- Network connectivity exists
-- User configurations are correct
-- Connection attempts fail
+   # Check certificate status
+   sudo /opt/vless/scripts/cert_management.sh status
+   ```
 
-**Diagnostic Commands:**
+### Problem: Docker Containers Not Running
+
+#### Diagnostic Commands
 ```bash
-# Check active connections
-sudo /opt/vless/scripts/monitoring.sh connections
-
-# Test connectivity from server
-sudo /opt/vless/scripts/monitoring.sh test_connectivity
-
-# Check firewall rules
-sudo ufw status numbered
-sudo iptables -L -n
+sudo docker ps -a
+sudo docker logs xray-container
+sudo docker inspect xray-container
 ```
 
-**Solutions:**
+#### Solutions
 
-1. **Verify Firewall Configuration:**
+1. **Restart Containers**
    ```bash
-   # Check UFW status
-   sudo ufw status verbose
+   sudo docker-compose down
+   sudo docker-compose up -d
+   ```
 
-   # Allow VPN port if not already allowed
+2. **Check Container Logs**
+   ```bash
+   sudo docker logs xray-container
+   sudo docker logs telegram-bot
+   ```
+
+3. **Rebuild Containers**
+   ```bash
+   sudo docker-compose down
+   sudo docker-compose build --no-cache
+   sudo docker-compose up -d
+   ```
+
+### Problem: Services Running but Not Accessible
+
+#### Solutions
+
+1. **Firewall Configuration**
+   ```bash
+   # UFW
    sudo ufw allow 443/tcp
    sudo ufw reload
+
+   # firewalld
+   sudo firewall-cmd --permanent --add-port=443/tcp
+   sudo firewall-cmd --reload
    ```
 
-2. **Check Network Configuration:**
+2. **Check Listening Ports**
    ```bash
-   # Verify server is listening on correct port
    sudo netstat -tlnp | grep :443
-
-   # Test port from external source
-   telnet your-server-ip 443
+   sudo ss -tlnp | grep :443
    ```
 
-3. **Verify User Configuration:**
+3. **Test Local Connectivity**
    ```bash
-   # Check if user exists and is active
-   sudo /opt/vless/scripts/user_management.sh info username
-
-   # Regenerate user configuration
-   sudo /opt/vless/scripts/user_management.sh config username
-   ```
-
-### Container Issues
-
-**Symptoms:**
-- Docker containers not running
-- Container restart loops
-- Resource allocation issues
-
-**Diagnostic Commands:**
-```bash
-# Check container status
-sudo docker ps -a
-
-# Check container logs
-sudo docker logs vless-xray
-
-# Check container resource usage
-sudo docker stats
-
-# Check Docker system information
-sudo docker system df
-sudo docker system info
-```
-
-**Solutions:**
-
-1. **Restart Containers:**
-   ```bash
-   # Restart all VPN-related containers
-   sudo docker restart vless-xray
-   sudo docker restart vless-nginx
-   ```
-
-2. **Check Resource Limits:**
-   ```bash
-   # Check available system resources
-   free -h
-   df -h
-
-   # Increase container resource limits if needed
-   sudo docker update --memory=1g --cpus=2 vless-xray
-   ```
-
-3. **Rebuild Containers:**
-   ```bash
-   # Stop and remove problematic containers
-   sudo docker stop vless-xray
-   sudo docker rm vless-xray
-
-   # Recreate containers
-   sudo systemctl restart vless-vpn
+   curl -v https://localhost:443
+   telnet localhost 443
    ```
 
 ## Connection Issues
 
-### Users Cannot Connect to VPN
+### Problem: Clients Cannot Connect
 
-**Symptoms:**
-- Client shows connection errors
-- Authentication failures
-- Timeout errors
+#### Symptom
+VPN clients fail to establish connection or connect but have no internet access.
 
-**Diagnostic Process:**
+#### Diagnostic Steps
 
-1. **Verify User Configuration:**
+1. **Server-side Checks**
    ```bash
-   # Check if user exists and is active
-   sudo /opt/vless/scripts/user_management.sh info username
+   # Check Xray status
+   sudo systemctl status xray
 
-   # Verify user configuration
-   sudo /opt/vless/scripts/user_management.sh verify username
+   # Monitor connections
+   sudo journalctl -u xray -f
 
-   # Generate fresh configuration
-   sudo /opt/vless/scripts/user_management.sh config username
+   # Check listening ports
+   sudo netstat -tlnp | grep xray
    ```
 
-2. **Test Server Connectivity:**
+2. **Network Connectivity**
    ```bash
-   # Test VPN port connectivity
-   telnet your-domain.com 443
-   nc -zv your-domain.com 443
+   # Test external connectivity
+   curl -I https://www.google.com
 
-   # Check from different network
-   curl -I https://your-domain.com
-   ```
-
-3. **Check Firewall and Network:**
-   ```bash
-   # Verify firewall rules
-   sudo ufw status
-   sudo iptables -L -n | grep 443
-
-   # Check if service is listening
-   sudo ss -tlnp | grep :443
-   ```
-
-**Common Solutions:**
-
-1. **Regenerate User Configuration:**
-   ```bash
-   sudo /opt/vless/scripts/user_management.sh update username --reset-uuid
-   sudo /opt/vless/scripts/user_management.sh config username
-   ```
-
-2. **Update Reality Configuration:**
-   ```bash
-   sudo /opt/vless/scripts/cert_management.sh reality_keys
-   sudo /opt/vless/scripts/user_management.sh update_all --reality-keys
-   ```
-
-3. **Check Client Configuration:**
-   - Verify server address is correct
-   - Ensure port is set to 443 (or your custom port)
-   - Check UUID format is valid
-   - Verify Reality settings match server
-
-### Intermittent Connection Drops
-
-**Symptoms:**
-- Connections work initially but drop frequently
-- Unstable connection quality
-- High latency or packet loss
-
-**Diagnostic Commands:**
-```bash
-# Monitor active connections
-sudo /opt/vless/scripts/monitoring.sh connections --detailed
-
-# Check system resources
-sudo /opt/vless/scripts/monitoring.sh monitor --interval 30
-
-# Analyze network performance
-sudo /opt/vless/scripts/monitoring.sh network_analysis
-```
-
-**Solutions:**
-
-1. **Optimize Network Settings:**
-   ```bash
-   # Enable BBR congestion control
-   echo 'net.core.default_qdisc=fq' | sudo tee -a /etc/sysctl.conf
-   echo 'net.ipv4.tcp_congestion_control=bbr' | sudo tee -a /etc/sysctl.conf
-   sudo sysctl -p
-   ```
-
-2. **Increase Connection Limits:**
-   ```bash
-   # Edit Xray configuration to increase limits
-   sudo nano /opt/vless/config/xray_config.json
-   # Add or modify:
-   # "policy": {
-   #   "levels": {
-   #     "0": {
-   #       "connIdle": 300,
-   #       "downlinkOnly": 1,
-   #       "handshake": 4,
-   #       "uplinkOnly": 1
-   #     }
-   #   }
-   # }
-   ```
-
-3. **Check System Resources:**
-   ```bash
-   # Monitor CPU and memory usage
-   sudo /opt/vless/scripts/monitoring.sh monitor
-
-   # Optimize system if needed
-   sudo /opt/vless/scripts/maintenance_utils.sh optimize_system
-   ```
-
-### DNS Resolution Issues
-
-**Symptoms:**
-- Cannot resolve domain names through VPN
-- DNS queries fail or timeout
-- Incorrect DNS responses
-
-**Solutions:**
-
-1. **Configure DNS in Xray:**
-   ```bash
-   # Edit Xray configuration
-   sudo nano /opt/vless/config/xray_config.json
-   # Add DNS configuration:
-   # "dns": {
-   #   "servers": [
-   #     "8.8.8.8",
-   #     "1.1.1.1",
-   #     "localhost"
-   #   ]
-   # }
-   ```
-
-2. **Check Server DNS Configuration:**
-   ```bash
-   # Verify server DNS settings
-   cat /etc/resolv.conf
+   # Check DNS resolution
    nslookup google.com
 
-   # Update DNS if needed
-   echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
-   echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
+   # Test port accessibility
+   nmap -p 443 your-server-ip
    ```
 
-## Performance Problems
+#### Solutions
 
-### High CPU Usage
+1. **Configuration Issues**
+   ```bash
+   # Regenerate client configuration
+   sudo /opt/vless/scripts/user_management.sh config username
 
-**Symptoms:**
-- Server CPU usage consistently high
-- Slow VPN performance
-- System becomes unresponsive
+   # Verify server configuration
+   sudo /usr/local/bin/xray -test -config /opt/vless/config/config.json
+   ```
 
-**Diagnostic Commands:**
+2. **Firewall Problems**
+   ```bash
+   # Check firewall rules
+   sudo ufw status verbose
+
+   # Allow VLESS port
+   sudo ufw allow 443/tcp
+   sudo ufw reload
+   ```
+
+3. **Reality Configuration**
+   ```bash
+   # Update Reality domain
+   sudo /opt/vless/scripts/config_templates.sh update-reality-domain "www.microsoft.com"
+
+   # Regenerate Reality keys
+   sudo /opt/vless/scripts/config_templates.sh generate-reality-keys
+   ```
+
+### Problem: Slow Connection Speed
+
+#### Diagnostic Steps
 ```bash
-# Monitor CPU usage
-top -p $(pgrep xray)
+# Check server resources
+top
 htop
+iotop
 
-# Check process details
-sudo /opt/vless/scripts/monitoring.sh system_report
+# Monitor network usage
+iftop
+nethogs
 
-# Analyze performance patterns
-sudo /opt/vless/scripts/monitoring.sh performance_analysis
+# Check connection count
+sudo netstat -an | grep :443 | wc -l
 ```
 
-**Solutions:**
+#### Solutions
 
-1. **Optimize Xray Configuration:**
+1. **Resource Optimization**
    ```bash
-   # Reduce logging level
-   sudo nano /opt/vless/config/xray_config.json
-   # Change loglevel to "error" or "none"
-   ```
-
-2. **Limit Concurrent Connections:**
-   ```bash
-   # Set connection limits per user
-   sudo /opt/vless/scripts/configure.sh set_limits --max-connections 10
-   ```
-
-3. **Upgrade Server Resources:**
-   - Consider upgrading to a more powerful VPS
-   - Add more CPU cores
-   - Increase available RAM
-
-### High Memory Usage
-
-**Symptoms:**
-- RAM usage consistently high
-- Swap usage increasing
-- Out of memory errors
-
-**Diagnostic Commands:**
-```bash
-# Check memory usage
-free -h
-sudo /opt/vless/scripts/monitoring.sh memory_analysis
-
-# Check process memory usage
-ps aux --sort=-%mem | head -10
-```
-
-**Solutions:**
-
-1. **Configure Memory Limits:**
-   ```bash
-   # Set Docker container memory limits
-   sudo docker update --memory=512m vless-xray
-   ```
-
-2. **Optimize System:**
-   ```bash
-   # Clear caches
-   sudo /opt/vless/scripts/maintenance_utils.sh cleanup
-
-   # Optimize system settings
-   sudo /opt/vless/scripts/maintenance_utils.sh optimize_system
-   ```
-
-3. **Monitor Memory Leaks:**
-   ```bash
-   # Monitor memory usage over time
-   sudo /opt/vless/scripts/monitoring.sh monitor --memory --interval 60
-   ```
-
-### Slow Connection Speeds
-
-**Symptoms:**
-- VPN connection slower than expected
-- High latency
-- Poor throughput
-
-**Diagnostic Process:**
-
-1. **Test Connection Speed:**
-   ```bash
-   # Server-side speed test
-   sudo /opt/vless/scripts/monitoring.sh speed_test
-
-   # Network performance test
-   sudo /opt/vless/scripts/monitoring.sh network_benchmark
-   ```
-
-2. **Optimize Network Configuration:**
-   ```bash
-   # Enable network optimizations
-   sudo /opt/vless/scripts/maintenance_utils.sh optimize_network
-
-   # Configure TCP settings
-   echo 'net.ipv4.tcp_window_scaling = 1' | sudo tee -a /etc/sysctl.conf
-   echo 'net.core.rmem_max = 67108864' | sudo tee -a /etc/sysctl.conf
-   echo 'net.core.wmem_max = 67108864' | sudo tee -a /etc/sysctl.conf
+   # Adjust buffer sizes
+   echo 'net.core.rmem_max = 134217728' >> /etc/sysctl.conf
+   echo 'net.core.wmem_max = 134217728' >> /etc/sysctl.conf
    sudo sysctl -p
    ```
 
-## Certificate Issues
-
-### SSL/TLS Certificate Problems
-
-**Symptoms:**
-- Certificate expired warnings
-- SSL handshake failures
-- Certificate validation errors
-
-**Diagnostic Commands:**
-```bash
-# Check certificate status
-sudo /opt/vless/scripts/cert_management.sh status
-
-# Test certificate validity
-openssl s_client -connect your-domain.com:443 -servername your-domain.com
-
-# Check certificate expiration
-echo | openssl s_client -connect your-domain.com:443 2>/dev/null | openssl x509 -noout -dates
-```
-
-**Solutions:**
-
-1. **Renew Certificates:**
+2. **Connection Limits**
    ```bash
-   # Manual certificate renewal
-   sudo /opt/vless/scripts/cert_management.sh renew
-
-   # Force certificate regeneration
-   sudo /opt/vless/scripts/cert_management.sh generate --force
+   # Increase file descriptor limits
+   echo '* soft nofile 65536' >> /etc/security/limits.conf
+   echo '* hard nofile 65536' >> /etc/security/limits.conf
    ```
 
-2. **Setup Automatic Renewal:**
+3. **Server Configuration**
    ```bash
-   # Configure automatic renewal
-   sudo /opt/vless/scripts/cert_management.sh auto_renew
-
-   # Test renewal process
-   sudo /opt/vless/scripts/cert_management.sh test_renewal
-   ```
-
-### Let's Encrypt Rate Limits
-
-**Symptoms:**
-- Certificate generation fails with rate limit errors
-- "too many certificates" errors
-- Cannot obtain new certificates
-
-**Solutions:**
-
-1. **Use Staging Environment:**
-   ```bash
-   # Test with Let's Encrypt staging
-   sudo /opt/vless/scripts/cert_management.sh generate --staging
-   ```
-
-2. **Use Alternative Certificate Method:**
-   ```bash
-   # Generate self-signed certificate temporarily
-   sudo /opt/vless/scripts/cert_management.sh self_signed
-
-   # Or use existing certificate
-   sudo /opt/vless/scripts/cert_management.sh import --cert /path/to/cert.pem --key /path/to/key.pem
-   ```
-
-### Reality Key Issues
-
-**Symptoms:**
-- Reality handshake failures
-- Connection refused with Reality
-- Invalid Reality configuration
-
-**Solutions:**
-
-1. **Regenerate Reality Keys:**
-   ```bash
-   # Generate new Reality key pair
-   sudo /opt/vless/scripts/cert_management.sh reality_keys
-
-   # Update all user configurations
-   sudo /opt/vless/scripts/user_management.sh update_all --reality-keys
-   ```
-
-2. **Verify Reality Configuration:**
-   ```bash
-   # Check Reality target accessibility
-   curl -I https://www.microsoft.com
-
-   # Test Reality configuration
-   sudo /opt/vless/scripts/configure.sh test_reality
+   # Optimize Xray configuration
+   sudo /opt/vless/scripts/config_templates.sh optimize-performance
    ```
 
 ## User Management Problems
 
-### Cannot Add New Users
+### Problem: Cannot Create Users
 
-**Symptoms:**
-- User creation fails
-- Database errors
-- User limit reached
+#### Symptom
+User creation commands fail or users don't appear in the database.
 
-**Diagnostic Commands:**
+#### Diagnostic Commands
 ```bash
-# Check user database status
-sudo /opt/vless/scripts/user_management.sh list --detailed
-
-# Check available space for user data
-df -h /opt/vless/data/
-
-# Verify user database integrity
-sudo /opt/vless/scripts/user_management.sh verify_database
+sudo /opt/vless/scripts/user_management.sh list
+sudo sqlite3 /opt/vless/users/users.db ".tables"
+sudo journalctl -u xray | grep -i error
 ```
 
-**Solutions:**
+#### Solutions
 
-1. **Check User Limits:**
+1. **Database Issues**
    ```bash
-   # Check current user count
-   sudo /opt/vless/scripts/user_management.sh list | wc -l
+   # Check database integrity
+   sudo sqlite3 /opt/vless/users/users.db "PRAGMA integrity_check;"
 
-   # Increase user limit if needed
-   sudo nano /opt/vless/config/vless.env
-   # Set MAX_USERS=1000
+   # Recreate database
+   sudo /opt/vless/scripts/user_database.sh init
    ```
 
-2. **Clean Up User Database:**
+2. **Permission Problems**
    ```bash
-   # Remove inactive users
-   sudo /opt/vless/scripts/user_management.sh cleanup --inactive
-
-   # Repair database if corrupted
-   sudo /opt/vless/scripts/user_management.sh repair_database
+   # Fix database permissions
+   sudo chown xray:xray /opt/vless/users/users.db
+   sudo chmod 660 /opt/vless/users/users.db
    ```
 
-### User Configuration Generation Fails
-
-**Symptoms:**
-- QR code generation errors
-- Invalid configuration output
-- Missing configuration parameters
-
-**Solutions:**
-
-1. **Regenerate User Configuration:**
+3. **Configuration Regeneration**
    ```bash
-   # Force configuration regeneration
-   sudo /opt/vless/scripts/user_management.sh config username --force
-
-   # Update user with fresh UUID
-   sudo /opt/vless/scripts/user_management.sh update username --reset-uuid
+   # Regenerate Xray configuration
+   sudo /opt/vless/scripts/config_templates.sh generate
+   sudo systemctl restart xray
    ```
 
-2. **Check Configuration Templates:**
-   ```bash
-   # Verify configuration templates
-   sudo /opt/vless/scripts/configure.sh validate_templates
+### Problem: User Configurations Invalid
 
-   # Regenerate templates if corrupted
-   sudo /opt/vless/scripts/configure.sh generate_templates
+#### Solutions
+
+1. **Validate Configuration**
+   ```bash
+   # Test configuration syntax
+   sudo /usr/local/bin/xray -test -config /opt/vless/config/config.json
+   ```
+
+2. **Regenerate User Configuration**
+   ```bash
+   # Remove and recreate user
+   sudo /opt/vless/scripts/user_management.sh remove username
+   sudo /opt/vless/scripts/user_management.sh add username
+   ```
+
+## Performance Issues
+
+### Problem: High CPU Usage
+
+#### Diagnostic Commands
+```bash
+top -p $(pgrep xray)
+htop
+sar -u 1 10
+```
+
+#### Solutions
+
+1. **Check Configuration**
+   ```bash
+   # Optimize Xray settings
+   sudo /opt/vless/scripts/config_templates.sh optimize-performance
+   ```
+
+2. **Limit Connections**
+   ```bash
+   # Set connection limits per user
+   sudo /opt/vless/scripts/user_management.sh set-global-limit 1000
+   ```
+
+### Problem: High Memory Usage
+
+#### Solutions
+
+1. **Monitor Memory Usage**
+   ```bash
+   free -h
+   ps aux --sort=-%mem | head
+   ```
+
+2. **Adjust System Settings**
+   ```bash
+   # Configure swap
+   sudo fallocate -l 2G /swapfile
+   sudo chmod 600 /swapfile
+   sudo mkswap /swapfile
+   sudo swapon /swapfile
+   ```
+
+### Problem: Disk Space Issues
+
+#### Solutions
+
+1. **Clean Log Files**
+   ```bash
+   # Rotate logs
+   sudo logrotate -f /etc/logrotate.conf
+
+   # Clean old logs
+   sudo find /opt/vless/logs -name "*.log" -mtime +30 -delete
+   ```
+
+2. **Clean Docker**
+   ```bash
+   sudo docker system prune -a
+   sudo docker volume prune
+   ```
+
+## Security Concerns
+
+### Problem: Suspicious Activity Detected
+
+#### Immediate Actions
+
+1. **Monitor Active Connections**
+   ```bash
+   sudo netstat -an | grep :443
+   sudo ss -tuln | grep :443
+   ```
+
+2. **Check Failed Authentication Attempts**
+   ```bash
+   sudo journalctl -u xray | grep -i "fail\|error\|reject"
+   ```
+
+3. **Review User Activity**
+   ```bash
+   sudo /opt/vless/scripts/monitoring.sh user-activity
+   ```
+
+#### Security Hardening
+
+1. **Update System**
+   ```bash
+   sudo /opt/vless/scripts/system_update.sh
+   ```
+
+2. **Run Security Audit**
+   ```bash
+   sudo /opt/vless/scripts/security_hardening.sh audit
+   ```
+
+3. **Enable Additional Protection**
+   ```bash
+   sudo /opt/vless/scripts/security_hardening.sh enable-fail2ban
+   sudo /opt/vless/scripts/security_hardening.sh enable-geo-blocking
+   ```
+
+### Problem: Certificate Issues
+
+#### Solutions
+
+1. **Regenerate Certificates**
+   ```bash
+   sudo /opt/vless/scripts/cert_management.sh renew
+   ```
+
+2. **Check Certificate Validity**
+   ```bash
+   sudo /opt/vless/scripts/cert_management.sh status
    ```
 
 ## Telegram Bot Issues
 
-### Bot Not Responding
+### Problem: Bot Not Responding
 
-**Symptoms:**
-- Bot doesn't respond to commands
-- Bot appears offline
-- Commands timeout
-
-**Diagnostic Commands:**
+#### Diagnostic Commands
 ```bash
-# Check bot service status
-sudo systemctl status vless-telegram-bot
-
-# Check bot logs
-sudo journalctl -u vless-telegram-bot -n 50
-
-# Test bot token
-curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe"
+sudo systemctl status telegram-bot
+sudo journalctl -u telegram-bot -f
 ```
 
-**Solutions:**
+#### Solutions
 
-1. **Restart Bot Service:**
+1. **Check Bot Configuration**
    ```bash
-   sudo systemctl restart vless-telegram-bot
-   sudo systemctl enable vless-telegram-bot
+   # Verify bot token
+   sudo /opt/vless/scripts/telegram_bot_manager.sh verify-token
+
+   # Test bot connectivity
+   sudo /opt/vless/scripts/telegram_bot_manager.sh test-connection
    ```
 
-2. **Verify Bot Configuration:**
+2. **Restart Bot Service**
    ```bash
-   # Check bot token validity
-   sudo /opt/vless/scripts/telegram_bot_manager.sh test_token
-
-   # Reconfigure bot
-   sudo /opt/vless/scripts/telegram_bot_manager.sh setup
+   sudo systemctl restart telegram-bot
+   sudo journalctl -u telegram-bot -f
    ```
 
-3. **Check Network Connectivity:**
+3. **Update Bot Dependencies**
    ```bash
-   # Test Telegram API connectivity
-   curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates"
+   sudo pip3 install -r /opt/vless/requirements.txt --upgrade
    ```
 
-### Bot Commands Not Working
+### Problem: Bot Commands Not Working
 
-**Symptoms:**
-- Specific commands fail
-- Permission denied errors
-- Incomplete command responses
+#### Solutions
 
-**Solutions:**
-
-1. **Check Admin Permissions:**
+1. **Check Admin Authorization**
    ```bash
-   # Verify admin user list
-   sudo /opt/vless/scripts/telegram_bot_manager.sh list_admins
+   # Verify admin user IDs
+   sudo /opt/vless/scripts/telegram_bot_manager.sh list-admins
 
-   # Add user as admin
-   sudo /opt/vless/scripts/telegram_bot_manager.sh add_admin YOUR_TELEGRAM_ID
+   # Add admin user
+   sudo /opt/vless/scripts/telegram_bot_manager.sh add-admin TELEGRAM_USER_ID
    ```
 
-2. **Update Bot Commands:**
+2. **Check Bot Permissions**
    ```bash
-   # Refresh bot command list
-   sudo /opt/vless/scripts/telegram_bot_manager.sh update_commands
-
-   # Test specific command
-   sudo /opt/vless/scripts/telegram_bot_manager.sh test_command status
+   # Verify bot has necessary permissions
+   sudo /opt/vless/scripts/telegram_bot_manager.sh check-permissions
    ```
 
-### Bot Performance Issues
+## Configuration Problems
 
-**Symptoms:**
-- Slow bot responses
-- Bot timeouts
-- High resource usage
+### Problem: Invalid Xray Configuration
 
-**Solutions:**
+#### Solutions
 
-1. **Optimize Bot Configuration:**
+1. **Test Configuration**
    ```bash
-   # Adjust bot settings
-   sudo nano /opt/vless/config/bot.env
-   # Increase timeout values
-   # Reduce polling frequency
+   sudo /usr/local/bin/xray -test -config /opt/vless/config/config.json
    ```
 
-2. **Check System Resources:**
+2. **Regenerate Configuration**
    ```bash
-   # Monitor bot resource usage
-   sudo /opt/vless/scripts/monitoring.sh process_monitor telegram_bot
+   # Backup current configuration
+   sudo cp /opt/vless/config/config.json /opt/vless/config/config.json.bak
 
-   # Optimize if needed
-   sudo /opt/vless/scripts/maintenance_utils.sh optimize_system
+   # Generate new configuration
+   sudo /opt/vless/scripts/config_templates.sh generate
    ```
 
-## System Resource Issues
-
-### Disk Space Problems
-
-**Symptoms:**
-- "No space left on device" errors
-- Cannot create new files
-- System operations fail
-
-**Diagnostic Commands:**
-```bash
-# Check disk usage
-df -h
-du -sh /opt/vless/*
-
-# Find large files
-find /opt/vless -type f -size +100M -exec ls -lh {} \;
-
-# Check log file sizes
-sudo du -sh /opt/vless/logs/*
-```
-
-**Solutions:**
-
-1. **Clean Up Log Files:**
+3. **Restore from Backup**
    ```bash
-   # Rotate and compress logs
-   sudo /opt/vless/scripts/maintenance_utils.sh cleanup_logs
-
-   # Set log retention policy
-   sudo /opt/vless/scripts/maintenance_utils.sh setup_log_rotation --retention 7d
+   sudo /opt/vless/scripts/backup_restore.sh restore --config-only
    ```
 
-2. **Clean Up Old Backups:**
-   ```bash
-   # Remove old backups
-   sudo /opt/vless/scripts/backup_restore.sh cleanup_old_backups --older-than 30d
+### Problem: Reality Configuration Issues
 
-   # Configure backup retention
-   sudo /opt/vless/scripts/backup_restore.sh set_retention --days 30
+#### Solutions
+
+1. **Update Reality Settings**
+   ```bash
+   # Change Reality domain
+   sudo /opt/vless/scripts/config_templates.sh set-reality-domain "www.apple.com"
+
+   # Regenerate Reality keys
+   sudo /opt/vless/scripts/config_templates.sh generate-reality-keys
    ```
 
-3. **System Cleanup:**
+2. **Test Reality Configuration**
    ```bash
-   # General system cleanup
-   sudo /opt/vless/scripts/maintenance_utils.sh cleanup --all
-
-   # Docker cleanup
-   sudo docker system prune -f
-   sudo docker image prune -f
+   # Test Reality connectivity
+   curl -H "Host: www.microsoft.com" https://your-server-ip:443
    ```
 
-### Network Port Conflicts
+## System Recovery
 
-**Symptoms:**
-- Port already in use errors
-- Service binding failures
-- Connection refused errors
+### Emergency Recovery Procedures
 
-**Diagnostic Commands:**
-```bash
-# Check port usage
-sudo netstat -tlnp | grep :443
-sudo lsof -i :443
+#### Complete System Recovery
 
-# Check for conflicting services
-sudo systemctl list-units --type=service --state=running | grep -E "(nginx|apache|httpd)"
-```
-
-**Solutions:**
-
-1. **Stop Conflicting Services:**
+1. **Stop All Services**
    ```bash
-   # Stop web servers that might conflict
-   sudo systemctl stop nginx
-   sudo systemctl stop apache2
-   sudo systemctl disable nginx
-   sudo systemctl disable apache2
+   sudo systemctl stop xray
+   sudo systemctl stop docker
+   sudo systemctl stop telegram-bot
    ```
 
-2. **Change VPN Port:**
+2. **Restore from Backup**
    ```bash
-   # Configure different port
-   sudo /opt/vless/scripts/configure.sh --port 8443
-
-   # Update firewall
-   sudo ufw allow 8443/tcp
-   sudo ufw delete allow 443/tcp
+   sudo /opt/vless/scripts/backup_restore.sh restore /opt/vless/backup/latest.tar.gz
    ```
 
-## Network Configuration Problems
-
-### Firewall Blocking Connections
-
-**Symptoms:**
-- External connections fail
-- Port appears closed from outside
-- Internal connections work fine
-
-**Diagnostic Commands:**
-```bash
-# Check UFW status
-sudo ufw status verbose
-
-# Check iptables rules
-sudo iptables -L -n
-sudo iptables -t nat -L -n
-
-# Test port from external source
-telnet your-server-ip 443
-nc -zv your-server-ip 443
-```
-
-**Solutions:**
-
-1. **Configure UFW Properly:**
+3. **Restart Services**
    ```bash
-   # Reset UFW and reconfigure
-   sudo ufw --force reset
-   sudo /opt/vless/scripts/ufw_config.sh setup
-
-   # Allow specific ports
-   sudo ufw allow 22/tcp
-   sudo ufw allow 80/tcp
-   sudo ufw allow 443/tcp
-   sudo ufw enable
+   sudo systemctl start docker
+   sudo systemctl start xray
+   sudo systemctl start telegram-bot
    ```
 
-2. **Check Cloud Provider Security Groups:**
-   - Log into your cloud provider dashboard
-   - Check security group settings
-   - Ensure ports 80, 443, and 22 are open
-   - Allow traffic from 0.0.0.0/0 for HTTP/HTTPS
+#### Partial Recovery
 
-### DNS Resolution Problems
-
-**Symptoms:**
-- Cannot resolve domain names
-- Slow DNS queries
-- Incorrect DNS responses
-
-**Solutions:**
-
-1. **Fix Server DNS:**
+1. **Configuration Only**
    ```bash
-   # Configure reliable DNS servers
-   sudo nano /etc/resolv.conf
-   # Add:
-   # nameserver 8.8.8.8
-   # nameserver 1.1.1.1
-
-   # Test DNS resolution
-   nslookup google.com
-   dig @8.8.8.8 google.com
+   sudo /opt/vless/scripts/backup_restore.sh restore --config-only
+   sudo systemctl restart xray
    ```
 
-2. **Configure Xray DNS:**
+2. **User Database Only**
    ```bash
-   # Add DNS configuration to Xray
-   sudo nano /opt/vless/config/xray_config.json
-   # Add DNS section with reliable servers
+   sudo /opt/vless/scripts/backup_restore.sh restore --users-only
+   sudo /opt/vless/scripts/config_templates.sh generate
+   ```
+
+### Factory Reset
+
+1. **Complete Uninstall**
+   ```bash
+   sudo /opt/vless/scripts/uninstall.sh --complete
+   ```
+
+2. **Clean Installation**
+   ```bash
+   cd /path/to/vless
+   sudo ./install.sh --clean
    ```
 
 ## Log Analysis
 
-### Understanding Log Files
+### Important Log Locations
 
-**Log Locations:**
-- System logs: `/opt/vless/logs/system.log`
-- Xray logs: `/opt/vless/logs/xray.log`
-- Access logs: `/opt/vless/logs/access.log`
-- Error logs: `/opt/vless/logs/error.log`
-- Bot logs: `/opt/vless/logs/telegram_bot.log`
+- **Xray Logs**: `journalctl -u xray`
+- **Docker Logs**: `journalctl -u docker`
+- **System Logs**: `/opt/vless/logs/system.log`
+- **User Activity**: `/opt/vless/logs/user_activity.log`
+- **Security Logs**: `/opt/vless/logs/security.log`
+- **Telegram Bot**: `journalctl -u telegram-bot`
 
-### Common Log Analysis Commands
+### Log Analysis Commands
 
-```bash
-# Real-time log monitoring
-sudo tail -f /opt/vless/logs/xray.log
-
-# Search for errors
-sudo grep -i error /opt/vless/logs/*.log
-
-# Search for specific user activity
-sudo grep "username" /opt/vless/logs/access.log
-
-# Analyze connection patterns
-sudo /opt/vless/scripts/monitoring.sh analyze_logs --pattern connections
-
-# Export logs for analysis
-sudo /opt/vless/scripts/maintenance_utils.sh export_logs --since "24 hours ago"
-```
-
-### Log Analysis for Common Issues
-
-1. **Connection Failures:**
+1. **Search for Errors**
    ```bash
-   # Look for handshake failures
-   sudo grep -i "handshake\|failed\|rejected" /opt/vless/logs/xray.log
-
-   # Check authentication issues
-   sudo grep -i "auth\|uuid\|invalid" /opt/vless/logs/xray.log
+   sudo journalctl -u xray | grep -i error
+   sudo grep -i "error\|fail\|critical" /opt/vless/logs/*.log
    ```
 
-2. **Performance Issues:**
+2. **Monitor Real-time Logs**
    ```bash
-   # Look for timeout errors
-   sudo grep -i "timeout\|slow\|delay" /opt/vless/logs/*.log
-
-   # Check resource usage patterns
-   sudo /opt/vless/scripts/monitoring.sh log_analysis --performance
+   sudo journalctl -u xray -f
+   sudo tail -f /opt/vless/logs/system.log
    ```
 
-3. **Certificate Issues:**
+3. **Analyze Connection Patterns**
    ```bash
-   # Check certificate-related errors
-   sudo grep -i "cert\|tls\|ssl" /opt/vless/logs/*.log
-
-   # Look for Reality configuration issues
-   sudo grep -i "reality\|handshake" /opt/vless/logs/xray.log
+   sudo grep "new connection" /opt/vless/logs/user_activity.log | tail -100
    ```
 
-## Emergency Recovery
+### Log Rotation and Cleanup
 
-### System Recovery Procedures
-
-#### Complete Service Recovery
-
-If the VPN service is completely non-functional:
-
-```bash
-# 1. Stop all services
-sudo systemctl stop vless-vpn
-sudo systemctl stop vless-telegram-bot
-sudo docker stop $(sudo docker ps -q)
-
-# 2. Check system integrity
-sudo /opt/vless/scripts/maintenance_utils.sh check_system_health
-
-# 3. Restore from backup if available
-sudo /opt/vless/scripts/backup_restore.sh list_backups
-sudo /opt/vless/scripts/backup_restore.sh restore --backup latest
-
-# 4. Restart services
-sudo systemctl start docker
-sudo systemctl start vless-vpn
-sudo systemctl start vless-telegram-bot
-```
-
-#### Configuration Recovery
-
-If configuration is corrupted:
-
-```bash
-# 1. Backup current configuration
-sudo cp -r /opt/vless/config /opt/vless/config.backup.$(date +%Y%m%d_%H%M%S)
-
-# 2. Regenerate configuration
-sudo /opt/vless/scripts/configure.sh regenerate
-
-# 3. Restore user data
-sudo /opt/vless/scripts/user_management.sh restore_users
-
-# 4. Test configuration
-sudo /opt/vless/scripts/configure.sh validate
-
-# 5. Restart services
-sudo systemctl restart vless-vpn
-```
-
-#### Database Recovery
-
-If user database is corrupted:
-
-```bash
-# 1. Stop VPN service
-sudo systemctl stop vless-vpn
-
-# 2. Backup corrupted database
-sudo cp /opt/vless/data/users.db /opt/vless/data/users.db.corrupted
-
-# 3. Restore from backup
-sudo /opt/vless/scripts/backup_restore.sh restore_users_only
-
-# 4. Verify database integrity
-sudo /opt/vless/scripts/user_management.sh verify_database
-
-# 5. Restart service
-sudo systemctl start vless-vpn
-```
-
-### Disaster Recovery
-
-#### Complete System Rebuild
-
-If the system needs to be completely rebuilt:
-
-```bash
-# 1. Create emergency backup (if possible)
-sudo /opt/vless/scripts/backup_restore.sh create_emergency_backup
-
-# 2. Download backup to safe location
-sudo cp /opt/vless/backups/emergency_backup_*.tar.gz /home/user/
-
-# 3. Reinstall system
-sudo ./install.sh --fresh-install
-
-# 4. Restore from backup
-sudo /opt/vless/scripts/backup_restore.sh restore --backup /home/user/emergency_backup_*.tar.gz
-
-# 5. Verify restoration
-sudo /opt/vless/scripts/maintenance_utils.sh check_system_health
-```
-
-## Getting Support
-
-### Collecting Diagnostic Information
-
-Before seeking support, collect comprehensive diagnostic information:
-
-```bash
-# Generate support bundle
-sudo /opt/vless/scripts/maintenance_utils.sh generate_support_bundle
-
-# The bundle will include:
-# - System configuration
-# - Service status
-# - Log files (sanitized)
-# - Network configuration
-# - Resource usage
-# - Error analysis
-```
-
-### Information to Include in Support Requests
-
-1. **System Information:**
-   - Operating system version
-   - Server specifications (CPU, RAM, disk)
-   - Network configuration
-   - Installation date and method
-
-2. **Problem Description:**
-   - Detailed symptoms
-   - When the problem started
-   - Steps that reproduce the issue
-   - Error messages (exact text)
-
-3. **Diagnostic Output:**
-   - Support bundle
-   - Relevant log excerpts
-   - Configuration files (with sensitive data removed)
-   - Network test results
-
-### Self-Help Resources
-
-1. **Documentation:**
-   - [Installation Guide](installation.md)
-   - [User Guide](user_guide.md)
-   - [API Reference](api_reference.md)
-
-2. **Diagnostic Tools:**
+1. **Configure Log Rotation**
    ```bash
-   # Comprehensive system check
-   sudo /opt/vless/scripts/maintenance_utils.sh check_system_health
-
-   # Performance analysis
-   sudo /opt/vless/scripts/monitoring.sh performance_analysis
-
-   # Network connectivity test
-   sudo /opt/vless/scripts/monitoring.sh test_connectivity
+   sudo /opt/vless/scripts/logging_setup.sh configure-rotation
    ```
 
-3. **Common Fixes:**
+2. **Clean Old Logs**
    ```bash
-   # Try these common fixes first
-   sudo systemctl restart vless-vpn
-   sudo /opt/vless/scripts/maintenance_utils.sh cleanup
-   sudo /opt/vless/scripts/configure.sh validate
-   sudo /opt/vless/scripts/user_management.sh verify_database
+   sudo find /opt/vless/logs -name "*.log" -mtime +30 -delete
+   sudo journalctl --vacuum-time=30d
    ```
 
-### Support Channels
+## Getting Help
 
-- **GitHub Issues**: Report bugs and request features
-- **Documentation**: Comprehensive guides and examples
-- **Community Forums**: User discussions and community support
+### Self-Diagnosis Tools
 
-### Creating Effective Bug Reports
+1. **System Health Check**
+   ```bash
+   sudo /opt/vless/scripts/system_check.sh
+   ```
 
-1. **Use descriptive titles**
-2. **Include system information**
-3. **Provide step-by-step reproduction**
-4. **Attach diagnostic logs**
-5. **Describe expected vs actual behavior**
+2. **Generate Diagnostic Report**
+   ```bash
+   sudo /opt/vless/scripts/diagnostic_report.sh
+   ```
+
+### Information to Collect
+
+When seeking help, always include:
+
+1. **System Information**
+   ```bash
+   uname -a
+   lsb_release -a
+   ```
+
+2. **Service Status**
+   ```bash
+   sudo systemctl status xray
+   sudo docker ps
+   ```
+
+3. **Recent Logs**
+   ```bash
+   sudo journalctl -u xray --since "1 hour ago"
+   ```
+
+4. **Configuration Test**
+   ```bash
+   sudo /usr/local/bin/xray -test -config /opt/vless/config/config.json
+   ```
+
+### Contact Information
+
+- **Documentation**: Check all documentation files in `/docs/`
+- **Issue Tracker**: GitHub Issues for bug reports
+- **Community Forum**: Community support and discussions
+- **Professional Support**: Commercial support options
+
+### Best Practices for Troubleshooting
+
+1. **Always backup before making changes**
+2. **Test changes in isolation**
+3. **Keep detailed logs of actions taken**
+4. **Verify fixes with multiple tests**
+5. **Document solutions for future reference**
 
 ---
 
-This troubleshooting guide covers the most common issues you may encounter with the VLESS+Reality VPN Management System. Always start with the quick diagnostics section and work through the relevant sections based on your specific symptoms. Remember to backup your system before making significant changes, and don't hesitate to seek community support when needed.
+**Remember**: Most issues can be resolved by checking logs, verifying configurations, and ensuring all services are running properly. When in doubt, start with the basic troubleshooting steps and work systematically through potential causes.

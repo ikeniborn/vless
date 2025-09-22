@@ -1,57 +1,43 @@
 [Unit]
-Description=VLESS+Reality VPN Telegram Bot Service
-Documentation=https://github.com/XTLS/Xray-core
+Description=VLESS+Reality VPN Management System
+Documentation=https://github.com/your-repo/vless-vpn
 After=network.target docker.service
-Wants=docker.service
-PartOf=docker.service
+Requires=docker.service
+Wants=network-online.target
 
 [Service]
-Type=simple
+Type=forking
+RemainAfterExit=yes
+WorkingDirectory=/opt/vless
+ExecStartPre=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml pull -q
+ExecStart=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml up -d
+ExecStop=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml down
+ExecReload=/usr/bin/docker-compose -f /opt/vless/docker-compose.yml restart xray
+
+# Restart settings
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=3
+StartLimitInterval=60
+
+# Security settings
 User=root
 Group=root
 
-# Working directory
-WorkingDirectory=/opt/vless
-
 # Environment
-Environment=PYTHONPATH=/opt/vless/modules
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-# Environment file
-EnvironmentFile=-/opt/vless/config/bot_config.env
-
-# Main process
-ExecStart=/usr/bin/python3 /opt/vless/modules/telegram_bot.py
-ExecReload=/bin/kill -HUP $MAINPID
-
-# Process management
-Restart=always
-RestartSec=10
-StartLimitInterval=300
-StartLimitBurst=5
-
-# Security settings
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/vless
-ReadOnlyPaths=/opt/vless/config
-
-# Resource limits
-MemoryLimit=512M
-TasksMax=100
+Environment=COMPOSE_PROJECT_NAME=vless-vpn
+Environment=COMPOSE_HTTP_TIMEOUT=60
 
 # Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vless-vpn
 
-# Kill settings
+# Process management
+TimeoutStartSec=300
+TimeoutStopSec=60
 KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStartSec=60
-TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
