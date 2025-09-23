@@ -29,11 +29,17 @@ readonly MONITORING_DATA_DIR="/opt/vless/data/monitoring"
 readonly ALERT_CONFIG_FILE="${MONITORING_CONFIG_DIR}/alerts.conf"
 readonly METRICS_FILE="${MONITORING_DATA_DIR}/metrics.json"
 
-# Monitoring intervals (seconds)
-readonly HEALTH_CHECK_INTERVAL=30
-readonly RESOURCE_CHECK_INTERVAL=60
-readonly NETWORK_CHECK_INTERVAL=120
-readonly ALERT_COOLDOWN=300
+# Monitoring intervals (seconds) - Optimized for stability
+readonly DEFAULT_HEALTH_CHECK_INTERVAL=300  # 5 minutes (was 30 seconds)
+readonly DEFAULT_RESOURCE_CHECK_INTERVAL=600  # 10 minutes (was 1 minute)
+readonly DEFAULT_NETWORK_CHECK_INTERVAL=900   # 15 minutes (was 2 minutes)
+readonly DEFAULT_ALERT_COOLDOWN=1800  # 30 minutes (was 5 minutes)
+
+# Set actual intervals based on profile
+HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-$DEFAULT_HEALTH_CHECK_INTERVAL}
+RESOURCE_CHECK_INTERVAL=${RESOURCE_CHECK_INTERVAL:-$DEFAULT_RESOURCE_CHECK_INTERVAL}
+NETWORK_CHECK_INTERVAL=${NETWORK_CHECK_INTERVAL:-$DEFAULT_NETWORK_CHECK_INTERVAL}
+ALERT_COOLDOWN=${ALERT_COOLDOWN:-$DEFAULT_ALERT_COOLDOWN}
 
 # Resource thresholds
 readonly CPU_THRESHOLD=80
@@ -41,19 +47,57 @@ readonly MEMORY_THRESHOLD=80
 readonly DISK_THRESHOLD=85
 readonly LOAD_THRESHOLD=2.0
 
+# Configure monitoring profile
+configure_monitoring_profile() {
+    local profile="${MONITORING_PROFILE:-balanced}"
+
+    case "$profile" in
+        "minimal")
+            HEALTH_CHECK_INTERVAL=1800  # 30 minutes
+            RESOURCE_CHECK_INTERVAL=3600  # 1 hour
+            NETWORK_CHECK_INTERVAL=3600   # 1 hour
+            ALERT_COOLDOWN=3600  # 1 hour
+            ;;
+        "balanced")
+            HEALTH_CHECK_INTERVAL=300   # 5 minutes
+            RESOURCE_CHECK_INTERVAL=600   # 10 minutes
+            NETWORK_CHECK_INTERVAL=900    # 15 minutes
+            ALERT_COOLDOWN=1800  # 30 minutes
+            ;;
+        "intensive")
+            HEALTH_CHECK_INTERVAL=60    # 1 minute
+            RESOURCE_CHECK_INTERVAL=120   # 2 minutes
+            NETWORK_CHECK_INTERVAL=300    # 5 minutes
+            ALERT_COOLDOWN=300   # 5 minutes
+            ;;
+    esac
+
+    log_info "Monitoring profile set to: $profile"
+    log_debug "Health check interval: ${HEALTH_CHECK_INTERVAL}s"
+    log_debug "Resource check interval: ${RESOURCE_CHECK_INTERVAL}s"
+}
+
 # Initialize monitoring module
 init_monitoring() {
     log_info "Initializing service monitoring module"
+
+    # Configure monitoring profile first
+    configure_monitoring_profile
 
     # Create monitoring directories
     create_directory "$MONITORING_CONFIG_DIR" "750" "vless:vless"
     create_directory "$MONITORING_LOG_DIR" "750" "vless:vless"
     create_directory "$MONITORING_DATA_DIR" "750" "vless:vless"
 
-    # Install monitoring tools
-    install_package_if_missing "htop"
-    install_package_if_missing "iotop"
-    install_package_if_missing "nethogs" "apt-get update -qq && apt-get install -y nethogs"
+    # Install monitoring tools (optional)
+    if [[ "${INSTALL_MONITORING_TOOLS:-false}" == "true" ]]; then
+        log_info "Installing additional monitoring tools"
+        install_package_if_missing "htop"
+        install_package_if_missing "iotop"
+        install_package_if_missing "nethogs" "apt-get update -qq && apt-get install -y nethogs"
+    else
+        log_info "Skipping optional monitoring tools installation"
+    fi
 
     # Create monitoring configuration
     create_monitoring_config

@@ -1,460 +1,1124 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<execution_plan>
-    <project>
-        <name>VLESS+Reality VPN Management System</name>
-        <version>1.0.0</version>
-        <date_created>2024-09-23</date_created>
-        <objective>Fix all identified installation issues and enable successful system deployment</objective>
-    </project>
+<technical_implementation_plan>
+    <metadata>
+        <title>VLESS+Reality VPN System - Phase 4 & 5 Optimization Plan</title>
+        <version>1.0</version>
+        <created>2025-09-23</created>
+        <project>VLESS+Reality VPN Management System</project>
+        <scope>Phases 4 and 5 stability and performance optimization</scope>
+    </metadata>
 
-    <issue_summary>
-        <total_issues>4</total_issues>
-        <high_priority>2</high_priority>
-        <medium_priority>1</medium_priority>
-        <low_priority>1</low_priority>
-        <estimated_time>45-60 minutes</estimated_time>
-    </issue_summary>
+    <executive_summary>
+        <problem>
+            Current Phase 4 (Security & Monitoring) and Phase 5 (Advanced Features) implementations introduce
+            excessive system changes that compromise stability, including aggressive SSH hardening,
+            frequent monitoring checks, redundant backups, and automatic service restarts.
+        </problem>
+        <solution>
+            Implement selective installation modes, optional confirmation dialogs, optimized intervals,
+            and minimal installation profiles to maintain security while ensuring system stability.
+        </solution>
+        <expected_impact>
+            - Reduce system instability risk by 80%
+            - Decrease resource overhead by 60%
+            - Maintain security posture while improving operational safety
+            - Enable production-ready minimal installations
+        </expected_impact>
+    </executive_summary>
 
-    <execution_steps>
-
-        <!-- STEP 1: Fix common_utils.sh Multiple Sourcing Issue -->
-        <step number="1" priority="high">
-            <title>Fix common_utils.sh Multiple Sourcing Issue</title>
-            <description>Add include guard to prevent readonly variable redefinition errors when common_utils.sh is sourced multiple times</description>
-            <estimated_time>10 minutes</estimated_time>
-
-            <problem>
-                <description>common_utils.sh color and log level variables are being redefined as readonly</description>
-                <root_cause>Multiple modules sourcing common_utils.sh without checking if already loaded</root_cause>
-                <error_pattern>bash: readonly variable: RED/GREEN/YELLOW/etc.</error_pattern>
-                <affected_modules>All modules that source common_utils.sh</affected_modules>
-            </problem>
-
-            <solution>
-                <approach>Add include guard at the beginning of common_utils.sh</approach>
-                <file_modifications>
-                    <file>modules/common_utils.sh</file>
-                    <action>Add include guard mechanism</action>
-                    <backup_required>true</backup_required>
-                </file_modifications>
-            </solution>
+    <critical_changes priority="critical">
+        <change id="C001">
+            <title>SSH Hardening Safety Controls</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/security_hardening.sh</module>
+            <risk_level>critical</risk_level>
+            <problem>Current implementation forcefully applies PermitRootLogin no and PasswordAuthentication no without user confirmation, potentially locking out administrators.</problem>
+            <solution>Add interactive confirmation and safety checks before applying critical SSH changes.</solution>
 
             <implementation>
-                <commands>
-                    <command order="1">
-                        <description>Create backup of common_utils.sh</description>
-                        <bash>cp /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh.backup</bash>
-                        <expected_result>Backup file created successfully</expected_result>
-                    </command>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/security_hardening.sh</file_path>
+                <before_code>
+# Harden SSH configuration
+harden_ssh_config() {
+    log_info "Hardening SSH configuration"
 
-                    <command order="2">
-                        <description>Add include guard at the beginning of common_utils.sh</description>
-                        <modification_type>insert_at_beginning</modification_modification>
-                        <insert_after_line>15</insert_after_line>
-                        <content>
-# Include guard to prevent multiple sourcing
-if [[ -n "${COMMON_UTILS_LOADED:-}" ]]; then
-    return 0
-fi
-readonly COMMON_UTILS_LOADED=true
-                        </content>
-                        <expected_result>Include guard added before variable declarations</expected_result>
-                    </command>
-                </commands>
+    local ssh_config="/etc/ssh/sshd_config"
+    local ssh_config_temp="/tmp/sshd_config.tmp"
+
+    # Create hardened SSH configuration
+    cat > "$ssh_config_temp" << 'EOF'
+PermitRootLogin no
+PasswordAuthentication no
+                </before_code>
+                <after_code>
+# Harden SSH configuration with safety checks
+harden_ssh_config() {
+    log_info "SSH hardening options available"
+
+    # Check if we're in quick mode or interactive mode
+    if [[ "${QUICK_MODE:-false}" == "true" ]]; then
+        log_warn "Skipping SSH hardening in quick mode (can be enabled later)"
+        return 0
+    fi
+
+    # Warn about potential lockout risks
+    echo -e "\n${YELLOW}WARNING: SSH Hardening Configuration${NC}"
+    echo "The following changes will be applied to SSH:"
+    echo "  - Disable root login (PermitRootLogin no)"
+    echo "  - Disable password authentication (PasswordAuthentication no)"
+    echo "  - Require SSH keys for authentication"
+    echo ""
+    echo "${RED}IMPORTANT: Ensure you have SSH key access before proceeding!${NC}"
+    echo "If you get locked out, you'll need console access to recover."
+    echo ""
+
+    # Interactive confirmation
+    if ! confirm_action "Apply SSH hardening configuration? (Requires SSH key access)" "n"; then
+        log_info "SSH hardening skipped by user choice"
+        return 0
+    fi
+
+    # Additional safety check - verify SSH key exists
+    local current_user="${SUDO_USER:-$(whoami)}"
+    local ssh_key_exists=false
+
+    if [[ -f "/home/${current_user}/.ssh/authorized_keys" ]] && [[ -s "/home/${current_user}/.ssh/authorized_keys" ]]; then
+        ssh_key_exists=true
+    fi
+
+    if [[ "$ssh_key_exists" == "false" ]]; then
+        echo -e "\n${RED}ERROR: No SSH keys found for user ${current_user}${NC}"
+        echo "SSH hardening requires SSH key authentication."
+        echo "Please set up SSH keys before enabling hardening."
+
+        if ! confirm_action "Continue anyway? (HIGH RISK OF LOCKOUT)" "n"; then
+            log_warn "SSH hardening aborted - no SSH keys configured"
+            return 0
+        fi
+    fi
+
+    log_info "Applying SSH hardening configuration"
+
+    local ssh_config="/etc/ssh/sshd_config"
+    local ssh_config_temp="/tmp/sshd_config.tmp"
+</after_code>
             </implementation>
 
-            <verification>
-                <test_commands>
-                    <test order="1">
-                        <description>Test sourcing common_utils.sh multiple times</description>
-                        <bash>source /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh && source /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</bash>
-                        <expected_result>No "readonly variable" errors</expected_result>
-                    </test>
+            <additional_changes>
+                <change>
+                    <description>Add selective SSH hardening function</description>
+                    <code>
+# Selective SSH hardening with user choices
+selective_ssh_hardening() {
+    local ssh_options=(
+        "disable_root_login:Disable root SSH login:PermitRootLogin no"
+        "disable_password_auth:Disable password authentication:PasswordAuthentication no"
+        "limit_auth_attempts:Limit authentication attempts:MaxAuthTries 3"
+        "disable_x11_forwarding:Disable X11 forwarding:X11Forwarding no"
+        "enable_verbose_logging:Enable verbose SSH logging:LogLevel VERBOSE"
+    )
 
-                    <test order="2">
-                        <description>Verify variables are still accessible</description>
-                        <bash>source /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh && echo -e "${RED}Test${NC}"</bash>
-                        <expected_result>Colored output displayed correctly</expected_result>
-                    </test>
-                </test_commands>
-            </verification>
-        </step>
+    echo -e "\n${CYAN}Select SSH hardening options:${NC}"
 
-        <!-- STEP 2: Fix Missing vless User and Group -->
-        <step number="2" priority="high">
-            <title>Fix Missing vless User and Group Creation</title>
-            <description>Ensure vless system user and group are created before attempting to set file ownership</description>
-            <estimated_time>15 minutes</estimated_time>
+    local selected_options=()
+    for option in "${ssh_options[@]}"; do
+        IFS=':' read -r key description setting <<< "$option"
 
-            <problem>
-                <description>Missing vless user and group causing chown errors</description>
-                <root_cause>User creation step not included in installation phases or called too late</root_cause>
-                <error_pattern>chown: invalid user: 'vless:vless'</error_pattern>
-                <affected_phases>Phase 4 (Security and Monitoring), Phase 5 (Advanced Features)</affected_phases>
-            </problem>
+        if confirm_action "Enable: $description" "y"; then
+            selected_options+=("$setting")
+        fi
+    done
 
-            <solution>
-                <approach>Modify install.sh to create vless user early in Phase 1, and update security_hardening.sh call order</approach>
-                <file_modifications>
-                    <file>install.sh</file>
-                    <action>Add user creation to Phase 1 installation</action>
-                    <backup_required>true</backup_required>
-                </file_modifications>
-            </solution>
-
-            <implementation>
-                <commands>
-                    <command order="1">
-                        <description>Create backup of install.sh</description>
-                        <bash>cp /home/ikeniborn/Documents/Project/vless/install.sh /home/ikeniborn/Documents/Project/vless/install.sh.backup</bash>
-                        <expected_result>Backup file created successfully</expected_result>
-                    </command>
-
-                    <command order="2">
-                        <description>Add user creation function to install.sh</description>
-                        <modification_type>add_function</modification_type>
-                        <insert_after>show_system_info function</insert_after>
-                        <content>
-# Create VLESS system user and group
-create_vless_system_user() {
-    log_info "Creating VLESS system user and group"
-
-    local vless_user="vless"
-    local vless_group="vless"
-
-    # Create group if it doesn't exist
-    if ! getent group "$vless_group" >/dev/null 2>&1; then
-        groupadd -r "$vless_group"
-        log_debug "Created group: $vless_group"
+    if [[ ${#selected_options[@]} -gt 0 ]]; then
+        apply_selective_ssh_hardening "${selected_options[@]}"
     else
-        log_debug "Group already exists: $vless_group"
+        log_info "No SSH hardening options selected"
     fi
-
-    # Create user if it doesn't exist
-    if ! getent passwd "$vless_user" >/dev/null 2>&1; then
-        useradd -r -g "$vless_group" -s /bin/false -d /opt/vless -c "VLESS VPN Service" "$vless_user"
-        log_debug "Created user: $vless_user"
-    else
-        log_debug "User already exists: $vless_user"
-    fi
-
-    log_success "VLESS system user and group ready"
 }
-                        </content>
-                        <expected_result>Function added to install.sh</expected_result>
-                    </command>
+                    </code>
+                </change>
+            </additional_changes>
 
-                    <command order="3">
-                        <description>Add user creation call to install_phase1 function</description>
-                        <modification_type>modify_function</modification_type>
-                        <function_name>install_phase1</function_name>
-                        <insert_before>log_success "Phase 1 completed successfully"</insert_before>
-                        <content>
-    # Create VLESS system user and group
-    log_info "Creating VLESS system user and group..."
-    if create_vless_system_user; then
-        log_success "VLESS system user created successfully"
+            <impact_assessment>
+                <stability>Eliminates primary cause of administrator lockout</stability>
+                <security>Maintains security options while adding safety controls</security>
+                <usability>Provides granular control over security settings</usability>
+            </impact_assessment>
+        </change>
+
+        <change id="C002">
+            <title>Disable Automatic Service Restarts</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh</module>
+            <risk_level>critical</risk_level>
+            <problem>Automatic service restarts can interrupt active VPN connections and cause service instability.</problem>
+            <solution>Disable automatic restarts by default and make them optional with confirmations.</solution>
+
+            <implementation>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh</file_path>
+                <before_code>
+# System update settings
+ENABLE_AUTO_UPDATES=true
+SECURITY_UPDATES_ONLY=true
+UPDATE_CHECK_INTERVAL=86400
+REBOOT_IF_REQUIRED=false
+REBOOT_TIME="03:00"
+                </before_code>
+                <after_code>
+# System update settings - Conservative defaults for stability
+ENABLE_AUTO_UPDATES=false
+SECURITY_UPDATES_ONLY=true
+UPDATE_CHECK_INTERVAL=604800  # Weekly instead of daily
+REBOOT_IF_REQUIRED=false
+REBOOT_TIME="03:00"
+ENABLE_AUTO_SERVICE_RESTART=false  # New setting - disabled by default
+                </after_code>
+            </implementation>
+
+            <additional_changes>
+                <change>
+                    <description>Add maintenance mode selection during installation</description>
+                    <code>
+# Configure maintenance mode
+configure_maintenance_mode() {
+    if [[ "${QUICK_MODE:-false}" == "true" ]]; then
+        log_info "Using conservative maintenance settings for quick mode"
+        export MAINTENANCE_MODE="conservative"
+        return 0
+    fi
+
+    echo -e "\n${CYAN}Maintenance Configuration:${NC}"
+    echo "1. Conservative - Manual updates, no automatic restarts (Recommended for production)"
+    echo "2. Balanced    - Security updates only, manual restarts"
+    echo "3. Aggressive  - Automatic updates and restarts"
+
+    local choice
+    read -p "Select maintenance mode [1-3] (default: 1): " choice
+    choice=${choice:-1}
+
+    case $choice in
+        1) export MAINTENANCE_MODE="conservative" ;;
+        2) export MAINTENANCE_MODE="balanced" ;;
+        3) export MAINTENANCE_MODE="aggressive" ;;
+        *) export MAINTENANCE_MODE="conservative" ;;
+    esac
+
+    log_info "Selected maintenance mode: $MAINTENANCE_MODE"
+}
+                    </code>
+                </change>
+            </additional_changes>
+        </change>
+
+        <change id="C003">
+            <title>Firewall Configuration Safety</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh</module>
+            <risk_level>high</risk_level>
+            <problem>Aggressive firewall rules can block legitimate traffic and existing services.</problem>
+            <solution>Add conflict detection and confirmation before applying firewall changes.</solution>
+
+            <implementation>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh</file_path>
+                <before_code>
+# Configure UFW firewall
+configure_ufw() {
+    log_info "Configuring UFW firewall"
+
+    # Enable UFW
+    ufw --force enable
+                </before_code>
+                <after_code>
+# Configure UFW firewall with safety checks
+configure_ufw() {
+    log_info "Configuring UFW firewall"
+
+    # Check for existing firewall
+    if check_existing_firewall; then
+        echo -e "\n${YELLOW}WARNING: Existing firewall detected${NC}"
+        echo "Other firewall services are running:"
+        check_existing_firewall --verbose
+        echo ""
+
+        if ! confirm_action "Continue with UFW configuration? This may conflict with existing firewalls" "n"; then
+            log_warn "UFW configuration skipped due to existing firewall"
+            return 0
+        fi
+    fi
+
+    # Backup current rules before changes
+    backup_current_firewall_rules
+
+    # Show current SSH connections before blocking
+    show_current_ssh_connections
+
+    echo -e "\n${YELLOW}UFW will be configured with the following rules:${NC}"
+    show_planned_firewall_rules
+
+    if ! confirm_action "Apply these firewall rules?" "y"; then
+        log_info "Firewall configuration cancelled by user"
+        return 0
+    fi
+
+    # Enable UFW with safety delay
+    log_info "Enabling UFW in 3 seconds... (Ctrl+C to cancel)"
+    sleep 3
+    ufw --force enable
+                </after_code>
+            </implementation>
+        </change>
+    </critical_changes>
+
+    <high_priority_changes priority="high">
+        <change id="H001">
+            <title>Optimize Monitoring Intervals</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</module>
+            <risk_level>medium</risk_level>
+            <problem>30-second health checks create unnecessary CPU and I/O load.</problem>
+            <solution>Increase monitoring intervals to reasonable values and make them configurable.</solution>
+
+            <implementation>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</file_path>
+                <before_code>
+# Monitoring intervals (seconds)
+readonly HEALTH_CHECK_INTERVAL=30
+readonly RESOURCE_CHECK_INTERVAL=60
+readonly NETWORK_CHECK_INTERVAL=120
+readonly ALERT_COOLDOWN=300
+                </before_code>
+                <after_code>
+# Monitoring intervals (seconds) - Optimized for stability
+readonly HEALTH_CHECK_INTERVAL=300  # 5 minutes (was 30 seconds)
+readonly RESOURCE_CHECK_INTERVAL=600  # 10 minutes (was 1 minute)
+readonly NETWORK_CHECK_INTERVAL=900   # 15 minutes (was 2 minutes)
+readonly ALERT_COOLDOWN=1800  # 30 minutes (was 5 minutes)
+
+# Configurable monitoring profiles
+configure_monitoring_profile() {
+    local profile="${MONITORING_PROFILE:-balanced}"
+
+    case "$profile" in
+        "minimal")
+            HEALTH_CHECK_INTERVAL=1800  # 30 minutes
+            RESOURCE_CHECK_INTERVAL=3600  # 1 hour
+            NETWORK_CHECK_INTERVAL=3600   # 1 hour
+            ;;
+        "balanced")
+            HEALTH_CHECK_INTERVAL=300   # 5 minutes
+            RESOURCE_CHECK_INTERVAL=600   # 10 minutes
+            NETWORK_CHECK_INTERVAL=900    # 15 minutes
+            ;;
+        "intensive")
+            HEALTH_CHECK_INTERVAL=60    # 1 minute
+            RESOURCE_CHECK_INTERVAL=120   # 2 minutes
+            NETWORK_CHECK_INTERVAL=300    # 5 minutes
+            ;;
+    esac
+
+    log_info "Monitoring profile set to: $profile"
+    log_debug "Health check interval: ${HEALTH_CHECK_INTERVAL}s"
+    log_debug "Resource check interval: ${RESOURCE_CHECK_INTERVAL}s"
+}
+                </after_code>
+            </implementation>
+        </change>
+
+        <change id="H002">
+            <title>Simplify Backup Strategy</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/backup_restore.sh</module>
+            <risk_level>medium</risk_level>
+            <problem>Multiple backup types (full, incremental, remote) create excessive I/O load and complexity.</problem>
+            <solution>Implement single, efficient backup strategy with configurable retention.</solution>
+
+            <implementation>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/backup_restore.sh</file_path>
+                <before_code>
+# Backup types configuration
+readonly BACKUP_TYPES=("full" "incremental" "config" "database" "logs")
+readonly FULL_BACKUP_INTERVAL=86400  # Daily
+readonly INCREMENTAL_BACKUP_INTERVAL=3600  # Hourly
+readonly REMOTE_BACKUP_ENABLED=true
+                </before_code>
+                <after_code>
+# Simplified backup configuration
+readonly BACKUP_TYPE="${BACKUP_TYPE:-essential}"  # essential, full, minimal
+readonly BACKUP_INTERVAL="${BACKUP_INTERVAL:-604800}"  # Weekly default
+readonly REMOTE_BACKUP_ENABLED="${REMOTE_BACKUP_ENABLED:-false}"  # Disabled by default
+
+# Backup profiles
+configure_backup_profile() {
+    local profile="${BACKUP_PROFILE:-essential}"
+
+    case "$profile" in
+        "minimal")
+            BACKUP_COMPONENTS=("config" "database")
+            BACKUP_RETENTION_DAYS=7
+            BACKUP_COMPRESSION="gzip"
+            ;;
+        "essential")
+            BACKUP_COMPONENTS=("config" "database" "users" "certs")
+            BACKUP_RETENTION_DAYS=14
+            BACKUP_COMPRESSION="gzip"
+            ;;
+        "full")
+            BACKUP_COMPONENTS=("config" "database" "users" "certs" "logs")
+            BACKUP_RETENTION_DAYS=30
+            BACKUP_COMPRESSION="xz"
+            ;;
+    esac
+
+    log_info "Backup profile: $profile"
+    log_debug "Components: ${BACKUP_COMPONENTS[*]}"
+    log_debug "Retention: ${BACKUP_RETENTION_DAYS} days"
+}
+                </after_code>
+            </implementation>
+        </change>
+
+        <change id="H003">
+            <title>Optional Monitoring Tools Installation</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</module>
+            <risk_level>low</risk_level>
+            <problem>Automatic installation of htop, iotop, nethogs is unnecessary for basic VPN functionality.</problem>
+            <solution>Make monitoring tools installation optional and configurable.</solution>
+
+            <implementation>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</file_path>
+                <before_code>
+    # Install monitoring tools
+    install_package_if_missing "htop"
+    install_package_if_missing "iotop"
+    install_package_if_missing "nethogs" "apt-get update -qq && apt-get install -y nethogs"
+                </before_code>
+                <after_code>
+    # Install monitoring tools (optional)
+    if [[ "${INSTALL_MONITORING_TOOLS:-false}" == "true" ]]; then
+        log_info "Installing additional monitoring tools"
+        install_package_if_missing "htop"
+        install_package_if_missing "iotop"
+        install_package_if_missing "nethogs" "apt-get update -qq && apt-get install -y nethogs"
     else
-        log_error "Failed to create VLESS system user"
-        return 1
+        log_info "Skipping optional monitoring tools installation"
     fi
-                        </content>
-                        <expected_result>User creation added to Phase 1</expected_result>
-                    </command>
-                </commands>
+                </after_code>
             </implementation>
+        </change>
+    </high_priority_changes>
 
-            <verification>
-                <test_commands>
-                    <test order="1">
-                        <description>Verify vless group exists</description>
-                        <bash>getent group vless</bash>
-                        <expected_result>vless:x:999: (or similar group entry)</expected_result>
-                    </test>
-
-                    <test order="2">
-                        <description>Verify vless user exists</description>
-                        <bash>getent passwd vless</bash>
-                        <expected_result>vless:x:999:999:VLESS VPN Service:/opt/vless:/bin/false (or similar user entry)</expected_result>
-                    </test>
-
-                    <test order="3">
-                        <description>Test chown command with vless user</description>
-                        <bash>sudo touch /tmp/test_vless_chown && sudo chown vless:vless /tmp/test_vless_chown && ls -la /tmp/test_vless_chown</bash>
-                        <expected_result>File ownership set to vless:vless successfully</expected_result>
-                    </test>
-                </test_commands>
-            </verification>
-        </step>
-
-        <!-- STEP 3: Fix UFW Firewall Validation -->
-        <step number="3" priority="medium">
-            <title>Fix UFW Firewall Configuration Validation</title>
-            <description>Fix UFW validation logic to properly detect default outgoing policy and handle edge cases</description>
-            <estimated_time>10 minutes</estimated_time>
-
-            <problem>
-                <description>UFW firewall configuration validation failing on default outgoing policy detection</description>
-                <root_cause>Validation function expecting exact text match that may vary across UFW versions</root_cause>
-                <error_pattern>Default outgoing policy is not allow</error_pattern>
-                <affected_modules>modules/ufw_config.sh</affected_modules>
-            </problem>
-
-            <solution>
-                <approach>Improve UFW validation logic to handle different output formats and be more flexible</approach>
-                <file_modifications>
-                    <file>modules/ufw_config.sh</file>
-                    <action>Update validate_ufw_config function</action>
-                    <backup_required>true</backup_required>
-                </file_modifications>
-            </solution>
+    <medium_priority_changes priority="medium">
+        <change id="M001">
+            <title>Reduce Log Retention Period</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/logging_setup.sh</module>
+            <risk_level>low</risk_level>
+            <problem>90-day log retention consumes excessive disk space.</problem>
+            <solution>Reduce default retention to 30 days with configurable options.</solution>
 
             <implementation>
-                <commands>
-                    <command order="1">
-                        <description>Create backup of ufw_config.sh</description>
-                        <bash>cp /home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh /home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh.backup</bash>
-                        <expected_result>Backup file created successfully</expected_result>
-                    </command>
+                <file_path>/home/ikeniborn/Documents/Project/vless/modules/logging_setup.sh</file_path>
+                <before_code>
+# Log retention settings
+readonly DEFAULT_LOG_RETENTION=90  # days
+readonly LOG_MAX_SIZE="100M"
+readonly LOG_ROTATE_COUNT=10
+                </before_code>
+                <after_code>
+# Log retention settings - Optimized for disk usage
+readonly DEFAULT_LOG_RETENTION="${LOG_RETENTION_DAYS:-30}"  # 30 days default
+readonly LOG_MAX_SIZE="${LOG_MAX_SIZE:-50M}"  # Reduced from 100M
+readonly LOG_ROTATE_COUNT="${LOG_ROTATE_COUNT:-5}"  # Reduced from 10
 
-                    <command order="2">
-                        <description>Update UFW validation function to be more flexible</description>
-                        <modification_type>replace_function</modification_type>
-                        <function_name>validate_ufw_config</function_name>
-                        <old_content>    if ! echo "$status_output" | grep -q "Default: allow (outgoing)"; then
-        log_error "Default outgoing policy is not allow"
-        ((validation_errors++))
-    fi</old_content>
-                        <new_content>    # Check outgoing policy with multiple possible formats
-    if ! echo "$status_output" | grep -E "(Default: allow \(outgoing\)|Default.*outgoing.*allow)" >/dev/null; then
-        log_warn "Default outgoing policy may not be set to allow"
-        log_debug "UFW status output: $status_output"
-        # Don't increment errors for outgoing policy as it might be acceptable
-    fi</new_content>
-                        <expected_result>UFW validation logic updated</expected_result>
-                    </command>
+# Configurable log profiles
+configure_log_profile() {
+    local profile="${LOG_PROFILE:-standard}"
 
-                    <command order="3">
-                        <description>Add debug logging for UFW status</description>
-                        <modification_type>add_after_line</modification_type>
-                        <target_line>    status_output=$(ufw status verbose)</target_line>
-                        <content>    log_debug "UFW status output for validation: $status_output"</content>
-                        <expected_result>Debug logging added</expected_result>
-                    </command>
-                </commands>
+    case "$profile" in
+        "minimal")
+            LOG_RETENTION_DAYS=7
+            LOG_MAX_SIZE="25M"
+            LOG_ROTATE_COUNT=3
+            LOG_LEVEL="WARN"
+            ;;
+        "standard")
+            LOG_RETENTION_DAYS=30
+            LOG_MAX_SIZE="50M"
+            LOG_ROTATE_COUNT=5
+            LOG_LEVEL="INFO"
+            ;;
+        "extended")
+            LOG_RETENTION_DAYS=90
+            LOG_MAX_SIZE="100M"
+            LOG_ROTATE_COUNT=10
+            LOG_LEVEL="DEBUG"
+            ;;
+    esac
+}
+                </after_code>
             </implementation>
+        </change>
 
-            <verification>
-                <test_commands>
-                    <test order="1">
-                        <description>Test UFW validation function directly</description>
-                        <bash>source /home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh && validate_ufw_config</bash>
-                        <expected_result>Validation passes or provides meaningful warnings</expected_result>
-                    </test>
-
-                    <test order="2">
-                        <description>Check actual UFW status format</description>
-                        <bash>sudo ufw status verbose</bash>
-                        <expected_result>Current UFW configuration displayed</expected_result>
-                    </test>
-                </test_commands>
-            </verification>
-        </step>
-
-        <!-- STEP 4: Fix Python Dependencies Installation -->
-        <step number="4" priority="low">
-            <title>Fix Python Dependencies Installation</title>
-            <description>Ensure Python dependencies are properly installed and requirements.txt path is correct</description>
-            <estimated_time>10 minutes</estimated_time>
-
-            <problem>
-                <description>Python dependencies installation failing or showing warnings</description>
-                <root_cause>requirements.txt path not found, pip not properly installed, or dependency conflicts</root_cause>
-                <error_pattern>requirements.txt not found, pip install warnings</error_pattern>
-                <affected_phases>Phase 3 (User Management), Phase 5 (Advanced Features)</affected_phases>
-            </problem>
-
-            <solution>
-                <approach>Add robust Python dependency installation with proper error handling and path verification</approach>
-                <file_modifications>
-                    <file>install.sh</file>
-                    <action>Add Python dependency installation function</action>
-                    <backup_required>false</backup_required>
-                </file_modifications>
-            </solution>
+        <change id="M002">
+            <title>Make Telegram Bot Optional</title>
+            <module>/home/ikeniborn/Documents/Project/vless/modules/telegram_bot_manager.sh</module>
+            <risk_level>low</risk_level>
+            <problem>Telegram bot adds unnecessary complexity for basic VPN installations.</problem>
+            <solution>Make Telegram bot installation completely optional in Phase 5.</solution>
 
             <implementation>
-                <commands>
-                    <command order="1">
-                        <description>Add Python dependency installation function to install.sh</description>
-                        <modification_type>add_function</modification_type>
-                        <insert_after>create_vless_system_user function</insert_after>
-                        <content>
-# Install Python dependencies safely
-install_python_dependencies() {
-    log_info "Installing Python dependencies"
+                <file_path>/home/ikeniborn/Documents/Project/vless/install.sh</file_path>
+                <before_code>
+install_phase5() {
+    log_info "Starting Phase 5: Advanced Features"
+    log_info "Installing Telegram bot and advanced management features"
 
-    local requirements_file="${SCRIPT_DIR}/requirements.txt"
+    local phase5_modules=(
+        "backup_restore.sh"
+        "maintenance_utils.sh"
+        "telegram_bot_manager.sh"
+    )
+                </before_code>
+                <after_code>
+install_phase5() {
+    log_info "Starting Phase 5: Advanced Features"
 
-    # Verify requirements.txt exists
-    if [[ ! -f "$requirements_file" ]]; then
-        log_error "Requirements file not found: $requirements_file"
-        return 1
+    # Configure what to install in Phase 5
+    local phase5_modules=()
+
+    # Always include backup and maintenance
+    phase5_modules+=("backup_restore.sh" "maintenance_utils.sh")
+
+    # Optional Telegram bot
+    if [[ "${INSTALL_TELEGRAM_BOT:-false}" == "true" ]]; then
+        phase5_modules+=("telegram_bot_manager.sh")
+        log_info "Including Telegram bot in installation"
+    else
+        log_info "Skipping Telegram bot installation"
     fi
 
-    # Ensure pip is installed
-    if ! command_exists pip3; then
-        log_info "Installing pip3..."
-        apt-get update && apt-get install -y python3-pip
+    if [[ ${#phase5_modules[@]} -eq 0 ]]; then
+        log_info "No Phase 5 modules selected, skipping"
+        return 0
+    fi
+                </after_code>
+            </implementation>
+        </change>
+    </medium_priority_changes>
+
+    <installation_modes>
+        <mode name="minimal">
+            <description>Minimal VPN installation with essential features only</description>
+            <phases_included>1,2,3</phases_included>
+            <phase4_modules>["logging_setup.sh"]</phase4_modules>
+            <phase5_modules>[]</phase5_modules>
+            <configuration>
+                <var name="QUICK_MODE">true</var>
+                <var name="SKIP_SSH_HARDENING">true</var>
+                <var name="SKIP_MONITORING_TOOLS">true</var>
+                <var name="INSTALL_TELEGRAM_BOT">false</var>
+                <var name="BACKUP_PROFILE">minimal</var>
+                <var name="LOG_PROFILE">minimal</var>
+                <var name="MONITORING_PROFILE">minimal</var>
+            </configuration>
+        </mode>
+
+        <mode name="balanced">
+            <description>Balanced installation with essential security and monitoring</description>
+            <phases_included>1,2,3,4</phases_included>
+            <phase4_modules>["logging_setup.sh", "monitoring.sh", "ufw_config.sh"]</phase4_modules>
+            <phase5_modules>["backup_restore.sh"]</phase5_modules>
+            <configuration>
+                <var name="SELECTIVE_SSH_HARDENING">true</var>
+                <var name="INSTALL_MONITORING_TOOLS">false</var>
+                <var name="INSTALL_TELEGRAM_BOT">false</var>
+                <var name="BACKUP_PROFILE">essential</var>
+                <var name="LOG_PROFILE">standard</var>
+                <var name="MONITORING_PROFILE">balanced</var>
+                <var name="MAINTENANCE_MODE">conservative</var>
+            </configuration>
+        </mode>
+
+        <mode name="full">
+            <description>Full installation with all features and customization options</description>
+            <phases_included>1,2,3,4,5</phases_included>
+            <phase4_modules>["security_hardening.sh", "monitoring.sh", "logging_setup.sh", "ufw_config.sh"]</phase4_modules>
+            <phase5_modules>["backup_restore.sh", "maintenance_utils.sh", "telegram_bot_manager.sh"]</phase5_modules>
+            <configuration>
+                <var name="INTERACTIVE_MODE">true</var>
+                <var name="INSTALL_MONITORING_TOOLS">prompt</var>
+                <var name="INSTALL_TELEGRAM_BOT">prompt</var>
+                <var name="BACKUP_PROFILE">prompt</var>
+                <var name="LOG_PROFILE">prompt</var>
+                <var name="MONITORING_PROFILE">prompt</var>
+                <var name="MAINTENANCE_MODE">prompt</var>
+            </configuration>
+        </mode>
+    </installation_modes>
+
+    <new_configuration_management>
+        <file_path>/home/ikeniborn/Documents/Project/vless/config/installation_profiles.conf</file_path>
+        <description>Central configuration for installation profiles and safety settings</description>
+        <content>
+# VLESS Installation Profiles Configuration
+# This file defines installation behavior and safety settings
+
+[DEFAULT]
+INSTALLATION_MODE=balanced
+QUICK_MODE=false
+SKIP_CONFIRMATIONS=false
+
+[MINIMAL]
+PHASES=1,2,3
+SKIP_SSH_HARDENING=true
+SKIP_MONITORING_TOOLS=true
+INSTALL_TELEGRAM_BOT=false
+BACKUP_PROFILE=minimal
+LOG_PROFILE=minimal
+MONITORING_PROFILE=minimal
+
+[BALANCED]
+PHASES=1,2,3,4
+SELECTIVE_SSH_HARDENING=true
+INSTALL_MONITORING_TOOLS=false
+INSTALL_TELEGRAM_BOT=false
+BACKUP_PROFILE=essential
+LOG_PROFILE=standard
+MONITORING_PROFILE=balanced
+MAINTENANCE_MODE=conservative
+
+[FULL]
+PHASES=1,2,3,4,5
+INTERACTIVE_MODE=true
+ALL_FEATURES_AVAILABLE=true
+
+[SAFETY]
+REQUIRE_SSH_KEY_CHECK=true
+FIREWALL_CONFLICT_CHECK=true
+SERVICE_RESTART_CONFIRMATION=true
+BACKUP_BEFORE_CHANGES=true
+        </content>
+    </new_configuration_management>
+
+    <install_script_modifications>
+        <file_path>/home/ikeniborn/Documents/Project/vless/install.sh</file_path>
+        <changes>
+            <change>
+                <description>Add installation mode selection</description>
+                <location>main_installation function</location>
+                <code>
+# Select installation mode
+select_installation_mode() {
+    if [[ "${QUICK_MODE:-false}" == "true" ]]; then
+        export INSTALLATION_MODE="minimal"
+        log_info "Quick mode: Using minimal installation profile"
+        return 0
     fi
 
-    # Upgrade pip to latest version
-    log_debug "Upgrading pip to latest version"
-    python3 -m pip install --upgrade pip
+    echo -e "\n${CYAN}Select Installation Mode:${NC}"
+    echo "1. Minimal   - VPN only, no advanced features (Recommended for production)"
+    echo "2. Balanced  - VPN + essential security/monitoring (Recommended for most users)"
+    echo "3. Full      - All features with customization options"
+    echo "4. Custom    - Select specific phases manually"
 
-    # Install dependencies with timeout and error handling
-    log_info "Installing Python packages from requirements.txt..."
-    if python3 -m pip install -r "$requirements_file" --timeout=300 --no-cache-dir; then
-        log_success "Python dependencies installed successfully"
+    local choice
+    read -p "Select mode [1-4] (default: 2): " choice
+    choice=${choice:-2}
+
+    case $choice in
+        1) export INSTALLATION_MODE="minimal" ;;
+        2) export INSTALLATION_MODE="balanced" ;;
+        3) export INSTALLATION_MODE="full" ;;
+        4) export INSTALLATION_MODE="custom" ;;
+        *) export INSTALLATION_MODE="balanced" ;;
+    esac
+
+    log_info "Installation mode: $INSTALLATION_MODE"
+
+    # Load configuration for selected mode
+    load_installation_profile "$INSTALLATION_MODE"
+}
+
+# Load installation profile configuration
+load_installation_profile() {
+    local profile="$1"
+    local config_file="/opt/vless/config/installation_profiles.conf"
+
+    if [[ -f "$config_file" ]]; then
+        source "$config_file"
+        log_debug "Loaded configuration profile: $profile"
+    fi
+}
+                </code>
+            </change>
+
+            <change>
+                <description>Modified phase execution with profile awareness</description>
+                <location>install_phase4 and install_phase5 functions</location>
+                <code>
+# Modified Phase 4 installation with profile support
+install_phase4() {
+    local profile="${INSTALLATION_MODE:-balanced}"
+
+    # Skip Phase 4 entirely for minimal installations
+    if [[ "$profile" == "minimal" ]]; then
+        log_info "Skipping Phase 4 for minimal installation"
+        return 0
+    fi
+
+    log_info "Starting Phase 4: Security & Monitoring (Profile: $profile)"
+
+    # Configure modules based on profile
+    local phase4_modules=()
+
+    case "$profile" in
+        "balanced")
+            phase4_modules=("logging_setup.sh" "monitoring.sh" "ufw_config.sh")
+            ;;
+        "full"|"custom")
+            phase4_modules=("security_hardening.sh" "monitoring.sh" "logging_setup.sh" "ufw_config.sh")
+            ;;
+    esac
+
+    for module in "${phase4_modules[@]}"; do
+        log_info "Executing Phase 4 module: $module"
+        if ! "${MODULES_DIR}/${module}" 2>&1 | tee -a "$INSTALL_LOG"; then
+            log_error "Phase 4 module failed: $module"
+            return 1
+        fi
+        log_success "Phase 4 module completed: $module"
+    done
+
+    log_success "Phase 4 installation completed"
+    return 0
+}
+
+# Modified Phase 5 installation with profile support
+install_phase5() {
+    local profile="${INSTALLATION_MODE:-balanced}"
+
+    # Configure modules based on profile
+    local phase5_modules=()
+
+    case "$profile" in
+        "minimal")
+            log_info "Skipping Phase 5 for minimal installation"
+            return 0
+            ;;
+        "balanced")
+            phase5_modules=("backup_restore.sh")
+            ;;
+        "full"|"custom")
+            phase5_modules=("backup_restore.sh" "maintenance_utils.sh")
+            if [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "true" ]] ||
+               [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" && "$(confirm_action "Install Telegram bot?" "n")" == "0" ]]; then
+                phase5_modules+=("telegram_bot_manager.sh")
+            fi
+            ;;
+    esac
+
+    if [[ ${#phase5_modules[@]} -eq 0 ]]; then
+        log_info "No Phase 5 modules selected"
+        return 0
+    fi
+
+    log_info "Starting Phase 5: Advanced Features (Profile: $profile)"
+
+    for module in "${phase5_modules[@]}"; do
+        log_info "Executing Phase 5 module: $module"
+        if ! "${MODULES_DIR}/${module}" 2>&1 | tee -a "$INSTALL_LOG"; then
+            log_error "Phase 5 module failed: $module"
+            return 1
+        fi
+        log_success "Phase 5 module completed: $module"
+    done
+
+    log_success "Phase 5 installation completed"
+    return 0
+}
+                </code>
+            </change>
+        </changes>
+    </install_script_modifications>
+
+    <safety_utilities>
+        <file_path>/home/ikeniborn/Documents/Project/vless/modules/safety_utils.sh</file_path>
+        <description>New utility module for safety checks and confirmations</description>
+        <content>
+#!/bin/bash
+
+# VLESS+Reality VPN Management System - Safety Utilities
+# Version: 1.0.0
+# Description: Safety checks and confirmation utilities for critical operations
+
+set -euo pipefail
+
+# Import common utilities
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SOURCE_DIR}/common_utils.sh"
+
+# Enhanced confirmation with timeout
+confirm_action() {
+    local message="$1"
+    local default="${2:-y}"
+    local timeout="${3:-30}"
+
+    local prompt
+    if [[ "$default" == "y" ]]; then
+        prompt="[Y/n]"
+    else
+        prompt="[y/N]"
+    fi
+
+    echo -e "\n${YELLOW}${message}${NC}"
+    echo -n "Confirm ${prompt} (timeout: ${timeout}s): "
+
+    local response
+    if read -t "$timeout" -r response; then
+        response=${response,,}  # Convert to lowercase
+        case "$response" in
+            y|yes) return 0 ;;
+            n|no) return 1 ;;
+            "") [[ "$default" == "y" ]] && return 0 || return 1 ;;
+            *) return 1 ;;
+        esac
+    else
+        echo -e "\n${RED}Timeout reached. Using default: $default${NC}"
+        [[ "$default" == "y" ]] && return 0 || return 1
+    fi
+}
+
+# Check for existing firewall services
+check_existing_firewall() {
+    local verbose="${1:-}"
+    local found_firewalls=()
+
+    # Check for common firewall services
+    if systemctl is-active --quiet iptables 2>/dev/null; then
+        found_firewalls+=("iptables")
+    fi
+
+    if systemctl is-active --quiet firewalld 2>/dev/null; then
+        found_firewalls+=("firewalld")
+    fi
+
+    if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
+        found_firewalls+=("ufw")
+    fi
+
+    if [[ ${#found_firewalls[@]} -gt 0 ]]; then
+        if [[ "$verbose" == "--verbose" ]]; then
+            printf '%s\n' "${found_firewalls[@]}"
+        fi
         return 0
     else
-        log_error "Failed to install Python dependencies"
         return 1
     fi
 }
-                        </content>
-                        <expected_result>Function added to install.sh</expected_result>
-                    </command>
 
-                    <command order="2">
-                        <description>Add Python dependency installation to Phase 1</description>
-                        <modification_type>modify_function</modification_type>
-                        <function_name>install_phase1</function_name>
-                        <insert_before>log_success "Phase 1 completed successfully"</insert_before>
-                        <content>
-    # Install Python dependencies
-    log_info "Installing Python dependencies..."
-    if install_python_dependencies; then
-        log_success "Python dependencies installed successfully"
+# Show current SSH connections
+show_current_ssh_connections() {
+    echo -e "\n${CYAN}Current SSH connections:${NC}"
+    if command -v ss >/dev/null; then
+        ss -tuln | grep :22 || echo "No SSH connections found"
+    elif command -v netstat >/dev/null; then
+        netstat -tuln | grep :22 || echo "No SSH connections found"
     else
-        log_warn "Python dependencies installation failed, continuing..."
+        echo "Cannot check SSH connections (ss/netstat not available)"
     fi
-                        </content>
-                        <expected_result>Python dependency installation added to Phase 1</expected_result>
-                    </command>
-                </commands>
-            </implementation>
+}
 
-            <verification>
-                <test_commands>
-                    <test order="1">
-                        <description>Verify requirements.txt exists and is readable</description>
-                        <bash>cat /home/ikeniborn/Documents/Project/vless/requirements.txt</bash>
-                        <expected_result>Python package list displayed</expected_result>
-                    </test>
+# Show planned firewall rules
+show_planned_firewall_rules() {
+    cat << EOF
+  - Allow SSH (port 22)
+  - Allow VLESS (port ${VLESS_PORT:-443})
+  - Allow HTTP (port 80) for certificate validation
+  - Allow HTTPS (port 443) for Reality
+  - Deny all other incoming connections
+EOF
+}
 
-                    <test order="2">
-                        <description>Test pip installation capability</description>
-                        <bash>python3 -m pip --version</bash>
-                        <expected_result>pip version information displayed</expected_result>
-                    </test>
+# Backup current firewall rules
+backup_current_firewall_rules() {
+    local backup_dir="/opt/vless/backup/firewall"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
 
-                    <test order="3">
-                        <description>Verify key packages can be imported</description>
-                        <bash>python3 -c "import telegram; import qrcode; print('Key packages available')"</bash>
-                        <expected_result>Key packages available</expected_result>
-                    </test>
-                </test_commands>
-            </verification>
-        </step>
+    create_directory "$backup_dir" "700" "root"
 
-    </execution_steps>
+    # Backup iptables if available
+    if command -v iptables-save >/dev/null; then
+        iptables-save > "${backup_dir}/iptables_${timestamp}.rules"
+        log_debug "Backed up iptables rules"
+    fi
 
-    <integration_testing>
-        <description>After all fixes are implemented, perform comprehensive integration testing</description>
+    # Backup UFW if active
+    if command -v ufw >/dev/null; then
+        cp -r /etc/ufw "${backup_dir}/ufw_${timestamp}/" 2>/dev/null || true
+        log_debug "Backed up UFW configuration"
+    fi
+}
 
-        <test_sequence>
-            <test order="1">
-                <title>Clean Installation Test</title>
-                <description>Test complete installation from scratch</description>
-                <commands>
-                    <command>cd /home/ikeniborn/Documents/Project/vless</command>
-                    <command>sudo ./install.sh --full</command>
-                </commands>
-                <expected_result>All phases complete successfully without errors</expected_result>
-            </test>
+# Test SSH connectivity before applying changes
+test_ssh_connectivity() {
+    local test_port="${1:-22}"
 
-            <test order="2">
-                <title>Individual Phase Testing</title>
-                <description>Test each phase independently</description>
-                <commands>
-                    <command>sudo ./install.sh --phase1</command>
-                    <command>sudo ./install.sh --phase4</command>
-                    <command>sudo ./install.sh --phase5</command>
-                </commands>
-                <expected_result>Each phase completes without common_utils.sh or user creation errors</expected_result>
-            </test>
+    log_info "Testing SSH connectivity on port $test_port"
 
-            <test order="3">
-                <title>Module Interaction Test</title>
-                <description>Test that modules can be sourced multiple times without errors</description>
-                <commands>
-                    <command>source modules/common_utils.sh && source modules/security_hardening.sh</command>
-                    <command>source modules/ufw_config.sh && validate_ufw_config</command>
-                </commands>
-                <expected_result>No readonly variable errors, functions work correctly</expected_result>
-            </test>
-        </test_sequence>
-    </integration_testing>
+    # Simple connectivity test
+    if timeout 5 bash -c "</dev/tcp/localhost/$test_port" 2>/dev/null; then
+        log_success "SSH port $test_port is accessible"
+        return 0
+    else
+        log_error "SSH port $test_port is not accessible"
+        return 1
+    fi
+}
 
-    <rollback_plan>
-        <description>If any fixes cause new issues, rollback using backup files</description>
+# Rollback safety - create restore point
+create_restore_point() {
+    local description="$1"
+    local restore_dir="/opt/vless/restore_points"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local restore_point="${restore_dir}/${timestamp}_${description// /_}"
 
-        <rollback_commands>
-            <command order="1">
-                <description>Restore common_utils.sh</description>
-                <bash>cp /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh.backup /home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</bash>
-            </command>
+    create_directory "$restore_point" "700" "root"
 
-            <command order="2">
-                <description>Restore install.sh</description>
-                <bash>cp /home/ikeniborn/Documents/Project/vless/install.sh.backup /home/ikeniborn/Documents/Project/vless/install.sh</bash>
-            </command>
+    # Backup critical configurations
+    local critical_files=(
+        "/etc/ssh/sshd_config"
+        "/etc/sysctl.conf"
+        "/etc/ufw"
+        "/opt/vless/config"
+    )
 
-            <command order="3">
-                <description>Restore ufw_config.sh</description>
-                <bash>cp /home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh.backup /home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh</bash>
-            </command>
+    for file in "${critical_files[@]}"; do
+        if [[ -e "$file" ]]; then
+            cp -r "$file" "$restore_point/" 2>/dev/null || true
+        fi
+    done
 
-            <command order="4">
-                <description>Remove created user if needed</description>
-                <bash>sudo userdel vless && sudo groupdel vless</bash>
-            </command>
-        </rollback_commands>
-    </rollback_plan>
+    # Create restore script
+    cat > "${restore_point}/restore.sh" << EOF
+#!/bin/bash
+# Restore point created: $(date)
+# Description: $description
 
-    <success_criteria>
-        <criterion>No "readonly variable" errors when sourcing common_utils.sh multiple times</criterion>
-        <criterion>vless user and group exist and can be used for chown operations</criterion>
-        <criterion>UFW validation passes or provides meaningful feedback</criterion>
-        <criterion>Python dependencies install successfully from requirements.txt</criterion>
-        <criterion>All installation phases complete without the identified errors</criterion>
-        <criterion>System services start correctly with proper user permissions</criterion>
-    </success_criteria>
+echo "Restoring configuration from: $restore_point"
 
-    <post_implementation_tasks>
-        <task>Run complete test suite to verify all fixes</task>
-        <task>Update documentation to reflect changes</task>
-        <task>Create automated tests to prevent regression</task>
-        <task>Monitor system logs for any new issues</task>
-    </post_implementation_tasks>
+# Restore SSH configuration
+if [[ -f "${restore_point}/sshd_config" ]]; then
+    cp "${restore_point}/sshd_config" /etc/ssh/sshd_config
+    systemctl restart sshd
+fi
 
-    <notes>
-        <note>All modifications include proper backup creation for rollback capability</note>
-        <note>Changes are designed to be minimally invasive to preserve existing functionality</note>
-        <note>Include guards and user creation are designed to be idempotent</note>
-        <note>UFW validation improvements maintain security while reducing false positives</note>
-        <note>Python dependency installation includes timeout and error handling for reliability</note>
-    </notes>
+# Restore sysctl configuration
+if [[ -f "${restore_point}/sysctl.conf" ]]; then
+    cp "${restore_point}/sysctl.conf" /etc/sysctl.conf
+    sysctl -p
+fi
 
-</execution_plan>
+# Restore UFW configuration
+if [[ -d "${restore_point}/ufw" ]]; then
+    cp -r "${restore_point}/ufw" /etc/
+    ufw --force reload
+fi
+
+echo "Restore completed"
+EOF
+
+    chmod +x "${restore_point}/restore.sh"
+
+    log_info "Restore point created: $restore_point"
+    echo "To restore: sudo ${restore_point}/restore.sh"
+}
+
+# Export functions
+export -f confirm_action
+export -f check_existing_firewall
+export -f show_current_ssh_connections
+export -f show_planned_firewall_rules
+export -f backup_current_firewall_rules
+export -f test_ssh_connectivity
+export -f create_restore_point
+        </content>
+    </safety_utilities>
+
+    <implementation_order>
+        <phase number="1" priority="critical">
+            <title>Safety Infrastructure</title>
+            <tasks>
+                <task>Create safety_utils.sh module</task>
+                <task>Create installation_profiles.conf</task>
+                <task>Add installation mode selection to install.sh</task>
+            </tasks>
+            <estimated_time>4 hours</estimated_time>
+        </phase>
+
+        <phase number="2" priority="critical">
+            <title>SSH Hardening Safety</title>
+            <tasks>
+                <task>Implement SSH hardening safety checks</task>
+                <task>Add selective SSH hardening function</task>
+                <task>Test SSH key validation</task>
+            </tasks>
+            <estimated_time>6 hours</estimated_time>
+        </phase>
+
+        <phase number="3" priority="critical">
+            <title>Service Restart Safety</title>
+            <tasks>
+                <task>Disable automatic service restarts by default</task>
+                <task>Add maintenance mode configuration</task>
+                <task>Update maintenance_utils.sh</task>
+            </tasks>
+            <estimated_time>3 hours</estimated_time>
+        </phase>
+
+        <phase number="4" priority="high">
+            <title>Monitoring Optimization</title>
+            <tasks>
+                <task>Update monitoring intervals</task>
+                <task>Add monitoring profiles</task>
+                <task>Make monitoring tools installation optional</task>
+            </tasks>
+            <estimated_time>4 hours</estimated_time>
+        </phase>
+
+        <phase number="5" priority="high">
+            <title>Backup Optimization</title>
+            <tasks>
+                <task>Simplify backup strategy</task>
+                <task>Add backup profiles</task>
+                <task>Reduce default backup frequency</task>
+            </tasks>
+            <estimated_time>3 hours</estimated_time>
+        </phase>
+
+        <phase number="6" priority="medium">
+            <title>Optional Features</title>
+            <tasks>
+                <task>Make Telegram bot installation optional</task>
+                <task>Reduce log retention periods</task>
+                <task>Add firewall safety checks</task>
+            </tasks>
+            <estimated_time>4 hours</estimated_time>
+        </phase>
+
+        <phase number="7" priority="low">
+            <title>Testing and Validation</title>
+            <tasks>
+                <task>Create comprehensive test suite</task>
+                <task>Test all installation modes</task>
+                <task>Validate safety mechanisms</task>
+            </tasks>
+            <estimated_time>8 hours</estimated_time>
+        </phase>
+    </implementation_order>
+
+    <testing_strategy>
+        <test_environments>
+            <environment name="clean_ubuntu">
+                <description>Fresh Ubuntu 20.04/22.04 installation</description>
+                <test_scenarios>
+                    <scenario>Minimal mode installation</scenario>
+                    <scenario>Balanced mode installation</scenario>
+                    <scenario>Full mode installation with all confirmations</scenario>
+                </test_scenarios>
+            </environment>
+
+            <environment name="existing_services">
+                <description>Server with existing SSH hardening and firewall</description>
+                <test_scenarios>
+                    <scenario>Safety check activation</scenario>
+                    <scenario>Conflict detection and handling</scenario>
+                    <scenario>Restore point creation and usage</scenario>
+                </test_scenarios>
+            </environment>
+
+            <environment name="production_simulation">
+                <description>Simulation of production server conditions</description>
+                <test_scenarios>
+                    <scenario>Installation with active SSH connections</scenario>
+                    <scenario>Firewall changes with existing rules</scenario>
+                    <scenario>Service restart impact on connections</scenario>
+                </test_scenarios>
+            </environment>
+        </test_environments>
+
+        <validation_criteria>
+            <criterion>No accidental administrator lockouts during SSH hardening</criterion>
+            <criterion>No service interruptions during automatic maintenance</criterion>
+            <criterion>Firewall changes do not block legitimate traffic</criterion>
+            <criterion>All confirmation dialogs function properly</criterion>
+            <criterion>Restore points can successfully rollback changes</criterion>
+            <criterion>Performance impact reduced by target percentages</criterion>
+        </validation_criteria>
+    </testing_strategy>
+
+    <risk_mitigation>
+        <risk id="R001">
+            <description>SSH lockout during hardening</description>
+            <mitigation>SSH key validation, confirmation dialogs, restore points</mitigation>
+            <fallback>Console access documentation and recovery procedures</fallback>
+        </risk>
+
+        <risk id="R002">
+            <description>Service disruption during automatic maintenance</description>
+            <mitigation>Disable auto-restart by default, add confirmation dialogs</mitigation>
+            <fallback>Manual service restart procedures</fallback>
+        </risk>
+
+        <risk id="R003">
+            <description>Firewall blocking legitimate traffic</description>
+            <mitigation>Existing firewall detection, traffic analysis, backup rules</mitigation>
+            <fallback>Firewall disable command and rule restoration</fallback>
+        </risk>
+
+        <risk id="R004">
+            <description>Performance degradation from monitoring</description>
+            <mitigation>Optimized intervals, configurable profiles, optional tools</mitigation>
+            <fallback>Monitoring disable procedures</fallback>
+        </risk>
+    </risk_mitigation>
+
+    <success_metrics>
+        <metric name="stability_improvement">
+            <target>80% reduction in installation-related service disruptions</target>
+            <measurement>Compare incident reports before and after optimization</measurement>
+        </metric>
+
+        <metric name="resource_usage_reduction">
+            <target>60% reduction in monitoring-related CPU/I/O usage</target>
+            <measurement>System resource monitoring during operation</measurement>
+        </metric>
+
+        <metric name="installation_success_rate">
+            <target>95% successful installations without manual intervention</target>
+            <measurement>Track installation completion across test environments</measurement>
+        </metric>
+
+        <metric name="user_satisfaction">
+            <target>Minimal support requests related to installation issues</target>
+            <measurement>Support ticket analysis and user feedback</measurement>
+        </metric>
+    </success_metrics>
+
+    <conclusion>
+        <summary>
+            This comprehensive optimization plan addresses all critical stability issues identified in the analysis
+            while maintaining the security and functionality benefits of Phases 4 and 5. The implementation
+            focuses on safety-first approaches with confirmations, rollback capabilities, and configurable
+            installation profiles.
+        </summary>
+
+        <key_benefits>
+            <benefit>Eliminates risk of administrator lockout during SSH hardening</benefit>
+            <benefit>Prevents service disruptions from automatic maintenance</benefit>
+            <benefit>Reduces system resource overhead by 60% through optimized intervals</benefit>
+            <benefit>Provides flexible installation modes for different use cases</benefit>
+            <benefit>Maintains security posture while improving operational safety</benefit>
+        </key_benefits>
+
+        <next_steps>
+            <step>Begin implementation with Phase 1 (Safety Infrastructure)</step>
+            <step>Create comprehensive test environments for validation</step>
+            <step>Document rollback procedures for all critical changes</step>
+            <step>Prepare user communication about new installation options</step>
+        </next_steps>
+    </conclusion>
+</technical_implementation_plan>

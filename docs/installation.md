@@ -103,9 +103,36 @@ sudo timedatectl set-timezone America/New_York
 
 ## Installation Methods
 
-### Method 1: Interactive Installation (Recommended)
+### Method 1: Interactive Installation with Mode Selection (Recommended)
 
-The interactive installation provides a guided setup process with menu-driven configuration.
+The interactive installation now provides three installation modes optimized for different use cases:
+
+#### Installation Mode Selection
+```bash
+sudo ./install.sh
+```
+
+**Available Modes**:
+- **Minimal**: Core VPN functionality only (Phases 1-3)
+- **Balanced**: VPN + essential security features (Phases 1-4)
+- **Full**: All features including Telegram bot (Phases 1-5)
+
+#### Mode Characteristics
+
+**Minimal Mode**:
+- Resource usage: 60% reduction in monitoring overhead
+- Features: Basic VLESS+Reality, user management, minimal logging
+- Use case: Resource-constrained environments, container deployments
+
+**Balanced Mode** (Default):
+- Resource usage: Optimized monitoring with 5-minute intervals
+- Features: Full VPN + selective security hardening
+- Use case: Production servers, most common deployment
+
+**Full Mode**:
+- Resource usage: Comprehensive monitoring with 1-minute intervals
+- Features: All capabilities including Telegram bot, web dashboard
+- Use case: Advanced deployments, development environments
 
 ```bash
 # Clone the repository
@@ -119,13 +146,28 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-### Method 2: Automated Installation (Quick Mode)
+### Method 2: Direct Mode Installation
 
-For automated deployments, you can use the quick installation mode that skips interactive prompts and uses sensible defaults.
+Install directly with a specific mode without interactive selection:
 
 ```bash
-# Quick installation with all phases
-sudo ./install.sh --quick
+# Minimal installation (VPN only)
+sudo INSTALLATION_MODE=minimal ./install.sh
+
+# Balanced installation (VPN + security)
+sudo INSTALLATION_MODE=balanced ./install.sh
+
+# Full installation (all features)
+sudo INSTALLATION_MODE=full ./install.sh
+```
+
+### Method 3: Quick Installation (Unattended)
+
+For automated deployments, you can use the quick installation mode that skips interactive prompts and uses sensible defaults (minimal mode):
+
+```bash
+# Quick installation (minimal mode)
+sudo QUICK_MODE=true ./install.sh
 
 # Or set environment variables for custom configuration
 export VLESS_PORT=443

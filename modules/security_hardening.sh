@@ -18,6 +18,7 @@ set -euo pipefail
 # Import common utilities
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SOURCE_DIR}/common_utils.sh"
+source "${SOURCE_DIR}/safety_utils.sh"
 
 # Setup signal handlers
 setup_signal_handlers
@@ -76,9 +77,85 @@ backup_security_configs() {
     log_success "Security configuration files backed up"
 }
 
-# Harden SSH configuration
+# Selective SSH hardening with user choices
+selective_ssh_hardening() {
+    log_info "Selective SSH hardening configuration"
+
+    local ssh_options=(
+        "PermitRootLogin no:Disable root SSH login"
+        "PasswordAuthentication no:Disable password authentication"
+        "MaxAuthTries 3:Limit authentication attempts to 3"
+        "X11Forwarding no:Disable X11 forwarding"
+        "LogLevel VERBOSE:Enable verbose SSH logging"
+        "ClientAliveInterval 300:Set client alive interval"
+        "AllowTcpForwarding no:Disable TCP forwarding"
+    )
+
+    echo -e "\n${CYAN}Select SSH hardening options:${NC}"
+
+    local selected_options=()
+    for option in "${ssh_options[@]}"; do
+        IFS=':' read -r setting description <<< "$option"
+
+        if confirm_action "Enable: $description" "y"; then
+            selected_options+=("$setting")
+        fi
+    done
+
+    if [[ ${#selected_options[@]} -gt 0 ]]; then
+        apply_selective_ssh_hardening "${selected_options[@]}"
+    else
+        log_info "No SSH hardening options selected"
+    fi
+}
+
+# Harden SSH configuration with safety checks
 harden_ssh_config() {
-    log_info "Hardening SSH configuration"
+    log_info "SSH hardening options available"
+
+    # Check if we're in quick mode or interactive mode
+    if [[ "${QUICK_MODE:-false}" == "true" ]]; then
+        log_warn "Skipping SSH hardening in quick mode (can be enabled later)"
+        return 0
+    fi
+
+    # Warn about potential lockout risks
+    echo -e "\n${YELLOW}WARNING: SSH Hardening Configuration${NC}"
+    echo "The following changes will be applied to SSH:"
+    echo "  - Disable root login (PermitRootLogin no)"
+    echo "  - Disable password authentication (PasswordAuthentication no)"
+    echo "  - Require SSH keys for authentication"
+    echo ""
+    echo "${RED}IMPORTANT: Ensure you have SSH key access before proceeding!${NC}"
+    echo "If you get locked out, you'll need console access to recover."
+    echo ""
+
+    # Interactive confirmation
+    if ! confirm_action "Apply SSH hardening configuration? (Requires SSH key access)" "n"; then
+        log_info "SSH hardening skipped by user choice"
+        return 0
+    fi
+
+    # Additional safety check - verify SSH key exists
+    local current_user="${SUDO_USER:-$(whoami)}"
+    local ssh_key_exists=false
+
+    if [[ -f "/home/${current_user}/.ssh/authorized_keys" ]] && [[ -s "/home/${current_user}/.ssh/authorized_keys" ]]; then
+        ssh_key_exists=true
+    fi
+
+    if [[ "$ssh_key_exists" == "false" ]]; then
+        echo -e "\n${RED}ERROR: No SSH keys found for user ${current_user}${NC}"
+        echo "SSH hardening requires SSH key authentication."
+        echo "Please set up SSH keys before enabling hardening."
+
+        if ! confirm_action "Continue anyway? (HIGH RISK OF LOCKOUT)" "n"; then
+            log_warn "SSH hardening aborted - no SSH keys configured"
+            return 0
+        fi
+    fi
+
+    log_info "Applying SSH hardening configuration"
 
     local ssh_config="/etc/ssh/sshd_config"
     local ssh_config_temp="/tmp/sshd_config.tmp"
@@ -87,6 +164,9 @@ harden_ssh_config() {
         log_error "SSH configuration file not found: $ssh_config"
         return 1
     fi
+
+    # Create restore point before changes
+    create_restore_point "ssh_hardening"
 
     # Create hardened SSH configuration
     cat > "$ssh_config_temp" << 'EOF'
@@ -618,8 +698,14 @@ setup_security_hardening() {
     # Create VLESS user
     configure_vless_security
 
-    # Harden SSH
-    harden_ssh_config
+    # SSH hardening based on configuration
+    if [[ "${SELECTIVE_SSH_HARDENING:-false}" == "true" ]]; then
+        selective_ssh_hardening
+    elif [[ "${SKIP_SSH_HARDENING:-false}" != "true" ]]; then
+        harden_ssh_config
+    else
+        log_info "SSH hardening skipped by configuration"
+    fi
 
     # Configure kernel security
     configure_kernel_security

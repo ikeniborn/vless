@@ -136,6 +136,38 @@ assert_not_contains() {
     fi
 }
 
+# Assert true condition
+assert_true() {
+    local condition="$1"
+    local message="${2:-Condition should be true}"
+
+    if eval "$condition"; then
+        return 0
+    else
+        echo -e "\n    ${T_RED}ASSERTION FAILED:${T_NC} $message"
+        echo -e "    Condition: ${T_RED}$condition${T_NC}"
+        echo -e "    Evaluated to: ${T_RED}false${T_NC}"
+        echo "ASSERTION FAILED: $message - Condition '$condition' evaluated to false" >> "$TEST_LOG_FILE"
+        return 1
+    fi
+}
+
+# Assert false condition
+assert_false() {
+    local condition="$1"
+    local message="${2:-Condition should be false}"
+
+    if ! eval "$condition"; then
+        return 0
+    else
+        echo -e "\n    ${T_RED}ASSERTION FAILED:${T_NC} $message"
+        echo -e "    Condition: ${T_RED}$condition${T_NC}"
+        echo -e "    Evaluated to: ${T_RED}true${T_NC}"
+        echo "ASSERTION FAILED: $message - Condition '$condition' evaluated to true" >> "$TEST_LOG_FILE"
+        return 1
+    fi
+}
+
 assert_file_exists() {
     local file_path="$1"
     local message="${2:-File should exist}"
@@ -341,9 +373,37 @@ run_all_test_functions() {
     done
 }
 
+# Generate test report
+generate_test_report() {
+    local suite_end_time=$(date +%s)
+    local suite_duration=$((suite_end_time - TEST_SUITE_START_TIME))
+
+    echo -e "\n${T_CYAN}========================================${T_NC}"
+    echo -e "${T_WHITE}Test Suite Summary: $CURRENT_TEST_SUITE${T_NC}"
+    echo -e "${T_CYAN}========================================${T_NC}"
+    echo -e "Total Tests:   ${T_WHITE}$TEST_TOTAL${T_NC}"
+    echo -e "Passed:        ${T_GREEN}$TEST_PASSED${T_NC}"
+    echo -e "Failed:        ${T_RED}$TEST_FAILED${T_NC}"
+    echo -e "Skipped:       ${T_YELLOW}$TEST_SKIPPED${T_NC}"
+    echo -e "Duration:      ${T_WHITE}${suite_duration}s${T_NC}"
+
+    # Write summary to log
+    {
+        echo "=========================================="
+        echo "Test Suite Summary: $CURRENT_TEST_SUITE"
+        echo "End Time: $(date)"
+        echo "Duration: ${suite_duration}s"
+        echo "Total Tests: $TEST_TOTAL"
+        echo "Passed: $TEST_PASSED"
+        echo "Failed: $TEST_FAILED"
+        echo "Skipped: $TEST_SKIPPED"
+        echo "=========================================="
+    } >> "$TEST_LOG_FILE"
+}
+
 # Export functions for use in test scripts
 export -f init_test_framework start_test pass_test fail_test skip_test
-export -f assert_equals assert_not_equals assert_contains assert_not_contains
+export -f assert_equals assert_not_equals assert_contains assert_not_contains assert_true assert_false
 export -f assert_file_exists assert_file_not_exists assert_command_success assert_command_failure
 export -f mock_command create_temp_file create_temp_dir cleanup_temp_files
-export -f finalize_test_suite run_test_function run_all_test_functions
+export -f finalize_test_suite run_test_function run_all_test_functions generate_test_report

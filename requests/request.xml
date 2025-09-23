@@ -11,12 +11,12 @@
         </architecture>
     </project>
     <context>
-        Выплнить sudo ./install.sh
+        После запуска install.sh вноситься много измненений на фазе 4 и фазе 5.
+       Изменнния влияют на стабильность работы сервера.
     </context>
     <requirements>
-        <point number="1">ЗАпустить скрпит установки</point>
-        <point number="2">Проанализировать логи установки из итерминала</point>
-        <point number="3">Исправить ошибки</point>
+        <point number="1"> Проанализировать потребность изменений</point>
+        <point number="2">Внести изменения в скрпиты удалив избыточные изменения</point>
     </requirements>
     <tasks>
         <task number="1">

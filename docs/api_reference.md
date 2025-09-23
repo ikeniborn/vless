@@ -6,14 +6,15 @@ Complete API documentation for the VLESS+Reality VPN Management System modules a
 
 1. [Module Overview](#module-overview)
 2. [Common Utilities](#common-utilities)
-3. [User Management](#user-management)
-4. [Monitoring System](#monitoring-system)
-5. [Backup and Restore](#backup-and-restore)
-6. [Security Hardening](#security-hardening)
-7. [Telegram Bot](#telegram-bot)
-8. [Configuration Management](#configuration-management)
-9. [Database Operations](#database-operations)
-10. [Container Management](#container-management)
+3. [Safety Utilities](#safety-utilities)
+4. [User Management](#user-management)
+5. [Monitoring System](#monitoring-system)
+6. [Backup and Restore](#backup-and-restore)
+7. [Security Hardening](#security-hardening)
+8. [Telegram Bot](#telegram-bot)
+9. [Configuration Management](#configuration-management)
+10. [Database Operations](#database-operations)
+11. [Container Management](#container-management)
 
 ## Module Overview
 
@@ -22,6 +23,7 @@ The system is built with a modular architecture where each module provides speci
 ```
 modules/
 ├── common_utils.sh          # Core utilities and logging
+├── safety_utils.sh          # Safety checks and confirmations
 ├── user_management.sh       # High-level user operations
 ├── user_database.sh         # User database operations
 ├── monitoring.sh            # System monitoring and alerts
@@ -191,6 +193,158 @@ else
     log_error "Failed to create VLESS user"
 fi
 ```
+
+## Safety Utilities
+
+**Module:** `safety_utils.sh`
+
+Provides comprehensive safety checks, confirmations, and rollback mechanisms for critical operations.
+
+### Core Functions
+
+#### confirm_action()
+Interactive confirmation with timeout protection.
+
+**Syntax:** `confirm_action <message> [default] [timeout]`
+
+**Parameters:**
+- `message` - Confirmation prompt text
+- `default` - Default action (y/n, defaults to 'y')
+- `timeout` - Timeout in seconds (defaults to 30)
+
+**Returns:** 0 if confirmed, 1 if declined or timeout
+
+**Example:**
+```bash
+if confirm_action "Apply SSH hardening?" "n" 30; then
+    apply_ssh_hardening
+else
+    log_info "SSH hardening cancelled"
+fi
+```
+
+#### validate_system_state()
+Validates system state before critical operations.
+
+**Syntax:** `validate_system_state <operation>`
+
+**Parameters:**
+- `operation` - Operation type (ssh_hardening, firewall_config, service_restart)
+
+**Returns:** 0 if validation passes, 1 if issues found
+
+**Example:**
+```bash
+if validate_system_state "ssh_hardening"; then
+    proceed_with_hardening
+else
+    log_error "System validation failed"
+fi
+```
+
+#### create_restore_point()
+Creates a system restore point before major changes.
+
+**Syntax:** `create_restore_point <description>`
+
+**Parameters:**
+- `description` - Description of the restore point
+
+**Returns:** 0 on success, 1 on failure
+
+**Example:**
+```bash
+create_restore_point "before_ssh_hardening"
+# Returns path to restore script for quick recovery
+```
+
+#### check_ssh_keys()
+Validates SSH key configuration for current user.
+
+**Syntax:** `check_ssh_keys`
+
+**Returns:** 0 if SSH keys found, 1 if not configured
+
+#### safe_service_restart()
+Safely restarts services with user confirmation.
+
+**Syntax:** `safe_service_restart <service> [timeout] [force]`
+
+**Parameters:**
+- `service` - Service name to restart
+- `timeout` - Operation timeout (defaults to 30)
+- `force` - Skip confirmation if true
+
+**Example:**
+```bash
+safe_service_restart "sshd" 30 false
+```
+
+### Installation Profile Functions
+
+#### configure_installation_profile()
+Configures environment based on installation mode.
+
+**Syntax:** `configure_installation_profile`
+
+**Uses:** `INSTALLATION_MODE` environment variable
+
+**Modes:**
+- `minimal` - Core VPN only, minimal resources
+- `balanced` - VPN + security, optimized resources
+- `full` - All features, comprehensive monitoring
+
+### SSH Hardening Safety
+
+#### apply_selective_ssh_hardening()
+Applies SSH hardening with safety checks and rollback.
+
+**Syntax:** `apply_selective_ssh_hardening <setting1> [setting2] ...`
+
+**Parameters:**
+- `settings` - Array of SSH configuration settings
+
+**Safety Features:**
+- Automatic configuration backup
+- SSH configuration validation
+- Service restart with rollback on failure
+
+#### show_current_ssh_connections()
+Displays current SSH connections for safety analysis.
+
+**Syntax:** `show_current_ssh_connections`
+
+### Firewall Safety
+
+#### check_existing_firewall()
+Detects existing firewall services to prevent conflicts.
+
+**Syntax:** `check_existing_firewall [--verbose]`
+
+**Returns:** 0 if firewall found, 1 if none detected
+
+#### backup_current_firewall_rules()
+Backs up current firewall configuration before changes.
+
+**Syntax:** `backup_current_firewall_rules`
+
+### Test Functions
+
+#### test_ssh_connectivity()
+Tests SSH port accessibility.
+
+**Syntax:** `test_ssh_connectivity [port]`
+
+**Parameters:**
+- `port` - SSH port to test (defaults to 22)
+
+**Returns:** 0 if accessible, 1 if not
+
+**Notes:**
+- All safety functions respect `QUICK_MODE` environment variable
+- Restore points include automatic recovery scripts
+- System validation prevents common configuration errors
+- Interactive confirmations have reasonable timeouts
 
 ## User Management
 

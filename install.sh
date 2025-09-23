@@ -20,6 +20,11 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Import common utilities
 source "${SCRIPT_DIR}/modules/common_utils.sh"
 
+# Import safety utilities
+if [[ -f "${SCRIPT_DIR}/modules/safety_utils.sh" ]]; then
+    source "${SCRIPT_DIR}/modules/safety_utils.sh"
+fi
+
 # System directories
 readonly SYSTEM_DIR="/opt/vless"
 readonly CONFIG_DIR="$SYSTEM_DIR/config"
@@ -121,6 +126,70 @@ install_python_dependencies() {
     else
         log_error "Failed to install Python dependencies with all attempted methods"
         log_info "You may need to install packages manually or create a virtual environment"
+        return 1
+    fi
+}
+
+# Select installation mode
+select_installation_mode() {
+    if [[ "${QUICK_MODE:-false}" == "true" ]]; then
+        export INSTALLATION_MODE="minimal"
+        log_info "Quick mode: Using minimal installation profile"
+        configure_installation_profile
+        return 0
+    fi
+
+    echo -e "\n${CYAN}Select Installation Mode:${NC}"
+    echo "1. Minimal   - VPN only, no advanced features (Recommended for production)"
+    echo "2. Balanced  - VPN + essential security/monitoring (Recommended for most users)"
+    echo "3. Full      - All features with customization options"
+    echo ""
+
+    local choice
+    read -p "Select mode [1-3] (default: 2): " choice
+    choice=${choice:-2}
+
+    case $choice in
+        1) export INSTALLATION_MODE="minimal" ;;
+        2) export INSTALLATION_MODE="balanced" ;;
+        3) export INSTALLATION_MODE="full" ;;
+        *) export INSTALLATION_MODE="balanced" ;;
+    esac
+
+    log_info "Installation mode: $INSTALLATION_MODE"
+
+    # Configure profile settings
+    configure_installation_profile
+
+    echo -e "\n${GREEN}Installation mode configured: $INSTALLATION_MODE${NC}"
+
+    case "$INSTALLATION_MODE" in
+        "minimal")
+            echo "  - Phases: 1, 2, 3 (Core VPN functionality only)"
+            echo "  - SSH hardening: Disabled"
+            echo "  - Monitoring tools: Disabled"
+            echo "  - Telegram bot: Disabled"
+            echo "  - Backup: Minimal profile"
+            ;;
+        "balanced")
+            echo "  - Phases: 1, 2, 3, 4 (VPN + essential security)"
+            echo "  - SSH hardening: Selective (user choice)"
+            echo "  - Monitoring tools: Basic only"
+            echo "  - Telegram bot: Disabled"
+            echo "  - Backup: Essential profile"
+            ;;
+        "full")
+            echo "  - Phases: 1, 2, 3, 4, 5 (All features)"
+            echo "  - SSH hardening: Interactive configuration"
+            echo "  - Monitoring tools: Optional (user choice)"
+            echo "  - Telegram bot: Optional (user choice)"
+            echo "  - Backup: Full profile"
+            ;;
+    esac
+
+    echo ""
+    if ! confirm_action "Proceed with $INSTALLATION_MODE installation?" "y" 30; then
+        log_info "Installation mode selection cancelled"
         return 1
     fi
 }
@@ -408,8 +477,16 @@ install_phase3() {
 
 # Install Phase 4: Security and Monitoring
 install_phase4() {
+    local profile="${INSTALLATION_MODE:-balanced}"
+
+    # Skip Phase 4 entirely for minimal installations
+    if [[ "$profile" == "minimal" ]]; then
+        log_info "Skipping Phase 4 for minimal installation"
+        return 0
+    fi
+
     echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
-    echo -e "${WHITE}Phase 4: ${PHASE_4}${NC}"
+    echo -e "${WHITE}Phase 4: ${PHASE_4} (Profile: $profile)${NC}"
     echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
 
     log_info "Starting Phase 4 installation..."
@@ -486,8 +563,34 @@ install_phase4() {
 
 # Install Phase 5: Advanced Features
 install_phase5() {
+    local profile="${INSTALLATION_MODE:-balanced}"
+
+    # Configure modules based on profile
+    local phase5_modules=()
+
+    case "$profile" in
+        "minimal")
+            log_info "Skipping Phase 5 for minimal installation"
+            return 0
+            ;;
+        "balanced")
+            phase5_modules=("${SCRIPT_DIR}/modules/backup_restore.sh")
+            ;;
+        "full")
+            phase5_modules=("${SCRIPT_DIR}/modules/backup_restore.sh" "${SCRIPT_DIR}/modules/maintenance_utils.sh")
+            if [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "true" ]] || [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" ]]; then
+                phase5_modules+=("${SCRIPT_DIR}/modules/telegram_bot.py" "${SCRIPT_DIR}/modules/telegram_bot_manager.sh")
+            fi
+            ;;
+    esac
+
+    if [[ ${#phase5_modules[@]} -eq 0 ]]; then
+        log_info "No Phase 5 modules selected"
+        return 0
+    fi
+
     echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
-    echo -e "${WHITE}Phase 5: ${PHASE_5}${NC}"
+    echo -e "${WHITE}Phase 5: ${PHASE_5} (Profile: $profile)${NC}"
     echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
 
     log_info "Starting Phase 5 installation..."
@@ -534,26 +637,36 @@ install_phase5() {
         return 1
     fi
 
-    # Setup Telegram bot (optional)
-    log_info "Setting up Telegram bot..."
-    echo
-    echo "The Telegram bot allows remote management of your VLESS VPN system."
-    echo "To set it up, you'll need:"
-    echo "  1. A bot token from @BotFather on Telegram"
-    echo "  2. Your Telegram chat ID"
-    echo
+    # Setup Telegram bot (optional based on profile)
+    if [[ "${INSTALL_TELEGRAM_BOT:-false}" == "true" ]] || [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" ]]; then
+        log_info "Setting up Telegram bot..."
+        echo
+        echo "The Telegram bot allows remote management of your VLESS VPN system."
+        echo "To set it up, you'll need:"
+        echo "  1. A bot token from @BotFather on Telegram"
+        echo "  2. Your Telegram chat ID"
+        echo
 
-    read -p "Do you want to configure the Telegram bot now? (y/n): " setup_bot
-    if [[ "$setup_bot" =~ ^[Yy] ]]; then
-        log_info "Starting Telegram bot interactive configuration..."
-        if "${SCRIPT_DIR}/deploy_telegram_bot.sh" deploy; then
-            log_success "Telegram bot configured successfully"
+        local setup_bot="n"
+        if [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "true" ]]; then
+            setup_bot="y"
+        elif [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" ]]; then
+            read -p "Do you want to configure the Telegram bot now? (y/n): " setup_bot
+        fi
+
+        if [[ "$setup_bot" =~ ^[Yy] ]]; then
+            log_info "Starting Telegram bot interactive configuration..."
+            if "${SCRIPT_DIR}/deploy_telegram_bot.sh" deploy; then
+                log_success "Telegram bot configured successfully"
+            else
+                log_warn "Telegram bot setup failed or was skipped"
+            fi
         else
-            log_warn "Telegram bot setup failed or was skipped"
+            log_info "Telegram bot setup skipped"
+            log_info "You can set it up later using: ${SCRIPT_DIR}/deploy_telegram_bot.sh"
         fi
     else
-        log_info "Telegram bot setup skipped"
-        log_info "You can set it up later using: ${SCRIPT_DIR}/deploy_telegram_bot.sh"
+        log_info "Telegram bot installation skipped by profile configuration"
     fi
 
     log_success "Phase 5 completed successfully"
@@ -578,10 +691,13 @@ quick_install() {
     echo -e "${WHITE}Quick Installation - All Phases${NC}"
     echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
 
-    log_info "Starting quick installation of all phases..."
+    log_info "Starting quick installation..."
 
     # Set quick mode flag
     export QUICK_MODE=true
+
+    # Select installation mode (will default to minimal in quick mode)
+    select_installation_mode
 
     # Install Phase 1
     if ! install_phase1; then
@@ -705,7 +821,7 @@ show_main_menu() {
     show_installation_status
 
     echo -e "${CYAN}Main Menu:${NC}"
-    echo "  1) Quick Installation (All Phases)"
+    echo "  1) Select Installation Mode & Quick Install"
     echo "  2) Phase 1: Core Infrastructure Setup"
     echo "  3) Phase 2: VLESS Server Implementation"
     echo "  4) Phase 3: User Management System"
@@ -725,7 +841,11 @@ main_menu_loop() {
         read -p "Please select an option [0-8]: " choice
 
         case $choice in
-            1) quick_install ;;
+            1)
+                if select_installation_mode; then
+                    quick_install
+                fi
+                ;;
             2) install_phase1 ;;
             3) install_phase2 ;;
             4) install_phase3 ;;

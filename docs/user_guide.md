@@ -5,13 +5,15 @@ Complete user manual for the VLESS+Reality VPN Management System.
 ## Table of Contents
 
 1. [Getting Started](#getting-started)
-2. [User Management](#user-management)
-3. [Client Configuration](#client-configuration)
-4. [Telegram Bot Usage](#telegram-bot-usage)
-5. [Monitoring and Analytics](#monitoring-and-analytics)
-6. [Backup and Recovery](#backup-and-recovery)
-7. [Advanced Configuration](#advanced-configuration)
-8. [Best Practices](#best-practices)
+2. [Installation Modes](#installation-modes)
+3. [Safety Features](#safety-features)
+4. [User Management](#user-management)
+5. [Client Configuration](#client-configuration)
+6. [Telegram Bot Usage](#telegram-bot-usage)
+7. [Monitoring and Analytics](#monitoring-and-analytics)
+8. [Backup and Recovery](#backup-and-recovery)
+9. [Advanced Configuration](#advanced-configuration)
+10. [Best Practices](#best-practices)
 
 ## Getting Started
 
@@ -64,6 +66,113 @@ All system operations can be performed via command line scripts located in `/opt
 - `backup_restore.sh` - Backup operations
 - `security_hardening.sh` - Security management
 - `telegram_bot_manager.sh` - Bot management
+
+## Installation Modes
+
+The system supports three installation modes optimized for different use cases. Understanding your installation mode helps you use the appropriate features and troubleshoot issues.
+
+### Checking Your Installation Mode
+
+```bash
+# Check current installation configuration
+source /opt/vless/config/environment.conf
+echo "Installation Mode: ${INSTALLATION_MODE:-unknown}"
+echo "Backup Profile: ${BACKUP_PROFILE:-default}"
+echo "Monitoring Profile: ${MONITORING_PROFILE:-default}"
+```
+
+### Mode-Specific Features
+
+#### Minimal Mode
+```bash
+# Available commands in minimal mode
+/opt/vless/scripts/user_management.sh    # User operations
+/opt/vless/scripts/monitoring.sh status  # Basic status check
+```
+
+#### Balanced Mode
+```bash
+# Additional commands in balanced mode
+/opt/vless/scripts/security_hardening.sh  # Security management
+/opt/vless/scripts/monitoring.sh metrics  # System metrics
+/opt/vless/scripts/backup_restore.sh      # Backup operations
+```
+
+#### Full Mode
+```bash
+# All commands available
+/opt/vless/scripts/telegram_bot_manager.sh  # Bot management
+/opt/vless/scripts/maintenance_utils.sh     # Maintenance tools
+# Plus all minimal and balanced mode features
+```
+
+## Safety Features
+
+The system includes comprehensive safety mechanisms to prevent operational issues and system lockouts.
+
+### SSH Hardening Safety
+
+Before applying SSH hardening, the system automatically:
+
+1. **Validates SSH Keys**: Ensures you have SSH key authentication configured
+2. **Shows Current Connections**: Displays active SSH sessions
+3. **Creates Restore Points**: Backs up current configuration
+4. **Tests Configuration**: Validates SSH config before applying
+
+```bash
+# Manual SSH safety check
+source /opt/vless/modules/safety_utils.sh
+check_ssh_keys
+show_current_ssh_connections
+create_restore_point "before_ssh_hardening"
+```
+
+### System State Validation
+
+Critical operations include automatic validation:
+
+```bash
+# Check system state before operations
+validate_system_state "ssh_hardening"
+validate_system_state "firewall_config"
+validate_system_state "service_restart"
+```
+
+### Confirmation System
+
+Interactive confirmations with timeout protection:
+
+```bash
+# Enhanced confirmation (30-second timeout, default 'no')
+confirm_action "Apply security hardening?" "n" 30
+
+# Safe service restart with confirmation
+safe_service_restart "sshd" 30 false
+```
+
+### Rollback and Recovery
+
+**Automatic Restore Points**:
+- Created before major configuration changes
+- Stored in `/opt/vless/restore_points/`
+- Include restore scripts for quick recovery
+
+```bash
+# List available restore points
+ls -la /opt/vless/restore_points/
+
+# Execute restore (example)
+sudo /opt/vless/restore_points/20250923_143022_ssh_hardening/restore.sh
+```
+
+**Manual Rollback**:
+```bash
+# Backup current firewall rules
+backup_current_firewall_rules
+
+# Create comprehensive restore point
+create_restore_point "manual_backup"
+```
 
 ## User Management
 
