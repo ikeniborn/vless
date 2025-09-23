@@ -383,6 +383,8 @@ sync_system_time() {
     fi
 
     log_info "Synchronizing system time"
+    log_info "Current system time: $(date)"
+    log_info "Current system time (UTC): $(date -u)"
 
     # Check if time sync is needed (unless forced)
     if [[ "$force" != "true" ]] && check_system_time_validity; then
@@ -397,19 +399,25 @@ sync_system_time() {
     if command_exists timedatectl; then
         log_debug "Attempting time sync with systemd-timesyncd"
 
+        # Store time before sync
+        local time_before=$(date +%s)
+        log_debug "System time before systemd sync: $(date)"
+
         # Enable NTP sync
         if safe_execute 30 timedatectl set-ntp true; then
             log_debug "Enabled systemd NTP synchronization"
 
             # Force immediate sync
             if safe_execute 30 systemctl restart systemd-timesyncd; then
-                # Wait a bit for sync to happen
+                # Wait for sync to happen
                 interruptible_sleep 5 1
 
                 # Check if sync was successful
-                if check_system_time_validity; then
+                if validate_time_sync_result "$time_before"; then
                     log_success "Time synchronized using systemd-timesyncd"
                     return 0
+                else
+                    log_debug "systemd-timesyncd didn't correct time significantly"
                 fi
             fi
         fi
@@ -424,9 +432,14 @@ sync_system_time() {
         for server in "${NTP_SERVERS[@]}"; do
             log_debug "Trying NTP server: $server"
 
+            local time_before=$(date +%s)
             if safe_execute 30 ntpdate -s "$server"; then
-                log_success "Time synchronized using ntpdate with $server"
-                return 0
+                if validate_time_sync_result "$time_before"; then
+                    log_success "Time synchronized using ntpdate with $server"
+                    return 0
+                else
+                    log_debug "ntpdate command succeeded but time wasn't corrected significantly"
+                fi
             fi
         done
 
@@ -440,44 +453,212 @@ sync_system_time() {
         for server in "${NTP_SERVERS[@]}"; do
             log_debug "Trying NTP server: $server"
 
+            local time_before=$(date +%s)
             if safe_execute 30 sntp -s "$server"; then
-                log_success "Time synchronized using sntp with $server"
-                return 0
+                if validate_time_sync_result "$time_before"; then
+                    log_success "Time synchronized using sntp with $server"
+                    return 0
+                else
+                    log_debug "sntp command succeeded but time wasn't corrected significantly"
+                fi
             fi
         done
 
         log_debug "sntp sync failed with all servers"
     fi
 
-    # Method 4: Try chrony if available
+    # Method 4: Try chrony if available (enhanced for large offsets)
     if command_exists chronyc; then
         log_debug "Attempting time sync with chrony"
 
-        if safe_execute 30 chronyc makestep; then
-            log_success "Time synchronized using chrony"
-            return 0
+        # Store current time for comparison
+        local time_before=$(date +%s)
+        log_debug "System time before chrony sync: $(date)"
+
+        # Configure chrony for large step corrections
+        configure_chrony_for_large_offset
+
+        # Force immediate sync with all NTP servers
+        if safe_execute 30 chronyc burst 4/4; then
+            log_debug "Chrony burst initiated, waiting for sync"
+            interruptible_sleep 3 1
         fi
 
-        log_debug "chrony sync failed"
+        # Force step adjustment regardless of offset
+        if safe_execute 30 chronyc makestep; then
+            log_debug "Chrony makestep command executed"
+            interruptible_sleep 2 1
+
+            # Validate the time change
+            if validate_time_sync_result "$time_before"; then
+                log_success "Time synchronized using chrony with large offset correction"
+                return 0
+            else
+                log_warn "Chrony reported success but time wasn't corrected significantly"
+            fi
+        fi
+
+        log_debug "chrony sync failed or insufficient correction"
     fi
 
-    # If all methods failed, try to install and use ntpdate
-    log_warn "All time sync methods failed, attempting to install ntpdate"
+    # If all NTP methods failed, try web API fallback
+    log_warn "All NTP time sync methods failed, trying web API fallback"
+
+    if sync_time_from_web_api; then
+        log_success "Time synchronized using web API fallback"
+        return 0
+    fi
+
+    # Final attempt: install ntpdate and try again
+    log_warn "Web API sync failed, attempting to install ntpdate as last resort"
 
     if install_package_if_missing "ntpdate"; then
         for server in "${NTP_SERVERS[@]}"; do
             log_debug "Trying NTP server with newly installed ntpdate: $server"
 
+            local time_before=$(date +%s)
             if safe_execute 30 ntpdate -s "$server"; then
-                log_success "Time synchronized using newly installed ntpdate with $server"
-                return 0
+                if validate_time_sync_result "$time_before"; then
+                    log_success "Time synchronized using newly installed ntpdate with $server"
+                    return 0
+                fi
             fi
         done
     fi
 
     log_error "Failed to synchronize system time using all available methods"
+    log_error "Current system time: $(date)"
     log_error "Manual time synchronization may be required"
+    log_error "Try: sudo ntpdate -s pool.ntp.org"
     return 1
+}
+
+# Configure chrony to allow large time step corrections
+configure_chrony_for_large_offset() {
+    local chrony_conf="/etc/chrony/chrony.conf"
+    local temp_conf="/tmp/chrony_temp.conf"
+
+    # Check if chrony config exists
+    if [[ ! -f "$chrony_conf" ]]; then
+        log_debug "Chrony config not found, skipping configuration"
+        return 1
+    fi
+
+    # Create temporary config with aggressive step settings
+    cp "$chrony_conf" "$temp_conf" 2>/dev/null || return 1
+
+    # Add or modify makestep configuration for large offsets
+    if ! grep -q "^makestep" "$temp_conf"; then
+        echo "makestep 1000 -1" >> "$temp_conf"
+        log_debug "Added aggressive makestep configuration to chrony"
+    else
+        sed -i 's/^makestep.*/makestep 1000 -1/' "$temp_conf"
+        log_debug "Modified existing makestep configuration in chrony"
+    fi
+
+    # Apply temporary configuration
+    if cp "$temp_conf" "$chrony_conf" 2>/dev/null; then
+        # Restart chrony to apply changes
+        if safe_execute 30 systemctl restart chronyd 2>/dev/null || safe_execute 30 systemctl restart chrony 2>/dev/null; then
+            log_debug "Chrony restarted with aggressive time step configuration"
+            interruptible_sleep 2 1
+            return 0
+        fi
+    fi
+
+    log_debug "Failed to configure chrony for large offset correction"
+    return 1
+}
+
+# Sync time using web API as ultimate fallback
+sync_time_from_web_api() {
+    log_info "Attempting time sync using web API fallback"
+
+    # Web time APIs to try (in order of preference)
+    local web_apis=(
+        "http://worldtimeapi.org/api/timezone/UTC"
+        "http://worldclockapi.com/api/json/utc/now"
+        "https://timeapi.io/api/Time/current/zone?timeZone=UTC"
+    )
+
+    for api in "${web_apis[@]}"; do
+        log_debug "Trying web time API: $api"
+
+        # Fetch time from web API
+        local response
+        if response=$(safe_execute 30 curl -s --connect-timeout 10 --max-time 15 "$api" 2>/dev/null); then
+            log_debug "Web API response received"
+
+            # Parse different API response formats
+            local web_time
+            case "$api" in
+                *worldtimeapi*)
+                    web_time=$(echo "$response" | grep -o '"datetime":"[^"]*' | cut -d'"' -f4 | cut -d'.' -f1)
+                    ;;
+                *worldclockapi*)
+                    web_time=$(echo "$response" | grep -o '"currentDateTime":"[^"]*' | cut -d'"' -f4)
+                    ;;
+                *timeapi.io*)
+                    web_time=$(echo "$response" | grep -o '"dateTime":"[^"]*' | cut -d'"' -f4 | cut -d'.' -f1)
+                    ;;
+            esac
+
+            if [[ -n "$web_time" ]]; then
+                log_debug "Parsed web time: $web_time"
+
+                # Convert to proper date format and set system time
+                local formatted_time
+                if formatted_time=$(date -d "$web_time" "+%Y-%m-%d %H:%M:%S" 2>/dev/null); then
+                    log_debug "Setting system time to: $formatted_time"
+
+                    if safe_execute 30 date -s "$formatted_time"; then
+                        log_success "System time manually set from web API: $api"
+
+                        # Update hardware clock if possible
+                        if command_exists hwclock; then
+                            safe_execute 30 hwclock --systohc 2>/dev/null || true
+                            log_debug "Hardware clock updated"
+                        fi
+
+                        return 0
+                    fi
+                fi
+            fi
+        fi
+
+        log_debug "Failed to sync time from web API: $api"
+    done
+
+    log_error "All web API time sync attempts failed"
+    return 1
+}
+
+# Validate that time sync actually corrected the time
+validate_time_sync_result() {
+    local time_before="$1"
+    local time_after=$(date +%s)
+    local time_diff=$((time_after - time_before))
+
+    log_debug "Time before sync: $time_before ($(date -d "@$time_before"))"
+    log_debug "Time after sync: $time_after ($(date -d "@$time_after"))"
+    log_debug "Time difference: ${time_diff} seconds"
+
+    # Check if time changed significantly (more than 30 seconds)
+    if [[ ${time_diff#-} -gt 30 ]]; then
+        log_debug "Significant time change detected: ${time_diff} seconds"
+
+        # Verify the new time is valid
+        if check_system_time_validity; then
+            log_debug "Time sync validation successful"
+            return 0
+        else
+            log_debug "Time changed but still not synchronized properly"
+            return 1
+        fi
+    else
+        log_debug "Insufficient time change: ${time_diff} seconds"
+        return 1
+    fi
 }
 
 # Parse APT errors to detect time-related issues
@@ -871,6 +1052,7 @@ export -f cleanup_child_processes register_child_process
 export -f get_external_ip verify_file_checksum human_readable_size
 export -f init_logging get_timestamp create_vless_system_user
 export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors
+export -f configure_chrony_for_large_offset sync_time_from_web_api validate_time_sync_result
 
 # Initialize logging on source
 init_logging
