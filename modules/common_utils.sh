@@ -20,6 +20,13 @@ if [[ -n "${COMMON_UTILS_LOADED:-}" ]]; then
 fi
 readonly COMMON_UTILS_LOADED=true
 
+# Log levels
+readonly LOG_DEBUG=0
+readonly LOG_INFO=1
+readonly LOG_WARN=2
+readonly LOG_ERROR=3
+readonly LOG_FATAL=4
+
 # Color codes for logging
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -29,13 +36,6 @@ readonly PURPLE='\033[0;35m'
 readonly CYAN='\033[0;36m'
 readonly WHITE='\033[1;37m'
 readonly NC='\033[0m' # No Color
-
-# Log levels
-readonly LOG_DEBUG=0
-readonly LOG_INFO=1
-readonly LOG_WARN=2
-readonly LOG_ERROR=3
-readonly LOG_FATAL=4
 
 # Global configuration
 # Check if SCRIPT_DIR is already defined (e.g., by parent script)
@@ -276,7 +276,7 @@ install_package_if_missing() {
         if [[ -n "$install_cmd" ]]; then
             eval "$install_cmd"
         else
-            apt-get update -qq && apt-get install -y "$package"
+            safe_apt_update && apt-get install -y "$package"
         fi
 
         if ! command_exists "$package"; then
@@ -285,6 +285,291 @@ install_package_if_missing() {
 
         log_success "Successfully installed: $package"
     fi
+}
+
+# Time synchronization configuration
+readonly TIME_SYNC_ENABLED="${TIME_SYNC_ENABLED:-true}"
+readonly TIME_TOLERANCE_SECONDS="${TIME_TOLERANCE_SECONDS:-300}"  # 5 minutes
+readonly NTP_SERVERS=("pool.ntp.org" "time.nist.gov" "time.google.com" "time.cloudflare.com")
+
+# Check system time validity against NTP sources
+check_system_time_validity() {
+    local tolerance="${1:-$TIME_TOLERANCE_SECONDS}"
+
+    # Skip time check if disabled
+    if [[ "$TIME_SYNC_ENABLED" != "true" ]]; then
+        log_debug "Time synchronization disabled, skipping validity check"
+        return 0
+    fi
+
+    log_debug "Checking system time validity (tolerance: ${tolerance}s)"
+
+    # Get current system time in seconds since epoch
+    local system_time
+    system_time=$(date +%s)
+
+    # Try to get NTP time from available servers
+    local ntp_time=""
+    local server
+
+    for server in "${NTP_SERVERS[@]}"; do
+        log_debug "Querying NTP server: $server"
+
+        # Try different methods to get NTP time
+        if command_exists ntpdate; then
+            ntp_time=$(timeout 10 ntpdate -q "$server" 2>/dev/null | grep "^server" | tail -1 | awk '{print $6}' | cut -d'.' -f1)
+        elif command_exists sntp; then
+            ntp_time=$(timeout 10 sntp -t 5 "$server" 2>/dev/null | grep "offset" | awk '{print $4}' | cut -d'.' -f1)
+        elif command_exists chrony; then
+            ntp_time=$(timeout 10 chronyc tracking 2>/dev/null | grep "System time" | awk '{print $4}')
+        fi
+
+        # If we got a valid time, break
+        if [[ -n "$ntp_time" && "$ntp_time" =~ ^[0-9]+$ ]]; then
+            log_debug "Got NTP time from $server: $ntp_time"
+            break
+        fi
+
+        ntp_time=""
+    done
+
+    # If we couldn't get NTP time, try a simpler approach
+    if [[ -z "$ntp_time" ]]; then
+        # Try to get time from a web service as fallback
+        for server in "worldtimeapi.org/api/timezone/Etc/UTC" "timeapi.io/api/Time/current/zone?timeZone=UTC"; do
+            local web_time
+            web_time=$(timeout 10 curl -s "http://$server" 2>/dev/null | grep -o '"unixtime":[0-9]*' | cut -d':' -f2)
+            if [[ -n "$web_time" && "$web_time" =~ ^[0-9]+$ ]]; then
+                ntp_time="$web_time"
+                log_debug "Got time from web service $server: $ntp_time"
+                break
+            fi
+        done
+    fi
+
+    # If we still couldn't get reference time, log warning but don't fail
+    if [[ -z "$ntp_time" ]]; then
+        log_warn "Could not obtain reference time from NTP servers or web services"
+        log_warn "Proceeding without time validation"
+        return 0
+    fi
+
+    # Calculate time difference
+    local time_diff=$((system_time - ntp_time))
+    local abs_diff
+    abs_diff=$(( time_diff < 0 ? -time_diff : time_diff ))
+
+    log_debug "System time: $system_time, Reference time: $ntp_time"
+    log_debug "Time difference: ${time_diff}s (absolute: ${abs_diff}s)"
+
+    if [[ $abs_diff -gt $tolerance ]]; then
+        log_warn "System time appears to be off by ${abs_diff} seconds"
+        log_warn "This may cause APT and SSL certificate issues"
+        return 1
+    else
+        log_debug "System time is within acceptable range"
+        return 0
+    fi
+}
+
+# Synchronize system time using multiple methods with fallbacks
+sync_system_time() {
+    local force="${1:-false}"
+
+    # Skip time sync if disabled
+    if [[ "$TIME_SYNC_ENABLED" != "true" ]]; then
+        log_debug "Time synchronization disabled, skipping sync"
+        return 0
+    fi
+
+    log_info "Synchronizing system time"
+
+    # Check if time sync is needed (unless forced)
+    if [[ "$force" != "true" ]] && check_system_time_validity; then
+        log_debug "System time is already synchronized"
+        return 0
+    fi
+
+    # Setup signal handlers for process isolation
+    setup_signal_handlers
+
+    # Method 1: Try systemd-timesyncd first (modern systemd systems)
+    if command_exists timedatectl; then
+        log_debug "Attempting time sync with systemd-timesyncd"
+
+        # Enable NTP sync
+        if safe_execute 30 timedatectl set-ntp true; then
+            log_debug "Enabled systemd NTP synchronization"
+
+            # Force immediate sync
+            if safe_execute 30 systemctl restart systemd-timesyncd; then
+                # Wait a bit for sync to happen
+                interruptible_sleep 5 1
+
+                # Check if sync was successful
+                if check_system_time_validity; then
+                    log_success "Time synchronized using systemd-timesyncd"
+                    return 0
+                fi
+            fi
+        fi
+
+        log_debug "systemd-timesyncd sync failed or insufficient"
+    fi
+
+    # Method 2: Try ntpdate (older but reliable)
+    if command_exists ntpdate; then
+        log_debug "Attempting time sync with ntpdate"
+
+        for server in "${NTP_SERVERS[@]}"; do
+            log_debug "Trying NTP server: $server"
+
+            if safe_execute 30 ntpdate -s "$server"; then
+                log_success "Time synchronized using ntpdate with $server"
+                return 0
+            fi
+        done
+
+        log_debug "ntpdate sync failed with all servers"
+    fi
+
+    # Method 3: Try sntp (simple NTP)
+    if command_exists sntp; then
+        log_debug "Attempting time sync with sntp"
+
+        for server in "${NTP_SERVERS[@]}"; do
+            log_debug "Trying NTP server: $server"
+
+            if safe_execute 30 sntp -s "$server"; then
+                log_success "Time synchronized using sntp with $server"
+                return 0
+            fi
+        done
+
+        log_debug "sntp sync failed with all servers"
+    fi
+
+    # Method 4: Try chrony if available
+    if command_exists chronyc; then
+        log_debug "Attempting time sync with chrony"
+
+        if safe_execute 30 chronyc makestep; then
+            log_success "Time synchronized using chrony"
+            return 0
+        fi
+
+        log_debug "chrony sync failed"
+    fi
+
+    # If all methods failed, try to install and use ntpdate
+    log_warn "All time sync methods failed, attempting to install ntpdate"
+
+    if install_package_if_missing "ntpdate"; then
+        for server in "${NTP_SERVERS[@]}"; do
+            log_debug "Trying NTP server with newly installed ntpdate: $server"
+
+            if safe_execute 30 ntpdate -s "$server"; then
+                log_success "Time synchronized using newly installed ntpdate with $server"
+                return 0
+            fi
+        done
+    fi
+
+    log_error "Failed to synchronize system time using all available methods"
+    log_error "Manual time synchronization may be required"
+    return 1
+}
+
+# Parse APT errors to detect time-related issues
+detect_time_related_apt_errors() {
+    local error_output="$1"
+
+    # Common time-related error patterns
+    local time_error_patterns=(
+        "not valid yet"
+        "invalid for another"
+        "certificate is not yet valid"
+        "certificate will be valid from"
+        "Release file.*is not yet valid"
+        "Release file.*will be valid from"
+        "The following signatures were invalid"
+        "NO_PUBKEY.*expired"
+        "Certificate verification failed"
+        "SSL certificate problem"
+        "server certificate verification failed"
+    )
+
+    local pattern
+    for pattern in "${time_error_patterns[@]}"; do
+        if echo "$error_output" | grep -qi "$pattern"; then
+            log_debug "Detected time-related APT error: $pattern"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Safe APT update with automatic time sync on failure
+safe_apt_update() {
+    local max_retries="${1:-2}"
+    local retry_count=0
+
+    log_info "Performing safe APT update"
+
+    while [[ $retry_count -lt $max_retries ]]; do
+        log_debug "APT update attempt $((retry_count + 1))/$max_retries"
+
+        # Capture both stdout and stderr
+        local apt_output
+        local apt_exit_code
+
+        # Run apt-get update and capture output
+        set +e  # Temporarily disable exit on error
+        apt_output=$(apt-get update -qq 2>&1)
+        apt_exit_code=$?
+        set -e  # Re-enable exit on error
+
+        # Check if update succeeded
+        if [[ $apt_exit_code -eq 0 ]]; then
+            log_success "APT update completed successfully"
+            return 0
+        fi
+
+        # Log the error
+        log_warn "APT update failed with exit code: $apt_exit_code"
+        log_debug "APT error output: $apt_output"
+
+        # Check if this appears to be a time-related error
+        if detect_time_related_apt_errors "$apt_output"; then
+            log_warn "Detected time-related APT errors"
+
+            # Attempt time synchronization
+            if sync_system_time "true"; then
+                log_info "Time synchronized, retrying APT update"
+                ((retry_count++))
+                continue
+            else
+                log_error "Failed to synchronize time, but will retry APT update anyway"
+            fi
+        else
+            log_debug "APT error does not appear to be time-related"
+        fi
+
+        # Increment retry count
+        ((retry_count++))
+
+        # If not the last retry, wait a bit before trying again
+        if [[ $retry_count -lt $max_retries ]]; then
+            log_debug "Waiting 10 seconds before retry"
+            interruptible_sleep 10 2
+        fi
+    done
+
+    # All retries exhausted
+    log_error "APT update failed after $max_retries attempts"
+    log_error "Last error output: $apt_output"
+    return 1
 }
 
 # Safe file backup
@@ -585,6 +870,7 @@ export -f interruptible_sleep controlled_tail setup_signal_handlers
 export -f cleanup_child_processes register_child_process
 export -f get_external_ip verify_file_checksum human_readable_size
 export -f init_logging get_timestamp create_vless_system_user
+export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors
 
 # Initialize logging on source
 init_logging

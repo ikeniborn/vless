@@ -632,8 +632,33 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 4. **UFW Validation**: Flexible regex patterns for different output formats
 5. **Quick Mode Support**: Unattended installation capability
 
+### v1.2.1 - Time Synchronization Enhancement
+
+#### System Time Management
+1. **Automatic Time Synchronization**: Prevents APT repository errors from incorrect system time
+   - Detects time drift before package operations
+   - Automatic NTP synchronization with multiple fallback servers
+   - Supports systemd-timesyncd, ntpdate, sntp, chronyd
+   - Web service fallback (worldtimeapi.org) as last resort
+
+2. **APT Error Recovery**: Intelligent detection and recovery from time-related APT errors
+   - Pattern matching for "not valid yet", "invalid for another" errors
+   - Automatic retry with time synchronization
+   - Configurable retry attempts and timeouts
+
+3. **Configuration Options**:
+   - `TIME_SYNC_ENABLED`: Enable/disable automatic time sync (default: true)
+   - `TIME_TOLERANCE_SECONDS`: Maximum acceptable drift (default: 300)
+   - `TIME_SYNC_SERVERS`: Custom NTP server list
+
+4. **Functions Added to common_utils.sh**:
+   - `check_system_time_validity()`: Validates system time against NTP sources
+   - `sync_system_time()`: Multi-method time synchronization
+   - `detect_time_related_apt_errors()`: APT error pattern detection
+   - `safe_apt_update()`: APT update with automatic time sync retry
+
 ---
 
-**Last Updated**: 2025-09-23
-**Version**: 1.2.0
+**Last Updated**: 2025-01-23
+**Version**: 1.2.1
 **Maintainer**: VLESS Development Team

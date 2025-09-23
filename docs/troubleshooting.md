@@ -57,6 +57,57 @@ Before diving into specific issues, always start with these basic troubleshootin
 
 ## Installation Issues
 
+### System Time Synchronization Errors
+
+**Problem**: APT repository updates fail with errors like:
+```
+E: Release file for http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease is not valid yet (invalid for another 1h 13min 37s)
+```
+
+**Cause**: System time is incorrect or out of sync with actual time, causing APT to reject repository files.
+
+**Solution**: The system now includes automatic time synchronization. If you encounter this issue:
+
+1. **Automatic Fix** (built-in):
+   - The installation script automatically detects and fixes time issues
+   - Time is synced using NTP before APT operations
+
+2. **Manual Fix**:
+   ```bash
+   # Check current system time
+   date
+
+   # Sync time manually
+   sudo timedatectl set-ntp true
+   sudo systemctl restart systemd-timesyncd
+
+   # Or use ntpdate
+   sudo apt-get install ntpdate
+   sudo ntpdate pool.ntp.org
+
+   # Verify time is correct
+   date
+   ```
+
+3. **Disable Time Check** (not recommended):
+   ```bash
+   export TIME_SYNC_ENABLED=false
+   sudo ./install.sh
+   ```
+
+4. **Set Custom Tolerance**:
+   ```bash
+   # Allow 10 minutes of time drift
+   export TIME_TOLERANCE_SECONDS=600
+   sudo ./install.sh
+   ```
+
+**Prevention**: Enable automatic time synchronization:
+```bash
+sudo timedatectl set-ntp true
+sudo timedatectl set-timezone UTC
+```
+
 ### Problem: Installation Script Fails
 
 #### Symptom

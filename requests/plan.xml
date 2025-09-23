@@ -1,557 +1,672 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<removal_plan>
+<implementation_plan>
     <metadata>
+        <title>APT Repository Time Synchronization Fix Implementation Plan</title>
+        <version>1.0</version>
+        <created>2025-09-23</created>
         <project>VLESS+Reality VPN Management System</project>
-        <operation>Remove Phase 5 Telegram Integration</operation>
-        <date>2025-09-23</date>
-        <version>1.1.0</version>
-        <objective>Remove Telegram bot functionality while preserving backup_restore.sh and maintenance_utils.sh utilities</objective>
+        <priority>CRITICAL</priority>
     </metadata>
 
-    <scope>
-        <preserve>
-            <feature name="backup_restore.sh" reason="Essential for system backup and recovery operations"/>
-            <feature name="maintenance_utils.sh" reason="Useful for automated system maintenance tasks"/>
-            <feature name="Installation modes" reason="Useful deployment options (minimal, balanced, full)"/>
-            <feature name="Phase 4 Security" reason="Critical security and monitoring features"/>
-            <feature name="Core VPN functionality" reason="Primary system purpose"/>
-        </preserve>
-        <remove>
-            <feature name="Telegram bot" reason="Adds unnecessary complexity without significant value"/>
-            <feature name="Telegram bot management" reason="Related to removed bot functionality"/>
-            <feature name="Python telegram dependencies" reason="No longer needed after bot removal"/>
-            <feature name="Bot configuration templates" reason="Not needed without bot"/>
-        </remove>
-    </scope>
+    <problem_summary>
+        <description>
+            System time is ahead of repository release file timestamps (showing 2025-09-23 instead of 2025-01-23),
+            causing APT to reject repository updates with "Release file not valid yet" errors during package operations.
+        </description>
+        <impact>
+            <item>Installation cannot proceed without package updates</item>
+            <item>Security updates cannot be applied</item>
+            <item>Dependencies cannot be installed</item>
+            <item>System becomes vulnerable due to outdated packages</item>
+        </impact>
+        <affected_modules>
+            <module>modules/system_update.sh</module>
+            <module>modules/common_utils.sh</module>
+            <module>install.sh (Phase 1)</module>
+        </affected_modules>
+    </problem_summary>
 
-    <execution_steps>
-        <!-- Step 1: Remove Telegram Bot Files -->
-        <step number="1" category="file_removal">
-            <title>Remove Telegram Bot Files</title>
-            <description>Delete all Telegram bot related files completely</description>
-            <actions>
-                <action type="delete_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/modules/telegram_bot.py</file>
-                    <reason>Main Telegram bot implementation - no longer needed</reason>
-                </action>
-                <action type="delete_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/modules/telegram_bot_manager.sh</file>
-                    <reason>Bot management wrapper script - no longer needed</reason>
-                </action>
-                <action type="delete_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/deploy_telegram_bot.sh</file>
-                    <reason>Bot deployment script - no longer needed</reason>
-                </action>
-                <action type="delete_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/config/bot_config.env</file>
-                    <reason>Bot configuration template - no longer needed</reason>
-                </action>
-            </actions>
-        </step>
+    <solution_strategy>
+        <approach>Multi-layered time synchronization and validation system</approach>
+        <principles>
+            <principle>Proactive time validation before APT operations</principle>
+            <principle>Multiple fallback mechanisms for time synchronization</principle>
+            <principle>Graceful degradation with user awareness</principle>
+            <principle>Compatibility with existing modular architecture</principle>
+            <principle>Process isolation compliance (EPERM prevention)</principle>
+        </principles>
+    </solution_strategy>
 
-        <!-- Step 2: Update Python Dependencies -->
-        <step number="2" category="dependencies">
-            <title>Clean Python Dependencies</title>
-            <description>Remove Telegram-specific Python packages from requirements.txt</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/requirements.txt</file>
-                    <changes>
-                        <remove_lines>
-                            <line number="4"># Core Telegram Bot Dependencies</line>
-                            <line number="5">python-telegram-bot==20.7</line>
-                        </remove_lines>
-                        <update_title>
-                            <old># VLESS+Reality VPN Management System - Python Dependencies</old>
-                            <new># VLESS+Reality VPN Management System - Python Dependencies (QR Code Generation)</new>
-                        </update_title>
-                        <update_comment>
-                            <old># Core Telegram Bot Dependencies</old>
-                            <new># QR Code Generation Dependencies</new>
-                        </update_comment>
-                    </changes>
-                    <rationale>Remove telegram-specific dependencies while keeping QR code generation for user configs</rationale>
-                </action>
-            </actions>
-        </step>
+    <implementation_phases>
+        <phase number="1" name="Core Time Utilities">
+            <description>Add fundamental time checking and synchronization functions to common_utils.sh</description>
+            <functions>
+                <function name="check_system_time_validity">
+                    <purpose>Validate system time against multiple reliable sources</purpose>
+                    <parameters>
+                        <param name="tolerance_minutes" default="5">Maximum acceptable time drift</param>
+                        <param name="sources_array" default="time_sources">Array of time servers to check</param>
+                    </parameters>
+                    <logic>
+                        <step>Get current system time</step>
+                        <step>Query multiple NTP servers for reference time</step>
+                        <step>Calculate time drift from each source</step>
+                        <step>Return status and drift information</step>
+                    </logic>
+                    <returns>
+                        <return code="0">Time is valid within tolerance</return>
+                        <return code="1">Time drift detected but correctable</return>
+                        <return code="2">Severe time drift or network issues</return>
+                    </returns>
+                </function>
 
-        <!-- Step 3: Update Safety Utils Configuration -->
-        <step number="3" category="configuration">
-            <title>Remove Telegram References from Installation Profiles</title>
-            <description>Update safety_utils.sh to remove INSTALL_TELEGRAM_BOT configuration</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/modules/safety_utils.sh</file>
-                    <changes>
-                        <remove_lines>
-                            <line number="293">export INSTALL_TELEGRAM_BOT=false</line>
-                            <line number="302">export INSTALL_TELEGRAM_BOT=false</line>
-                            <line number="311">export INSTALL_TELEGRAM_BOT=prompt</line>
-                        </remove_lines>
-                    </changes>
-                    <rationale>Remove Telegram bot configuration from all installation profiles</rationale>
-                </action>
-            </actions>
-        </step>
+                <function name="sync_system_time">
+                    <purpose>Synchronize system time using multiple methods with fallbacks</purpose>
+                    <parameters>
+                        <param name="method" default="auto">ntp, sntp, ntpdate, or auto</param>
+                        <param name="force" default="false">Force sync even with minor drift</param>
+                    </parameters>
+                    <logic>
+                        <step>Check current time synchronization status</step>
+                        <step>Try primary method (systemd-timesyncd or ntp)</step>
+                        <step>Fall back to sntp if primary fails</step>
+                        <step>Fall back to ntpdate if sntp fails</step>
+                        <step>Fall back to manual HTTP time check</step>
+                        <step>Validate synchronization success</step>
+                    </logic>
+                    <safety_measures>
+                        <measure>Process isolation with timeout controls</measure>
+                        <measure>Signal handlers for clean termination</measure>
+                        <measure>Backup of original time before sync</measure>
+                        <measure>Rollback capability if sync fails</measure>
+                    </safety_measures>
+                </function>
 
-        <!-- Step 4: Simplify Phase 5 in install.sh -->
-        <step number="4" category="installer_update">
-            <title>Simplify Phase 5 Implementation</title>
-            <description>Update install.sh to remove Telegram integration and focus on backup/maintenance utilities</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/install.sh</file>
-                    <changes>
-                        <update_phase_constant>
-                            <line number="41">
-                                <old>readonly PHASE_5="Advanced Features"</old>
-                                <new>readonly PHASE_5="Backup and Maintenance Utilities"</new>
-                            </line>
-                        </update_phase_constant>
-                        <update_function_name>
-                            <old>install_phase5</old>
-                            <new>install_backup_maintenance</new>
-                        </update_function_name>
-                        <replace_function>
-                            <function_name>install_phase5</function_name>
-                            <start_line>565</start_line>
-                            <end_line>686</end_line>
-                            <new_implementation>
-# Install Phase 5: Backup and Maintenance Utilities
-install_backup_maintenance() {
-    local profile="${INSTALLATION_MODE:-balanced}"
+                <function name="get_reference_time">
+                    <purpose>Get reliable reference time from multiple sources</purpose>
+                    <parameters>
+                        <param name="source_type" default="mixed">ntp, http, or mixed</param>
+                        <param name="timeout" default="10">Timeout for each source query</param>
+                    </parameters>
+                    <sources>
+                        <ntp_servers>
+                            <server>pool.ntp.org</server>
+                            <server>time.nist.gov</server>
+                            <server>time.google.com</server>
+                            <server>time.cloudflare.com</server>
+                        </ntp_servers>
+                        <http_sources>
+                            <source>http://worldtimeapi.org/api/timezone/Etc/UTC</source>
+                            <source>https://timeapi.io/api/Time/current/zone?timeZone=UTC</source>
+                        </http_sources>
+                    </sources>
+                </function>
 
-    echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
-    echo -e "${WHITE}Phase 5: ${PHASE_5} (Profile: $profile)${NC}"
-    echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
+                <function name="install_time_sync_tools">
+                    <purpose>Ensure required time synchronization tools are available</purpose>
+                    <packages>
+                        <primary>systemd-timesyncd</primary>
+                        <fallback>ntp</fallback>
+                        <fallback>sntp</fallback>
+                        <fallback>ntpdate</fallback>
+                    </packages>
+                    <logic>
+                        <step>Check which tools are already installed</step>
+                        <step>Install missing tools based on distribution</step>
+                        <step>Configure basic time synchronization service</step>
+                        <step>Start and enable time sync service</step>
+                    </logic>
+                </function>
 
-    log_info "Starting Phase 5: Backup and Maintenance Utilities..."
+                <function name="configure_time_synchronization">
+                    <purpose>Configure system time synchronization services</purpose>
+                    <configurations>
+                        <systemd_timesyncd>
+                            <file>/etc/systemd/timesyncd.conf</file>
+                            <settings>
+                                <setting>NTP=pool.ntp.org time.nist.gov</setting>
+                                <setting>FallbackNTP=time.google.com time.cloudflare.com</setting>
+                                <setting>RootDistanceMaxSec=5</setting>
+                                <setting>PollIntervalMinSec=32</setting>
+                                <setting>PollIntervalMaxSec=2048</setting>
+                            </settings>
+                        </systemd_timesyncd>
+                        <ntp_conf>
+                            <file>/etc/ntp.conf</file>
+                            <servers>
+                                <server>server pool.ntp.org iburst</server>
+                                <server>server time.nist.gov iburst</server>
+                            </servers>
+                        </ntp_conf>
+                    </configurations>
+                </function>
+            </functions>
+        </phase>
 
-    # Check if previous phases are completed
-    if ! command_exists docker; then
-        log_error "Phase 1 must be completed first"
-        return 1
-    fi
+        <phase number="2" name="APT Integration">
+            <description>Integrate time validation with APT operations in system_update.sh</description>
+            <functions>
+                <function name="safe_apt_update">
+                    <purpose>APT update with automatic time synchronization</purpose>
+                    <parameters>
+                        <param name="max_retries" default="3">Maximum retry attempts</param>
+                        <param name="sync_on_failure" default="true">Auto-sync time on APT failure</param>
+                    </parameters>
+                    <logic>
+                        <step>Pre-flight time validation</step>
+                        <step>Attempt APT update</step>
+                        <step>If time-related error detected, sync time and retry</step>
+                        <step>Log all time synchronization activities</step>
+                        <step>Return appropriate exit codes</step>
+                    </logic>
+                    <error_detection>
+                        <pattern>"Release file.*not valid yet"</pattern>
+                        <pattern>"invalid for another.*"</pattern>
+                        <pattern>"Certificate verification failed.*not yet valid"</pattern>
+                    </error_detection>
+                </function>
 
-    # Check if Phase 5 modules exist
-    local required_modules=(
-        "${SCRIPT_DIR}/modules/backup_restore.sh"
-        "${SCRIPT_DIR}/modules/maintenance_utils.sh"
-    )
+                <function name="pre_apt_time_check">
+                    <purpose>Mandatory time check before any APT operation</purpose>
+                    <logic>
+                        <step>Check system time validity</step>
+                        <step>If drift detected, attempt synchronization</step>
+                        <step>If sync fails, warn user and offer options</step>
+                        <step>Log time check results</step>
+                    </logic>
+                    <options_on_failure>
+                        <option>Proceed with time sync disabled (risky)</option>
+                        <option>Manual time correction guidance</option>
+                        <option>Skip APT operations (installation failure)</option>
+                    </options_on_failure>
+                </function>
 
-    local module
-    for module in "${required_modules[@]}"; do
-        if [[ ! -f "$module" ]]; then
-            log_error "Required Phase 5 module not found: $module"
-            return 1
-        fi
-    done
+                <function name="enhanced_update_package_repositories">
+                    <purpose>Replace existing update_package_repositories with time-aware version</purpose>
+                    <integration_points>
+                        <point>system_update.sh:update_package_repositories() line 63-74</point>
+                        <point>common_utils.sh:install_package_if_missing() line 279</point>
+                    </integration_points>
+                    <workflow>
+                        <step>Call pre_apt_time_check()</step>
+                        <step>Execute safe_apt_update()</step>
+                        <step>Handle time-specific errors with automatic recovery</step>
+                        <step>Provide detailed logging and user feedback</step>
+                    </workflow>
+                </function>
+            </functions>
+        </phase>
 
-    # Configure modules based on profile
-    case "$profile" in
-        "minimal")
-            log_info "Installing essential backup utilities for minimal profile"
-            ;;
-        "balanced")
-            log_info "Installing backup and essential maintenance utilities for balanced profile"
-            ;;
-        "full")
-            log_info "Installing complete backup and maintenance utilities for full profile"
-            ;;
-    esac
+        <phase number="3" name="Error Handling and Recovery">
+            <description>Comprehensive error handling with multiple recovery strategies</description>
+            <functions>
+                <function name="detect_time_related_apt_errors">
+                    <purpose>Parse APT output to identify time synchronization issues</purpose>
+                    <error_patterns>
+                        <pattern regex="true">Release file.*not valid yet.*invalid for another</pattern>
+                        <pattern regex="true">Certificate.*not yet valid</pattern>
+                        <pattern regex="true">InRelease.*not valid yet</pattern>
+                        <pattern regex="true">key.*not yet valid</pattern>
+                    </error_patterns>
+                    <extraction>
+                        <extract>Time difference from error message</extract>
+                        <extract>Affected repositories</extract>
+                        <extract>Certificate or key issues</extract>
+                    </extraction>
+                </function>
 
-    # Setup backup and restore system
-    log_info "Setting up backup and restore system..."
-    source "${SCRIPT_DIR}/modules/backup_restore.sh"
-    if init_backup_system && schedule_automatic_backups; then
-        log_success "Backup system configured successfully"
-    else
-        log_error "Backup system setup failed"
-        return 1
-    fi
+                <function name="time_sync_recovery_procedure">
+                    <purpose>Systematic recovery from time synchronization failures</purpose>
+                    <steps>
+                        <step priority="1">
+                            <action>Quick NTP sync with short timeout</action>
+                            <timeout>30 seconds</timeout>
+                            <fallback>Continue to step 2</fallback>
+                        </step>
+                        <step priority="2">
+                            <action>Install and configure time sync service</action>
+                            <timeout>60 seconds</timeout>
+                            <fallback>Continue to step 3</fallback>
+                        </step>
+                        <step priority="3">
+                            <action>Manual time correction with user guidance</action>
+                            <guidance>Provide specific date/time commands</guidance>
+                            <fallback>Continue to step 4</fallback>
+                        </step>
+                        <step priority="4">
+                            <action>APT bypass with security warnings</action>
+                            <warnings>
+                                <warning>Time validation disabled</warning>
+                                <warning>Security implications explained</warning>
+                                <warning>Recommendation for manual time fix</warning>
+                            </warnings>
+                        </step>
+                    </steps>
+                </function>
 
-    # Setup maintenance utilities (skip for minimal profile)
-    if [[ "$profile" != "minimal" ]]; then
-        log_info "Setting up maintenance utilities..."
-        source "${SCRIPT_DIR}/modules/maintenance_utils.sh"
-        if init_maintenance_utils && schedule_maintenance_tasks; then
-            log_success "Maintenance utilities configured successfully"
-        else
-            log_error "Maintenance utilities setup failed"
-            return 1
-        fi
-    else
-        log_info "Skipping maintenance utilities for minimal profile"
-    fi
+                <function name="create_time_sync_restore_point">
+                    <purpose>Create backup of current time settings before changes</purpose>
+                    <backup_items>
+                        <item>/etc/systemd/timesyncd.conf</item>
+                        <item>/etc/ntp.conf</item>
+                        <item>Current system time</item>
+                        <item>Time zone settings</item>
+                        <item>Systemd service states</item>
+                    </backup_items>
+                </function>
 
-    log_success "Phase 5 completed successfully"
-    echo
-    echo "🎉 All phases completed! Your VLESS+Reality VPN system is ready."
-    echo
-    echo "Next steps:"
-    echo "  • Check system status: $0 --status"
-    echo "  • Manage users: ${SCRIPT_DIR}/modules/user_management.sh"
-    echo "  • View logs: ${SCRIPT_DIR}/modules/monitoring.sh logs"
-    echo "  • Create backups: ${SCRIPT_DIR}/modules/backup_restore.sh full-backup"
-    if [[ "$profile" != "minimal" ]]; then
-        echo "  • Run maintenance: ${SCRIPT_DIR}/modules/maintenance_utils.sh"
-    fi
-    echo
+                <function name="rollback_time_configuration">
+                    <purpose>Restore original time settings if synchronization causes issues</purpose>
+                    <triggers>
+                        <trigger>Critical system service failures after time sync</trigger>
+                        <trigger>User requests rollback</trigger>
+                        <trigger>Time sync creates bigger drift</trigger>
+                    </triggers>
+                </function>
+            </functions>
+        </phase>
 
-    # Skip prompt in quick install mode
-    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
-        read -p "Press Enter to continue..."
-    fi
-}
-                            </new_implementation>
-                        </replace_function>
-                        <update_function_calls>
-                            <call_location line="723">
-                                <old>if ! install_phase5; then</old>
-                                <new>if ! install_backup_maintenance; then</new>
-                            </call_location>
-                            <call_location line="853">
-                                <old>6) install_phase5 ;;</old>
-                                <new>6) install_backup_maintenance ;;</new>
-                            </call_location>
-                            <call_location line="959">
-                                <old>install_phase5</old>
-                                <new>install_backup_maintenance</new>
-                            </call_location>
-                        </update_function_calls>
-                        <remove_telegram_checks>
-                            <lines>239-240</lines>
-                            <content>
-                                <old>[[ -f "${SCRIPT_DIR}/modules/telegram_bot.py" ]] && \
-       [[ -f "${SCRIPT_DIR}/modules/telegram_bot_manager.sh" ]]; then</old>
-                            </content>
-                            <replacement>Replace with check for backup_restore.sh and maintenance_utils.sh</replacement>
-                        </remove_telegram_checks>
-                    </changes>
-                    <rationale>Simplify Phase 5 to focus only on backup and maintenance utilities, removing all Telegram-related functionality</rationale>
-                </action>
-            </actions>
-        </step>
+        <phase number="4" name="User Experience and Safety">
+            <description>User-friendly interfaces and safety mechanisms</description>
+            <functions>
+                <function name="interactive_time_fix_wizard">
+                    <purpose>Guide users through time synchronization problems</purpose>
+                    <workflow>
+                        <step>Detect and explain the time issue</step>
+                        <step>Show current vs expected time</step>
+                        <step>Offer automatic fix options</step>
+                        <step>Provide manual fix instructions if auto fails</step>
+                        <step>Confirm fix success and continue installation</step>
+                    </workflow>
+                    <user_options>
+                        <option>Automatic time synchronization (recommended)</option>
+                        <option>Manual time correction with guidance</option>
+                        <option>Skip time sync with security warnings</option>
+                        <option>Abort installation for manual intervention</option>
+                    </user_options>
+                </function>
 
-        <!-- Step 5: Update Tests -->
-        <step number="5" category="test_updates">
-            <title>Update Test Suite</title>
-            <description>Remove or update tests related to Telegram functionality</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/tests/test_installation_modes.sh</file>
-                    <changes>
-                        <remove_telegram_tests>
-                            <description>Remove test cases that verify Telegram bot installation</description>
-                            <search_patterns>
-                                <pattern>telegram</pattern>
-                                <pattern>INSTALL_TELEGRAM_BOT</pattern>
-                                <pattern>bot.*config</pattern>
-                            </search_patterns>
-                        </remove_telegram_tests>
-                        <update_phase5_tests>
-                            <description>Update Phase 5 tests to focus on backup and maintenance utilities</description>
-                            <new_test_cases>
-                                <test>verify_backup_system_installation</test>
-                                <test>verify_maintenance_utils_installation</test>
-                                <test>verify_profile_based_module_selection</test>
-                            </new_test_cases>
-                        </update_phase5_tests>
-                    </changes>
-                    <rationale>Align tests with new simplified Phase 5 functionality</rationale>
-                </action>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/tests/test_installation_fixes.sh</file>
-                    <changes>
-                        <remove_telegram_references>
-                            <description>Remove any test cases related to Telegram bot deployment or configuration</description>
-                        </remove_telegram_references>
-                    </changes>
-                    <rationale>Remove obsolete Telegram-related test cases</rationale>
-                </action>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/tests/run_optimization_tests.sh</file>
-                    <changes>
-                        <update_phase5_optimization_tests>
-                            <description>Update optimization tests to focus on backup and maintenance performance</description>
-                        </update_phase5_optimization_tests>
-                    </changes>
-                    <rationale>Focus optimization tests on remaining Phase 5 components</rationale>
-                </action>
-            </actions>
-        </step>
+                <function name="validate_time_sync_safety">
+                    <purpose>Ensure time synchronization won't break running services</purpose>
+                    <checks>
+                        <check>Running database services with time-sensitive operations</check>
+                        <check>Active VPN connections that might timeout</check>
+                        <check>Scheduled tasks that depend on current time</check>
+                        <check>SSL certificates near expiration</check>
+                    </checks>
+                    <safety_measures>
+                        <measure>Gradual time adjustment instead of instant jump</measure>
+                        <measure>Service-aware time synchronization</measure>
+                        <measure>Rollback capability within time window</measure>
+                    </safety_measures>
+                </function>
 
-        <!-- Step 6: Update Documentation -->
-        <step number="6" category="documentation">
-            <title>Update Documentation</title>
-            <description>Remove Telegram bot references from all documentation files</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/docs/installation.md</file>
-                    <changes>
-                        <remove_sections>
-                            <section>Telegram Bot Setup</section>
-                            <section>Bot Configuration</section>
-                            <section>Remote Management via Telegram</section>
-                        </remove_sections>
-                        <update_phase5_description>
-                            <old>Phase 5: Advanced Features (Telegram bot, web dashboard, analytics)</old>
-                            <new>Phase 5: Backup and Maintenance Utilities (automated backups, system maintenance)</new>
-                        </update_phase5_description>
-                    </changes>
-                    <rationale>Remove obsolete documentation and update Phase 5 description</rationale>
-                </action>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/docs/user_guide.md</file>
-                    <changes>
-                        <remove_sections>
-                            <section>Telegram Bot Usage</section>
-                            <section>Remote Commands</section>
-                            <section>Bot Administration</section>
-                        </remove_sections>
-                        <update_management_section>
-                            <description>Focus on SSH-based management and local utilities</description>
-                        </update_management_section>
-                    </changes>
-                    <rationale>Remove bot-specific user guidance</rationale>
-                </action>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/docs/api_reference.md</file>
-                    <changes>
-                        <remove_sections>
-                            <section>Telegram Bot API</section>
-                            <section>Bot Commands Reference</section>
-                            <section>telegram_bot.py Module</section>
-                            <section>telegram_bot_manager.sh Reference</section>
-                        </remove_sections>
-                    </changes>
-                    <rationale>Remove bot API documentation</rationale>
-                </action>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/docs/troubleshooting.md</file>
-                    <changes>
-                        <remove_sections>
-                            <section>Telegram Bot Issues</section>
-                            <section>Bot Token Problems</section>
-                            <section>Bot Connection Errors</section>
-                        </remove_sections>
-                    </changes>
-                    <rationale>Remove bot-specific troubleshooting content</rationale>
-                </action>
-            </actions>
-        </step>
+                <function name="log_time_sync_activities">
+                    <purpose>Comprehensive logging of all time-related operations</purpose>
+                    <log_levels>
+                        <level name="INFO">Successful time synchronization</level>
+                        <level name="WARN">Time drift detected and corrected</level>
+                        <level name="ERROR">Time synchronization failures</level>
+                        <level name="DEBUG">Detailed sync process information</level>
+                    </log_levels>
+                    <log_format>
+                        <field>Timestamp (before/after sync)</field>
+                        <field>Time source used</field>
+                        <field>Drift amount</field>
+                        <field>Method used</field>
+                        <field>Success/failure status</field>
+                        <field>Impact on APT operations</field>
+                    </log_format>
+                </function>
+            </functions>
+        </phase>
+    </implementation_phases>
 
-        <!-- Step 7: Update Project Memory -->
-        <step number="7" category="project_memory">
-            <title>Update CLAUDE.md Project Memory</title>
-            <description>Update project memory to reflect removal of Telegram integration</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/CLAUDE.md</file>
-                    <changes>
-                        <update_overview>
-                            <section>Project Overview</section>
-                            <remove_lines>
-                                <line>- **Remote Control**: Telegram bot integration for remote management</line>
-                            </remove_lines>
-                        </update_overview>
-                        <update_structure>
-                            <section>Core System Layout</section>
-                            <remove_references>telegram_bot</remove_references>
-                        </update_structure>
-                        <update_module_structure>
-                            <section>Project Repository Structure</section>
-                            <remove_files>
-                                <file>telegram_bot.py</file>
-                                <file>telegram_bot_manager.sh</file>
-                                <file>deploy_telegram_bot.sh</file>
-                                <file>bot_config.env</file>
-                            </remove_files>
-                        </update_module_structure>
-                        <update_phase5_description>
-                            <section>Phase-Based Installation</section>
-                            <old>- **Phase 5**: Advanced Features (Telegram bot, web dashboard, analytics)</old>
-                            <new>- **Phase 5**: Backup and Maintenance Utilities (automated backups, system maintenance)</new>
-                        </update_phase5_description>
-                        <update_dependencies>
-                            <section>Module Dependencies</section>
-                            <remove_dependencies>
-                                <dependency>telegram_bot_manager.sh</dependency>
-                                <dependency>telegram_bot.py</dependency>
-                            </remove_dependencies>
-                        </update_dependencies>
-                        <update_external_deps>
-                            <section>External Dependencies</section>
-                            <remove_python_deps>
-                                <dependency>python-telegram-bot</dependency>
-                            </remove_python_deps>
-                        </update_external_deps>
-                        <update_environment_vars>
-                            <section>Environment Variables</section>
-                            <remove_variables>
-                                <variable>TELEGRAM_BOT_TOKEN</variable>
-                                <variable>TELEGRAM_ADMIN_ID</variable>
-                            </remove_variables>
-                        </update_environment_vars>
-                        <update_operations>
-                            <section>Common Operations</section>
-                            <remove_section>Telegram Bot Management</remove_section>
-                        </update_operations>
-                        <update_installation_modes>
-                            <section>Installation Modes (v1.1.0)</section>
-                            <update_mode_descriptions>
-                                <mode name="Minimal">Remove Telegram references</mode>
-                                <mode name="Balanced">Remove Telegram references</mode>
-                                <mode name="Full">Remove Telegram references, focus on backup/maintenance</mode>
-                            </update_mode_descriptions>
-                        </update_installation_modes>
-                        <update_recent_updates>
-                            <section>Recent Updates</section>
-                            <add_entry>
-                                <version>v1.2.0</version>
-                                <title>Phase 5 Simplification</title>
-                                <description>Removed Telegram integration, simplified Phase 5 to focus on backup and maintenance utilities</description>
-                            </add_entry>
-                        </update_recent_updates>
-                    </changes>
-                    <rationale>Ensure project memory accurately reflects the simplified system architecture</rationale>
-                </action>
-            </actions>
-        </step>
+    <integration_points>
+        <existing_functions>
+            <function file="modules/common_utils.sh" line="269-288">
+                <name>install_package_if_missing</name>
+                <change_type>Enhancement</change_type>
+                <modification>Add pre_apt_time_check() call before apt-get update</modification>
+                <new_logic>
+                    <before>apt-get update -qq && apt-get install -y "$package"</before>
+                    <after>pre_apt_time_check && safe_apt_update && apt-get install -y "$package"</after>
+                </new_logic>
+            </function>
 
-        <!-- Step 8: Update Docker Compose (if applicable) -->
-        <step number="8" category="container_config">
-            <title>Update Container Configuration</title>
-            <description>Remove any Telegram bot service definitions from Docker Compose</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/config/docker-compose.yml</file>
-                    <changes>
-                        <remove_services>
-                            <service>telegram-bot</service>
-                            <service>bot-service</service>
-                        </remove_services>
-                        <remove_volumes>
-                            <volume>bot-data</volume>
-                            <volume>bot-config</volume>
-                        </remove_volumes>
-                    </changes>
-                    <rationale>Clean up container configuration to remove bot-related services</rationale>
-                    <conditional>Only if Docker Compose contains bot services</conditional>
-                </action>
-            </actions>
-        </step>
+            <function file="modules/system_update.sh" line="63-74">
+                <name>update_package_repositories</name>
+                <change_type>Replacement</change_type>
+                <modification>Replace with enhanced_update_package_repositories</modification>
+                <backward_compatibility>Maintain same interface and return codes</backward_compatibility>
+            </function>
 
-        <!-- Step 9: Update README.md -->
-        <step number="9" category="project_readme">
-            <title>Update Project README</title>
-            <description>Update README.md to reflect simplified system without Telegram integration</description>
-            <actions>
-                <action type="edit_file">
-                    <file>/home/ikeniborn/Documents/Project/vless/README.md</file>
-                    <changes>
-                        <update_features_list>
-                            <remove_feature>Telegram bot integration for remote management</remove_feature>
-                        </update_features_list>
-                        <update_phase_descriptions>
-                            <phase number="5">
-                                <old>Advanced Features (Telegram bot, web dashboard)</old>
-                                <new>Backup and Maintenance Utilities</new>
-                            </phase>
-                        </update_phase_descriptions>
-                        <update_requirements>
-                            <remove_requirement>Telegram Bot API token</remove_requirement>
-                        </update_requirements>
-                    </changes>
-                    <rationale>Ensure README accurately represents current system capabilities</rationale>
-                    <conditional>Only if README.md exists</conditional>
-                </action>
-            </actions>
-        </step>
+            <function file="modules/system_update.sh" line="117-163">
+                <name>install_essential_packages</name>
+                <change_type>Enhancement</change_type>
+                <modification>Add time validation before bulk package installation</modification>
+            </function>
 
-        <!-- Step 10: Validation and Testing -->
-        <step number="10" category="validation">
-            <title>Validation and Testing</title>
-            <description>Verify that all changes are consistent and the system functions correctly</description>
-            <actions>
-                <action type="run_tests">
-                    <test_suite>/home/ikeniborn/Documents/Project/vless/tests/run_all_tests.sh</test_suite>
-                    <expected_outcome>All tests pass without Telegram-related failures</expected_outcome>
-                </action>
-                <action type="syntax_check">
-                    <target>/home/ikeniborn/Documents/Project/vless/install.sh</target>
-                    <command>bash -n install.sh</command>
-                </action>
-                <action type="grep_check">
-                    <description>Verify no residual Telegram references remain</description>
-                    <command>grep -r "telegram\|TELEGRAM" /home/ikeniborn/Documents/Project/vless/ --exclude-dir=.git</command>
-                    <expected_outcome>No matches found (except in this plan file)</expected_outcome>
-                </action>
-                <action type="functional_test">
-                    <description>Test Phase 5 installation in minimal, balanced, and full modes</description>
-                    <test_cases>
-                        <case>INSTALLATION_MODE=minimal ./install.sh --phase=5</case>
-                        <case>INSTALLATION_MODE=balanced ./install.sh --phase=5</case>
-                        <case>INSTALLATION_MODE=full ./install.sh --phase=5</case>
-                    </test_cases>
-                </action>
-            </actions>
-        </step>
-    </execution_steps>
+            <function file="modules/system_update.sh" line="393-449">
+                <name>perform_system_update</name>
+                <change_type>Enhancement</change_type>
+                <modification>Add time synchronization check at the beginning</modification>
+                <new_step>Insert time validation after network connectivity check</new_step>
+            </function>
+        </existing_functions>
+
+        <new_module_additions>
+            <file>modules/common_utils.sh</file>
+            <location>After line 288 (end of install_package_if_missing function)</location>
+            <functions>
+                <function>check_system_time_validity</function>
+                <function>sync_system_time</function>
+                <function>get_reference_time</function>
+                <function>install_time_sync_tools</function>
+                <function>configure_time_synchronization</function>
+                <function>pre_apt_time_check</function>
+                <function>safe_apt_update</function>
+                <function>detect_time_related_apt_errors</function>
+                <function>time_sync_recovery_procedure</function>
+                <function>interactive_time_fix_wizard</function>
+                <function>validate_time_sync_safety</function>
+                <function>log_time_sync_activities</function>
+            </functions>
+        </new_module_additions>
+    </integration_points>
+
+    <configuration_changes>
+        <environment_variables>
+            <variable name="TIME_SYNC_ENABLED" default="true">Enable/disable automatic time synchronization</variable>
+            <variable name="TIME_SYNC_TOLERANCE" default="300">Maximum acceptable time drift in seconds</variable>
+            <variable name="TIME_SYNC_SERVERS" default="pool.ntp.org,time.nist.gov">Comma-separated list of NTP servers</variable>
+            <variable name="TIME_SYNC_TIMEOUT" default="30">Timeout for time synchronization operations</variable>
+            <variable name="APT_TIME_CHECK" default="true">Enable pre-APT time validation</variable>
+            <variable name="TIME_SYNC_RETRY_COUNT" default="3">Number of retry attempts for time sync</variable>
+        </environment_variables>
+
+        <configuration_files>
+            <file path="/etc/systemd/timesyncd.conf">
+                <purpose>Configure systemd time synchronization</purpose>
+                <backup>true</backup>
+                <template>modules/config_templates.sh</template>
+            </file>
+
+            <file path="/etc/ntp.conf">
+                <purpose>Configure NTP daemon (fallback)</purpose>
+                <backup>true</backup>
+                <conditional>Only if systemd-timesyncd not available</conditional>
+            </file>
+        </configuration_files>
+    </configuration_changes>
+
+    <testing_strategy>
+        <test_categories>
+            <category name="Unit Tests">
+                <test name="test_time_validity_check">
+                    <description>Test time validation against known good/bad times</description>
+                    <scenarios>
+                        <scenario>System time matches reference (should pass)</scenario>
+                        <scenario>System time 1 hour ahead (should fail)</scenario>
+                        <scenario>System time 1 minute ahead (should pass with tolerance)</scenario>
+                        <scenario>Network unavailable (should handle gracefully)</scenario>
+                    </scenarios>
+                </test>
+
+                <test name="test_time_synchronization">
+                    <description>Test various time sync methods</description>
+                    <scenarios>
+                        <scenario>systemd-timesyncd available and working</scenario>
+                        <scenario>Fall back to ntpdate</scenario>
+                        <scenario>Fall back to sntp</scenario>
+                        <scenario>All sync methods fail</scenario>
+                    </scenarios>
+                </test>
+
+                <test name="test_apt_error_detection">
+                    <description>Test parsing of APT time-related errors</description>
+                    <error_samples>
+                        <sample>Release file for http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease is not valid yet (invalid for another 1h 13min 37s)</sample>
+                        <sample>Certificate verification failed: certificate is not yet valid</sample>
+                    </error_samples>
+                </test>
+            </category>
+
+            <category name="Integration Tests">
+                <test name="test_apt_with_time_sync">
+                    <description>End-to-end APT operations with time sync</description>
+                    <steps>
+                        <step>Set system time to future date</step>
+                        <step>Attempt APT update (should fail)</step>
+                        <step>Verify automatic time sync trigger</step>
+                        <step>Verify successful APT update after sync</step>
+                    </steps>
+                </test>
+
+                <test name="test_installation_with_time_issues">
+                    <description>Full installation flow with time synchronization problems</description>
+                    <scenarios>
+                        <scenario>Clean installation with correct time</scenario>
+                        <scenario>Installation with time ahead (auto-recovery)</scenario>
+                        <scenario>Installation with no network for time sync</scenario>
+                        <scenario>Installation with time sync tools missing</scenario>
+                    </scenarios>
+                </test>
+            </category>
+
+            <category name="Error Handling Tests">
+                <test name="test_recovery_procedures">
+                    <description>Test error recovery and fallback mechanisms</description>
+                    <failure_modes>
+                        <mode>NTP servers unreachable</mode>
+                        <mode>Time sync tools not installable</mode>
+                        <mode>Permission denied for time changes</mode>
+                        <mode>System time locked by hardware</mode>
+                    </failure_modes>
+                </test>
+
+                <test name="test_user_interaction">
+                    <description>Test interactive time fix wizard</description>
+                    <interactions>
+                        <interaction>User chooses automatic fix</interaction>
+                        <interaction>User chooses manual fix</interaction>
+                        <interaction>User chooses to skip time sync</interaction>
+                        <interaction>User aborts installation</interaction>
+                    </interactions>
+                </test>
+            </category>
+
+            <category name="Performance Tests">
+                <test name="test_time_check_performance">
+                    <description>Ensure time checks don't significantly slow installation</description>
+                    <benchmarks>
+                        <benchmark>Time validation should complete within 10 seconds</benchmark>
+                        <benchmark>Time synchronization should complete within 30 seconds</benchmark>
+                        <benchmark>APT operations with time checks should add &lt; 5% overhead</benchmark>
+                    </benchmarks>
+                </test>
+            </category>
+
+            <category name="Security Tests">
+                <test name="test_time_sync_security">
+                    <description>Verify time sync doesn't introduce security vulnerabilities</description>
+                    <checks>
+                        <check>NTP queries use secure protocols when available</check>
+                        <check>Time sources are validated before use</check>
+                        <check>Time changes are logged for audit trail</check>
+                        <check>No sensitive information leaked in time sync operations</check>
+                    </checks>
+                </test>
+            </category>
+        </test_categories>
+
+        <test_execution>
+            <environment_setup>
+                <step>Create isolated test environment</step>
+                <step>Mock time sources for controlled testing</step>
+                <step>Setup test APT repositories with known timestamps</step>
+                <step>Configure test logging and monitoring</step>
+            </environment_setup>
+
+            <automation>
+                <framework>Bash test framework with mock utilities</framework>
+                <ci_integration>Add to existing test suite in tests/</ci_integration>
+                <coverage_target>90% function coverage for time-related functions</coverage_target>
+            </automation>
+
+            <manual_testing>
+                <scenarios>
+                    <scenario>Test on fresh Ubuntu 20.04/22.04 systems</scenario>
+                    <scenario>Test on systems with incorrect time zones</scenario>
+                    <scenario>Test on systems with hardware clock issues</scenario>
+                    <scenario>Test on systems behind restrictive firewalls</scenario>
+                </scenarios>
+            </manual_testing>
+        </test_execution>
+    </testing_strategy>
+
+    <deployment_strategy>
+        <rollout_phases>
+            <phase name="Development">
+                <duration>3-5 days</duration>
+                <deliverables>
+                    <deliverable>Enhanced common_utils.sh with time functions</deliverable>
+                    <deliverable>Updated system_update.sh with time validation</deliverable>
+                    <deliverable>Comprehensive test suite</deliverable>
+                    <deliverable>Documentation updates</deliverable>
+                </deliverables>
+            </phase>
+
+            <phase name="Testing">
+                <duration>2-3 days</duration>
+                <activities>
+                    <activity>Unit test execution and validation</activity>
+                    <activity>Integration testing with existing modules</activity>
+                    <activity>Performance benchmarking</activity>
+                    <activity>Security review</activity>
+                </activities>
+            </phase>
+
+            <phase name="Staging">
+                <duration>1-2 days</duration>
+                <activities>
+                    <activity>Deploy to staging environment</activity>
+                    <activity>End-to-end testing with real time issues</activity>
+                    <activity>User acceptance testing</activity>
+                    <activity>Documentation review</activity>
+                </activities>
+            </phase>
+
+            <phase name="Production">
+                <duration>1 day</duration>
+                <activities>
+                    <activity>Deploy to production repositories</activity>
+                    <activity>Update installation documentation</activity>
+                    <activity>Monitor initial deployments</activity>
+                    <activity>Provide user support and bug fixes</activity>
+                </activities>
+            </phase>
+        </rollout_phases>
+
+        <backward_compatibility>
+            <requirements>
+                <requirement>Existing installations must continue to work</requirement>
+                <requirement>No breaking changes to module interfaces</requirement>
+                <requirement>Graceful degradation if time sync is disabled</requirement>
+                <requirement>Optional time sync for environments where it's not needed</requirement>
+            </requirements>
+
+            <migration_strategy>
+                <step>Deploy new functions as additions to existing modules</step>
+                <step>Update installation scripts to use new time-aware functions</step>
+                <step>Maintain old function names as wrappers for compatibility</step>
+                <step>Add deprecation warnings for old time-unaware functions</step>
+            </migration_strategy>
+        </backward_compatibility>
+    </deployment_strategy>
 
     <risk_assessment>
         <risks>
-            <risk level="low">
-                <description>Users who relied on Telegram bot for remote management will need to use SSH</description>
-                <mitigation>SSH access provides complete system control and is more secure</mitigation>
+            <risk level="HIGH">
+                <description>Time synchronization breaks running services</description>
+                <mitigation>
+                    <item>Validate system state before time changes</item>
+                    <item>Use gradual time adjustment when possible</item>
+                    <item>Provide rollback mechanisms</item>
+                    <item>Test thoroughly in isolated environments</item>
+                </mitigation>
             </risk>
-            <risk level="low">
-                <description>Documentation may temporarily be inconsistent during update process</description>
-                <mitigation>Follow step-by-step plan to ensure comprehensive updates</mitigation>
+
+            <risk level="MEDIUM">
+                <description>Network unavailable for time synchronization</description>
+                <mitigation>
+                    <item>Provide offline time validation options</item>
+                    <item>Allow manual time correction</item>
+                    <item>Graceful degradation with warnings</item>
+                    <item>Cache last known good time sources</item>
+                </mitigation>
             </risk>
-            <risk level="medium">
-                <description>Tests may fail if Telegram references are not completely removed</description>
-                <mitigation>Run validation step thoroughly and fix any remaining references</mitigation>
+
+            <risk level="MEDIUM">
+                <description>Time sync tools unavailable or broken</description>
+                <mitigation>
+                    <item>Multiple fallback mechanisms</item>
+                    <item>HTTP-based time sources as last resort</item>
+                    <item>Manual time correction guidance</item>
+                    <item>Option to skip time sync with warnings</item>
+                </mitigation>
+            </risk>
+
+            <risk level="LOW">
+                <description>Performance impact on installation</description>
+                <mitigation>
+                    <item>Optimize time check operations</item>
+                    <item>Use timeouts to prevent hanging</item>
+                    <item>Cache time validation results</item>
+                    <item>Parallel time source queries</item>
+                </mitigation>
             </risk>
         </risks>
-        <benefits>
-            <benefit>Reduced system complexity and maintenance overhead</benefit>
-            <benefit>Eliminated Python dependencies and attack surface</benefit>
-            <benefit>Simplified installation and configuration process</benefit>
-            <benefit>Improved resource utilization without bot processes</benefit>
-            <benefit>Focus on core VPN functionality and essential utilities</benefit>
-        </benefits>
+
+        <success_criteria>
+            <criterion>APT operations succeed even with incorrect system time</criterion>
+            <criterion>Installation completes successfully on systems with time drift</criterion>
+            <criterion>User receives clear guidance for time-related issues</criterion>
+            <criterion>System time is automatically corrected when possible</criterion>
+            <criterion>No breaking changes to existing functionality</criterion>
+            <criterion>Performance impact is minimal (&lt; 5% installation time increase)</criterion>
+        </success_criteria>
     </risk_assessment>
 
-    <rollback_plan>
-        <description>In case issues arise during removal, the following rollback steps can be taken</description>
-        <steps>
-            <step>Restore files from git history: git checkout HEAD~1 -- [affected_files]</step>
-            <step>Reinstall Python dependencies: pip install -r requirements.txt</step>
-            <step>Restore original install.sh Phase 5 function</step>
-            <step>Restore original safety_utils.sh configuration</step>
-            <step>Run git reset --hard HEAD~1 if all changes need to be reverted</step>
-        </steps>
-    </rollback_plan>
+    <monitoring_and_maintenance>
+        <monitoring_points>
+            <point>Time synchronization success/failure rates</point>
+            <point>APT operation failure rates due to time issues</point>
+            <point>Time drift detection frequency</point>
+            <point>User interaction choices in time fix wizard</point>
+            <point>Performance impact measurements</point>
+        </monitoring_points>
 
-    <success_criteria>
-        <criteria>
-            <criterion>All Telegram bot files are completely removed</criterion>
-            <criterion>Python requirements.txt contains only necessary dependencies</criterion>
-            <criterion>install.sh Phase 5 focuses only on backup and maintenance utilities</criterion>
-            <criterion>All installation modes work without Telegram references</criterion>
-            <criterion>Tests pass without Telegram-related failures</criterion>
-            <criterion>Documentation is consistent and up-to-date</criterion>
-            <criterion>System functionality is preserved for core VPN operations</criterion>
-            <criterion>Backup and maintenance utilities remain fully functional</criterion>
-        </criteria>
-    </success_criteria>
+        <maintenance_tasks>
+            <task frequency="monthly">Review time synchronization logs for patterns</task>
+            <task frequency="quarterly">Update NTP server lists and configurations</task>
+            <task frequency="annually">Review and update time validation thresholds</task>
+            <task frequency="as_needed">Respond to user reports of time-related issues</task>
+        </maintenance_tasks>
 
-    <post_completion_tasks>
-        <task>Update version number to 1.2.0 to reflect major simplification</task>
-        <task>Create git commit documenting the Telegram integration removal</task>
-        <task>Test complete installation flow from scratch</task>
-        <task>Verify all user management and VPN functionality remains intact</task>
-        <task>Update any CI/CD configurations to remove Telegram-related steps</task>
-    </post_completion_tasks>
-</removal_plan>
+        <escalation_procedures>
+            <level name="Level 1">
+                <trigger>Single user reports time sync issues</trigger>
+                <response>Provide troubleshooting guidance and log analysis</response>
+            </level>
+            <level name="Level 2">
+                <trigger>Multiple users report similar time sync issues</trigger>
+                <response>Investigate potential systemic issues and update configurations</response>
+            </level>
+            <level name="Level 3">
+                <trigger>Widespread time sync failures affecting installation success</trigger>
+                <response>Emergency patch deployment and communication to user base</response>
+            </level>
+        </escalation_procedures>
+    </monitoring_and_maintenance>
+</implementation_plan>
