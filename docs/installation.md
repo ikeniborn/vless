@@ -115,7 +115,7 @@ sudo ./install.sh
 **Available Modes**:
 - **Minimal**: Core VPN functionality only (Phases 1-3)
 - **Balanced**: VPN + essential security features (Phases 1-4)
-- **Full**: All features including Telegram bot (Phases 1-5)
+- **Full**: All features including backup and maintenance utilities (Phases 1-5)
 
 #### Mode Characteristics
 
@@ -131,7 +131,7 @@ sudo ./install.sh
 
 **Full Mode**:
 - Resource usage: Comprehensive monitoring with 1-minute intervals
-- Features: All capabilities including Telegram bot, web dashboard
+- Features: All capabilities including backup automation, maintenance utilities
 - Use case: Advanced deployments, development environments
 
 ```bash
@@ -343,36 +343,36 @@ sudo /opt/vless/scripts/monitoring.sh check
 sudo journalctl -u vless --since "1 hour ago"
 ```
 
-### Phase 5: Advanced Features
+### Phase 5: Backup and Maintenance Utilities
 
-**Purpose**: Deploys optional advanced features and integrations.
+**Purpose**: Deploys backup automation and maintenance utilities.
 
 **Components Installed**:
-- Telegram bot integration
-- Web dashboard (optional)
-- API endpoints
-- Backup automation
-- Advanced analytics
+- Automated backup system
+- Maintenance utilities
+- System monitoring enhancements
+- Log management automation
+- Performance optimization tools
 
 **Installation Steps**:
-1. Telegram bot deployment
-2. Web dashboard setup (if selected)
-3. API service configuration
-4. Backup system activation
-5. Analytics integration
+1. Backup system deployment
+2. Maintenance utilities setup
+3. Enhanced monitoring configuration
+4. Log rotation automation
+5. Performance tuning activation
 
-**Expected Duration**: 15-20 minutes
+**Expected Duration**: 10-15 minutes
 
 **Verification**:
 ```bash
-# Test Telegram bot
-sudo systemctl status telegram-bot
-
-# Check API endpoints
-curl http://localhost:8080/api/status
-
-# Verify backup system
+# Test backup system
 sudo /opt/vless/scripts/backup_restore.sh test
+
+# Check maintenance utilities
+sudo /opt/vless/scripts/maintenance_utils.sh status
+
+# Verify log management
+sudo /opt/vless/scripts/logging_setup.sh check
 ```
 
 ## Post-Installation Configuration
@@ -398,9 +398,9 @@ SSL_EMAIL="admin@yourdomain.com"
 ENABLE_FIREWALL=true
 AUTO_UPDATE=true
 
-# Telegram bot (optional)
-TELEGRAM_BOT_TOKEN="your_bot_token"
-TELEGRAM_ADMIN_ID="your_admin_id"
+# Backup settings
+BACKUP_RETENTION_DAYS=30
+ENABLE_AUTOMATED_BACKUP=true
 
 # Monitoring
 ENABLE_MONITORING=true
@@ -418,17 +418,16 @@ sudo /opt/vless/scripts/user_management.sh add admin --role=admin
 sudo /opt/vless/scripts/user_management.sh config admin
 ```
 
-### 3. Configure Telegram Bot (Optional)
+### 3. Configure Automated Backups
 
-If you enabled the Telegram bot in Phase 5:
+If you enabled automated backups in Phase 5:
 
 ```bash
-# Set bot token
-sudo /opt/vless/scripts/telegram_bot_manager.sh configure
+# Configure backup schedule
+sudo /opt/vless/scripts/backup_restore.sh schedule daily
 
-# Start bot service
-sudo systemctl enable telegram-bot
-sudo systemctl start telegram-bot
+# Test backup system
+sudo /opt/vless/scripts/backup_restore.sh backup --test
 ```
 
 ### 4. Set Up Monitoring Alerts
@@ -467,7 +466,6 @@ sudo /opt/vless/scripts/system_check.sh
 # Check all services
 sudo systemctl status xray
 sudo systemctl status docker
-sudo systemctl status telegram-bot
 
 # View service logs
 sudo journalctl -u xray -f

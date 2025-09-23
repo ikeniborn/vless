@@ -40,7 +40,6 @@ configure_installation_profile() {
         "minimal")
             export SKIP_SSH_HARDENING=true
             export SKIP_MONITORING_TOOLS=true
-            export INSTALL_TELEGRAM_BOT=false
             export BACKUP_PROFILE=minimal
             export LOG_PROFILE=minimal
             export MONITORING_PROFILE=minimal
@@ -49,7 +48,6 @@ configure_installation_profile() {
         "balanced")
             export SELECTIVE_SSH_HARDENING=true
             export INSTALL_MONITORING_TOOLS=false
-            export INSTALL_TELEGRAM_BOT=false
             export BACKUP_PROFILE=essential
             export LOG_PROFILE=standard
             export MONITORING_PROFILE=balanced
@@ -58,7 +56,6 @@ configure_installation_profile() {
         "full")
             export INTERACTIVE_MODE=true
             export INSTALL_MONITORING_TOOLS=prompt
-            export INSTALL_TELEGRAM_BOT=prompt
             export BACKUP_PROFILE=prompt
             export LOG_PROFILE=prompt
             export MONITORING_PROFILE=prompt
@@ -110,7 +107,7 @@ configure_installation_profile
 echo "INSTALLATION_MODE=$INSTALLATION_MODE"
 echo "SKIP_SSH_HARDENING=${SKIP_SSH_HARDENING:-false}"
 echo "SKIP_MONITORING_TOOLS=${SKIP_MONITORING_TOOLS:-false}"
-echo "INSTALL_TELEGRAM_BOT=${INSTALL_TELEGRAM_BOT:-false}"
+# Telegram bot functionality removed from Phase 5
 echo "BACKUP_PROFILE=${BACKUP_PROFILE:-essential}"
 echo "LOG_PROFILE=${LOG_PROFILE:-standard}"
 echo "MONITORING_PROFILE=${MONITORING_PROFILE:-balanced}"
@@ -151,8 +148,7 @@ test_minimal_installation_mode() {
     # Check monitoring tools are skipped
     assert_contains "$output" "SKIP_MONITORING_TOOLS=true" "Monitoring tools should be skipped in minimal mode"
 
-    # Check Telegram bot is disabled
-    assert_contains "$output" "INSTALL_TELEGRAM_BOT=false" "Telegram bot should be disabled in minimal mode"
+    # Note: Telegram bot functionality removed from Phase 5
 
     # Check backup profile is minimal
     assert_contains "$output" "BACKUP_PROFILE=minimal" "Backup profile should be minimal"
@@ -186,8 +182,7 @@ test_balanced_installation_mode() {
     # Check monitoring tools are optional
     assert_contains "$output" "INSTALL_MONITORING_TOOLS=false" "Monitoring tools should be optional in balanced mode"
 
-    # Check Telegram bot is disabled
-    assert_contains "$output" "INSTALL_TELEGRAM_BOT=false" "Telegram bot should be disabled in balanced mode"
+    # Note: Telegram bot functionality removed from Phase 5
 
     # Check backup profile is essential
     assert_contains "$output" "BACKUP_PROFILE=essential" "Backup profile should be essential"
@@ -221,8 +216,7 @@ test_full_installation_mode() {
     # Check monitoring tools are prompted
     assert_contains "$output" "INSTALL_MONITORING_TOOLS=prompt" "Monitoring tools should be prompted in full mode"
 
-    # Check Telegram bot is prompted
-    assert_contains "$output" "INSTALL_TELEGRAM_BOT=prompt" "Telegram bot should be prompted in full mode"
+    # Note: Telegram bot functionality removed from Phase 5
 
     # Check backup profile is prompted
     assert_contains "$output" "BACKUP_PROFILE=prompt" "Backup profile should be prompted in full mode"
@@ -329,7 +323,6 @@ test_configuration_export() {
         "INSTALLATION_MODE"
         "INTERACTIVE_MODE"
         "INSTALL_MONITORING_TOOLS"
-        "INSTALL_TELEGRAM_BOT"
         "BACKUP_PROFILE"
         "LOG_PROFILE"
         "MONITORING_PROFILE"

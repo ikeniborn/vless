@@ -11,10 +11,9 @@ Complete API documentation for the VLESS+Reality VPN Management System modules a
 5. [Monitoring System](#monitoring-system)
 6. [Backup and Restore](#backup-and-restore)
 7. [Security Hardening](#security-hardening)
-8. [Telegram Bot](#telegram-bot)
-9. [Configuration Management](#configuration-management)
-10. [Database Operations](#database-operations)
-11. [Container Management](#container-management)
+8. [Configuration Management](#configuration-management)
+9. [Database Operations](#database-operations)
+10. [Container Management](#container-management)
 
 ## Module Overview
 
@@ -29,7 +28,6 @@ modules/
 ├── monitoring.sh            # System monitoring and alerts
 ├── backup_restore.sh        # Backup and recovery system
 ├── security_hardening.sh    # Security configurations
-├── telegram_bot.py          # Telegram bot interface
 ├── docker_setup.sh          # Container management
 ├── config_templates.sh      # Configuration generation
 ├── cert_management.sh       # Certificate handling
@@ -635,58 +633,6 @@ Scans for known vulnerabilities.
 #### `verify_security_compliance()`
 Verifies compliance with security standards.
 
-## Telegram Bot
-
-**File**: `modules/telegram_bot.py`
-
-Telegram bot interface for remote system management.
-
-### Bot Management
-
-#### `class VLESSBot`
-Main bot class handling all Telegram interactions.
-
-##### `__init__(token, admin_ids, system_path)`
-Initializes bot with configuration.
-
-**Parameters:**
-- `token` (string): Bot token from BotFather
-- `admin_ids` (list): List of admin Telegram user IDs
-- `system_path` (string): Path to VLESS system directory
-
-##### `start_bot()`
-Starts the bot and begins polling for messages.
-
-##### `stop_bot()`
-Gracefully stops the bot.
-
-### Command Handlers
-
-#### `handle_start(update, context)`
-Handles /start command and user authentication.
-
-#### `handle_add_user(update, context)`
-Handles user creation via Telegram command.
-
-#### `handle_list_users(update, context)`
-Handles user listing with pagination.
-
-#### `handle_system_status(update, context)`
-Handles system status queries.
-
-#### `handle_generate_config(update, context)`
-Handles configuration generation and QR code creation.
-
-### Security Features
-
-#### `authenticate_user(user_id)`
-Authenticates user against admin list.
-
-#### `rate_limit_check(user_id, command)`
-Implements rate limiting for commands.
-
-#### `log_bot_activity(user_id, command, result)`
-Logs all bot activities for audit trail.
 
 ## Configuration Management
 
@@ -962,8 +908,7 @@ The system uses standardized error codes for consistent error handling:
   "uptime": 86400,
   "services": {
     "xray": "running",
-    "docker": "running",
-    "telegram_bot": "running"
+    "docker": "running"
   },
   "resources": {
     "cpu_usage": 25.5,

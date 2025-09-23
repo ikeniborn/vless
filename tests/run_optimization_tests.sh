@@ -82,7 +82,7 @@ TEST_SUITES:
     safety_utils           Test safety utilities functions
     ssh_hardening_safety   Test SSH hardening safety features
     monitoring_optimization Test monitoring profile optimizations
-    backup_strategy        Test backup profile and strategy configurations
+    backup_strategy        Test backup profile configurations and maintenance utilities
     all                    Run all test suites (default)
 
 EXAMPLES:
@@ -514,7 +514,7 @@ EOF
             <li><strong>safety_utils:</strong> Tests safety utilities functions including confirmation dialogs, SSH key validation, and system state checks</li>
             <li><strong>ssh_hardening_safety:</strong> Tests SSH hardening safety features, rollback mechanisms, and user protection</li>
             <li><strong>monitoring_optimization:</strong> Tests monitoring profile configurations and resource optimization strategies</li>
-            <li><strong>backup_strategy:</strong> Tests backup profile configurations, compression strategies, and retention policies</li>
+            <li><strong>backup_strategy:</strong> Tests backup profile configurations, compression strategies, and retention policies for backup and maintenance utilities</li>
         </ul>
 
         <div class="footer">

@@ -203,7 +203,7 @@ test_python_deps_network_timeout() {
     # Create mock requirements.txt
     cat > "${TEMP_TEST_DIR}/requirements.txt" << 'EOF'
 requests==2.28.1
-python-telegram-bot==20.0
+qrcode==7.3.1
 EOF
 
     # Mock pip that times out

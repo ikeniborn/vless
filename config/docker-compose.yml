@@ -91,7 +91,7 @@ services:
       - WATCHTOWER_SCHEDULE=0 0 4 * * *  # Daily at 4 AM
       - WATCHTOWER_INCLUDE_STOPPED=true
       - WATCHTOWER_INCLUDE_RESTARTING=true
-      - WATCHTOWER_NOTIFICATIONS=shoutrrr://telegram://TOKEN@telegram?channels=CHAT_ID
+      - WATCHTOWER_NOTIFICATIONS=
       - TZ=UTC
     networks:
       - vless-network

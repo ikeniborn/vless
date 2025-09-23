@@ -269,7 +269,6 @@ test_install_python_dependencies_success() {
     local mock_requirements="${TEMP_TEST_DIR}/requirements.txt"
     cat > "$mock_requirements" << 'EOF'
 requests==2.28.1
-python-telegram-bot==20.0
 qrcode==7.3.1
 Pillow==9.2.0
 EOF

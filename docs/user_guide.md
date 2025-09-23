@@ -9,11 +9,10 @@ Complete user manual for the VLESS+Reality VPN Management System.
 3. [Safety Features](#safety-features)
 4. [User Management](#user-management)
 5. [Client Configuration](#client-configuration)
-6. [Telegram Bot Usage](#telegram-bot-usage)
-7. [Monitoring and Analytics](#monitoring-and-analytics)
-8. [Backup and Recovery](#backup-and-recovery)
-9. [Advanced Configuration](#advanced-configuration)
-10. [Best Practices](#best-practices)
+6. [Monitoring and Analytics](#monitoring-and-analytics)
+7. [Backup and Recovery](#backup-and-recovery)
+8. [Advanced Configuration](#advanced-configuration)
+9. [Best Practices](#best-practices)
 
 ## Getting Started
 
@@ -53,9 +52,9 @@ After installation, you'll need to perform initial configuration:
 The VLESS+Reality VPN system provides:
 - **Secure VPN Access**: Using VLESS protocol with Reality obfuscation
 - **User Management**: Complete user lifecycle management
-- **Remote Control**: Telegram bot for remote administration
 - **Monitoring**: Real-time system and user monitoring
 - **Backup**: Automated backup and recovery capabilities
+- **Maintenance**: Comprehensive system maintenance utilities
 
 ### Command Line Interface
 
@@ -65,7 +64,7 @@ All system operations can be performed via command line scripts located in `/opt
 - `monitoring.sh` - System monitoring
 - `backup_restore.sh` - Backup operations
 - `security_hardening.sh` - Security management
-- `telegram_bot_manager.sh` - Bot management
+- `maintenance_utils.sh` - System maintenance
 
 ## Installation Modes
 
@@ -101,7 +100,7 @@ echo "Monitoring Profile: ${MONITORING_PROFILE:-default}"
 #### Full Mode
 ```bash
 # All commands available
-/opt/vless/scripts/telegram_bot_manager.sh  # Bot management
+/opt/vless/scripts/backup_restore.sh        # Backup operations
 /opt/vless/scripts/maintenance_utils.sh     # Maintenance tools
 # Plus all minimal and balanced mode features
 ```
@@ -386,72 +385,6 @@ If automatic configuration generation isn't available for your client, use these
 }
 ```
 
-## Telegram Bot Usage
-
-### Bot Setup
-
-1. **Configure Bot Token**
-   ```bash
-   # Set bot token
-   ./scripts/telegram_bot_manager.sh configure
-   ```
-
-2. **Start Bot Service**
-   ```bash
-   # Enable and start bot
-   systemctl enable telegram-bot
-   systemctl start telegram-bot
-   ```
-
-3. **Verify Bot Status**
-   ```bash
-   # Check bot status
-   ./scripts/telegram_bot_manager.sh status
-   ```
-
-### Bot Commands
-
-#### Authentication Commands
-- `/start` - Initialize bot and authenticate
-- `/auth <admin_code>` - Authenticate as admin
-- `/logout` - Logout from bot
-
-#### User Management Commands
-- `/users` - List all users
-- `/adduser <username>` - Create new user
-- `/userinfo <username>` - Get user details
-- `/config <username>` - Get user configuration
-- `/qr <username>` - Get QR code
-- `/deleteuser <username>` - Delete user
-
-#### System Commands
-- `/status` - System status overview
-- `/stats` - System statistics
-- `/logs` - Recent system logs
-- `/backup` - Create system backup
-- `/restart` - Restart services
-
-#### Monitoring Commands
-- `/monitor` - Real-time monitoring
-- `/alerts` - Recent alerts
-- `/traffic` - Traffic statistics
-
-### Bot Security
-
-#### Admin Authentication
-```bash
-# Generate admin authentication code
-./scripts/telegram_bot_manager.sh generate-auth-code
-
-# Set admin user ID
-./scripts/telegram_bot_manager.sh set-admin <telegram_user_id>
-```
-
-#### Security Features
-- Command rate limiting
-- Admin-only sensitive commands
-- Secure token storage
-- Activity logging
 
 ## Monitoring and Analytics
 

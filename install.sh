@@ -38,7 +38,7 @@ readonly PHASE_1="Core Infrastructure Setup"
 readonly PHASE_2="VLESS Server Implementation"
 readonly PHASE_3="User Management System"
 readonly PHASE_4="Security and Monitoring"
-readonly PHASE_5="Advanced Features"
+readonly PHASE_5="Backup and Maintenance Utilities"
 
 # Menu colors and symbols
 readonly MENU_BORDER="═══════════════════════════════════════════════════════════════════════"
@@ -168,21 +168,18 @@ select_installation_mode() {
             echo "  - Phases: 1, 2, 3 (Core VPN functionality only)"
             echo "  - SSH hardening: Disabled"
             echo "  - Monitoring tools: Disabled"
-            echo "  - Telegram bot: Disabled"
             echo "  - Backup: Minimal profile"
             ;;
         "balanced")
             echo "  - Phases: 1, 2, 3, 4 (VPN + essential security)"
             echo "  - SSH hardening: Selective (user choice)"
             echo "  - Monitoring tools: Basic only"
-            echo "  - Telegram bot: Disabled"
             echo "  - Backup: Essential profile"
             ;;
         "full")
             echo "  - Phases: 1, 2, 3, 4, 5 (All features)"
             echo "  - SSH hardening: Interactive configuration"
             echo "  - Monitoring tools: Optional (user choice)"
-            echo "  - Telegram bot: Optional (user choice)"
             echo "  - Backup: Full profile"
             ;;
     esac
@@ -233,14 +230,12 @@ show_installation_status() {
         echo -e "  Phase 4 (Security & Monitoring): ${YELLOW}○ Not available${NC}"
     fi
 
-    # Check Phase 5 - Advanced Features
+    # Check Phase 5 - Backup and Maintenance Utilities
     if [[ -f "${SCRIPT_DIR}/modules/backup_restore.sh" ]] && \
-       [[ -f "${SCRIPT_DIR}/modules/maintenance_utils.sh" ]] && \
-       [[ -f "${SCRIPT_DIR}/modules/telegram_bot.py" ]] && \
-       [[ -f "${SCRIPT_DIR}/modules/telegram_bot_manager.sh" ]]; then
-        echo -e "  Phase 5 (Advanced Features): ${GREEN}✓ Available${NC}"
+       [[ -f "${SCRIPT_DIR}/modules/maintenance_utils.sh" ]]; then
+        echo -e "  Phase 5 (Backup and Maintenance): ${GREEN}✓ Available${NC}"
     else
-        echo -e "  Phase 5 (Advanced Features): ${YELLOW}○ Not available${NC}"
+        echo -e "  Phase 5 (Backup and Maintenance): ${YELLOW}○ Not available${NC}"
     fi
 
     # Check system directories
@@ -561,7 +556,7 @@ install_phase4() {
     fi
 }
 
-# Install Phase 5: Advanced Features
+# Install Phase 5: Backup and Maintenance Utilities
 install_phase5() {
     local profile="${INSTALLATION_MODE:-balanced}"
 
@@ -578,9 +573,6 @@ install_phase5() {
             ;;
         "full")
             phase5_modules=("${SCRIPT_DIR}/modules/backup_restore.sh" "${SCRIPT_DIR}/modules/maintenance_utils.sh")
-            if [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "true" ]] || [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" ]]; then
-                phase5_modules+=("${SCRIPT_DIR}/modules/telegram_bot.py" "${SCRIPT_DIR}/modules/telegram_bot_manager.sh")
-            fi
             ;;
     esac
 
@@ -601,14 +593,7 @@ install_phase5() {
         return 1
     fi
 
-    # Check if Phase 5 modules exist
-    local phase5_modules=(
-        "${SCRIPT_DIR}/modules/backup_restore.sh"
-        "${SCRIPT_DIR}/modules/maintenance_utils.sh"
-        "${SCRIPT_DIR}/modules/telegram_bot.py"
-        "${SCRIPT_DIR}/modules/telegram_bot_manager.sh"
-    )
-
+    # Check if required Phase 5 modules exist
     local module
     for module in "${phase5_modules[@]}"; do
         if [[ ! -f "$module" ]]; then
@@ -627,46 +612,16 @@ install_phase5() {
         return 1
     fi
 
-    # Setup maintenance utilities
-    log_info "Setting up maintenance utilities..."
-    source "${SCRIPT_DIR}/modules/maintenance_utils.sh"
-    if init_maintenance_utils && schedule_maintenance_tasks; then
-        log_success "Maintenance utilities configured successfully"
-    else
-        log_error "Maintenance utilities setup failed"
-        return 1
-    fi
-
-    # Setup Telegram bot (optional based on profile)
-    if [[ "${INSTALL_TELEGRAM_BOT:-false}" == "true" ]] || [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" ]]; then
-        log_info "Setting up Telegram bot..."
-        echo
-        echo "The Telegram bot allows remote management of your VLESS VPN system."
-        echo "To set it up, you'll need:"
-        echo "  1. A bot token from @BotFather on Telegram"
-        echo "  2. Your Telegram chat ID"
-        echo
-
-        local setup_bot="n"
-        if [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "true" ]]; then
-            setup_bot="y"
-        elif [[ "${INSTALL_TELEGRAM_BOT:-prompt}" == "prompt" ]]; then
-            read -p "Do you want to configure the Telegram bot now? (y/n): " setup_bot
-        fi
-
-        if [[ "$setup_bot" =~ ^[Yy] ]]; then
-            log_info "Starting Telegram bot interactive configuration..."
-            if "${SCRIPT_DIR}/deploy_telegram_bot.sh" deploy; then
-                log_success "Telegram bot configured successfully"
-            else
-                log_warn "Telegram bot setup failed or was skipped"
-            fi
+    # Setup maintenance utilities (for full profile)
+    if [[ "$profile" == "full" ]]; then
+        log_info "Setting up maintenance utilities..."
+        source "${SCRIPT_DIR}/modules/maintenance_utils.sh"
+        if init_maintenance_utils && schedule_maintenance_tasks; then
+            log_success "Maintenance utilities configured successfully"
         else
-            log_info "Telegram bot setup skipped"
-            log_info "You can set it up later using: ${SCRIPT_DIR}/deploy_telegram_bot.sh"
+            log_error "Maintenance utilities setup failed"
+            return 1
         fi
-    else
-        log_info "Telegram bot installation skipped by profile configuration"
     fi
 
     log_success "Phase 5 completed successfully"
@@ -826,7 +781,7 @@ show_main_menu() {
     echo "  3) Phase 2: VLESS Server Implementation"
     echo "  4) Phase 3: User Management System"
     echo "  5) Phase 4: Security and Monitoring"
-    echo "  6) Phase 5: Advanced Features"
+    echo "  6) Phase 5: Backup and Maintenance Utilities"
     echo "  7) System Status Check"
     echo "  8) System Removal"
     echo "  0) Exit"
@@ -903,7 +858,7 @@ Options:
     --phase2             Install Phase 2 only (VLESS Server)
     --phase3             Install Phase 3 only (User Management)
     --phase4             Install Phase 4 only (Security & Monitoring)
-    --phase5             Install Phase 5 only (Advanced Features)
+    --phase5             Install Phase 5 only (Backup and Maintenance)
     --status             Show system status
     --remove             Remove system
     --help               Show this help message

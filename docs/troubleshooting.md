@@ -11,11 +11,10 @@ Comprehensive troubleshooting guide for the VLESS+Reality VPN Management System.
 5. [User Management Problems](#user-management-problems)
 6. [Performance Issues](#performance-issues)
 7. [Security Concerns](#security-concerns)
-8. [Telegram Bot Issues](#telegram-bot-issues)
-9. [Configuration Problems](#configuration-problems)
-10. [System Recovery](#system-recovery)
-11. [Log Analysis](#log-analysis)
-12. [Getting Help](#getting-help)
+8. [Configuration Problems](#configuration-problems)
+9. [System Recovery](#system-recovery)
+10. [Log Analysis](#log-analysis)
+11. [Getting Help](#getting-help)
 
 ## General Troubleshooting
 
@@ -599,56 +598,6 @@ sar -u 1 10
    sudo /opt/vless/scripts/cert_management.sh status
    ```
 
-## Telegram Bot Issues
-
-### Problem: Bot Not Responding
-
-#### Diagnostic Commands
-```bash
-sudo systemctl status telegram-bot
-sudo journalctl -u telegram-bot -f
-```
-
-#### Solutions
-
-1. **Check Bot Configuration**
-   ```bash
-   # Verify bot token
-   sudo /opt/vless/scripts/telegram_bot_manager.sh verify-token
-
-   # Test bot connectivity
-   sudo /opt/vless/scripts/telegram_bot_manager.sh test-connection
-   ```
-
-2. **Restart Bot Service**
-   ```bash
-   sudo systemctl restart telegram-bot
-   sudo journalctl -u telegram-bot -f
-   ```
-
-3. **Update Bot Dependencies**
-   ```bash
-   sudo pip3 install -r /opt/vless/requirements.txt --upgrade
-   ```
-
-### Problem: Bot Commands Not Working
-
-#### Solutions
-
-1. **Check Admin Authorization**
-   ```bash
-   # Verify admin user IDs
-   sudo /opt/vless/scripts/telegram_bot_manager.sh list-admins
-
-   # Add admin user
-   sudo /opt/vless/scripts/telegram_bot_manager.sh add-admin TELEGRAM_USER_ID
-   ```
-
-2. **Check Bot Permissions**
-   ```bash
-   # Verify bot has necessary permissions
-   sudo /opt/vless/scripts/telegram_bot_manager.sh check-permissions
-   ```
 
 ## Configuration Problems
 
@@ -704,8 +653,7 @@ sudo journalctl -u telegram-bot -f
    ```bash
    sudo systemctl stop xray
    sudo systemctl stop docker
-   sudo systemctl stop telegram-bot
-   ```
+      ```
 
 2. **Restore from Backup**
    ```bash
@@ -716,8 +664,7 @@ sudo journalctl -u telegram-bot -f
    ```bash
    sudo systemctl start docker
    sudo systemctl start xray
-   sudo systemctl start telegram-bot
-   ```
+      ```
 
 #### Partial Recovery
 
@@ -755,7 +702,6 @@ sudo journalctl -u telegram-bot -f
 - **System Logs**: `/opt/vless/logs/system.log`
 - **User Activity**: `/opt/vless/logs/user_activity.log`
 - **Security Logs**: `/opt/vless/logs/security.log`
-- **Telegram Bot**: `journalctl -u telegram-bot`
 
 ### Log Analysis Commands
 

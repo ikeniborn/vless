@@ -41,6 +41,7 @@ declare -A TEST_SUITES=(
     ["installation_fixes"]="test_installation_fixes.sh"
     ["installation_fixes_edge_cases"]="test_installation_fixes_edge_cases.sh"
     ["installation_fixes_validation"]="test_installation_fixes_validation.sh"
+    ["phase5_removal"]="test_phase5_removal.sh"
 )
 
 # Test execution statistics

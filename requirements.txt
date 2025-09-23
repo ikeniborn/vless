@@ -1,8 +1,7 @@
-# VLESS+Reality VPN Management System - Python Dependencies
+# VLESS+Reality VPN Management System - QR Code Generation Dependencies
 # Version: 1.0.0
 
-# Core Telegram Bot Dependencies
-python-telegram-bot==20.7
+# QR Code Generation Dependencies
 qrcode[pil]==7.4.2
 Pillow==10.1.0
 requests==2.31.0

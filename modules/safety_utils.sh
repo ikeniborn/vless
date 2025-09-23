@@ -290,7 +290,6 @@ configure_installation_profile() {
         "minimal")
             export SKIP_SSH_HARDENING=true
             export SKIP_MONITORING_TOOLS=true
-            export INSTALL_TELEGRAM_BOT=false
             export BACKUP_PROFILE=minimal
             export LOG_PROFILE=minimal
             export MONITORING_PROFILE=minimal
@@ -299,7 +298,6 @@ configure_installation_profile() {
         "balanced")
             export SELECTIVE_SSH_HARDENING=true
             export INSTALL_MONITORING_TOOLS=false
-            export INSTALL_TELEGRAM_BOT=false
             export BACKUP_PROFILE=essential
             export LOG_PROFILE=standard
             export MONITORING_PROFILE=balanced
@@ -308,7 +306,6 @@ configure_installation_profile() {
         "full")
             export INTERACTIVE_MODE=true
             export INSTALL_MONITORING_TOOLS=prompt
-            export INSTALL_TELEGRAM_BOT=prompt
             export BACKUP_PROFILE=prompt
             export LOG_PROFILE=prompt
             export MONITORING_PROFILE=prompt
