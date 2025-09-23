@@ -44,6 +44,12 @@ modules/
 
 Core logging, error handling, and utility functions used across all modules.
 
+**Recent Improvements (v1.0.1):**
+- Added include guard to prevent multiple sourcing
+- Enhanced signal handling for process isolation
+- Added system user creation functionality
+- Improved error handling and logging
+
 ### Logging Functions
 
 #### `log_info(message)`
@@ -157,6 +163,34 @@ Sets up signal handlers for graceful script termination.
 - `SIGTERM`: Graceful termination
 - `SIGINT`: Interrupt (Ctrl+C)
 - `SIGUSR1`: Custom signal for reload
+
+#### `create_vless_system_user()`
+Creates VLESS system user and group for security isolation.
+
+**Purpose:**
+- Creates `vless` group with restricted permissions
+- Creates `vless` user with no shell access
+- Sets up proper home directory (`/opt/vless`)
+- Ensures secure service isolation
+
+**Returns:**
+- `0`: User and group created successfully
+- `1`: Creation failed
+
+**Security Features:**
+- Uses `-r` flag for system user/group
+- Sets shell to `/bin/false` for security
+- Assigns restricted permissions
+- Logs all operations for audit trail
+
+**Example:**
+```bash
+if create_vless_system_user; then
+    log_success "VLESS user created successfully"
+else
+    log_error "Failed to create VLESS user"
+fi
+```
 
 ## User Management
 
@@ -578,6 +612,91 @@ Retrieves traffic statistics for user.
 #### `reset_traffic_counters(email)`
 Resets traffic usage counters.
 
+## Installation Functions
+
+**File**: `install.sh`
+
+Specialized installation functions with enhanced error handling and recovery mechanisms.
+
+### Python Dependency Management
+
+#### `install_python_dependencies()`
+Installs Python dependencies with multiple fallback methods and robust error handling.
+
+**Features:**
+- **Multiple Installation Methods**: Standard, externally managed, user installation
+- **Timeout Handling**: 5-minute timeout with automatic retry
+- **Error Recovery**: Automatic fallback to alternative methods
+- **Network Resilience**: Handles network failures gracefully
+- **Environment Detection**: Detects externally managed Python environments
+
+**Installation Sequence:**
+1. **Standard Installation**: `pip install -r requirements.txt`
+2. **Externally Managed**: `pip install --break-system-packages`
+3. **User Installation**: `pip install --user`
+4. **Individual Packages**: Falls back to package-by-package installation
+
+**Parameters:**
+- None (uses `requirements.txt` from script directory)
+
+**Returns:**
+- `0`: Dependencies installed successfully
+- `1`: Installation failed after all methods
+
+**Error Handling:**
+- Validates `requirements.txt` exists
+- Ensures `pip3` is available
+- Upgrades pip before installation
+- Provides detailed error reporting
+- Logs all attempts for troubleshooting
+
+**Example:**
+```bash
+if install_python_dependencies; then
+    log_success "Python dependencies ready"
+else
+    log_error "Failed to install Python dependencies"
+    exit 1
+fi
+```
+
+**Supported Environments:**
+- Ubuntu 20.04+ with standard Python
+- Ubuntu 23.04+ with externally managed Python
+- Debian with various Python configurations
+- CentOS/RHEL with pip3
+- Rocky Linux and derivatives
+
+### Quick Mode Support
+
+#### `QUICK_MODE` Environment Variable
+Controls unattended installation behavior throughout the system.
+
+**Usage:**
+```bash
+# Enable quick mode
+export QUICK_MODE=true
+sudo ./install.sh
+
+# Or use command line flag
+sudo ./install.sh --quick
+```
+
+**Behavior:**
+- **Prompt Skipping**: All interactive prompts are bypassed
+- **Default Values**: Uses sensible defaults for all configurations
+- **Error Handling**: Enhanced error reporting without user interaction
+- **Logging**: Comprehensive logging for troubleshooting
+- **Validation**: All validation checks still performed
+
+**Implementation Pattern:**
+```bash
+# Skip prompt in quick install mode
+if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+    read -p "Press Enter to continue..."
+fi
+```
+
 ## Container Management
 
 **File**: `modules/container_management.sh`
@@ -618,23 +737,51 @@ Monitors container health status.
 
 The system uses standardized error codes for consistent error handling:
 
+**General Codes:**
 - `0`: Success
 - `1`: General error
 - `2`: Invalid arguments
 - `3`: Permission denied
 - `4`: File not found
 - `5`: Service unavailable
+
+**User Management:**
 - `10`: User not found
 - `11`: User already exists
 - `12`: Invalid user data
+- `13`: User creation failed
+- `14`: User deletion failed
+
+**Network and Connectivity:**
 - `20`: Network error
 - `21`: Connection timeout
+- `22`: DNS resolution failed
+- `23`: Port unavailable
+
+**Configuration:**
 - `30`: Configuration error
 - `31`: Invalid configuration
+- `32`: Configuration validation failed
+- `33`: Template generation failed
+
+**Database Operations:**
 - `40`: Database error
 - `41`: Database corruption
+- `42`: Database connection failed
+- `43`: Database query failed
+
+**Security:**
 - `50`: Security violation
 - `51`: Authentication failed
+- `52`: Authorization denied
+- `53`: Certificate error
+
+**Installation Specific:**
+- `60`: Dependency installation failed
+- `61`: Python package installation failed
+- `62`: System user creation failed
+- `63`: Firewall configuration failed
+- `64`: Service initialization failed
 
 ## Data Formats
 
@@ -677,6 +824,52 @@ The system uses standardized error codes for consistent error handling:
 }
 ```
 
+## Recent API Changes (v1.0.1)
+
+### New Functions
+
+1. **`create_vless_system_user()`** in `common_utils.sh`
+   - Dedicated system user creation
+   - Enhanced security isolation
+   - Comprehensive error handling
+
+2. **`install_python_dependencies()`** in `install.sh`
+   - Robust Python package installation
+   - Multiple fallback methods
+   - Environment detection and adaptation
+
+### Enhanced Functions
+
+1. **Include Guard in `common_utils.sh`**
+   - Prevents multiple sourcing errors
+   - Improves performance and reliability
+   - Uses `COMMON_UTILS_LOADED` variable
+
+2. **UFW Validation Improvements**
+   - Better output format handling
+   - Enhanced error detection
+   - Debug logging for troubleshooting
+
+3. **Quick Mode Support**
+   - `QUICK_MODE` environment variable
+   - Automated installation capability
+   - Maintains full functionality
+
+### Deprecated Patterns
+
+- **Multiple Sourcing**: No longer needed due to include guard
+- **Manual Python Installation**: Replaced by robust `install_python_dependencies()`
+- **Interactive-only Installation**: Quick mode now available
+
+### Migration Notes
+
+When updating existing scripts:
+
+1. **Remove manual user creation** - use `create_vless_system_user()` instead
+2. **Replace Python installation logic** - use `install_python_dependencies()` function
+3. **Add Quick Mode support** - check `QUICK_MODE` variable for prompts
+4. **Update error handling** - use new error codes for better diagnostics
+
 ---
 
-**Note**: This API reference covers the core functionality. Some advanced features may have additional parameters or return values. Always refer to the inline documentation in the source files for the most up-to-date information.
+**Note**: This API reference covers the core functionality including recent v1.0.1 improvements. Some advanced features may have additional parameters or return values. Always refer to the inline documentation in the source files for the most up-to-date information.

@@ -72,6 +72,59 @@ show_system_info() {
     echo
 }
 
+# Install Python dependencies safely
+install_python_dependencies() {
+    log_info "Installing Python dependencies"
+
+    local requirements_file="${SCRIPT_DIR}/requirements.txt"
+
+    # Verify requirements.txt exists
+    if [[ ! -f "$requirements_file" ]]; then
+        log_error "Requirements file not found: $requirements_file"
+        return 1
+    fi
+
+    # Ensure pip is installed
+    if ! command_exists pip3; then
+        log_info "Installing pip3..."
+        apt-get update && apt-get install -y python3-pip
+    fi
+
+    # Upgrade pip to latest version
+    log_debug "Upgrading pip to latest version"
+    python3 -m pip install --upgrade pip --break-system-packages 2>/dev/null || \
+    python3 -m pip install --upgrade pip --user 2>/dev/null || \
+    log_debug "Could not upgrade pip, continuing with current version"
+
+    # Install dependencies with timeout and error handling
+    log_info "Installing Python packages from requirements.txt..."
+
+    # Try installation with different approaches
+    local install_success=false
+
+    # First try standard installation
+    if python3 -m pip install -r "$requirements_file" --timeout=300 --no-cache-dir 2>/dev/null; then
+        install_success=true
+    # If externally managed environment, use --break-system-packages
+    elif python3 -m pip install -r "$requirements_file" --timeout=300 --no-cache-dir --break-system-packages 2>/dev/null; then
+        log_debug "Used --break-system-packages for externally managed environment"
+        install_success=true
+    # If still failing, try user installation
+    elif python3 -m pip install -r "$requirements_file" --timeout=300 --no-cache-dir --user 2>/dev/null; then
+        log_debug "Installed packages for user only"
+        install_success=true
+    fi
+
+    if [ "$install_success" = true ]; then
+        log_success "Python dependencies installed successfully"
+        return 0
+    else
+        log_error "Failed to install Python dependencies with all attempted methods"
+        log_info "You may need to install packages manually or create a virtual environment"
+        return 1
+    fi
+}
+
 # Display installation status
 show_installation_status() {
     echo -e "${CYAN}Installation Status:${NC}"
@@ -144,6 +197,12 @@ show_installation_status() {
 create_system_directories() {
     log_info "Creating system directories..."
 
+    # Create VLESS system user and group first
+    if ! create_vless_system_user; then
+        log_error "Failed to create VLESS system user and group"
+        return 1
+    fi
+
     local directories=(
         "$SYSTEM_DIR"
         "$CONFIG_DIR"
@@ -158,10 +217,13 @@ create_system_directories() {
         create_directory "$dir" "755"
     done
 
-    # Set proper ownership for the main directory
-    if [[ -n "${SUDO_USER:-}" ]]; then
-        chown -R "${SUDO_USER}:${SUDO_USER}" "$SYSTEM_DIR" 2>/dev/null || true
-    fi
+    # Set proper ownership for the main directory using vless user
+    chown -R vless:vless "$SYSTEM_DIR" 2>/dev/null || {
+        log_warn "Failed to set vless ownership, falling back to sudo user"
+        if [[ -n "${SUDO_USER:-}" ]]; then
+            chown -R "${SUDO_USER}:${SUDO_USER}" "$SYSTEM_DIR" 2>/dev/null || true
+        fi
+    }
 
     log_success "System directories created successfully"
 }
@@ -265,9 +327,20 @@ install_phase1() {
         return 1
     fi
 
+    # Install Python dependencies
+    log_info "Installing Python dependencies..."
+    if install_python_dependencies; then
+        log_success "Python dependencies installed successfully"
+    else
+        log_warn "Python dependencies installation failed, continuing..."
+    fi
+
     log_success "Phase 1 completed successfully"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # Install Phase 2: VLESS Server Implementation
@@ -293,7 +366,10 @@ install_phase2() {
 
     log_success "Phase 2 preparation completed"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # Install Phase 3: User Management System
@@ -310,13 +386,12 @@ install_phase3() {
         return 1
     fi
 
-    # Install Python dependencies for QR code generation
+    # Install Python dependencies for QR code generation and Telegram bot
     log_info "Installing Python dependencies..."
-    if command_exists pip3; then
-        pip3 install qrcode[pil] requests pillow 2>/dev/null || \
-        log_warn "Failed to install Python dependencies (will install later)"
+    if install_python_dependencies; then
+        log_success "Python dependencies installed successfully"
     else
-        log_warn "pip3 not available, Python dependencies will be installed later"
+        log_warn "Python dependencies installation failed, continuing..."
     fi
 
     # This will be implemented when we have the user management modules
@@ -325,7 +400,10 @@ install_phase3() {
 
     log_success "Phase 3 preparation completed"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # Install Phase 4: Security and Monitoring
@@ -400,7 +478,10 @@ install_phase4() {
 
     log_success "Phase 4 completed successfully"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # Install Phase 5: Advanced Features
@@ -485,7 +566,10 @@ install_phase5() {
     echo "  • View logs: ${SCRIPT_DIR}/modules/monitoring.sh logs"
     echo "  • Create backups: ${SCRIPT_DIR}/modules/backup_restore.sh full-backup"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # Quick installation (all phases)
@@ -495,6 +579,9 @@ quick_install() {
     echo -e "${YELLOW}${MENU_SEPARATOR}${NC}"
 
     log_info "Starting quick installation of all phases..."
+
+    # Set quick mode flag
+    export QUICK_MODE=true
 
     # Install Phase 1
     if ! install_phase1; then
@@ -521,11 +608,17 @@ quick_install() {
         log_error "Phase 5 installation failed, but continuing..."
     fi
 
+    # Unset quick mode flag
+    unset QUICK_MODE
+
     log_success "Quick installation completed - All phases installed!"
     echo
     echo "🎉 Your VLESS+Reality VPN system is fully deployed and ready to use!"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # System status check
@@ -548,7 +641,10 @@ system_status() {
     echo "System update status unavailable"
 
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # System removal
@@ -596,7 +692,10 @@ system_removal() {
 
     log_success "System removal completed"
     echo
-    read -p "Press Enter to continue..."
+    # Skip prompt in quick install mode
+    if [[ "${QUICK_MODE:-false}" != "true" ]]; then
+        read -p "Press Enter to continue..."
+    fi
 }
 
 # Show main menu

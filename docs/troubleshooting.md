@@ -61,17 +61,19 @@ Before diving into specific issues, always start with these basic troubleshootin
 ### Problem: Installation Script Fails
 
 #### Symptom
-Installation script exits with errors or hangs indefinitely.
+Installation script exits with errors, hangs indefinitely, or shows "multiple sourcing" errors.
 
 #### Common Causes
 - Insufficient permissions
+- Multiple sourcing of common utilities
 - Network connectivity issues
 - Package repository problems
 - Disk space shortage
+- Python dependency conflicts
 
 #### Solutions
 
-1. **Permission Issues**
+1. **Permission and Sourcing Issues**
    ```bash
    # Ensure running as root
    sudo su -
@@ -80,6 +82,10 @@ Installation script exits with errors or hangs indefinitely.
    # Or fix script permissions
    chmod +x install.sh
    chown root:root install.sh
+
+   # The script now includes include guards to prevent multiple sourcing
+   # If you still see sourcing errors, restart your shell session
+   exec bash
    ```
 
 2. **Network Issues**
@@ -121,7 +127,7 @@ Installation script exits with errors or hangs indefinitely.
 ### Problem: Dependencies Installation Fails
 
 #### Symptom
-Required packages fail to install during setup.
+Required packages fail to install during setup, especially Python packages with "externally managed environment" errors.
 
 #### Solutions
 
@@ -142,6 +148,24 @@ Required packages fail to install during setup.
    # Docker
    curl -fsSL https://get.docker.com -o get-docker.sh
    sudo sh get-docker.sh
+   ```
+
+3. **Enhanced Python Dependency Installation**
+   ```bash
+   # The script now uses multiple fallback methods for Python packages
+   # If automatic installation fails, try manual installation:
+
+   # Method 1: Standard installation
+   sudo python3 -m pip install -r requirements.txt
+
+   # Method 2: For externally managed environments
+   sudo python3 -m pip install -r requirements.txt --break-system-packages
+
+   # Method 3: User installation
+   python3 -m pip install -r requirements.txt --user
+
+   # Method 4: Individual package installation
+   sudo python3 -m pip install python-telegram-bot qrcode[pil] requests aiohttp --break-system-packages
    ```
 
 3. **Alternative Package Sources**
@@ -267,9 +291,20 @@ sudo docker inspect xray-container
 
 1. **Firewall Configuration**
    ```bash
-   # UFW
+   # UFW (now with improved validation)
    sudo ufw allow 443/tcp
    sudo ufw reload
+
+   # Check UFW status with verbose output
+   sudo ufw status verbose
+
+   # If UFW validation fails, reset and reconfigure
+   sudo ufw --force reset
+   sudo ufw default deny incoming
+   sudo ufw default allow outgoing
+   sudo ufw allow ssh
+   sudo ufw allow 443/tcp
+   sudo ufw --force enable
 
    # firewalld
    sudo firewall-cmd --permanent --add-port=443/tcp
@@ -753,6 +788,50 @@ sudo journalctl -u telegram-bot -f
    sudo find /opt/vless/logs -name "*.log" -mtime +30 -delete
    sudo journalctl --vacuum-time=30d
    ```
+
+## Recent Installation Fixes (v1.0.1)
+
+### Fixed Issues
+
+1. **Multiple Sourcing Prevention**
+   - Added include guard to `common_utils.sh`
+   - Prevents "already loaded" errors during installation
+   - Improves script reliability and performance
+
+2. **Enhanced Python Dependency Handling**
+   - Multiple fallback installation methods
+   - Support for externally managed Python environments
+   - Automatic timeout handling and error recovery
+   - Better error reporting and debugging
+
+3. **Improved UFW Firewall Validation**
+   - Handles different UFW output formats
+   - Better parsing of status information
+   - Enhanced error handling for edge cases
+   - Debug logging for troubleshooting
+
+4. **System User Creation**
+   - Dedicated `create_vless_system_user()` function
+   - Proper group and user creation with security restrictions
+   - Better isolation and permission management
+   - Comprehensive error handling
+
+5. **Quick Mode Installation**
+   - Added `QUICK_MODE` support for unattended installation
+   - Skips interactive prompts automatically
+   - Maintains full functionality while enabling automation
+   - Environment variable based configuration
+
+### Using Quick Mode
+
+```bash
+# Enable quick mode for automated installation
+sudo ./install.sh --quick
+
+# Or set environment variable
+export QUICK_MODE=true
+sudo ./install.sh
+```
 
 ## Getting Help
 

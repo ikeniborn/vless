@@ -14,12 +14,6 @@
 
 set -euo pipefail
 
-# Include guard to prevent multiple sourcing
-if [[ -n "${COMMON_UTILS_LOADED:-}" ]]; then
-    return 0
-fi
-readonly COMMON_UTILS_LOADED=true
-
 # Color codes for logging
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -546,33 +540,6 @@ init_logging() {
     fi
 }
 
-# Create VLESS system user and group
-create_vless_system_user() {
-    local vless_user="vless"
-    local vless_group="vless"
-
-    log_info "Creating VLESS system user and group"
-
-    # Create group if it doesn't exist
-    if ! getent group "$vless_group" >/dev/null 2>&1; then
-        groupadd -r "$vless_group"
-        log_debug "Created group: $vless_group"
-    else
-        log_debug "Group already exists: $vless_group"
-    fi
-
-    # Create user if it doesn't exist
-    if ! getent passwd "$vless_user" >/dev/null 2>&1; then
-        useradd -r -g "$vless_group" -s /bin/false -d /opt/vless -c "VLESS VPN Service" "$vless_user"
-        log_debug "Created user: $vless_user"
-    else
-        log_debug "User already exists: $vless_user"
-    fi
-
-    log_success "VLESS system user and group ready"
-    return 0
-}
-
 # Export functions for use in other scripts
 export -f log_debug log_info log_warn log_error log_fatal log_success
 export -f die require_root require_non_root
@@ -584,7 +551,7 @@ export -f wait_for_condition safe_execute isolate_systemctl_command
 export -f interruptible_sleep controlled_tail setup_signal_handlers
 export -f cleanup_child_processes register_child_process
 export -f get_external_ip verify_file_checksum human_readable_size
-export -f init_logging get_timestamp create_vless_system_user
+export -f init_logging get_timestamp
 
 # Initialize logging on source
 init_logging

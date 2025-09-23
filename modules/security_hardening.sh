@@ -298,28 +298,29 @@ EOF
     fi
 }
 
-# Create dedicated VLESS user and group
-create_vless_user() {
-    log_info "Creating dedicated VLESS user and group"
+# Configure VLESS directory security
+configure_vless_security() {
+    log_info "Configuring VLESS directory security"
 
-    # Create group if it doesn't exist
+    # Verify VLESS user and group exist (should be created in Phase 1)
     if ! getent group "$VLESS_GROUP" >/dev/null 2>&1; then
-        groupadd -r "$VLESS_GROUP"
-        log_debug "Created group: $VLESS_GROUP"
+        log_error "VLESS group '$VLESS_GROUP' not found - should be created in Phase 1"
+        return 1
     fi
 
-    # Create user if it doesn't exist
     if ! getent passwd "$VLESS_USER" >/dev/null 2>&1; then
-        useradd -r -g "$VLESS_GROUP" -s /bin/false -d /opt/vless -c "VLESS VPN Service" "$VLESS_USER"
-        log_debug "Created user: $VLESS_USER"
+        log_error "VLESS user '$VLESS_USER' not found - should be created in Phase 1"
+        return 1
     fi
 
-    # Set ownership of VLESS directories
+    # Set secure ownership and permissions for VLESS directories
     local vless_dirs=(
         "/opt/vless"
         "/opt/vless/config"
         "/opt/vless/logs"
         "/opt/vless/backup"
+        "/opt/vless/users"
+        "/opt/vless/certs"
     )
 
     local dir
@@ -327,11 +328,11 @@ create_vless_user() {
         if [[ -d "$dir" ]]; then
             chown -R "$VLESS_USER:$VLESS_GROUP" "$dir"
             chmod 750 "$dir"
-            log_debug "Set ownership for: $dir"
+            log_debug "Set secure ownership for: $dir"
         fi
     done
 
-    log_success "VLESS user and group configured"
+    log_success "VLESS directory security configured"
 }
 
 # Secure file permissions
@@ -615,7 +616,7 @@ setup_security_hardening() {
     backup_security_configs
 
     # Create VLESS user
-    create_vless_user
+    configure_vless_security
 
     # Harden SSH
     harden_ssh_config
@@ -671,7 +672,7 @@ revert_security_hardening() {
 
 # Export functions
 export -f init_security_hardening backup_security_configs harden_ssh_config
-export -f create_ssh_banner configure_kernel_security create_vless_user
+export -f create_ssh_banner configure_kernel_security configure_vless_security
 export -f secure_file_permissions disable_unnecessary_services configure_fail2ban
 export -f audit_system_security configure_automatic_updates setup_security_hardening
 export -f revert_security_hardening

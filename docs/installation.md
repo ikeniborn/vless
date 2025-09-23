@@ -119,21 +119,31 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-### Method 2: Automated Installation
+### Method 2: Automated Installation (Quick Mode)
 
-For automated deployments, you can use environment variables to pre-configure the installation.
+For automated deployments, you can use the quick installation mode that skips interactive prompts and uses sensible defaults.
 
 ```bash
-# Set environment variables
+# Quick installation with all phases
+sudo ./install.sh --quick
+
+# Or set environment variables for custom configuration
 export VLESS_PORT=443
 export REALITY_DOMAIN="www.microsoft.com"
 export REALITY_PORT=443
 export SSL_EMAIL="admin@yourdomain.com"
 export ENABLE_FIREWALL=true
 
-# Run automated installation
-sudo ./install.sh --auto
+# Run quick installation with custom settings
+sudo ./install.sh --quick
 ```
+
+**Quick Mode Features:**
+- Skips all interactive prompts
+- Installs all phases automatically
+- Uses default configurations when environment variables are not set
+- Provides comprehensive logging for troubleshooting
+- Includes enhanced error handling and recovery mechanisms
 
 ### Method 3: Docker Installation
 
@@ -158,16 +168,27 @@ The installation process is divided into five phases for modular deployment and 
 
 **Components Installed**:
 - System directories (`/opt/vless/`)
+- VLESS system user and group creation
 - Base dependencies (Docker, Python3, etc.)
+- Python dependencies with robust error handling
 - Core utilities and logging system
 - Initial configuration templates
 
 **Installation Steps**:
 1. System compatibility verification
-2. Dependency installation
-3. Directory structure creation
-4. Permission configuration
-5. Core utility setup
+2. VLESS system user and group creation
+3. Dependency installation (with enhanced error handling)
+4. Python dependencies installation (multiple fallback methods)
+5. Directory structure creation
+6. Permission configuration
+7. Core utility setup
+
+**Recent Improvements (v1.0.1)**:
+- Added include guard to prevent multiple sourcing errors
+- Enhanced Python dependency installation with multiple fallback methods
+- Improved UFW firewall validation to handle different output formats
+- Added system user creation for better security isolation
+- Added Quick Mode support for unattended installations
 
 **Expected Duration**: 5-10 minutes
 
@@ -451,7 +472,7 @@ sudo firewall-cmd --list-all
 
 #### 1. Permission Denied Errors
 
-**Problem**: Installation fails with permission errors.
+**Problem**: Installation fails with permission errors or multiple sourcing errors.
 
 **Solution**:
 ```bash
@@ -464,9 +485,11 @@ chmod +x install.sh
 sudo chown root:root install.sh
 ```
 
+**Note**: The installation script now includes an include guard in `common_utils.sh` to prevent multiple sourcing errors that could cause permission issues.
+
 #### 2. Package Installation Failures
 
-**Problem**: Dependencies fail to install.
+**Problem**: Dependencies fail to install, especially Python packages.
 
 **Solution**:
 ```bash
@@ -477,6 +500,21 @@ sudo dnf clean all && sudo dnf update
 
 # Install missing dependencies manually
 sudo apt install curl wget git python3 python3-pip
+```
+
+**Enhanced Python Dependency Handling**:
+The installation script now includes robust Python dependency installation with multiple fallback methods:
+
+1. **Standard Installation**: Uses `pip install -r requirements.txt`
+2. **Externally Managed Environments**: Uses `--break-system-packages` flag
+3. **User Installation**: Falls back to `--user` installation
+4. **Timeout Handling**: 5-minute timeout with error recovery
+5. **Network Resilience**: Automatic retry with different approaches
+
+If Python installation still fails, try manual installation:
+```bash
+# Manually install Python dependencies
+sudo python3 -m pip install python-telegram-bot qrcode[pil] requests aiohttp --break-system-packages
 ```
 
 #### 3. Docker Installation Issues
@@ -527,6 +565,44 @@ sudo /opt/vless/scripts/cert_management.sh status
 
 # Use alternative CA
 export CERT_CA="letsencrypt"
+```
+
+#### 6. Firewall Configuration Issues
+
+**Problem**: UFW firewall validation fails with unexpected output formats.
+
+**Solution**:
+The installation script now includes improved UFW validation that handles different output formats:
+
+```bash
+# Check UFW status manually
+sudo ufw status verbose
+
+# If UFW shows unexpected format, restart it
+sudo ufw --force reset
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+```
+
+#### 7. System User Creation Issues
+
+**Problem**: VLESS system user creation fails.
+
+**Solution**:
+The installation script now includes a dedicated `create_vless_system_user()` function that:
+
+- Creates the `vless` group if it doesn't exist
+- Creates the `vless` user with proper permissions
+- Sets up correct home directory and shell restrictions
+- Provides detailed logging for troubleshooting
+
+```bash
+# Manually create VLESS user if needed
+sudo groupadd -r vless
+sudo useradd -r -g vless -s /bin/false -d /opt/vless -c "VLESS VPN Service" vless
 ```
 
 ### Installation Logs

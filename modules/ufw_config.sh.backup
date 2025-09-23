@@ -277,19 +277,15 @@ validate_ufw_config() {
     # Check default policies
     local status_output
     status_output=$(ufw status verbose)
-    log_debug "UFW status output for validation: $status_output"
 
-    # Check incoming policy with multiple possible formats
-    if ! echo "$status_output" | grep -E "(Default: deny \(incoming\)|Default.*deny \(incoming\))" >/dev/null; then
+    if ! echo "$status_output" | grep -q "Default: deny (incoming)"; then
         log_error "Default incoming policy is not deny"
         ((validation_errors++))
     fi
 
-    # Check outgoing policy with multiple possible formats
-    if ! echo "$status_output" | grep -E "(Default: allow \(outgoing\)|Default.*allow \(outgoing\))" >/dev/null; then
-        log_warn "Default outgoing policy may not be set to allow"
-        log_debug "UFW status output: $status_output"
-        # Don't increment errors for outgoing policy as it might be acceptable
+    if ! echo "$status_output" | grep -q "Default: allow (outgoing)"; then
+        log_error "Default outgoing policy is not allow"
+        ((validation_errors++))
     fi
 
     # Check essential rules

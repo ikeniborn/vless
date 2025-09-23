@@ -38,6 +38,9 @@ declare -A TEST_SUITES=(
     ["integration_phase1"]="test_phase1_integration.sh"
     ["security_validation"]="test_security_validation.sh"
     ["performance_benchmarks"]="test_performance_benchmarks.sh"
+    ["installation_fixes"]="test_installation_fixes.sh"
+    ["installation_fixes_edge_cases"]="test_installation_fixes_edge_cases.sh"
+    ["installation_fixes_validation"]="test_installation_fixes_validation.sh"
 )
 
 # Test execution statistics
