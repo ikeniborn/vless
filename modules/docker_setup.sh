@@ -225,8 +225,8 @@ install_docker_repository() {
     echo "deb [arch=${architecture} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" \
         > /etc/apt/sources.list.d/docker.list
 
-    # Update package repositories
-    if ! apt-get update -qq; then
+    # Update package repositories with time sync support
+    if ! safe_apt_update; then
         log_error "Failed to update package repositories after adding Docker repository"
         return 1
     fi
@@ -493,8 +493,8 @@ uninstall_docker() {
     rm -f /etc/apt/sources.list.d/docker.list
     rm -f /etc/apt/keyrings/docker.gpg
 
-    # Update package repositories
-    apt-get update -qq || true
+    # Update package repositories with time sync support
+    safe_apt_update || true
 
     log_warn "Docker uninstalled (Docker data preserved)"
     log_warn "To remove all Docker data, manually delete /var/lib/docker"

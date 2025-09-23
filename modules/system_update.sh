@@ -63,8 +63,8 @@ check_reboot_required() {
 update_package_repositories() {
     log_info "Updating package repositories..."
 
-    # Update package lists
-    if ! apt-get update -qq; then
+    # Update package lists with time sync support
+    if ! safe_apt_update; then
         log_error "Failed to update package repositories"
         return 1
     fi

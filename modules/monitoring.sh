@@ -94,7 +94,7 @@ init_monitoring() {
         log_info "Installing additional monitoring tools"
         install_package_if_missing "htop"
         install_package_if_missing "iotop"
-        install_package_if_missing "nethogs" "apt-get update -qq && apt-get install -y nethogs"
+        install_package_if_missing "nethogs" "safe_apt_update && apt-get install -y nethogs"
     else
         log_info "Skipping optional monitoring tools installation"
     fi

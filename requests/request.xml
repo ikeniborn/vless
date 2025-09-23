@@ -11,15 +11,13 @@
         </architecture>
     </project>
     <context>
-        [2025-09-23 15:07:45] [INFO] Architecture amd64 detected - compatible
-[2025-09-23 15:07:45] [INFO] Updating package repositories...
-E: Release file for http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease is not valid yet (invalid for another 1h 13min 37s). Updates for this repository will not be applied.
-E: Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-updates/InRelease is not valid yet (invalid for another 2h 52min 42s). Updates for this repository will not be applied.
-E: Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-proposed/InRelease is not valid yet (invalid for another 2h 54min 6s). Updates for this repository will not be applied.
-[2025-09-23 15:07:50] [ERROR] Failed to update package repositories
-[2025-09-23 15:07:50] [FATAL] Failed to update package repositories
-[2025-09-23 15:07:50] [ERROR] System update failed
-[2025-09-23 15:07:50] [FATAL] Phase 1 installation failed
+[2025-09-23 16:45:48] [INFO] Updating package repositories...
+E: Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-updates/InRelease is not valid yet (invalid for another 1h 14min 40s). Updates for this repository will not be applied.
+E: Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-proposed/InRelease is not valid yet (invalid for another 1h 16min 4s). Updates for this repository will not be applied.
+[2025-09-23 16:45:53] [ERROR] Failed to update package repositories
+[2025-09-23 16:45:53] [FATAL] Failed to update package repositories
+[2025-09-23 16:45:53] [ERROR] System update failed
+[2025-09-23 16:45:53] [FATAL] Phase 1 installation failed
     </context>
     <requirements>
         <point number="1">Проанализируй ошибку</point>

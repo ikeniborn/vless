@@ -42,6 +42,10 @@ declare -A TEST_SUITES=(
     ["installation_fixes_edge_cases"]="test_installation_fixes_edge_cases.sh"
     ["installation_fixes_validation"]="test_installation_fixes_validation.sh"
     ["phase5_removal"]="test_phase5_removal.sh"
+    ["time_sync_integration"]="test_time_sync_integration.sh"
+    ["apt_safe_update"]="test_apt_safe_update.sh"
+    ["time_sync_functions"]="test_time_sync_functions.sh"
+    ["apt_safe_simple"]="test_apt_safe_simple.sh"
 )
 
 # Test execution statistics

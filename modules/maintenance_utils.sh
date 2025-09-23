@@ -171,9 +171,9 @@ perform_system_updates() {
     # Ensure proper cleanup
     trap 'release_maintenance_lock' EXIT
 
-    # Update package lists
+    # Update package lists with time sync support
     log_info "Updating package lists"
-    apt-get update -qq
+    safe_apt_update
 
     # Check for available updates
     local updates_available

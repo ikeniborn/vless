@@ -1,672 +1,578 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<implementation_plan>
+<plan>
     <metadata>
-        <title>APT Repository Time Synchronization Fix Implementation Plan</title>
-        <version>1.0</version>
-        <created>2025-09-23</created>
+        <timestamp>2025-01-23 17:15:00</timestamp>
         <project>VLESS+Reality VPN Management System</project>
-        <priority>CRITICAL</priority>
+        <issue>APT repository time synchronization error fix</issue>
+        <based_on>/home/ikeniborn/Documents/Project/vless/requests/analyses.xml</based_on>
     </metadata>
 
-    <problem_summary>
+    <executive_summary>
         <description>
-            System time is ahead of repository release file timestamps (showing 2025-09-23 instead of 2025-01-23),
-            causing APT to reject repository updates with "Release file not valid yet" errors during package operations.
+            Implementation plan to fix APT repository time synchronization errors by replacing direct
+            apt-get update calls with the existing safe_apt_update() function that includes automatic
+            time synchronization and intelligent retry mechanisms.
         </description>
-        <impact>
-            <item>Installation cannot proceed without package updates</item>
-            <item>Security updates cannot be applied</item>
-            <item>Dependencies cannot be installed</item>
-            <item>System becomes vulnerable due to outdated packages</item>
-        </impact>
-        <affected_modules>
-            <module>modules/system_update.sh</module>
-            <module>modules/common_utils.sh</module>
-            <module>install.sh (Phase 1)</module>
-        </affected_modules>
-    </problem_summary>
-
-    <solution_strategy>
-        <approach>Multi-layered time synchronization and validation system</approach>
-        <principles>
-            <principle>Proactive time validation before APT operations</principle>
-            <principle>Multiple fallback mechanisms for time synchronization</principle>
-            <principle>Graceful degradation with user awareness</principle>
-            <principle>Compatibility with existing modular architecture</principle>
-            <principle>Process isolation compliance (EPERM prevention)</principle>
-        </principles>
-    </solution_strategy>
+        <current_state>
+            The time synchronization functions are already implemented in common_utils.sh (v1.2.1)
+            but not consistently used throughout the codebase. Direct apt-get update calls still
+            exist in multiple modules, causing potential failures when system time is incorrect.
+        </current_state>
+        <desired_state>
+            All APT operations use safe_apt_update() with automatic time sync detection and retry
+            mechanisms, ensuring reliable package operations regardless of system time accuracy.
+        </desired_state>
+    </executive_summary>
 
     <implementation_phases>
-        <phase number="1" name="Core Time Utilities">
-            <description>Add fundamental time checking and synchronization functions to common_utils.sh</description>
-            <functions>
-                <function name="check_system_time_validity">
-                    <purpose>Validate system time against multiple reliable sources</purpose>
-                    <parameters>
-                        <param name="tolerance_minutes" default="5">Maximum acceptable time drift</param>
-                        <param name="sources_array" default="time_sources">Array of time servers to check</param>
-                    </parameters>
-                    <logic>
-                        <step>Get current system time</step>
-                        <step>Query multiple NTP servers for reference time</step>
-                        <step>Calculate time drift from each source</step>
-                        <step>Return status and drift information</step>
-                    </logic>
-                    <returns>
-                        <return code="0">Time is valid within tolerance</return>
-                        <return code="1">Time drift detected but correctable</return>
-                        <return code="2">Severe time drift or network issues</return>
-                    </returns>
-                </function>
+        <phase number="1" priority="high">
+            <name>Code Analysis and Testing Infrastructure</name>
+            <description>Verify existing implementation and test current functionality</description>
 
-                <function name="sync_system_time">
-                    <purpose>Synchronize system time using multiple methods with fallbacks</purpose>
-                    <parameters>
-                        <param name="method" default="auto">ntp, sntp, ntpdate, or auto</param>
-                        <param name="force" default="false">Force sync even with minor drift</param>
-                    </parameters>
-                    <logic>
-                        <step>Check current time synchronization status</step>
-                        <step>Try primary method (systemd-timesyncd or ntp)</step>
-                        <step>Fall back to sntp if primary fails</step>
-                        <step>Fall back to ntpdate if sntp fails</step>
-                        <step>Fall back to manual HTTP time check</step>
-                        <step>Validate synchronization success</step>
-                    </logic>
-                    <safety_measures>
-                        <measure>Process isolation with timeout controls</measure>
-                        <measure>Signal handlers for clean termination</measure>
-                        <measure>Backup of original time before sync</measure>
-                        <measure>Rollback capability if sync fails</measure>
-                    </safety_measures>
-                </function>
+            <tasks>
+                <task id="1.1" type="analysis">
+                    <description>Verify time sync functions in common_utils.sh are complete</description>
+                    <actions>
+                        <action>Review check_system_time_validity() implementation</action>
+                        <action>Review sync_system_time() implementation</action>
+                        <action>Review detect_time_related_apt_errors() implementation</action>
+                        <action>Review safe_apt_update() implementation</action>
+                        <action>Verify all NTP methods and fallbacks are working</action>
+                    </actions>
+                    <deliverables>
+                        <deliverable>Function completeness verification</deliverable>
+                        <deliverable>Test of time sync methods in isolated environment</deliverable>
+                    </deliverables>
+                </task>
 
-                <function name="get_reference_time">
-                    <purpose>Get reliable reference time from multiple sources</purpose>
-                    <parameters>
-                        <param name="source_type" default="mixed">ntp, http, or mixed</param>
-                        <param name="timeout" default="10">Timeout for each source query</param>
-                    </parameters>
-                    <sources>
-                        <ntp_servers>
-                            <server>pool.ntp.org</server>
-                            <server>time.nist.gov</server>
-                            <server>time.google.com</server>
-                            <server>time.cloudflare.com</server>
-                        </ntp_servers>
-                        <http_sources>
-                            <source>http://worldtimeapi.org/api/timezone/Etc/UTC</source>
-                            <source>https://timeapi.io/api/Time/current/zone?timeZone=UTC</source>
-                        </http_sources>
-                    </sources>
-                </function>
-
-                <function name="install_time_sync_tools">
-                    <purpose>Ensure required time synchronization tools are available</purpose>
-                    <packages>
-                        <primary>systemd-timesyncd</primary>
-                        <fallback>ntp</fallback>
-                        <fallback>sntp</fallback>
-                        <fallback>ntpdate</fallback>
-                    </packages>
-                    <logic>
-                        <step>Check which tools are already installed</step>
-                        <step>Install missing tools based on distribution</step>
-                        <step>Configure basic time synchronization service</step>
-                        <step>Start and enable time sync service</step>
-                    </logic>
-                </function>
-
-                <function name="configure_time_synchronization">
-                    <purpose>Configure system time synchronization services</purpose>
-                    <configurations>
-                        <systemd_timesyncd>
-                            <file>/etc/systemd/timesyncd.conf</file>
-                            <settings>
-                                <setting>NTP=pool.ntp.org time.nist.gov</setting>
-                                <setting>FallbackNTP=time.google.com time.cloudflare.com</setting>
-                                <setting>RootDistanceMaxSec=5</setting>
-                                <setting>PollIntervalMinSec=32</setting>
-                                <setting>PollIntervalMaxSec=2048</setting>
-                            </settings>
-                        </systemd_timesyncd>
-                        <ntp_conf>
-                            <file>/etc/ntp.conf</file>
-                            <servers>
-                                <server>server pool.ntp.org iburst</server>
-                                <server>server time.nist.gov iburst</server>
-                            </servers>
-                        </ntp_conf>
-                    </configurations>
-                </function>
-            </functions>
+                <task id="1.2" type="testing">
+                    <description>Create comprehensive test suite for time sync functionality</description>
+                    <actions>
+                        <action>Create test scenarios for time drift detection</action>
+                        <action>Create test scenarios for APT error pattern matching</action>
+                        <action>Create test scenarios for time sync retry logic</action>
+                        <action>Create integration tests for safe_apt_update()</action>
+                    </actions>
+                    <deliverables>
+                        <deliverable>tests/test_time_sync_integration.sh</deliverable>
+                        <deliverable>tests/test_apt_error_detection.sh</deliverable>
+                        <deliverable>Mock system for controlled testing</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
         </phase>
 
-        <phase number="2" name="APT Integration">
-            <description>Integrate time validation with APT operations in system_update.sh</description>
-            <functions>
-                <function name="safe_apt_update">
-                    <purpose>APT update with automatic time synchronization</purpose>
-                    <parameters>
-                        <param name="max_retries" default="3">Maximum retry attempts</param>
-                        <param name="sync_on_failure" default="true">Auto-sync time on APT failure</param>
-                    </parameters>
-                    <logic>
-                        <step>Pre-flight time validation</step>
-                        <step>Attempt APT update</step>
-                        <step>If time-related error detected, sync time and retry</step>
-                        <step>Log all time synchronization activities</step>
-                        <step>Return appropriate exit codes</step>
-                    </logic>
-                    <error_detection>
-                        <pattern>"Release file.*not valid yet"</pattern>
-                        <pattern>"invalid for another.*"</pattern>
-                        <pattern>"Certificate verification failed.*not yet valid"</pattern>
-                    </error_detection>
-                </function>
+        <phase number="2" priority="high">
+            <name>Code Replacement and Integration</name>
+            <description>Replace direct apt-get calls with safe_apt_update()</description>
 
-                <function name="pre_apt_time_check">
-                    <purpose>Mandatory time check before any APT operation</purpose>
-                    <logic>
-                        <step>Check system time validity</step>
-                        <step>If drift detected, attempt synchronization</step>
-                        <step>If sync fails, warn user and offer options</step>
-                        <step>Log time check results</step>
-                    </logic>
-                    <options_on_failure>
-                        <option>Proceed with time sync disabled (risky)</option>
-                        <option>Manual time correction guidance</option>
-                        <option>Skip APT operations (installation failure)</option>
-                    </options_on_failure>
-                </function>
+            <tasks>
+                <task id="2.1" type="refactoring">
+                    <description>Update system_update.sh module</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/system_update.sh</file>
+                    </files_modified>
+                    <changes>
+                        <change line="67">Replace apt-get update -qq with safe_apt_update()</change>
+                        <change function="update_package_repositories">Use safe_apt_update() instead of direct apt-get</change>
+                    </changes>
+                    <actions>
+                        <action>Replace line 67: apt-get update -qq with safe_apt_update()</action>
+                        <action>Update error handling to work with safe_apt_update() return codes</action>
+                        <action>Add time sync logging for debugging</action>
+                    </actions>
+                </task>
 
-                <function name="enhanced_update_package_repositories">
-                    <purpose>Replace existing update_package_repositories with time-aware version</purpose>
-                    <integration_points>
-                        <point>system_update.sh:update_package_repositories() line 63-74</point>
-                        <point>common_utils.sh:install_package_if_missing() line 279</point>
-                    </integration_points>
-                    <workflow>
-                        <step>Call pre_apt_time_check()</step>
-                        <step>Execute safe_apt_update()</step>
-                        <step>Handle time-specific errors with automatic recovery</step>
-                        <step>Provide detailed logging and user feedback</step>
-                    </workflow>
-                </function>
-            </functions>
+                <task id="2.2" type="refactoring">
+                    <description>Update docker_setup.sh module</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh</file>
+                    </files_modified>
+                    <changes>
+                        <change line="229">Replace apt-get update -qq with safe_apt_update()</change>
+                        <change line="497">Replace apt-get update -qq || true with safe_apt_update() || true</change>
+                    </changes>
+                    <actions>
+                        <action>Update Docker repository setup to use safe_apt_update()</action>
+                        <action>Ensure Docker GPG key operations work with time sync</action>
+                        <action>Add error logging for Docker-specific APT failures</action>
+                    </actions>
+                </task>
+
+                <task id="2.3" type="refactoring">
+                    <description>Update install.sh main installation script</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/install.sh</file>
+                    </files_modified>
+                    <changes>
+                        <change line="95">Replace apt-get update && apt-get install with safe_apt_update() && apt-get install</change>
+                        <change function="install_python_dependencies">Use safe_apt_update() for pip3 installation</change>
+                    </changes>
+                    <actions>
+                        <action>Update pip3 installation to use safe_apt_update()</action>
+                        <action>Add time sync verification before critical installations</action>
+                        <action>Improve error messaging for time-related issues</action>
+                    </actions>
+                </task>
+
+                <task id="2.4" type="refactoring">
+                    <description>Update maintenance_utils.sh module</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh</file>
+                    </files_modified>
+                    <changes>
+                        <change line="176">Replace apt-get update -qq with safe_apt_update()</change>
+                    </changes>
+                    <actions>
+                        <action>Update maintenance routines to use safe_apt_update()</action>
+                        <action>Add time sync checks to scheduled maintenance</action>
+                    </actions>
+                </task>
+
+                <task id="2.5" type="refactoring">
+                    <description>Update monitoring.sh module</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</file>
+                    </files_modified>
+                    <changes>
+                        <change line="97">Update install_package_if_missing call to use safe_apt_update()</change>
+                    </changes>
+                    <actions>
+                        <action>Update monitoring tool installation to use safe_apt_update()</action>
+                        <action>Ensure monitoring continues to work after time sync</action>
+                    </actions>
+                </task>
+
+                <task id="2.6" type="refactoring">
+                    <description>Update common_utils.sh install_package_if_missing function</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
+                    </files_modified>
+                    <changes>
+                        <change line="279">Already uses safe_apt_update() - verify implementation</change>
+                    </changes>
+                    <actions>
+                        <action>Verify install_package_if_missing() correctly uses safe_apt_update()</action>
+                        <action>Add additional error handling for time sync failures</action>
+                        <action>Improve logging for package installation with time sync</action>
+                    </actions>
+                </task>
+            </tasks>
         </phase>
 
-        <phase number="3" name="Error Handling and Recovery">
-            <description>Comprehensive error handling with multiple recovery strategies</description>
-            <functions>
-                <function name="detect_time_related_apt_errors">
-                    <purpose>Parse APT output to identify time synchronization issues</purpose>
-                    <error_patterns>
-                        <pattern regex="true">Release file.*not valid yet.*invalid for another</pattern>
-                        <pattern regex="true">Certificate.*not yet valid</pattern>
-                        <pattern regex="true">InRelease.*not valid yet</pattern>
-                        <pattern regex="true">key.*not yet valid</pattern>
-                    </error_patterns>
-                    <extraction>
-                        <extract>Time difference from error message</extract>
-                        <extract>Affected repositories</extract>
-                        <extract>Certificate or key issues</extract>
-                    </extraction>
-                </function>
+        <phase number="3" priority="medium">
+            <name>Configuration Enhancement</name>
+            <description>Add configuration options and improve time sync robustness</description>
 
-                <function name="time_sync_recovery_procedure">
-                    <purpose>Systematic recovery from time synchronization failures</purpose>
-                    <steps>
-                        <step priority="1">
-                            <action>Quick NTP sync with short timeout</action>
-                            <timeout>30 seconds</timeout>
-                            <fallback>Continue to step 2</fallback>
-                        </step>
-                        <step priority="2">
-                            <action>Install and configure time sync service</action>
-                            <timeout>60 seconds</timeout>
-                            <fallback>Continue to step 3</fallback>
-                        </step>
-                        <step priority="3">
-                            <action>Manual time correction with user guidance</action>
-                            <guidance>Provide specific date/time commands</guidance>
-                            <fallback>Continue to step 4</fallback>
-                        </step>
-                        <step priority="4">
-                            <action>APT bypass with security warnings</action>
-                            <warnings>
-                                <warning>Time validation disabled</warning>
-                                <warning>Security implications explained</warning>
-                                <warning>Recommendation for manual time fix</warning>
-                            </warnings>
-                        </step>
-                    </steps>
-                </function>
+            <tasks>
+                <task id="3.1" type="enhancement">
+                    <description>Add configuration file for time sync settings</description>
+                    <files_created>
+                        <file>/home/ikeniborn/Documents/Project/vless/config/time_sync.conf</file>
+                    </files_created>
+                    <actions>
+                        <action>Create configuration file with time sync parameters</action>
+                        <action>Define NTP server list and timeout settings</action>
+                        <action>Add configuration validation functions</action>
+                    </actions>
+                </task>
 
-                <function name="create_time_sync_restore_point">
-                    <purpose>Create backup of current time settings before changes</purpose>
-                    <backup_items>
-                        <item>/etc/systemd/timesyncd.conf</item>
-                        <item>/etc/ntp.conf</item>
-                        <item>Current system time</item>
-                        <item>Time zone settings</item>
-                        <item>Systemd service states</item>
-                    </backup_items>
-                </function>
+                <task id="3.2" type="enhancement">
+                    <description>Add environment variable support</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
+                    </files_modified>
+                    <actions>
+                        <action>Add TIME_SYNC_SERVERS environment variable support</action>
+                        <action>Add TIME_SYNC_TIMEOUT environment variable</action>
+                        <action>Add TIME_SYNC_MAX_RETRIES environment variable</action>
+                    </actions>
+                </task>
 
-                <function name="rollback_time_configuration">
-                    <purpose>Restore original time settings if synchronization causes issues</purpose>
-                    <triggers>
-                        <trigger>Critical system service failures after time sync</trigger>
-                        <trigger>User requests rollback</trigger>
-                        <trigger>Time sync creates bigger drift</trigger>
-                    </triggers>
-                </function>
-            </functions>
+                <task id="3.3" type="enhancement">
+                    <description>Improve error reporting and logging</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
+                    </files_modified>
+                    <actions>
+                        <action>Add detailed logging for time sync attempts</action>
+                        <action>Add metrics collection for time sync success/failure</action>
+                        <action>Add user-friendly error messages with resolution steps</action>
+                    </actions>
+                </task>
+            </tasks>
         </phase>
 
-        <phase number="4" name="User Experience and Safety">
-            <description>User-friendly interfaces and safety mechanisms</description>
-            <functions>
-                <function name="interactive_time_fix_wizard">
-                    <purpose>Guide users through time synchronization problems</purpose>
-                    <workflow>
-                        <step>Detect and explain the time issue</step>
-                        <step>Show current vs expected time</step>
-                        <step>Offer automatic fix options</step>
-                        <step>Provide manual fix instructions if auto fails</step>
-                        <step>Confirm fix success and continue installation</step>
-                    </workflow>
-                    <user_options>
-                        <option>Automatic time synchronization (recommended)</option>
-                        <option>Manual time correction with guidance</option>
-                        <option>Skip time sync with security warnings</option>
-                        <option>Abort installation for manual intervention</option>
-                    </user_options>
-                </function>
+        <phase number="4" priority="medium">
+            <name>Testing and Validation</name>
+            <description>Comprehensive testing of time sync integration</description>
 
-                <function name="validate_time_sync_safety">
-                    <purpose>Ensure time synchronization won't break running services</purpose>
-                    <checks>
-                        <check>Running database services with time-sensitive operations</check>
-                        <check>Active VPN connections that might timeout</check>
-                        <check>Scheduled tasks that depend on current time</check>
-                        <check>SSL certificates near expiration</check>
-                    </checks>
-                    <safety_measures>
-                        <measure>Gradual time adjustment instead of instant jump</measure>
-                        <measure>Service-aware time synchronization</measure>
-                        <measure>Rollback capability within time window</measure>
-                    </safety_measures>
-                </function>
+            <tasks>
+                <task id="4.1" type="testing">
+                    <description>Unit testing for all modified functions</description>
+                    <actions>
+                        <action>Test safe_apt_update() with various time scenarios</action>
+                        <action>Test time sync functions with different NTP configurations</action>
+                        <action>Test error detection and retry mechanisms</action>
+                        <action>Test fallback scenarios when all time sync methods fail</action>
+                    </actions>
+                </task>
 
-                <function name="log_time_sync_activities">
-                    <purpose>Comprehensive logging of all time-related operations</purpose>
-                    <log_levels>
-                        <level name="INFO">Successful time synchronization</level>
-                        <level name="WARN">Time drift detected and corrected</level>
-                        <level name="ERROR">Time synchronization failures</level>
-                        <level name="DEBUG">Detailed sync process information</level>
-                    </log_levels>
-                    <log_format>
-                        <field>Timestamp (before/after sync)</field>
-                        <field>Time source used</field>
-                        <field>Drift amount</field>
-                        <field>Method used</field>
-                        <field>Success/failure status</field>
-                        <field>Impact on APT operations</field>
-                    </log_format>
-                </function>
-            </functions>
+                <task id="4.2" type="integration_testing">
+                    <description>Integration testing with full installation process</description>
+                    <actions>
+                        <action>Test installation with incorrect system time</action>
+                        <action>Test installation with blocked NTP access</action>
+                        <action>Test installation with network connectivity issues</action>
+                        <action>Test automated recovery from time-related APT failures</action>
+                    </actions>
+                </task>
+
+                <task id="4.3" type="performance_testing">
+                    <description>Performance impact assessment</description>
+                    <actions>
+                        <action>Measure time sync overhead on installation process</action>
+                        <action>Test timeout behavior under various network conditions</action>
+                        <action>Validate minimal performance impact in normal conditions</action>
+                    </actions>
+                </task>
+            </tasks>
+        </phase>
+
+        <phase number="5" priority="low">
+            <name>Documentation and Maintenance</name>
+            <description>Update documentation and create maintenance procedures</description>
+
+            <tasks>
+                <task id="5.1" type="documentation">
+                    <description>Update CLAUDE.md with implementation details</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/CLAUDE.md</file>
+                    </files_modified>
+                    <actions>
+                        <action>Document the implemented time sync integration</action>
+                        <action>Add troubleshooting section for time-related issues</action>
+                        <action>Update configuration examples</action>
+                    </actions>
+                </task>
+
+                <task id="5.2" type="documentation">
+                    <description>Create troubleshooting guide</description>
+                    <files_created>
+                        <file>/home/ikeniborn/Documents/Project/vless/docs/time_sync_troubleshooting.md</file>
+                    </files_created>
+                    <actions>
+                        <action>Document common time sync issues and solutions</action>
+                        <action>Create diagnostic commands for time sync problems</action>
+                        <action>Add manual time sync procedures</action>
+                    </actions>
+                </task>
+            </tasks>
         </phase>
     </implementation_phases>
 
-    <integration_points>
-        <existing_functions>
-            <function file="modules/common_utils.sh" line="269-288">
-                <name>install_package_if_missing</name>
-                <change_type>Enhancement</change_type>
-                <modification>Add pre_apt_time_check() call before apt-get update</modification>
-                <new_logic>
-                    <before>apt-get update -qq && apt-get install -y "$package"</before>
-                    <after>pre_apt_time_check && safe_apt_update && apt-get install -y "$package"</after>
-                </new_logic>
-            </function>
+    <technical_specifications>
+        <current_implementation>
+            <functions_available>
+                <function name="check_system_time_validity()">
+                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:296</location>
+                    <status>Implemented</status>
+                    <description>Validates system time against NTP sources with configurable tolerance</description>
+                </function>
+                <function name="sync_system_time()">
+                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:376</location>
+                    <status>Implemented</status>
+                    <description>Multi-method time synchronization with fallbacks</description>
+                </function>
+                <function name="detect_time_related_apt_errors()">
+                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:484</location>
+                    <status>Implemented</status>
+                    <description>Pattern matching for time-related APT errors</description>
+                </function>
+                <function name="safe_apt_update()">
+                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:514</location>
+                    <status>Implemented</status>
+                    <description>APT update with automatic time sync retry</description>
+                </function>
+            </functions_available>
 
-            <function file="modules/system_update.sh" line="63-74">
-                <name>update_package_repositories</name>
-                <change_type>Replacement</change_type>
-                <modification>Replace with enhanced_update_package_repositories</modification>
-                <backward_compatibility>Maintain same interface and return codes</backward_compatibility>
-            </function>
+            <configuration_variables>
+                <variable name="TIME_SYNC_ENABLED" default="true" location="line 291"/>
+                <variable name="TIME_TOLERANCE_SECONDS" default="300" location="line 292"/>
+                <variable name="NTP_SERVERS" default="pool.ntp.org,time.nist.gov,time.google.com,time.cloudflare.com" location="line 293"/>
+            </configuration_variables>
 
-            <function file="modules/system_update.sh" line="117-163">
-                <name>install_essential_packages</name>
-                <change_type>Enhancement</change_type>
-                <modification>Add time validation before bulk package installation</modification>
-            </function>
+            <synchronization_methods>
+                <method priority="1">systemd-timesyncd (timedatectl)</method>
+                <method priority="2">ntpdate</method>
+                <method priority="3">sntp</method>
+                <method priority="4">chrony</method>
+                <method priority="5">Web API fallback (worldtimeapi.org)</method>
+            </synchronization_methods>
+        </current_implementation>
 
-            <function file="modules/system_update.sh" line="393-449">
-                <name>perform_system_update</name>
-                <change_type>Enhancement</change_type>
-                <modification>Add time synchronization check at the beginning</modification>
-                <new_step>Insert time validation after network connectivity check</new_step>
-            </function>
-        </existing_functions>
-
-        <new_module_additions>
-            <file>modules/common_utils.sh</file>
-            <location>After line 288 (end of install_package_if_missing function)</location>
-            <functions>
-                <function>check_system_time_validity</function>
-                <function>sync_system_time</function>
-                <function>get_reference_time</function>
-                <function>install_time_sync_tools</function>
-                <function>configure_time_synchronization</function>
-                <function>pre_apt_time_check</function>
-                <function>safe_apt_update</function>
-                <function>detect_time_related_apt_errors</function>
-                <function>time_sync_recovery_procedure</function>
-                <function>interactive_time_fix_wizard</function>
-                <function>validate_time_sync_safety</function>
-                <function>log_time_sync_activities</function>
-            </functions>
-        </new_module_additions>
-    </integration_points>
-
-    <configuration_changes>
-        <environment_variables>
-            <variable name="TIME_SYNC_ENABLED" default="true">Enable/disable automatic time synchronization</variable>
-            <variable name="TIME_SYNC_TOLERANCE" default="300">Maximum acceptable time drift in seconds</variable>
-            <variable name="TIME_SYNC_SERVERS" default="pool.ntp.org,time.nist.gov">Comma-separated list of NTP servers</variable>
-            <variable name="TIME_SYNC_TIMEOUT" default="30">Timeout for time synchronization operations</variable>
-            <variable name="APT_TIME_CHECK" default="true">Enable pre-APT time validation</variable>
-            <variable name="TIME_SYNC_RETRY_COUNT" default="3">Number of retry attempts for time sync</variable>
-        </environment_variables>
-
-        <configuration_files>
-            <file path="/etc/systemd/timesyncd.conf">
-                <purpose>Configure systemd time synchronization</purpose>
-                <backup>true</backup>
-                <template>modules/config_templates.sh</template>
+        <files_requiring_modification>
+            <file path="/home/ikeniborn/Documents/Project/vless/modules/system_update.sh">
+                <changes_needed>
+                    <change type="function_call" line="67">Replace apt-get update -qq with safe_apt_update()</change>
+                    <change type="error_handling">Update error handling for safe_apt_update() return codes</change>
+                </changes_needed>
+                <impact>High - Core system update functionality</impact>
             </file>
 
-            <file path="/etc/ntp.conf">
-                <purpose>Configure NTP daemon (fallback)</purpose>
-                <backup>true</backup>
-                <conditional>Only if systemd-timesyncd not available</conditional>
+            <file path="/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh">
+                <changes_needed>
+                    <change type="function_call" line="229">Replace apt-get update -qq with safe_apt_update()</change>
+                    <change type="function_call" line="497">Replace apt-get update -qq || true with safe_apt_update() || true</change>
+                </changes_needed>
+                <impact>High - Docker installation failure affects entire system</impact>
             </file>
-        </configuration_files>
-    </configuration_changes>
+
+            <file path="/home/ikeniborn/Documents/Project/vless/install.sh">
+                <changes_needed>
+                    <change type="function_call" line="95">Replace apt-get update && apt-get install with safe_apt_update() && apt-get install</change>
+                </changes_needed>
+                <impact>High - Main installation script entry point</impact>
+            </file>
+
+            <file path="/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh">
+                <changes_needed>
+                    <change type="function_call" line="176">Replace apt-get update -qq with safe_apt_update()</change>
+                </changes_needed>
+                <impact>Medium - Scheduled maintenance operations</impact>
+            </file>
+
+            <file path="/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh">
+                <changes_needed>
+                    <change type="function_call" line="97">Update install_package_if_missing call to use safe_apt_update()</change>
+                </changes_needed>
+                <impact>Low - Monitoring tool installation</impact>
+            </file>
+        </files_requiring_modification>
+
+        <integration_points>
+            <point name="Phase 1 Installation">
+                <description>Core infrastructure setup where APT failures are critical</description>
+                <modules>system_update.sh, docker_setup.sh, install.sh</modules>
+                <priority>Critical</priority>
+            </point>
+
+            <point name="Package Installation">
+                <description>Individual package installations via install_package_if_missing()</description>
+                <modules>common_utils.sh</modules>
+                <priority>High</priority>
+            </point>
+
+            <point name="Maintenance Operations">
+                <description>Scheduled maintenance and monitoring tool installation</description>
+                <modules>maintenance_utils.sh, monitoring.sh</modules>
+                <priority>Medium</priority>
+            </point>
+        </integration_points>
+    </technical_specifications>
 
     <testing_strategy>
-        <test_categories>
-            <category name="Unit Tests">
-                <test name="test_time_validity_check">
-                    <description>Test time validation against known good/bad times</description>
-                    <scenarios>
-                        <scenario>System time matches reference (should pass)</scenario>
-                        <scenario>System time 1 hour ahead (should fail)</scenario>
-                        <scenario>System time 1 minute ahead (should pass with tolerance)</scenario>
-                        <scenario>Network unavailable (should handle gracefully)</scenario>
-                    </scenarios>
-                </test>
+        <test_environments>
+            <environment name="time_drift_simulation">
+                <description>System with deliberately incorrect time (1+ hours off)</description>
+                <purpose>Test automatic time sync detection and correction</purpose>
+                <setup>Set system time manually, block NTP initially</setup>
+            </environment>
 
-                <test name="test_time_synchronization">
-                    <description>Test various time sync methods</description>
-                    <scenarios>
-                        <scenario>systemd-timesyncd available and working</scenario>
-                        <scenario>Fall back to ntpdate</scenario>
-                        <scenario>Fall back to sntp</scenario>
-                        <scenario>All sync methods fail</scenario>
-                    </scenarios>
-                </test>
+            <environment name="network_restricted">
+                <description>System with limited network access (NTP blocked)</description>
+                <purpose>Test fallback mechanisms and web API time sync</purpose>
+                <setup>Use iptables to block NTP ports, allow HTTP</setup>
+            </environment>
 
-                <test name="test_apt_error_detection">
-                    <description>Test parsing of APT time-related errors</description>
-                    <error_samples>
-                        <sample>Release file for http://security.ubuntu.com/ubuntu/dists/noble-security/InRelease is not valid yet (invalid for another 1h 13min 37s)</sample>
-                        <sample>Certificate verification failed: certificate is not yet valid</sample>
-                    </error_samples>
-                </test>
-            </category>
+            <environment name="completely_offline">
+                <description>System without internet access</description>
+                <purpose>Test graceful degradation when time sync impossible</purpose>
+                <setup>Disconnect network entirely</setup>
+            </environment>
+        </test_environments>
 
-            <category name="Integration Tests">
-                <test name="test_apt_with_time_sync">
-                    <description>End-to-end APT operations with time sync</description>
-                    <steps>
-                        <step>Set system time to future date</step>
-                        <step>Attempt APT update (should fail)</step>
-                        <step>Verify automatic time sync trigger</step>
-                        <step>Verify successful APT update after sync</step>
-                    </steps>
-                </test>
+        <test_scenarios>
+            <scenario name="fresh_installation_with_time_drift">
+                <description>Complete installation on system with incorrect time</description>
+                <steps>
+                    <step>Set system time 2 hours behind</step>
+                    <step>Run ./install.sh --quick</step>
+                    <step>Verify automatic time correction occurs</step>
+                    <step>Verify installation completes successfully</step>
+                </steps>
+                <expected_outcome>Installation succeeds with automatic time correction</expected_outcome>
+            </scenario>
 
-                <test name="test_installation_with_time_issues">
-                    <description>Full installation flow with time synchronization problems</description>
-                    <scenarios>
-                        <scenario>Clean installation with correct time</scenario>
-                        <scenario>Installation with time ahead (auto-recovery)</scenario>
-                        <scenario>Installation with no network for time sync</scenario>
-                        <scenario>Installation with time sync tools missing</scenario>
-                    </scenarios>
-                </test>
-            </category>
+            <scenario name="apt_repository_future_timestamp">
+                <description>Simulate APT repository with future timestamps</description>
+                <steps>
+                    <step>Set system time significantly behind</step>
+                    <step>Attempt APT update</step>
+                    <step>Verify time-related error detection</step>
+                    <step>Verify automatic retry with time sync</step>
+                </steps>
+                <expected_outcome>APT update succeeds after time sync</expected_outcome>
+            </scenario>
 
-            <category name="Error Handling Tests">
-                <test name="test_recovery_procedures">
-                    <description>Test error recovery and fallback mechanisms</description>
-                    <failure_modes>
-                        <mode>NTP servers unreachable</mode>
-                        <mode>Time sync tools not installable</mode>
-                        <mode>Permission denied for time changes</mode>
-                        <mode>System time locked by hardware</mode>
-                    </failure_modes>
-                </test>
+            <scenario name="ntp_server_unreachable">
+                <description>Test behavior when NTP servers are unreachable</description>
+                <steps>
+                    <step>Block NTP traffic in firewall</step>
+                    <step>Trigger APT update with time drift</step>
+                    <step>Verify fallback to web API time sync</step>
+                    <step>Verify graceful degradation if all methods fail</step>
+                </steps>
+                <expected_outcome>Fallback methods work or graceful degradation occurs</expected_outcome>
+            </scenario>
+        </test_scenarios>
 
-                <test name="test_user_interaction">
-                    <description>Test interactive time fix wizard</description>
-                    <interactions>
-                        <interaction>User chooses automatic fix</interaction>
-                        <interaction>User chooses manual fix</interaction>
-                        <interaction>User chooses to skip time sync</interaction>
-                        <interaction>User aborts installation</interaction>
-                    </interactions>
-                </test>
-            </category>
-
-            <category name="Performance Tests">
-                <test name="test_time_check_performance">
-                    <description>Ensure time checks don't significantly slow installation</description>
-                    <benchmarks>
-                        <benchmark>Time validation should complete within 10 seconds</benchmark>
-                        <benchmark>Time synchronization should complete within 30 seconds</benchmark>
-                        <benchmark>APT operations with time checks should add &lt; 5% overhead</benchmark>
-                    </benchmarks>
-                </test>
-            </category>
-
-            <category name="Security Tests">
-                <test name="test_time_sync_security">
-                    <description>Verify time sync doesn't introduce security vulnerabilities</description>
-                    <checks>
-                        <check>NTP queries use secure protocols when available</check>
-                        <check>Time sources are validated before use</check>
-                        <check>Time changes are logged for audit trail</check>
-                        <check>No sensitive information leaked in time sync operations</check>
-                    </checks>
-                </test>
-            </category>
-        </test_categories>
-
-        <test_execution>
-            <environment_setup>
-                <step>Create isolated test environment</step>
-                <step>Mock time sources for controlled testing</step>
-                <step>Setup test APT repositories with known timestamps</step>
-                <step>Configure test logging and monitoring</step>
-            </environment_setup>
-
-            <automation>
-                <framework>Bash test framework with mock utilities</framework>
-                <ci_integration>Add to existing test suite in tests/</ci_integration>
-                <coverage_target>90% function coverage for time-related functions</coverage_target>
-            </automation>
-
-            <manual_testing>
-                <scenarios>
-                    <scenario>Test on fresh Ubuntu 20.04/22.04 systems</scenario>
-                    <scenario>Test on systems with incorrect time zones</scenario>
-                    <scenario>Test on systems with hardware clock issues</scenario>
-                    <scenario>Test on systems behind restrictive firewalls</scenario>
-                </scenarios>
-            </manual_testing>
-        </test_execution>
+        <validation_criteria>
+            <criterion>All direct apt-get update calls replaced with safe_apt_update()</criterion>
+            <criterion>Time sync functions work with multiple NTP sources</criterion>
+            <criterion>APT error detection correctly identifies time-related issues</criterion>
+            <criterion>Automatic retry mechanisms function correctly</criterion>
+            <criterion>Installation succeeds with incorrect initial system time</criterion>
+            <criterion>Performance impact is minimal (&lt;30 seconds additional time)</criterion>
+            <criterion>Graceful degradation when time sync is impossible</criterion>
+        </validation_criteria>
     </testing_strategy>
-
-    <deployment_strategy>
-        <rollout_phases>
-            <phase name="Development">
-                <duration>3-5 days</duration>
-                <deliverables>
-                    <deliverable>Enhanced common_utils.sh with time functions</deliverable>
-                    <deliverable>Updated system_update.sh with time validation</deliverable>
-                    <deliverable>Comprehensive test suite</deliverable>
-                    <deliverable>Documentation updates</deliverable>
-                </deliverables>
-            </phase>
-
-            <phase name="Testing">
-                <duration>2-3 days</duration>
-                <activities>
-                    <activity>Unit test execution and validation</activity>
-                    <activity>Integration testing with existing modules</activity>
-                    <activity>Performance benchmarking</activity>
-                    <activity>Security review</activity>
-                </activities>
-            </phase>
-
-            <phase name="Staging">
-                <duration>1-2 days</duration>
-                <activities>
-                    <activity>Deploy to staging environment</activity>
-                    <activity>End-to-end testing with real time issues</activity>
-                    <activity>User acceptance testing</activity>
-                    <activity>Documentation review</activity>
-                </activities>
-            </phase>
-
-            <phase name="Production">
-                <duration>1 day</duration>
-                <activities>
-                    <activity>Deploy to production repositories</activity>
-                    <activity>Update installation documentation</activity>
-                    <activity>Monitor initial deployments</activity>
-                    <activity>Provide user support and bug fixes</activity>
-                </activities>
-            </phase>
-        </rollout_phases>
-
-        <backward_compatibility>
-            <requirements>
-                <requirement>Existing installations must continue to work</requirement>
-                <requirement>No breaking changes to module interfaces</requirement>
-                <requirement>Graceful degradation if time sync is disabled</requirement>
-                <requirement>Optional time sync for environments where it's not needed</requirement>
-            </requirements>
-
-            <migration_strategy>
-                <step>Deploy new functions as additions to existing modules</step>
-                <step>Update installation scripts to use new time-aware functions</step>
-                <step>Maintain old function names as wrappers for compatibility</step>
-                <step>Add deprecation warnings for old time-unaware functions</step>
-            </migration_strategy>
-        </backward_compatibility>
-    </deployment_strategy>
 
     <risk_assessment>
         <risks>
-            <risk level="HIGH">
-                <description>Time synchronization breaks running services</description>
-                <mitigation>
-                    <item>Validate system state before time changes</item>
-                    <item>Use gradual time adjustment when possible</item>
-                    <item>Provide rollback mechanisms</item>
-                    <item>Test thoroughly in isolated environments</item>
-                </mitigation>
+            <risk level="low" category="functional">
+                <description>Time sync operations may add delay to installation process</description>
+                <mitigation>Implement reasonable timeouts (10-30 seconds per attempt)</mitigation>
+                <impact>Minor increase in installation time</impact>
             </risk>
 
-            <risk level="MEDIUM">
-                <description>Network unavailable for time synchronization</description>
-                <mitigation>
-                    <item>Provide offline time validation options</item>
-                    <item>Allow manual time correction</item>
-                    <item>Graceful degradation with warnings</item>
-                    <item>Cache last known good time sources</item>
-                </mitigation>
+            <risk level="low" category="compatibility">
+                <description>NTP methods may not work in all environments</description>
+                <mitigation>Multiple fallback methods including web API</mitigation>
+                <impact>Reduced time sync accuracy in restricted environments</impact>
             </risk>
 
-            <risk level="MEDIUM">
-                <description>Time sync tools unavailable or broken</description>
-                <mitigation>
-                    <item>Multiple fallback mechanisms</item>
-                    <item>HTTP-based time sources as last resort</item>
-                    <item>Manual time correction guidance</item>
-                    <item>Option to skip time sync with warnings</item>
-                </mitigation>
+            <risk level="medium" category="operational">
+                <description>Time sync failure could block critical operations</description>
+                <mitigation>Graceful degradation - continue operation with warnings</mitigation>
+                <impact>User may need manual time correction in extreme cases</impact>
             </risk>
 
-            <risk level="LOW">
-                <description>Performance impact on installation</description>
-                <mitigation>
-                    <item>Optimize time check operations</item>
-                    <item>Use timeouts to prevent hanging</item>
-                    <item>Cache time validation results</item>
-                    <item>Parallel time source queries</item>
-                </mitigation>
+            <risk level="low" category="security">
+                <description>Web API fallback could be blocked by strict firewalls</description>
+                <mitigation>Multiple web services as fallbacks</mitigation>
+                <impact>Time sync may fail in highly restricted environments</impact>
             </risk>
         </risks>
 
-        <success_criteria>
-            <criterion>APT operations succeed even with incorrect system time</criterion>
-            <criterion>Installation completes successfully on systems with time drift</criterion>
-            <criterion>User receives clear guidance for time-related issues</criterion>
-            <criterion>System time is automatically corrected when possible</criterion>
-            <criterion>No breaking changes to existing functionality</criterion>
-            <criterion>Performance impact is minimal (&lt; 5% installation time increase)</criterion>
-        </success_criteria>
+        <dependencies>
+            <dependency type="system">Network connectivity for NTP or web API access</dependency>
+            <dependency type="system">Root privileges for system time modification</dependency>
+            <dependency type="package">curl for web API fallback time sync</dependency>
+            <dependency type="optional">ntpdate, sntp, or chrony for traditional NTP sync</dependency>
+        </dependencies>
     </risk_assessment>
 
-    <monitoring_and_maintenance>
-        <monitoring_points>
-            <point>Time synchronization success/failure rates</point>
-            <point>APT operation failure rates due to time issues</point>
-            <point>Time drift detection frequency</point>
-            <point>User interaction choices in time fix wizard</point>
-            <point>Performance impact measurements</point>
-        </monitoring_points>
+    <success_criteria>
+        <criteria>
+            <criterion priority="critical">
+                Installation succeeds on systems with incorrect time (1+ hours drift)
+            </criterion>
+            <criterion priority="critical">
+                All APT repository errors caused by time drift are automatically resolved
+            </criterion>
+            <criterion priority="high">
+                No direct apt-get update calls remain in the codebase
+            </criterion>
+            <criterion priority="high">
+                Time sync functions work reliably across different environments
+            </criterion>
+            <criterion priority="medium">
+                Installation time increase is minimal (&lt;30 seconds in worst case)
+            </criterion>
+            <criterion priority="medium">
+                Comprehensive error logging provides clear diagnostic information
+            </criterion>
+            <criterion priority="low">
+                Configuration options allow customization of time sync behavior
+            </criterion>
+        </criteria>
 
-        <maintenance_tasks>
-            <task frequency="monthly">Review time synchronization logs for patterns</task>
-            <task frequency="quarterly">Update NTP server lists and configurations</task>
-            <task frequency="annually">Review and update time validation thresholds</task>
-            <task frequency="as_needed">Respond to user reports of time-related issues</task>
-        </maintenance_tasks>
+        <acceptance_tests>
+            <test name="time_drift_installation">
+                <description>Install VLESS system on server with 2-hour time drift</description>
+                <pass_condition>Installation completes successfully with automatic time correction</pass_condition>
+            </test>
+            <test name="ntp_blocked_installation">
+                <description>Install VLESS system with NTP ports blocked</description>
+                <pass_condition>Installation completes using web API time sync fallback</pass_condition>
+            </test>
+            <test name="offline_installation">
+                <description>Install VLESS system without internet access</description>
+                <pass_condition>Installation continues with time sync warnings but does not fail</pass_condition>
+            </test>
+            <test name="code_coverage">
+                <description>Verify all apt-get update calls are replaced</description>
+                <pass_condition>No direct apt-get update calls found in source code scan</pass_condition>
+            </test>
+        </acceptance_tests>
+    </success_criteria>
 
-        <escalation_procedures>
-            <level name="Level 1">
-                <trigger>Single user reports time sync issues</trigger>
-                <response>Provide troubleshooting guidance and log analysis</response>
-            </level>
-            <level name="Level 2">
-                <trigger>Multiple users report similar time sync issues</trigger>
-                <response>Investigate potential systemic issues and update configurations</response>
-            </level>
-            <level name="Level 3">
-                <trigger>Widespread time sync failures affecting installation success</trigger>
-                <response>Emergency patch deployment and communication to user base</response>
-            </level>
-        </escalation_procedures>
-    </monitoring_and_maintenance>
-</implementation_plan>
+    <implementation_timeline>
+        <milestones>
+            <milestone name="Phase 1 Complete" target_date="Day 1">
+                <deliverables>
+                    <deliverable>Code analysis completed</deliverable>
+                    <deliverable>Test infrastructure ready</deliverable>
+                    <deliverable>Time sync functions verified</deliverable>
+                </deliverables>
+            </milestone>
+
+            <milestone name="Phase 2 Complete" target_date="Day 2">
+                <deliverables>
+                    <deliverable>All modules updated to use safe_apt_update()</deliverable>
+                    <deliverable>Basic integration testing completed</deliverable>
+                    <deliverable>Error handling updated</deliverable>
+                </deliverables>
+            </milestone>
+
+            <milestone name="Phase 3 Complete" target_date="Day 3">
+                <deliverables>
+                    <deliverable>Configuration enhancements implemented</deliverable>
+                    <deliverable>Improved logging and error reporting</deliverable>
+                    <deliverable>Environment variable support added</deliverable>
+                </deliverables>
+            </milestone>
+
+            <milestone name="Phase 4 Complete" target_date="Day 4">
+                <deliverables>
+                    <deliverable>Comprehensive testing completed</deliverable>
+                    <deliverable>Performance validation completed</deliverable>
+                    <deliverable>Edge case handling verified</deliverable>
+                </deliverables>
+            </milestone>
+
+            <milestone name="Implementation Complete" target_date="Day 5">
+                <deliverables>
+                    <deliverable>Documentation updated</deliverable>
+                    <deliverable>Troubleshooting guide created</deliverable>
+                    <deliverable>All acceptance tests passing</deliverable>
+                </deliverables>
+            </milestone>
+        </milestones>
+    </implementation_timeline>
+
+    <next_steps>
+        <immediate_actions>
+            <action priority="1">Begin Phase 1: Verify existing time sync implementation works correctly</action>
+            <action priority="2">Create test environment with time drift to validate current functionality</action>
+            <action priority="3">Start systematic replacement of apt-get update calls in system_update.sh</action>
+        </immediate_actions>
+
+        <preparation_tasks>
+            <task>Set up virtual machine with controllable system time for testing</task>
+            <task>Create backup of all modules before modification</task>
+            <task>Prepare test scripts for validation of each modified module</task>
+        </preparation_tasks>
+    </next_steps>
+</plan>

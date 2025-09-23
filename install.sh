@@ -92,7 +92,7 @@ install_python_dependencies() {
     # Ensure pip is installed
     if ! command_exists pip3; then
         log_info "Installing pip3..."
-        apt-get update && apt-get install -y python3-pip
+        safe_apt_update && apt-get install -y python3-pip
     fi
 
     # Upgrade pip to latest version
