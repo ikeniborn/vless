@@ -1,81 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <timestamp>2025-01-23 16:45:00</timestamp>
-    <project>VLESS+Reality VPN Management System</project>
-    <issue>
-        <description>APT repository update failure during Phase 1 installation</description>
-        <error_message>Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-updates/InRelease is not valid yet (invalid for another 1h 14min 40s)</error_message>
-        <phase>Phase 1 - Core Infrastructure</phase>
-        <module>system_update or installation script</module>
-    </issue>
+    <problem_description>
+        APT repository updates fail with "Release file... is not valid yet" errors, indicating system time is behind actual time by approximately 8-10 minutes. The current chrony-based time synchronization appears to complete successfully but doesn't actually correct the time offset.
+    </problem_description>
 
     <root_cause>
-        <primary>System clock is behind real time by approximately 1 hour 15 minutes</primary>
-        <details>
-            <point>APT repository metadata has timestamps in the future relative to system clock</point>
-            <point>APT security mechanism rejects metadata that appears to be from the future</point>
-            <point>This prevents package repository updates and installations</point>
-        </details>
+        <issue number="1">
+            <description>Chrony reports success but doesn't sync time</description>
+            <details>The chrony sources output shows "^? 193.109.69.144 0 7 0 - +0ns[ +0ns] +/- 0ns" where '?' indicates unreachable source and Stratum 0 means invalid time source</details>
+        </issue>
+        <issue number="2">
+            <description>Single NTP server configuration</description>
+            <details>Only one NTP server is configured, and if it's unreachable, chrony has no fallback</details>
+        </issue>
+        <issue number="3">
+            <description>No synchronization status verification</description>
+            <details>The code doesn't verify that chrony actually achieved synchronization, only that commands executed</details>
+        </issue>
+        <issue number="4">
+            <description>Insufficient wait time for synchronization</description>
+            <details>The code waits only 8 seconds after burst mode, which may not be enough for synchronization</details>
+        </issue>
     </root_cause>
 
-    <existing_solution>
-        <reference>CLAUDE.md v1.2.1 - Time Synchronization Enhancement</reference>
-        <documented_features>
-            <feature>check_system_time_validity() - Validates system time against NTP</feature>
-            <feature>sync_system_time() - Multi-method time synchronization</feature>
-            <feature>detect_time_related_apt_errors() - APT error pattern detection</feature>
-            <feature>safe_apt_update() - APT update with automatic time sync retry</feature>
-        </documented_features>
-        <status>Features documented but implementation appears missing or not integrated</status>
-    </existing_solution>
+    <solution_options>
+        <option number="1" rating="9">
+            <name>Enhanced Chrony Configuration</name>
+            <description>Configure multiple NTP servers, add proper synchronization verification, extend wait times</description>
+            <pros>
+                <pro>Uses existing chrony infrastructure</pro>
+                <pro>Reliable with multiple server fallback</pro>
+                <pro>Proper verification ensures success</pro>
+            </pros>
+            <cons>
+                <con>Requires chrony service management</con>
+            </cons>
+        </option>
+        <option number="2" rating="7">
+            <name>Direct Time Setting via timedatectl</name>
+            <description>Use timedatectl to directly set time from web API before chrony sync</description>
+            <pros>
+                <pro>Immediate time correction</pro>
+                <pro>Bypasses NTP synchronization delays</pro>
+            </pros>
+            <cons>
+                <con>Less precise than NTP</con>
+                <con>Requires disabling NTP temporarily</con>
+            </cons>
+        </option>
+        <option number="3" rating="6">
+            <name>Force Step with ntpdate</name>
+            <description>Use ntpdate to force immediate time step before chrony</description>
+            <pros>
+                <pro>Immediate correction</pro>
+                <pro>Standard NTP protocol</pro>
+            </pros>
+            <cons>
+                <con>ntpdate is deprecated</con>
+                <con>May not be installed</con>
+            </cons>
+        </option>
+        <option number="4" rating="8">
+            <name>Web API Fallback Enhancement</name>
+            <description>Improve web API fallback to be primary method when offset is detected</description>
+            <pros>
+                <pro>Always available with internet</pro>
+                <pro>Works regardless of NTP blocks</pro>
+            </pros>
+            <cons>
+                <con>Less precise than NTP</con>
+                <con>Depends on external services</con>
+            </cons>
+        </option>
+    </solution_options>
 
-    <technical_requirements>
-        <requirement priority="1">
-            <description>Implement time synchronization functions in common_utils.sh</description>
-            <functions>
-                <function>check_system_time_validity()</function>
-                <function>sync_system_time()</function>
-                <function>detect_time_related_apt_errors()</function>
-                <function>safe_apt_update()</function>
-            </functions>
-        </requirement>
-        <requirement priority="2">
-            <description>Integrate time sync into installation process</description>
-            <changes>
-                <change>Replace direct apt-get update calls with safe_apt_update()</change>
-                <change>Add time validation before critical operations</change>
-            </changes>
-        </requirement>
-        <requirement priority="3">
-            <description>Add configuration options for time sync behavior</description>
-            <configs>
-                <config>TIME_SYNC_ENABLED (default: true)</config>
-                <config>TIME_TOLERANCE_SECONDS (default: 300)</config>
-                <config>TIME_SYNC_SERVERS (custom NTP servers)</config>
-            </configs>
-        </requirement>
-    </technical_requirements>
+    <selected_solution>
+        <option_number>1</option_number>
+        <rationale>Option 1 provides the most reliable and maintainable solution by enhancing the existing chrony implementation with proper multi-server configuration, synchronization verification, and adequate wait times</rationale>
+    </selected_solution>
 
-    <implementation_approach>
-        <step number="1">Check if time sync functions exist in common_utils.sh</step>
-        <step number="2">Implement missing functions with multiple synchronization methods</step>
-        <step number="3">Update installation script to use safe_apt_update()</step>
-        <step number="4">Add error detection and automatic retry mechanism</step>
-        <step number="5">Test time synchronization with various scenarios</step>
-    </implementation_approach>
-
-    <synchronization_methods>
-        <method priority="1">systemd-timesyncd (most common on modern systems)</method>
-        <method priority="2">ntpdate (legacy but reliable)</method>
-        <method priority="3">sntp (simple NTP client)</method>
-        <method priority="4">chronyd (alternative NTP daemon)</method>
-        <method priority="5">Web API fallback (worldtimeapi.org)</method>
-    </synchronization_methods>
-
-    <expected_outcome>
-        <point>Automatic detection of time drift before APT operations</point>
-        <point>Seamless time synchronization without user intervention</point>
-        <point>Graceful recovery from time-related APT errors</point>
-        <point>Installation process continues without manual time adjustment</point>
-    </expected_outcome>
+    <implementation_requirements>
+        <requirement number="1">Add multiple reliable NTP servers to chrony configuration</requirement>
+        <requirement number="2">Implement chrony synchronization status verification using 'chronyc tracking'</requirement>
+        <requirement number="3">Extend wait times after chrony operations to allow synchronization</requirement>
+        <requirement number="4">Add retry logic with exponential backoff for sync attempts</requirement>
+        <requirement number="5">Enhance validation to check actual sync status, not just time change</requirement>
+        <requirement number="6">Maintain web API fallback as ultimate backup method</requirement>
+    </implementation_requirements>
 </analysis>

@@ -1,578 +1,521 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<plan>
-    <metadata>
-        <timestamp>2025-01-23 17:15:00</timestamp>
-        <project>VLESS+Reality VPN Management System</project>
-        <issue>APT repository time synchronization error fix</issue>
-        <based_on>/home/ikeniborn/Documents/Project/vless/requests/analyses.xml</based_on>
-    </metadata>
+<implementation_plan>
+    <project_info>
+        <name>VLESS+Reality VPN - Enhanced Chrony Time Synchronization Fix</name>
+        <version>1.2.5</version>
+        <description>Implementation plan to fix chrony time synchronization issues causing APT repository errors</description>
+        <target_file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</target_file>
+    </project_info>
 
-    <executive_summary>
-        <description>
-            Implementation plan to fix APT repository time synchronization errors by replacing direct
-            apt-get update calls with the existing safe_apt_update() function that includes automatic
-            time synchronization and intelligent retry mechanisms.
-        </description>
-        <current_state>
-            The time synchronization functions are already implemented in common_utils.sh (v1.2.1)
-            but not consistently used throughout the codebase. Direct apt-get update calls still
-            exist in multiple modules, causing potential failures when system time is incorrect.
-        </current_state>
-        <desired_state>
-            All APT operations use safe_apt_update() with automatic time sync detection and retry
-            mechanisms, ensuring reliable package operations regardless of system time accuracy.
-        </desired_state>
-    </executive_summary>
+    <problem_summary>
+        <issue>APT repository updates fail with "Release file... is not valid yet" errors due to system time being 8-10 minutes behind actual time</issue>
+        <root_cause>Chrony reports success but doesn't actually synchronize time - shows unreachable NTP server with Stratum 0</root_cause>
+        <selected_solution>Enhanced Chrony Configuration with multiple NTP servers, proper verification, and extended wait times</selected_solution>
+    </problem_summary>
 
-    <implementation_phases>
-        <phase number="1" priority="high">
-            <name>Code Analysis and Testing Infrastructure</name>
-            <description>Verify existing implementation and test current functionality</description>
+    <implementation_tasks>
+        <task id="1" priority="critical">
+            <name>Enhance chrony configuration with multiple reliable NTP servers</name>
+            <description>Modify configure_chrony_for_large_offset() to include multiple reliable NTP servers and proper configuration</description>
+            <target_function>configure_chrony_for_large_offset()</target_function>
+            <line_range>667-710</line_range>
+            <changes>
+                <change type="modify">
+                    <description>Add pool of reliable NTP servers to chrony configuration</description>
+                    <code_block>
+# Define reliable NTP server pool
+local ntp_servers=(
+    "pool.ntp.org"
+    "time.nist.gov"
+    "time.google.com"
+    "time.cloudflare.com"
+    "0.pool.ntp.org"
+    "1.pool.ntp.org"
+    "2.pool.ntp.org"
+    "3.pool.ntp.org"
+)
 
-            <tasks>
-                <task id="1.1" type="analysis">
-                    <description>Verify time sync functions in common_utils.sh are complete</description>
-                    <actions>
-                        <action>Review check_system_time_validity() implementation</action>
-                        <action>Review sync_system_time() implementation</action>
-                        <action>Review detect_time_related_apt_errors() implementation</action>
-                        <action>Review safe_apt_update() implementation</action>
-                        <action>Verify all NTP methods and fallbacks are working</action>
-                    </actions>
-                    <deliverables>
-                        <deliverable>Function completeness verification</deliverable>
-                        <deliverable>Test of time sync methods in isolated environment</deliverable>
-                    </deliverables>
-                </task>
+# Create comprehensive chrony configuration
+cat > "$temp_conf" << EOF
+# Multiple reliable NTP servers for redundancy
+$(for server in "${ntp_servers[@]}"; do echo "server $server iburst"; done)
 
-                <task id="1.2" type="testing">
-                    <description>Create comprehensive test suite for time sync functionality</description>
-                    <actions>
-                        <action>Create test scenarios for time drift detection</action>
-                        <action>Create test scenarios for APT error pattern matching</action>
-                        <action>Create test scenarios for time sync retry logic</action>
-                        <action>Create integration tests for safe_apt_update()</action>
-                    </actions>
-                    <deliverables>
-                        <deliverable>tests/test_time_sync_integration.sh</deliverable>
-                        <deliverable>tests/test_apt_error_detection.sh</deliverable>
-                        <deliverable>Mock system for controlled testing</deliverable>
-                    </deliverables>
-                </task>
-            </tasks>
+# Aggressive step settings for large offsets
+makestep 1000 -1
+
+# Allow for quick synchronization
+driftfile /var/lib/chrony/chrony.drift
+rtcsync
+maxupdateskew 100.0
+
+# Enable command access
+cmdallow 127.0.0.1
+bindcmdaddress 127.0.0.1
+
+# Logging
+logdir /var/log/chrony
+EOF
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+
+        <task id="2" priority="critical">
+            <name>Implement chrony synchronization status verification</name>
+            <description>Add new function to verify chrony synchronization using 'chronyc tracking' and 'chronyc sources'</description>
+            <target_function>verify_chrony_sync_status()</target_function>
+            <line_range>new_function</line_range>
+            <changes>
+                <change type="add">
+                    <description>Create function to verify chrony synchronization status</description>
+                    <code_block>
+# Verify chrony synchronization status using tracking and sources
+verify_chrony_sync_status() {
+    local max_retries="${1:-5}"
+    local retry_delay="${2:-3}"
+
+    log_debug "Verifying chrony synchronization status"
+
+    for ((i=1; i<=max_retries; i++)); do
+        log_debug "Verification attempt $i/$max_retries"
+
+        # Check tracking status
+        local tracking_output
+        if tracking_output=$(safe_execute_output 15 chronyc tracking 2>/dev/null); then
+            log_debug "Chrony tracking output: $tracking_output"
+
+            # Parse tracking output for synchronization indicators
+            if echo "$tracking_output" | grep -q "Stratum.*[1-9]"; then
+                local stratum=$(echo "$tracking_output" | grep "Stratum" | awk '{print $3}')
+                log_debug "Chrony synchronized with Stratum: $stratum"
+
+                # Check if we have a valid time source
+                if echo "$tracking_output" | grep -q "Reference time"; then
+                    log_success "Chrony synchronization verified - Stratum $stratum active"
+                    return 0
+                fi
+            fi
+        fi
+
+        # Check sources status for reachable servers
+        local sources_output
+        if sources_output=$(safe_execute_output 15 chronyc sources 2>/dev/null); then
+            log_debug "Chrony sources output: $sources_output"
+
+            # Look for active sources (marked with '*' or '+')
+            if echo "$sources_output" | grep -E "^\^[\*\+]" | head -1; then
+                local active_server=$(echo "$sources_output" | grep -E "^\^[\*\+]" | head -1 | awk '{print $2}')
+                log_success "Chrony has active server: $active_server"
+                return 0
+            fi
+        fi
+
+        if [[ $i -lt $max_retries ]]; then
+            log_debug "Chrony not yet synchronized, waiting ${retry_delay}s before retry $((i+1))"
+            interruptible_sleep "$retry_delay" 1
+        fi
+    done
+
+    log_warn "Chrony synchronization verification failed after $max_retries attempts"
+    return 1
+}
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+
+        <task id="3" priority="high">
+            <name>Enhance sync_system_time() chrony method with proper verification</name>
+            <description>Modify the chrony section in sync_system_time() to use verification and extended wait times</description>
+            <target_function>sync_system_time()</target_function>
+            <line_range>533-579</line_range>
+            <changes>
+                <change type="modify">
+                    <description>Replace existing chrony sync logic with enhanced verification</description>
+                    <code_block>
+    # Method 4: Try chrony if available (enhanced with status verification)
+    if command_exists chronyc; then
+        log_debug "Attempting time sync with chrony (enhanced mode)"
+
+        # Store current time for comparison
+        local time_before=$(date +%s)
+        log_debug "System time before chrony sync: $(date)"
+
+        # Configure chrony for large step corrections with multiple servers
+        if configure_chrony_for_large_offset; then
+            log_debug "Chrony configured with multiple NTP servers for large offset correction"
+
+            # Restart chrony service to apply new configuration
+            if safe_execute 30 systemctl restart chrony; then
+                log_debug "Chrony service restarted with new configuration"
+
+                # Wait for service to fully start
+                interruptible_sleep 3 1
+
+                # Force immediate sync with all NTP servers using burst mode
+                if safe_execute 30 chronyc burst 4/4; then
+                    log_debug "Chrony burst mode initiated with 4 servers"
+
+                    # Extended wait for burst mode to complete and synchronization to occur
+                    log_debug "Waiting for chrony synchronization (20 seconds)"
+                    interruptible_sleep 20 2
+
+                    # Verify synchronization status before makestep
+                    if verify_chrony_sync_status 3 5; then
+                        log_success "Chrony synchronization verified before makestep"
+
+                        # Force step adjustment with verification
+                        if safe_execute 30 chronyc makestep; then
+                            log_debug "Chrony makestep command executed"
+
+                            # Wait for time adjustment to settle
+                            interruptible_sleep 5 1
+
+                            # Validate the time change
+                            if validate_time_sync_result "$time_before"; then
+                                log_success "Time synchronized using chrony with verified sync status"
+
+                                # Force hardware clock update after successful chrony sync
+                                if command_exists hwclock; then
+                                    safe_execute 30 hwclock --systohc 2>/dev/null || true
+                                    log_debug "Hardware clock updated after chrony sync"
+                                fi
+
+                                return 0
+                            else
+                                log_warn "Chrony makestep executed but time wasn't corrected significantly"
+                            fi
+                        fi
+                    else
+                        log_warn "Chrony synchronization verification failed, attempting makestep anyway"
+
+                        # Try makestep even if verification failed
+                        if safe_execute 30 chronyc makestep; then
+                            interruptible_sleep 5 1
+                            if validate_time_sync_result "$time_before"; then
+                                log_success "Time synchronized using chrony makestep (unverified sync)"
+                                return 0
+                            fi
+                        fi
+                    fi
+                else
+                    log_warn "Chrony burst mode failed, trying makestep directly"
+
+                    # Try direct makestep if burst failed
+                    if safe_execute 30 chronyc makestep; then
+                        interruptible_sleep 5 1
+                        if validate_time_sync_result "$time_before"; then
+                            log_success "Time synchronized using chrony direct makestep"
+                            return 0
+                        fi
+                    fi
+                fi
+            else
+                log_error "Failed to restart chrony service"
+            fi
+        else
+            log_warn "Failed to configure chrony, attempting with existing configuration"
+
+            # Fallback to original method if configuration fails
+            if safe_execute 30 chronyc makestep; then
+                interruptible_sleep 5 1
+                if validate_time_sync_result "$time_before"; then
+                    log_success "Time synchronized using chrony (fallback method)"
+                    return 0
+                fi
+            fi
+        fi
+
+        log_debug "chrony sync failed or insufficient correction"
+    fi
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+
+        <task id="4" priority="medium">
+            <name>Add retry logic with exponential backoff</name>
+            <description>Create a wrapper function that implements retry logic with exponential backoff for time sync operations</description>
+            <target_function>sync_with_retry()</target_function>
+            <line_range>new_function</line_range>
+            <changes>
+                <change type="add">
+                    <description>Create retry wrapper with exponential backoff</description>
+                    <code_block>
+# Sync time with retry logic and exponential backoff
+sync_with_retry() {
+    local max_attempts="${1:-3}"
+    local base_delay="${2:-5}"
+    local force_mode="${3:-false}"
+
+    log_info "Starting time synchronization with retry logic"
+    log_info "Max attempts: $max_attempts, Base delay: ${base_delay}s, Force mode: $force_mode"
+
+    for ((attempt=1; attempt<=max_attempts; attempt++)); do
+        log_info "Time sync attempt $attempt/$max_attempts"
+
+        # Attempt synchronization
+        if sync_system_time "$force_mode"; then
+            log_success "Time synchronization successful on attempt $attempt"
+            return 0
+        fi
+
+        # If not the last attempt, wait with exponential backoff
+        if [[ $attempt -lt $max_attempts ]]; then
+            local delay=$((base_delay * attempt))
+            log_info "Attempt $attempt failed, waiting ${delay}s before retry $((attempt+1))"
+            interruptible_sleep "$delay" 1
+
+            # Force mode for subsequent attempts if first attempt failed
+            force_mode="true"
+        fi
+    done
+
+    log_error "Time synchronization failed after $max_attempts attempts"
+    return 1
+}
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+
+        <task id="5" priority="medium">
+            <name>Add safe_execute_output helper function</name>
+            <description>Add helper function to safely execute commands and capture output for parsing</description>
+            <target_function>safe_execute_output()</target_function>
+            <line_range>new_function</line_range>
+            <changes>
+                <change type="add">
+                    <description>Create safe command execution with output capture</description>
+                    <code_block>
+# Execute command safely and capture output
+safe_execute_output() {
+    local timeout="$1"
+    shift
+    local cmd=("$@")
+
+    log_debug "Executing with output capture: ${cmd[*]} (timeout: ${timeout}s)"
+
+    local output
+    local exit_code
+
+    # Use timeout to prevent hanging
+    if output=$(timeout "$timeout" "${cmd[@]}" 2>&1); then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+
+    if [[ $exit_code -eq 0 ]]; then
+        echo "$output"
+        return 0
+    else
+        log_debug "Command failed with exit code $exit_code: ${cmd[*]}"
+        log_debug "Command output: $output"
+        return $exit_code
+    fi
+}
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+
+        <task id="6" priority="low">
+            <name>Update enhanced_time_sync() to use new retry logic</name>
+            <description>Modify enhanced_time_sync() function to use the new sync_with_retry() function</description>
+            <target_function>enhanced_time_sync()</target_function>
+            <line_range>909-975</line_range>
+            <changes>
+                <change type="modify">
+                    <description>Replace direct sync_system_time call with retry logic</description>
+                    <code_block>
+    # Use retry logic for enhanced synchronization reliability
+    if sync_with_retry 3 10 "$force"; then
+        local final_time=$(date +%s)
+        local total_correction=$((final_time - initial_time))
+
+        log_success "=== Enhanced Time Synchronization Completed Successfully ==="
+        log_info "Total time correction: ${total_correction} seconds"
+        log_info "Final system time: $(date)"
+        log_info "Final system time (UTC): $(date -u)"
+
+        # Force comprehensive hardware clock sync
+        if force_hwclock_sync; then
+            log_debug "Hardware clock synchronized with system time"
+        fi
+
+        return 0
+    else
+        log_error "=== Enhanced Time Synchronization Failed ==="
+        log_error "All synchronization methods failed after multiple attempts"
+        log_error "System time may still be incorrect"
+        return 1
+    fi
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+
+        <task id="7" priority="low">
+            <name>Update function exports</name>
+            <description>Add new functions to the export list at the end of the file</description>
+            <target_function>exports</target_function>
+            <line_range>1380-1382</line_range>
+            <changes>
+                <change type="modify">
+                    <description>Add new functions to export list</description>
+                    <code_block>
+export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors force_hwclock_sync enhanced_time_sync
+export -f configure_chrony_for_large_offset sync_time_from_web_api validate_time_sync_result verify_chrony_sync_status
+export -f sync_with_retry safe_execute_output
+                    </code_block>
+                </change>
+            </changes>
+        </task>
+    </implementation_tasks>
+
+    <testing_approach>
+        <test_category name="Unit Tests">
+            <test name="test_verify_chrony_sync_status">
+                <description>Test chrony synchronization status verification function</description>
+                <approach>Mock chronyc tracking and sources commands with different outputs</approach>
+            </test>
+            <test name="test_safe_execute_output">
+                <description>Test safe command execution with output capture</description>
+                <approach>Test timeout handling and output parsing</approach>
+            </test>
+            <test name="test_sync_with_retry">
+                <description>Test retry logic with exponential backoff</description>
+                <approach>Mock sync_system_time to fail and verify retry behavior</approach>
+            </test>
+        </test_category>
+
+        <test_category name="Integration Tests">
+            <test name="test_enhanced_chrony_sync">
+                <description>Test complete chrony synchronization workflow</description>
+                <approach>Test with controlled time offset and verify correction</approach>
+            </test>
+            <test name="test_multiple_ntp_servers">
+                <description>Test chrony configuration with multiple NTP servers</description>
+                <approach>Verify chrony.conf generation and service restart</approach>
+            </test>
+        </test_category>
+
+        <test_category name="System Tests">
+            <test name="test_apt_error_resolution">
+                <description>Test complete APT error resolution workflow</description>
+                <approach>Create time offset scenario and verify APT update success</approach>
+            </test>
+        </test_category>
+    </testing_approach>
+
+    <rollback_strategy>
+        <backup_plan>
+            <step number="1">Create backup of original common_utils.sh before modifications</step>
+            <step number="2">Store original chrony configuration in /tmp/chrony_original.conf</step>
+            <step number="3">Implement configuration validation before applying changes</step>
+        </backup_plan>
+
+        <rollback_triggers>
+            <trigger>Any syntax error in modified functions</trigger>
+            <trigger>Chrony service fails to start with new configuration</trigger>
+            <trigger>Time synchronization completely fails after changes</trigger>
+            <trigger>System becomes unstable after modifications</trigger>
+        </rollback_triggers>
+
+        <rollback_steps>
+            <step number="1">Stop chrony service: systemctl stop chrony</step>
+            <step number="2">Restore original chrony configuration</step>
+            <step number="3">Restore original common_utils.sh from backup</step>
+            <step number="4">Restart chrony service: systemctl start chrony</step>
+            <step number="5">Verify system functionality with original code</step>
+        </rollback_steps>
+    </rollback_strategy>
+
+    <configuration_changes>
+        <chrony_config>
+            <description>Enhanced chrony.conf with multiple reliable NTP servers</description>
+            <changes>
+                <change>Add pool.ntp.org and regional NTP pools</change>
+                <change>Add Google, Cloudflare, and NIST time servers</change>
+                <change>Configure aggressive makestep for large offsets</change>
+                <change>Enable burst mode for faster initial sync</change>
+                <change>Configure proper logging and drift file</change>
+            </changes>
+        </chrony_config>
+
+        <service_management>
+            <description>Chrony service management improvements</description>
+            <changes>
+                <change>Automatic service restart after configuration changes</change>
+                <change>Service status verification before operations</change>
+                <change>Graceful fallback if service operations fail</change>
+            </changes>
+        </service_management>
+    </configuration_changes>
+
+    <validation_criteria>
+        <success_criteria>
+            <criterion>APT update succeeds without time-related errors</criterion>
+            <criterion>Chrony shows active synchronization with Stratum 1-4 servers</criterion>
+            <criterion>System time offset reduced to less than 30 seconds</criterion>
+            <criterion>Time synchronization completes within 60 seconds</criterion>
+            <criterion>Hardware clock is properly synchronized</criterion>
+        </success_criteria>
+
+        <performance_criteria>
+            <criterion>Time sync operation completes within 2 minutes</criterion>
+            <criterion>No more than 3 retry attempts needed</criterion>
+            <criterion>Chrony service starts within 10 seconds</criterion>
+            <criterion>NTP server response time under 5 seconds</criterion>
+        </performance_criteria>
+    </validation_criteria>
+
+    <implementation_sequence>
+        <phase number="1" name="Preparation">
+            <action>Create backup of current common_utils.sh</action>
+            <action>Validate current system state</action>
+            <action>Test current time sync functionality</action>
         </phase>
 
-        <phase number="2" priority="high">
-            <name>Code Replacement and Integration</name>
-            <description>Replace direct apt-get calls with safe_apt_update()</description>
-
-            <tasks>
-                <task id="2.1" type="refactoring">
-                    <description>Update system_update.sh module</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/system_update.sh</file>
-                    </files_modified>
-                    <changes>
-                        <change line="67">Replace apt-get update -qq with safe_apt_update()</change>
-                        <change function="update_package_repositories">Use safe_apt_update() instead of direct apt-get</change>
-                    </changes>
-                    <actions>
-                        <action>Replace line 67: apt-get update -qq with safe_apt_update()</action>
-                        <action>Update error handling to work with safe_apt_update() return codes</action>
-                        <action>Add time sync logging for debugging</action>
-                    </actions>
-                </task>
-
-                <task id="2.2" type="refactoring">
-                    <description>Update docker_setup.sh module</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh</file>
-                    </files_modified>
-                    <changes>
-                        <change line="229">Replace apt-get update -qq with safe_apt_update()</change>
-                        <change line="497">Replace apt-get update -qq || true with safe_apt_update() || true</change>
-                    </changes>
-                    <actions>
-                        <action>Update Docker repository setup to use safe_apt_update()</action>
-                        <action>Ensure Docker GPG key operations work with time sync</action>
-                        <action>Add error logging for Docker-specific APT failures</action>
-                    </actions>
-                </task>
-
-                <task id="2.3" type="refactoring">
-                    <description>Update install.sh main installation script</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/install.sh</file>
-                    </files_modified>
-                    <changes>
-                        <change line="95">Replace apt-get update && apt-get install with safe_apt_update() && apt-get install</change>
-                        <change function="install_python_dependencies">Use safe_apt_update() for pip3 installation</change>
-                    </changes>
-                    <actions>
-                        <action>Update pip3 installation to use safe_apt_update()</action>
-                        <action>Add time sync verification before critical installations</action>
-                        <action>Improve error messaging for time-related issues</action>
-                    </actions>
-                </task>
-
-                <task id="2.4" type="refactoring">
-                    <description>Update maintenance_utils.sh module</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh</file>
-                    </files_modified>
-                    <changes>
-                        <change line="176">Replace apt-get update -qq with safe_apt_update()</change>
-                    </changes>
-                    <actions>
-                        <action>Update maintenance routines to use safe_apt_update()</action>
-                        <action>Add time sync checks to scheduled maintenance</action>
-                    </actions>
-                </task>
-
-                <task id="2.5" type="refactoring">
-                    <description>Update monitoring.sh module</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</file>
-                    </files_modified>
-                    <changes>
-                        <change line="97">Update install_package_if_missing call to use safe_apt_update()</change>
-                    </changes>
-                    <actions>
-                        <action>Update monitoring tool installation to use safe_apt_update()</action>
-                        <action>Ensure monitoring continues to work after time sync</action>
-                    </actions>
-                </task>
-
-                <task id="2.6" type="refactoring">
-                    <description>Update common_utils.sh install_package_if_missing function</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
-                    </files_modified>
-                    <changes>
-                        <change line="279">Already uses safe_apt_update() - verify implementation</change>
-                    </changes>
-                    <actions>
-                        <action>Verify install_package_if_missing() correctly uses safe_apt_update()</action>
-                        <action>Add additional error handling for time sync failures</action>
-                        <action>Improve logging for package installation with time sync</action>
-                    </actions>
-                </task>
-            </tasks>
+        <phase number="2" name="Core Functions">
+            <action>Add safe_execute_output() function (Task 5)</action>
+            <action>Add verify_chrony_sync_status() function (Task 2)</action>
+            <action>Add sync_with_retry() function (Task 4)</action>
         </phase>
 
-        <phase number="3" priority="medium">
-            <name>Configuration Enhancement</name>
-            <description>Add configuration options and improve time sync robustness</description>
-
-            <tasks>
-                <task id="3.1" type="enhancement">
-                    <description>Add configuration file for time sync settings</description>
-                    <files_created>
-                        <file>/home/ikeniborn/Documents/Project/vless/config/time_sync.conf</file>
-                    </files_created>
-                    <actions>
-                        <action>Create configuration file with time sync parameters</action>
-                        <action>Define NTP server list and timeout settings</action>
-                        <action>Add configuration validation functions</action>
-                    </actions>
-                </task>
-
-                <task id="3.2" type="enhancement">
-                    <description>Add environment variable support</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
-                    </files_modified>
-                    <actions>
-                        <action>Add TIME_SYNC_SERVERS environment variable support</action>
-                        <action>Add TIME_SYNC_TIMEOUT environment variable</action>
-                        <action>Add TIME_SYNC_MAX_RETRIES environment variable</action>
-                    </actions>
-                </task>
-
-                <task id="3.3" type="enhancement">
-                    <description>Improve error reporting and logging</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</file>
-                    </files_modified>
-                    <actions>
-                        <action>Add detailed logging for time sync attempts</action>
-                        <action>Add metrics collection for time sync success/failure</action>
-                        <action>Add user-friendly error messages with resolution steps</action>
-                    </actions>
-                </task>
-            </tasks>
+        <phase number="3" name="Configuration Enhancement">
+            <action>Enhance configure_chrony_for_large_offset() function (Task 1)</action>
+            <action>Test chrony configuration generation</action>
         </phase>
 
-        <phase number="4" priority="medium">
-            <name>Testing and Validation</name>
-            <description>Comprehensive testing of time sync integration</description>
-
-            <tasks>
-                <task id="4.1" type="testing">
-                    <description>Unit testing for all modified functions</description>
-                    <actions>
-                        <action>Test safe_apt_update() with various time scenarios</action>
-                        <action>Test time sync functions with different NTP configurations</action>
-                        <action>Test error detection and retry mechanisms</action>
-                        <action>Test fallback scenarios when all time sync methods fail</action>
-                    </actions>
-                </task>
-
-                <task id="4.2" type="integration_testing">
-                    <description>Integration testing with full installation process</description>
-                    <actions>
-                        <action>Test installation with incorrect system time</action>
-                        <action>Test installation with blocked NTP access</action>
-                        <action>Test installation with network connectivity issues</action>
-                        <action>Test automated recovery from time-related APT failures</action>
-                    </actions>
-                </task>
-
-                <task id="4.3" type="performance_testing">
-                    <description>Performance impact assessment</description>
-                    <actions>
-                        <action>Measure time sync overhead on installation process</action>
-                        <action>Test timeout behavior under various network conditions</action>
-                        <action>Validate minimal performance impact in normal conditions</action>
-                    </actions>
-                </task>
-            </tasks>
+        <phase number="4" name="Sync Logic Update">
+            <action>Modify sync_system_time() chrony section (Task 3)</action>
+            <action>Update enhanced_time_sync() function (Task 6)</action>
+            <action>Update function exports (Task 7)</action>
         </phase>
 
-        <phase number="5" priority="low">
-            <name>Documentation and Maintenance</name>
-            <description>Update documentation and create maintenance procedures</description>
-
-            <tasks>
-                <task id="5.1" type="documentation">
-                    <description>Update CLAUDE.md with implementation details</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/CLAUDE.md</file>
-                    </files_modified>
-                    <actions>
-                        <action>Document the implemented time sync integration</action>
-                        <action>Add troubleshooting section for time-related issues</action>
-                        <action>Update configuration examples</action>
-                    </actions>
-                </task>
-
-                <task id="5.2" type="documentation">
-                    <description>Create troubleshooting guide</description>
-                    <files_created>
-                        <file>/home/ikeniborn/Documents/Project/vless/docs/time_sync_troubleshooting.md</file>
-                    </files_created>
-                    <actions>
-                        <action>Document common time sync issues and solutions</action>
-                        <action>Create diagnostic commands for time sync problems</action>
-                        <action>Add manual time sync procedures</action>
-                    </actions>
-                </task>
-            </tasks>
+        <phase number="5" name="Testing and Validation">
+            <action>Run unit tests for new functions</action>
+            <action>Run integration tests for sync workflow</action>
+            <action>Test complete APT error resolution</action>
         </phase>
-    </implementation_phases>
-
-    <technical_specifications>
-        <current_implementation>
-            <functions_available>
-                <function name="check_system_time_validity()">
-                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:296</location>
-                    <status>Implemented</status>
-                    <description>Validates system time against NTP sources with configurable tolerance</description>
-                </function>
-                <function name="sync_system_time()">
-                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:376</location>
-                    <status>Implemented</status>
-                    <description>Multi-method time synchronization with fallbacks</description>
-                </function>
-                <function name="detect_time_related_apt_errors()">
-                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:484</location>
-                    <status>Implemented</status>
-                    <description>Pattern matching for time-related APT errors</description>
-                </function>
-                <function name="safe_apt_update()">
-                    <location>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh:514</location>
-                    <status>Implemented</status>
-                    <description>APT update with automatic time sync retry</description>
-                </function>
-            </functions_available>
-
-            <configuration_variables>
-                <variable name="TIME_SYNC_ENABLED" default="true" location="line 291"/>
-                <variable name="TIME_TOLERANCE_SECONDS" default="300" location="line 292"/>
-                <variable name="NTP_SERVERS" default="pool.ntp.org,time.nist.gov,time.google.com,time.cloudflare.com" location="line 293"/>
-            </configuration_variables>
-
-            <synchronization_methods>
-                <method priority="1">systemd-timesyncd (timedatectl)</method>
-                <method priority="2">ntpdate</method>
-                <method priority="3">sntp</method>
-                <method priority="4">chrony</method>
-                <method priority="5">Web API fallback (worldtimeapi.org)</method>
-            </synchronization_methods>
-        </current_implementation>
-
-        <files_requiring_modification>
-            <file path="/home/ikeniborn/Documents/Project/vless/modules/system_update.sh">
-                <changes_needed>
-                    <change type="function_call" line="67">Replace apt-get update -qq with safe_apt_update()</change>
-                    <change type="error_handling">Update error handling for safe_apt_update() return codes</change>
-                </changes_needed>
-                <impact>High - Core system update functionality</impact>
-            </file>
-
-            <file path="/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh">
-                <changes_needed>
-                    <change type="function_call" line="229">Replace apt-get update -qq with safe_apt_update()</change>
-                    <change type="function_call" line="497">Replace apt-get update -qq || true with safe_apt_update() || true</change>
-                </changes_needed>
-                <impact>High - Docker installation failure affects entire system</impact>
-            </file>
-
-            <file path="/home/ikeniborn/Documents/Project/vless/install.sh">
-                <changes_needed>
-                    <change type="function_call" line="95">Replace apt-get update && apt-get install with safe_apt_update() && apt-get install</change>
-                </changes_needed>
-                <impact>High - Main installation script entry point</impact>
-            </file>
-
-            <file path="/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh">
-                <changes_needed>
-                    <change type="function_call" line="176">Replace apt-get update -qq with safe_apt_update()</change>
-                </changes_needed>
-                <impact>Medium - Scheduled maintenance operations</impact>
-            </file>
-
-            <file path="/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh">
-                <changes_needed>
-                    <change type="function_call" line="97">Update install_package_if_missing call to use safe_apt_update()</change>
-                </changes_needed>
-                <impact>Low - Monitoring tool installation</impact>
-            </file>
-        </files_requiring_modification>
-
-        <integration_points>
-            <point name="Phase 1 Installation">
-                <description>Core infrastructure setup where APT failures are critical</description>
-                <modules>system_update.sh, docker_setup.sh, install.sh</modules>
-                <priority>Critical</priority>
-            </point>
-
-            <point name="Package Installation">
-                <description>Individual package installations via install_package_if_missing()</description>
-                <modules>common_utils.sh</modules>
-                <priority>High</priority>
-            </point>
-
-            <point name="Maintenance Operations">
-                <description>Scheduled maintenance and monitoring tool installation</description>
-                <modules>maintenance_utils.sh, monitoring.sh</modules>
-                <priority>Medium</priority>
-            </point>
-        </integration_points>
-    </technical_specifications>
-
-    <testing_strategy>
-        <test_environments>
-            <environment name="time_drift_simulation">
-                <description>System with deliberately incorrect time (1+ hours off)</description>
-                <purpose>Test automatic time sync detection and correction</purpose>
-                <setup>Set system time manually, block NTP initially</setup>
-            </environment>
-
-            <environment name="network_restricted">
-                <description>System with limited network access (NTP blocked)</description>
-                <purpose>Test fallback mechanisms and web API time sync</purpose>
-                <setup>Use iptables to block NTP ports, allow HTTP</setup>
-            </environment>
-
-            <environment name="completely_offline">
-                <description>System without internet access</description>
-                <purpose>Test graceful degradation when time sync impossible</purpose>
-                <setup>Disconnect network entirely</setup>
-            </environment>
-        </test_environments>
-
-        <test_scenarios>
-            <scenario name="fresh_installation_with_time_drift">
-                <description>Complete installation on system with incorrect time</description>
-                <steps>
-                    <step>Set system time 2 hours behind</step>
-                    <step>Run ./install.sh --quick</step>
-                    <step>Verify automatic time correction occurs</step>
-                    <step>Verify installation completes successfully</step>
-                </steps>
-                <expected_outcome>Installation succeeds with automatic time correction</expected_outcome>
-            </scenario>
-
-            <scenario name="apt_repository_future_timestamp">
-                <description>Simulate APT repository with future timestamps</description>
-                <steps>
-                    <step>Set system time significantly behind</step>
-                    <step>Attempt APT update</step>
-                    <step>Verify time-related error detection</step>
-                    <step>Verify automatic retry with time sync</step>
-                </steps>
-                <expected_outcome>APT update succeeds after time sync</expected_outcome>
-            </scenario>
-
-            <scenario name="ntp_server_unreachable">
-                <description>Test behavior when NTP servers are unreachable</description>
-                <steps>
-                    <step>Block NTP traffic in firewall</step>
-                    <step>Trigger APT update with time drift</step>
-                    <step>Verify fallback to web API time sync</step>
-                    <step>Verify graceful degradation if all methods fail</step>
-                </steps>
-                <expected_outcome>Fallback methods work or graceful degradation occurs</expected_outcome>
-            </scenario>
-        </test_scenarios>
-
-        <validation_criteria>
-            <criterion>All direct apt-get update calls replaced with safe_apt_update()</criterion>
-            <criterion>Time sync functions work with multiple NTP sources</criterion>
-            <criterion>APT error detection correctly identifies time-related issues</criterion>
-            <criterion>Automatic retry mechanisms function correctly</criterion>
-            <criterion>Installation succeeds with incorrect initial system time</criterion>
-            <criterion>Performance impact is minimal (&lt;30 seconds additional time)</criterion>
-            <criterion>Graceful degradation when time sync is impossible</criterion>
-        </validation_criteria>
-    </testing_strategy>
+    </implementation_sequence>
 
     <risk_assessment>
-        <risks>
-            <risk level="low" category="functional">
-                <description>Time sync operations may add delay to installation process</description>
-                <mitigation>Implement reasonable timeouts (10-30 seconds per attempt)</mitigation>
-                <impact>Minor increase in installation time</impact>
-            </risk>
+        <risk level="high">
+            <description>Chrony service failure could break system time completely</description>
+            <mitigation>Maintain fallback to original method and web API sync</mitigation>
+        </risk>
 
-            <risk level="low" category="compatibility">
-                <description>NTP methods may not work in all environments</description>
-                <mitigation>Multiple fallback methods including web API</mitigation>
-                <impact>Reduced time sync accuracy in restricted environments</impact>
-            </risk>
+        <risk level="medium">
+            <description>Extended wait times could slow down installation process</description>
+            <mitigation>Implement configurable timeouts and parallel operations where possible</mitigation>
+        </risk>
 
-            <risk level="medium" category="operational">
-                <description>Time sync failure could block critical operations</description>
-                <mitigation>Graceful degradation - continue operation with warnings</mitigation>
-                <impact>User may need manual time correction in extreme cases</impact>
-            </risk>
-
-            <risk level="low" category="security">
-                <description>Web API fallback could be blocked by strict firewalls</description>
-                <mitigation>Multiple web services as fallbacks</mitigation>
-                <impact>Time sync may fail in highly restricted environments</impact>
-            </risk>
-        </risks>
-
-        <dependencies>
-            <dependency type="system">Network connectivity for NTP or web API access</dependency>
-            <dependency type="system">Root privileges for system time modification</dependency>
-            <dependency type="package">curl for web API fallback time sync</dependency>
-            <dependency type="optional">ntpdate, sntp, or chrony for traditional NTP sync</dependency>
-        </dependencies>
+        <risk level="low">
+            <description>New NTP servers might be unreachable in some networks</description>
+            <mitigation>Use diverse set of servers including regional pools</mitigation>
+        </risk>
     </risk_assessment>
-
-    <success_criteria>
-        <criteria>
-            <criterion priority="critical">
-                Installation succeeds on systems with incorrect time (1+ hours drift)
-            </criterion>
-            <criterion priority="critical">
-                All APT repository errors caused by time drift are automatically resolved
-            </criterion>
-            <criterion priority="high">
-                No direct apt-get update calls remain in the codebase
-            </criterion>
-            <criterion priority="high">
-                Time sync functions work reliably across different environments
-            </criterion>
-            <criterion priority="medium">
-                Installation time increase is minimal (&lt;30 seconds in worst case)
-            </criterion>
-            <criterion priority="medium">
-                Comprehensive error logging provides clear diagnostic information
-            </criterion>
-            <criterion priority="low">
-                Configuration options allow customization of time sync behavior
-            </criterion>
-        </criteria>
-
-        <acceptance_tests>
-            <test name="time_drift_installation">
-                <description>Install VLESS system on server with 2-hour time drift</description>
-                <pass_condition>Installation completes successfully with automatic time correction</pass_condition>
-            </test>
-            <test name="ntp_blocked_installation">
-                <description>Install VLESS system with NTP ports blocked</description>
-                <pass_condition>Installation completes using web API time sync fallback</pass_condition>
-            </test>
-            <test name="offline_installation">
-                <description>Install VLESS system without internet access</description>
-                <pass_condition>Installation continues with time sync warnings but does not fail</pass_condition>
-            </test>
-            <test name="code_coverage">
-                <description>Verify all apt-get update calls are replaced</description>
-                <pass_condition>No direct apt-get update calls found in source code scan</pass_condition>
-            </test>
-        </acceptance_tests>
-    </success_criteria>
-
-    <implementation_timeline>
-        <milestones>
-            <milestone name="Phase 1 Complete" target_date="Day 1">
-                <deliverables>
-                    <deliverable>Code analysis completed</deliverable>
-                    <deliverable>Test infrastructure ready</deliverable>
-                    <deliverable>Time sync functions verified</deliverable>
-                </deliverables>
-            </milestone>
-
-            <milestone name="Phase 2 Complete" target_date="Day 2">
-                <deliverables>
-                    <deliverable>All modules updated to use safe_apt_update()</deliverable>
-                    <deliverable>Basic integration testing completed</deliverable>
-                    <deliverable>Error handling updated</deliverable>
-                </deliverables>
-            </milestone>
-
-            <milestone name="Phase 3 Complete" target_date="Day 3">
-                <deliverables>
-                    <deliverable>Configuration enhancements implemented</deliverable>
-                    <deliverable>Improved logging and error reporting</deliverable>
-                    <deliverable>Environment variable support added</deliverable>
-                </deliverables>
-            </milestone>
-
-            <milestone name="Phase 4 Complete" target_date="Day 4">
-                <deliverables>
-                    <deliverable>Comprehensive testing completed</deliverable>
-                    <deliverable>Performance validation completed</deliverable>
-                    <deliverable>Edge case handling verified</deliverable>
-                </deliverables>
-            </milestone>
-
-            <milestone name="Implementation Complete" target_date="Day 5">
-                <deliverables>
-                    <deliverable>Documentation updated</deliverable>
-                    <deliverable>Troubleshooting guide created</deliverable>
-                    <deliverable>All acceptance tests passing</deliverable>
-                </deliverables>
-            </milestone>
-        </milestones>
-    </implementation_timeline>
-
-    <next_steps>
-        <immediate_actions>
-            <action priority="1">Begin Phase 1: Verify existing time sync implementation works correctly</action>
-            <action priority="2">Create test environment with time drift to validate current functionality</action>
-            <action priority="3">Start systematic replacement of apt-get update calls in system_update.sh</action>
-        </immediate_actions>
-
-        <preparation_tasks>
-            <task>Set up virtual machine with controllable system time for testing</task>
-            <task>Create backup of all modules before modification</task>
-            <task>Prepare test scripts for validation of each modified module</task>
-        </preparation_tasks>
-    </next_steps>
-</plan>
+</implementation_plan>

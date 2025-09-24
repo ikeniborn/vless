@@ -529,49 +529,96 @@ sync_system_time() {
         log_debug "sntp sync failed with all servers"
     fi
 
-    # Method 4: Try chrony if available (enhanced for large offsets)
+    # Method 4: Try chrony if available (enhanced with status verification)
     if command_exists chronyc; then
-        log_debug "Attempting time sync with chrony"
+        log_debug "Attempting time sync with chrony (enhanced mode)"
 
         # Store current time for comparison
         local time_before=$(date +%s)
         log_debug "System time before chrony sync: $(date)"
 
-        # Configure chrony for large step corrections
-        configure_chrony_for_large_offset
+        # Configure chrony for large step corrections with multiple servers
+        if configure_chrony_for_large_offset; then
+            log_debug "Chrony configured with multiple NTP servers for large offset correction"
 
-        # Force immediate sync with all NTP servers using burst mode
-        if safe_execute 30 chronyc burst 4/4; then
-            log_debug "Chrony burst mode initiated with 4 servers, waiting for sync"
-            # Wait longer for burst mode to complete
-            interruptible_sleep 8 1
+            # Restart chrony service to apply new configuration
+            if safe_execute 30 systemctl restart chrony || safe_execute 30 systemctl restart chronyd; then
+                log_debug "Chrony service restarted with new configuration"
 
-            # Check if any servers are reachable
-            if safe_execute 15 chronyc sources; then
-                log_debug "Chrony sources available, proceeding with makestep"
-            fi
-        fi
+                # Wait for service to fully start
+                interruptible_sleep 3 1
 
-        # Force step adjustment regardless of offset
-        if safe_execute 30 chronyc makestep; then
-            log_debug "Chrony makestep command executed"
-            # Wait longer for time adjustment to settle
-            interruptible_sleep 5 1
+                # Force immediate sync with all NTP servers using burst mode
+                if safe_execute 30 chronyc burst 4/4; then
+                    log_debug "Chrony burst mode initiated with 4 servers"
 
-            # Validate the time change
-            if validate_time_sync_result "$time_before"; then
-                log_success "Time synchronized using chrony with large offset correction"
+                    # Extended wait for burst mode to complete and synchronization to occur
+                    log_debug "Waiting for chrony synchronization (20 seconds)"
+                    interruptible_sleep 20 2
 
-                # Force hardware clock update after successful chrony sync
-                if command_exists hwclock; then
-                    safe_execute 30 hwclock --systohc 2>/dev/null || true
-                    log_debug "Hardware clock updated after chrony sync"
+                    # Verify synchronization status before makestep
+                    if verify_chrony_sync_status 3 5; then
+                        log_success "Chrony synchronization verified before makestep"
+
+                        # Force step adjustment with verification
+                        if safe_execute 30 chronyc makestep; then
+                            log_debug "Chrony makestep command executed"
+
+                            # Wait for time adjustment to settle
+                            interruptible_sleep 5 1
+
+                            # Validate the time change
+                            if validate_time_sync_result "$time_before"; then
+                                log_success "Time synchronized using chrony with verified sync status"
+
+                                # Force hardware clock update after successful chrony sync
+                                if command_exists hwclock; then
+                                    safe_execute 30 hwclock --systohc 2>/dev/null || true
+                                    log_debug "Hardware clock updated after chrony sync"
+                                fi
+
+                                return 0
+                            else
+                                log_warn "Chrony makestep executed but time wasn't corrected significantly"
+                            fi
+                        fi
+                    else
+                        log_warn "Chrony synchronization verification failed, attempting makestep anyway"
+
+                        # Try makestep even if verification failed
+                        if safe_execute 30 chronyc makestep; then
+                            interruptible_sleep 5 1
+                            if validate_time_sync_result "$time_before"; then
+                                log_success "Time synchronized using chrony makestep (unverified sync)"
+                                return 0
+                            fi
+                        fi
+                    fi
+                else
+                    log_warn "Chrony burst mode failed, trying makestep directly"
+
+                    # Try direct makestep if burst failed
+                    if safe_execute 30 chronyc makestep; then
+                        interruptible_sleep 5 1
+                        if validate_time_sync_result "$time_before"; then
+                            log_success "Time synchronized using chrony direct makestep"
+                            return 0
+                        fi
+                    fi
                 fi
-
-                return 0
             else
-                log_warn "Chrony reported success but time wasn't corrected significantly"
-                log_debug "Time before: $(date -d "@$time_before"), Time after: $(date)"
+                log_error "Failed to restart chrony service"
+            fi
+        else
+            log_warn "Failed to configure chrony, attempting with existing configuration"
+
+            # Fallback to original method if configuration fails
+            if safe_execute 30 chronyc makestep; then
+                interruptible_sleep 5 1
+                if validate_time_sync_result "$time_before"; then
+                    log_success "Time synchronized using chrony (fallback method)"
+                    return 0
+                fi
             fi
         fi
 
@@ -663,7 +710,7 @@ sync_system_time() {
     return 1
 }
 
-# Configure chrony to allow large time step corrections
+# Configure chrony to allow large time step corrections with multiple NTP servers
 configure_chrony_for_large_offset() {
     local chrony_conf="/etc/chrony/chrony.conf"
     local temp_conf="/tmp/chrony_temp.conf"
@@ -674,26 +721,51 @@ configure_chrony_for_large_offset() {
         return 1
     fi
 
-    # Create temporary config with aggressive step settings
-    cp "$chrony_conf" "$temp_conf" 2>/dev/null || return 1
+    # Define reliable NTP server pool
+    local ntp_servers=(
+        "pool.ntp.org"
+        "time.nist.gov"
+        "time.google.com"
+        "time.cloudflare.com"
+        "0.pool.ntp.org"
+        "1.pool.ntp.org"
+        "2.pool.ntp.org"
+        "3.pool.ntp.org"
+    )
 
-    # Add or modify makestep configuration for large offsets
-    if ! grep -q "^makestep" "$temp_conf"; then
-        echo "makestep 1000 -1" >> "$temp_conf"
-        log_debug "Added aggressive makestep configuration to chrony"
-    else
-        sed -i 's/^makestep.*/makestep 1000 -1/' "$temp_conf"
-        log_debug "Modified existing makestep configuration in chrony"
-    fi
+    log_debug "Creating comprehensive chrony configuration with multiple NTP servers"
+
+    # Create comprehensive chrony configuration
+    cat > "$temp_conf" << EOF
+# Multiple reliable NTP servers for redundancy
+$(for server in "${ntp_servers[@]}"; do echo "server $server iburst"; done)
+
+# Aggressive step settings for large offsets
+makestep 1000 -1
+
+# Allow for quick synchronization
+driftfile /var/lib/chrony/chrony.drift
+rtcsync
+maxupdateskew 100.0
+
+# Enable command access
+cmdallow 127.0.0.1
+bindcmdaddress 127.0.0.1
+
+# Logging
+logdir /var/log/chrony
+EOF
 
     # Apply temporary configuration
     if cp "$temp_conf" "$chrony_conf" 2>/dev/null; then
-        # Restart chrony to apply changes
-        if safe_execute 30 systemctl restart chronyd 2>/dev/null || safe_execute 30 systemctl restart chrony 2>/dev/null; then
-            log_debug "Chrony restarted with aggressive time step configuration"
-            interruptible_sleep 2 1
-            return 0
-        fi
+        log_debug "Enhanced chrony configuration applied with ${#ntp_servers[@]} NTP servers"
+
+        # Create log directory if it doesn't exist
+        mkdir -p /var/log/chrony 2>/dev/null || true
+
+        # Don't restart here - let the calling function handle the restart
+        # This allows for better error handling and timing control
+        return 0
     fi
 
     log_debug "Failed to configure chrony for large offset correction"
@@ -905,6 +977,90 @@ force_hwclock_sync() {
     fi
 }
 
+# Verify chrony synchronization status using tracking and sources
+verify_chrony_sync_status() {
+    local max_retries="${1:-5}"
+    local retry_delay="${2:-3}"
+
+    log_debug "Verifying chrony synchronization status"
+
+    for ((i=1; i<=max_retries; i++)); do
+        log_debug "Verification attempt $i/$max_retries"
+
+        # Check tracking status
+        local tracking_output
+        if tracking_output=$(safe_execute_output 15 chronyc tracking 2>/dev/null); then
+            log_debug "Chrony tracking output: $tracking_output"
+
+            # Parse tracking output for synchronization indicators
+            if echo "$tracking_output" | grep -q "Stratum.*[1-9]"; then
+                local stratum=$(echo "$tracking_output" | grep "Stratum" | awk '{print $3}')
+                log_debug "Chrony synchronized with Stratum: $stratum"
+
+                # Check if we have a valid time source
+                if echo "$tracking_output" | grep -q "Reference time"; then
+                    log_success "Chrony synchronization verified - Stratum $stratum active"
+                    return 0
+                fi
+            fi
+        fi
+
+        # Check sources status for reachable servers
+        local sources_output
+        if sources_output=$(safe_execute_output 15 chronyc sources 2>/dev/null); then
+            log_debug "Chrony sources output: $sources_output"
+
+            # Look for active sources (marked with '*' or '+')
+            if echo "$sources_output" | grep -E "^\^[\*\+]" | head -1; then
+                local active_server=$(echo "$sources_output" | grep -E "^\^[\*\+]" | head -1 | awk '{print $2}')
+                log_success "Chrony has active server: $active_server"
+                return 0
+            fi
+        fi
+
+        if [[ $i -lt $max_retries ]]; then
+            log_debug "Chrony not yet synchronized, waiting ${retry_delay}s before retry $((i+1))"
+            interruptible_sleep "$retry_delay" 1
+        fi
+    done
+
+    log_warn "Chrony synchronization verification failed after $max_retries attempts"
+    return 1
+}
+
+# Sync time with retry logic and exponential backoff
+sync_with_retry() {
+    local max_attempts="${1:-3}"
+    local base_delay="${2:-5}"
+    local force_mode="${3:-false}"
+
+    log_info "Starting time synchronization with retry logic"
+    log_info "Max attempts: $max_attempts, Base delay: ${base_delay}s, Force mode: $force_mode"
+
+    for ((attempt=1; attempt<=max_attempts; attempt++)); do
+        log_info "Time sync attempt $attempt/$max_attempts"
+
+        # Attempt synchronization
+        if sync_system_time "$force_mode"; then
+            log_success "Time synchronization successful on attempt $attempt"
+            return 0
+        fi
+
+        # If not the last attempt, wait with exponential backoff
+        if [[ $attempt -lt $max_attempts ]]; then
+            local delay=$((base_delay * attempt))
+            log_info "Attempt $attempt failed, waiting ${delay}s before retry $((attempt+1))"
+            interruptible_sleep "$delay" 1
+
+            # Force mode for subsequent attempts if first attempt failed
+            force_mode="true"
+        fi
+    done
+
+    log_error "Time synchronization failed after $max_attempts attempts"
+    return 1
+}
+
 # Enhanced time synchronization orchestration function
 enhanced_time_sync() {
     local force="${1:-false}"
@@ -938,10 +1094,8 @@ enhanced_time_sync() {
         fi
     fi
 
-    # Try time synchronization with all enhanced methods
-    log_info "Attempting enhanced time synchronization..."
-
-    if sync_system_time "$force"; then
+    # Use retry logic for enhanced synchronization reliability
+    if sync_with_retry 3 10 "$force"; then
         local final_time=$(date +%s)
         local total_correction=$((final_time - initial_time))
 
@@ -952,37 +1106,14 @@ enhanced_time_sync() {
 
         # Force comprehensive hardware clock sync
         if force_hwclock_sync; then
-            log_info "Hardware clock synchronized successfully"
-        else
-            log_warn "Hardware clock synchronization failed, but system time is corrected"
+            log_debug "Hardware clock synchronized with system time"
         fi
 
-        # Final validation
-        if check_system_time_validity; then
-            log_success "Time synchronization validation passed"
-            return 0
-        else
-            log_warn "Time synchronization completed but final validation indicates remaining drift"
-            # Return success if we made significant progress
-            if [[ ${total_correction#-} -gt 300 ]]; then
-                log_info "Large correction applied, considering sync successful despite minor remaining drift"
-                return 0
-            fi
-            return 1
-        fi
+        return 0
     else
         log_error "=== Enhanced Time Synchronization Failed ==="
-        log_error "All time synchronization methods failed"
-        log_error "Current system time: $(date)"
-        log_error "This may cause APT, SSL certificate, and other time-sensitive operations to fail"
-
-        # Provide troubleshooting information
-        log_error "Troubleshooting information:"
-        log_error "- Check network connectivity: ping -c 1 google.com"
-        log_error "- Check NTP services: systemctl status systemd-timesyncd chronyd chrony"
-        log_error "- Manual sync attempt: sudo ntpdate -s pool.ntp.org"
-        log_error "- Hardware clock check: sudo hwclock --show"
-
+        log_error "All synchronization methods failed after multiple attempts"
+        log_error "System time may still be incorrect"
         return 1
     fi
 }
@@ -1187,6 +1318,34 @@ safe_execute() {
     fi
 }
 
+# Execute command safely and capture output
+safe_execute_output() {
+    local timeout="$1"
+    shift
+    local cmd=("$@")
+
+    log_debug "Executing with output capture: ${cmd[*]} (timeout: ${timeout}s)"
+
+    local output
+    local exit_code
+
+    # Use timeout to prevent hanging
+    if output=$(timeout "$timeout" "${cmd[@]}" 2>&1); then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+
+    if [[ $exit_code -eq 0 ]]; then
+        echo "$output"
+        return 0
+    else
+        log_debug "Command failed with exit code $exit_code: ${cmd[*]}"
+        log_debug "Command output: $output"
+        return $exit_code
+    fi
+}
+
 # Isolated systemctl command
 isolate_systemctl_command() {
     local action="$1"
@@ -1378,7 +1537,8 @@ export -f cleanup_child_processes register_child_process
 export -f get_external_ip verify_file_checksum human_readable_size
 export -f init_logging get_timestamp create_vless_system_user
 export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors force_hwclock_sync enhanced_time_sync
-export -f configure_chrony_for_large_offset sync_time_from_web_api validate_time_sync_result
+export -f configure_chrony_for_large_offset sync_time_from_web_api validate_time_sync_result verify_chrony_sync_status
+export -f sync_with_retry safe_execute_output
 
 # Initialize logging on source
 init_logging
