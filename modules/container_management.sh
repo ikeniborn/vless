@@ -25,11 +25,181 @@ readonly XRAY_CONTAINER_NAME="vless-xray"
 readonly NGINX_CONTAINER_NAME="vless-nginx"
 readonly WATCHTOWER_CONTAINER_NAME="vless-watchtower"
 
+# User configuration
+readonly DEFAULT_VLESS_USER="vless"
+readonly DEFAULT_VLESS_UID="1000"
+readonly DEFAULT_VLESS_GID="1000"
+
 # Service timeout settings
 readonly START_TIMEOUT=60
 readonly STOP_TIMEOUT=30
 readonly RESTART_TIMEOUT=90
 readonly HEALTH_CHECK_TIMEOUT=30
+
+# Get VLESS user UID and GID
+get_vless_user_ids() {
+    local user_info uid gid
+
+    log_debug "Detecting VLESS user UID/GID..."
+
+    # Try to get existing vless user info
+    if user_info=$(getent passwd "$DEFAULT_VLESS_USER" 2>/dev/null); then
+        uid=$(echo "$user_info" | cut -d: -f3)
+        gid=$(echo "$user_info" | cut -d: -f4)
+        log_debug "Found existing user $DEFAULT_VLESS_USER: UID=$uid, GID=$gid"
+    else
+        # Check if UID 1000 is available
+        if getent passwd "$DEFAULT_VLESS_UID" >/dev/null 2>&1; then
+            # UID 1000 is taken, find next available
+            local next_uid next_gid
+            next_uid=$(awk -F: '{print $3}' /etc/passwd | sort -n | tail -1)
+            next_uid=$((next_uid + 1))
+            next_gid="$next_uid"
+
+            log_warn "UID $DEFAULT_VLESS_UID is taken, using UID=$next_uid, GID=$next_gid"
+            uid="$next_uid"
+            gid="$next_gid"
+        else
+            # Use default values
+            uid="$DEFAULT_VLESS_UID"
+            gid="$DEFAULT_VLESS_GID"
+            log_debug "Using default UID=$uid, GID=$gid"
+        fi
+    fi
+
+    # Return as space-separated values
+    echo "$uid $gid"
+}
+
+# Update docker-compose.yml with correct user permissions
+update_docker_compose_permissions() {
+    local compose_file="$1"
+    local uid="$2"
+    local gid="$3"
+
+    log_info "Updating Docker Compose permissions: UID=$uid, GID=$gid"
+
+    if [[ ! -f "$compose_file" ]]; then
+        log_error "Docker Compose file not found: $compose_file"
+        return 1
+    fi
+
+    # Create backup of original file
+    local backup_file="${compose_file}.backup.$(date +%Y%m%d_%H%M%S)"
+    if ! cp "$compose_file" "$backup_file"; then
+        log_error "Failed to create backup of compose file"
+        return 1
+    fi
+
+    log_debug "Created backup: $backup_file"
+
+    # Update user directive in xray service
+    # Handle both quoted and unquoted formats
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Use sed to update the user directive
+    if sed "s/^[[:space:]]*user:[[:space:]]*[\"']\?[0-9]*:[0-9]*[\"']\?[[:space:]]*$/    user: \"$uid:$gid\"/g" "$compose_file" > "$temp_file"; then
+        if mv "$temp_file" "$compose_file"; then
+            log_success "Updated user directive to $uid:$gid in $compose_file"
+
+            # Verify the change was applied
+            if grep -q "user: \"$uid:$gid\"" "$compose_file"; then
+                log_debug "Verified user directive update"
+                return 0
+            else
+                log_warn "User directive may not have been updated correctly"
+            fi
+        else
+            log_error "Failed to update compose file"
+            rm -f "$temp_file"
+            return 1
+        fi
+    else
+        log_error "Failed to process compose file"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+# Verify container permissions are correct
+verify_container_permissions() {
+    local compose_file="$1"
+    local expected_uid="$2"
+    local expected_gid="$3"
+
+    log_debug "Verifying container permissions in $compose_file"
+
+    if [[ ! -f "$compose_file" ]]; then
+        log_error "Docker Compose file not found: $compose_file"
+        return 1
+    fi
+
+    # Check if user directive exists and matches expected values
+    local user_directive
+    user_directive=$(grep -E '^[[:space:]]*user:[[:space:]]*' "$compose_file" | head -1)
+
+    if [[ -z "$user_directive" ]]; then
+        log_error "No user directive found in compose file"
+        return 1
+    fi
+
+    # Extract UID:GID from the directive
+    local current_user
+    current_user=$(echo "$user_directive" | sed -E 's/^[[:space:]]*user:[[:space:]]*["'\'']*([0-9]*:[0-9]*)["'\'']*[[:space:]]*$/\1/')
+
+    local expected_user="$expected_uid:$expected_gid"
+
+    if [[ "$current_user" == "$expected_user" ]]; then
+        log_success "Container permissions verified: $current_user"
+        return 0
+    else
+        log_error "Permission mismatch - Expected: $expected_user, Found: $current_user"
+        return 1
+    fi
+}
+
+# Detect and update docker-compose.yml version if needed
+update_compose_version() {
+    local compose_file="$1"
+
+    log_debug "Checking Docker Compose version in $compose_file"
+
+    if [[ ! -f "$compose_file" ]]; then
+        log_error "Docker Compose file not found: $compose_file"
+        return 1
+    fi
+
+    # Get current version
+    local current_version
+    current_version=$(grep -E '^version:[[:space:]]*' "$compose_file" | head -1 | sed -E "s/^version:[[:space:]]*[\"']*([0-9.]+)[\"']*.*$/\1/")
+
+    if [[ -z "$current_version" ]]; then
+        log_warn "No version found in compose file, assuming latest format"
+        return 0
+    fi
+
+    log_debug "Current compose version: $current_version"
+
+    # Check if we need to update version (3.8 is current standard)
+    local target_version="3.8"
+    if [[ "$current_version" != "$target_version" ]]; then
+        log_info "Updating compose version from $current_version to $target_version"
+
+        # Create backup
+        local backup_file="${compose_file}.version_backup.$(date +%Y%m%d_%H%M%S)"
+        cp "$compose_file" "$backup_file"
+
+        # Update version
+        sed -i "s/^version:[[:space:]]*[\"']*[0-9.]*[\"']*/version: '$target_version'/" "$compose_file"
+
+        log_success "Updated compose version to $target_version"
+    else
+        log_debug "Compose version is current: $current_version"
+    fi
+
+    return 0
+}
 
 # Get the active compose file
 get_compose_file() {
@@ -94,6 +264,13 @@ check_docker_availability() {
 prepare_system_environment() {
     log_info "Preparing system environment for containers..."
 
+    # Get VLESS user UID/GID
+    local user_ids uid gid
+    user_ids=$(get_vless_user_ids)
+    read -r uid gid <<< "$user_ids"
+
+    log_debug "Using VLESS user UID=$uid, GID=$gid"
+
     # Create required directories
     local directories=(
         "/opt/vless/config"
@@ -116,14 +293,60 @@ prepare_system_environment() {
         cp "$COMPOSE_FILE" "$SYSTEM_COMPOSE_FILE"
         chmod 644 "$SYSTEM_COMPOSE_FILE"
         log_info "Copied Docker Compose file to system location"
+
+        # Update compose version if needed
+        update_compose_version "$SYSTEM_COMPOSE_FILE"
+
+        # Update permissions in the compose file
+        if update_docker_compose_permissions "$SYSTEM_COMPOSE_FILE" "$uid" "$gid"; then
+            log_info "Updated Docker Compose permissions"
+        else
+            log_warn "Failed to update Docker Compose permissions, using defaults"
+        fi
+
+        # Verify permissions were set correctly
+        if ! verify_container_permissions "$SYSTEM_COMPOSE_FILE" "$uid" "$gid"; then
+            log_warn "Container permission verification failed"
+        fi
+    elif [[ -f "$SYSTEM_COMPOSE_FILE" ]]; then
+        # Existing compose file - check and update permissions if needed
+        log_debug "Checking existing compose file permissions"
+
+        if ! verify_container_permissions "$SYSTEM_COMPOSE_FILE" "$uid" "$gid"; then
+            log_info "Updating existing compose file permissions"
+
+            # Update compose version first
+            update_compose_version "$SYSTEM_COMPOSE_FILE"
+
+            # Update permissions
+            if update_docker_compose_permissions "$SYSTEM_COMPOSE_FILE" "$uid" "$gid"; then
+                log_info "Updated existing Docker Compose permissions"
+            else
+                log_warn "Failed to update existing Docker Compose permissions"
+            fi
+        else
+            log_debug "Existing compose file permissions are correct"
+        fi
     fi
 
-    # Ensure proper ownership
-    if [[ -n "${SUDO_USER:-}" ]]; then
-        chown -R "${SUDO_USER}:${SUDO_USER}" "/opt/vless" 2>/dev/null || true
+    # Set proper ownership for directories
+    # Use the detected/created vless user UID/GID
+    if [[ "$uid" != "0" ]] && [[ "$gid" != "0" ]]; then
+        log_debug "Setting ownership to $uid:$gid for VLESS directories"
+        chown -R "$uid:$gid" "/opt/vless" 2>/dev/null || {
+            log_warn "Failed to set ownership to $uid:$gid, using current user"
+            if [[ -n "${SUDO_USER:-}" ]]; then
+                chown -R "${SUDO_USER}:${SUDO_USER}" "/opt/vless" 2>/dev/null || true
+            fi
+        }
+    else
+        log_warn "Using root ownership (not recommended for containers)"
+        if [[ -n "${SUDO_USER:-}" ]]; then
+            chown -R "${SUDO_USER}:${SUDO_USER}" "/opt/vless" 2>/dev/null || true
+        fi
     fi
 
-    log_success "System environment prepared successfully"
+    log_success "System environment prepared successfully with UID=$uid, GID=$gid"
 }
 
 # Start all services
@@ -720,6 +943,14 @@ main() {
             ;;
     esac
 }
+
+# Export functions for use by other modules
+export -f get_vless_user_ids update_docker_compose_permissions verify_container_permissions
+export -f update_compose_version prepare_system_environment get_compose_file
+export -f safe_docker_compose check_docker_availability start_services stop_services
+export -f restart_services reload_configuration check_service_health wait_for_services_healthy
+export -f show_service_status show_service_logs update_containers cleanup_resources
+export -f export_service_config
 
 # Run main function if script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
