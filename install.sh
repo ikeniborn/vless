@@ -422,13 +422,38 @@ install_phase2() {
     fi
 
     # Create VLESS server configuration
-    log_info "Creating VLESS server configuration..."
+    log_info "Setting up VLESS server infrastructure..."
 
-    # This will be implemented when we have the config modules
-    log_warn "Phase 2 implementation requires additional modules"
-    log_info "Please ensure config_templates.sh and container_management.sh are available"
+    # Check if container_management.sh is available
+    if [[ -f "${SCRIPT_DIR}/modules/container_management.sh" ]]; then
+        # Source container management module
+        source "${SCRIPT_DIR}/modules/container_management.sh"
 
-    log_success "Phase 2 preparation completed"
+        # Prepare system environment and start services
+        log_info "Preparing container environment..."
+        if prepare_system_environment; then
+            log_success "Container environment prepared successfully"
+
+            # Start services automatically after setup
+            log_info "Starting VLESS services..."
+            if start_services_after_installation; then
+                log_success "VLESS services started successfully"
+            else
+                log_warn "Service startup encountered issues, but installation can continue"
+                log_info "You can manually start services later using: ${SCRIPT_DIR}/modules/container_management.sh --start"
+            fi
+        else
+            log_error "Failed to prepare container environment"
+            return 1
+        fi
+    else
+        # Fallback for missing modules
+        log_warn "Container management module not found"
+        log_info "Phase 2 requires container_management.sh module for full implementation"
+        log_info "Please ensure container_management.sh is available in modules/ directory"
+    fi
+
+    log_success "Phase 2 completed successfully"
     echo
     # Skip prompt in quick install mode
     if [[ "${QUICK_MODE:-false}" != "true" ]]; then
@@ -625,14 +650,16 @@ install_phase5() {
     fi
 
     log_success "Phase 5 completed successfully"
+
+    # Display final installation status
+    display_post_installation_status
+
+    echo "🎉 All phases completed! Your VLESS+Reality VPN system is fully operational."
     echo
-    echo "🎉 All phases completed! Your VLESS+Reality VPN system is ready."
-    echo
-    echo "Next steps:"
-    echo "  • Check system status: $0 --status"
-    echo "  • Manage users: ${SCRIPT_DIR}/modules/user_management.sh"
-    echo "  • View logs: ${SCRIPT_DIR}/modules/monitoring.sh logs"
-    echo "  • Create backups: ${SCRIPT_DIR}/modules/backup_restore.sh full-backup"
+    echo "Advanced features now available:"
+    echo "  • System backups: ${SCRIPT_DIR}/modules/backup_restore.sh full-backup"
+    echo "  • Maintenance: ${SCRIPT_DIR}/modules/maintenance_utils.sh (if installed)"
+    echo "  • Security monitoring: ${SCRIPT_DIR}/modules/monitoring.sh"
     echo
     # Skip prompt in quick install mode
     if [[ "${QUICK_MODE:-false}" != "true" ]]; then
@@ -659,9 +686,20 @@ quick_install() {
         die "Phase 1 installation failed" 15
     fi
 
-    # Install Phase 2
+    # Install Phase 2 with service startup
     if ! install_phase2; then
         log_error "Phase 2 installation failed, but continuing..."
+    else
+        # Verify services started properly
+        log_info "Verifying service startup after Phase 2..."
+        if command_exists docker && [[ -f "${SCRIPT_DIR}/modules/container_management.sh" ]]; then
+            source "${SCRIPT_DIR}/modules/container_management.sh"
+            if check_service_health 2>/dev/null; then
+                log_success "Phase 2 services are running and healthy"
+            else
+                log_warn "Phase 2 services may need attention"
+            fi
+        fi
     fi
 
     # Install Phase 3
@@ -701,15 +739,54 @@ system_status() {
     show_system_info
     show_installation_status
 
-    # Check Docker status
+    # Check Docker status and services
     if command_exists docker; then
-        "${SCRIPT_DIR}/modules/docker_setup.sh" --info 2>/dev/null || \
-        echo "Docker information unavailable"
+        echo -e "${CYAN}Docker Status:${NC}"
+        if docker info >/dev/null 2>&1; then
+            echo -e "  Docker: ${GREEN}✓ Running${NC}"
+
+            # Show VLESS services if container_management is available
+            if [[ -f "${SCRIPT_DIR}/modules/container_management.sh" ]]; then
+                source "${SCRIPT_DIR}/modules/container_management.sh"
+                echo -e "  VLESS Services:"
+                if check_service_health 2>/dev/null; then
+                    echo -e "    ${GREEN}✓ All services healthy${NC}"
+                else
+                    echo -e "    ${YELLOW}○ Services need attention${NC}"
+                fi
+
+                # Show quick service status
+                local containers
+                containers=$(docker ps --filter "label=com.docker.compose.project=vless-vpn" --format "{{.Names}}" 2>/dev/null)
+                if [[ -n "$containers" ]]; then
+                    echo "    Running containers:"
+                    echo "$containers" | while read -r container; do
+                        local status
+                        status=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "unknown")
+                        if [[ "$status" == "running" ]]; then
+                            echo -e "      ${GREEN}✓ $container${NC}"
+                        else
+                            echo -e "      ${YELLOW}○ $container ($status)${NC}"
+                        fi
+                    done
+                else
+                    echo "    No VLESS containers running"
+                fi
+            fi
+        else
+            echo -e "  Docker: ${RED}✗ Not running${NC}"
+        fi
+        echo
     fi
 
     # Check system update status
-    "${SCRIPT_DIR}/modules/system_update.sh" --status 2>/dev/null || \
-    echo "System update status unavailable"
+    echo -e "${CYAN}System Updates:${NC}"
+    if [[ -f "${SCRIPT_DIR}/modules/system_update.sh" ]]; then
+        "${SCRIPT_DIR}/modules/system_update.sh" --status 2>/dev/null || \
+        echo "  System update status unavailable"
+    else
+        echo "  System update module not available"
+    fi
 
     echo
     # Skip prompt in quick install mode
@@ -934,6 +1011,128 @@ main() {
             exit 1
             ;;
     esac
+}
+
+# Post-installation service startup with comprehensive health checks
+start_services_after_installation() {
+    local max_attempts=3
+    local attempt=1
+    local startup_success=false
+
+    log_info "Starting post-installation service startup..."
+
+    # Check if we have the necessary components
+    if ! command_exists docker || ! docker info >/dev/null 2>&1; then
+        log_error "Docker is not available for service startup"
+        return 1
+    fi
+
+    # Check if compose file exists
+    local compose_file
+    if [[ -f "/opt/vless/docker-compose.yml" ]]; then
+        compose_file="/opt/vless/docker-compose.yml"
+    elif [[ -f "${SCRIPT_DIR}/config/docker-compose.yml" ]]; then
+        compose_file="${SCRIPT_DIR}/config/docker-compose.yml"
+    else
+        log_error "Docker Compose file not found"
+        return 1
+    fi
+
+    # Attempt service startup with retries
+    while [[ $attempt -le $max_attempts ]]; do
+        log_info "Service startup attempt $attempt of $max_attempts..."
+
+        # Start services using container_management function
+        if start_services 2>/dev/null; then
+            startup_success=true
+            break
+        else
+            log_warn "Service startup attempt $attempt failed"
+            if [[ $attempt -lt $max_attempts ]]; then
+                log_info "Retrying in 10 seconds..."
+                interruptible_sleep 10 2
+
+                # Try to clean up any partially started containers
+                log_debug "Cleaning up before retry..."
+                docker-compose -f "$compose_file" down 2>/dev/null || true
+            fi
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    if [[ "$startup_success" == "true" ]]; then
+        log_success "Services started successfully!"
+        display_post_installation_status
+        return 0
+    else
+        log_error "Failed to start services after $max_attempts attempts"
+        display_service_troubleshooting
+        return 1
+    fi
+}
+
+# Display service status after installation
+display_post_installation_status() {
+    echo
+    echo -e "${GREEN}🎉 VLESS+Reality VPN Installation Completed Successfully!${NC}"
+    echo -e "${CYAN}${MENU_SEPARATOR}${NC}"
+
+    # Show service status
+    log_info "Service Status:"
+    if show_service_status >/dev/null 2>&1; then
+        echo -e "${GREEN}  ✓ All services are running${NC}"
+    else
+        echo -e "${YELLOW}  ⚠ Some services may need attention${NC}"
+    fi
+
+    # Show next steps
+    echo
+    echo -e "${CYAN}Next Steps:${NC}"
+    echo "  • Check service status: ${SCRIPT_DIR}/modules/container_management.sh --status"
+    echo "  • View service logs: ${SCRIPT_DIR}/modules/container_management.sh --logs"
+    echo "  • Manage users: ${SCRIPT_DIR}/modules/user_management.sh (when available)"
+    echo "  • System monitoring: ${SCRIPT_DIR}/modules/monitoring.sh (Phase 4)"
+    echo
+
+    # Show connection information if available
+    if [[ -f "/opt/vless/config/config.json" ]]; then
+        echo -e "${CYAN}Configuration:${NC}"
+        echo "  • Server config: /opt/vless/config/config.json"
+        echo "  • Docker compose: /opt/vless/docker-compose.yml"
+        echo "  • Logs directory: /opt/vless/logs/"
+        echo
+    fi
+}
+
+# Display troubleshooting information if services fail
+display_service_troubleshooting() {
+    echo
+    echo -e "${YELLOW}⚠ Service Startup Troubleshooting${NC}"
+    echo -e "${CYAN}${MENU_SEPARATOR}${NC}"
+    echo
+    echo "Services failed to start automatically. Here are some steps to troubleshoot:"
+    echo
+    echo "1. Check Docker status:"
+    echo "   sudo systemctl status docker"
+    echo
+    echo "2. View service logs:"
+    echo "   ${SCRIPT_DIR}/modules/container_management.sh --logs"
+    echo
+    echo "3. Check Docker Compose configuration:"
+    echo "   docker-compose -f /opt/vless/docker-compose.yml config"
+    echo
+    echo "4. Manual service startup:"
+    echo "   ${SCRIPT_DIR}/modules/container_management.sh --start"
+    echo
+    echo "5. Check system resources:"
+    echo "   df -h    # Disk space"
+    echo "   free -h  # Memory usage"
+    echo
+    echo "6. Review installation logs:"
+    echo "   journalctl -xe"
+    echo
+    echo "If issues persist, please check the documentation or contact support."
+    echo
 }
 
 # Ensure cleanup on exit
