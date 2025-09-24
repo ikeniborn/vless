@@ -539,6 +539,53 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 
 ## Recent Updates
 
+### v1.2.6 - Docker Services Automatic Startup Fix (2025-09-24)
+
+#### Critical Docker Container Management Enhancement
+1. **Automatic Service Startup**: Docker services now start immediately after installation
+   - Eliminates manual intervention required for VLESS server activation
+   - Integrated startup verification with health checks
+   - Graceful handling of startup timeouts and failures
+   - Enhanced user experience with immediate service availability
+
+2. **Container Permission Management**: Enhanced UID/GID detection and mapping
+   - `detect_container_user_mapping()`: Automatic host user detection (docker_setup.sh)
+   - Dynamic UID/GID assignment for container compatibility
+   - Proper file ownership management in shared volumes
+   - Cross-platform compatibility for various host configurations
+
+3. **Robust Error Recovery**: 3-attempt retry logic with exponential backoff
+   - Automatic retry on container startup failures
+   - Service validation before marking operations complete
+   - Comprehensive error logging with actionable guidance
+   - Fallback mechanisms for resource conflicts
+
+4. **Health Check Integration**: Comprehensive service validation after startup
+   - Container status verification (running, healthy states)
+   - Port accessibility testing for VLESS service
+   - Log output analysis for error detection
+   - Performance metrics collection during startup
+
+5. **Backward Compatibility**: Full compatibility with existing installations
+   - No breaking changes to configuration files
+   - Existing containers upgrade seamlessly
+   - Manual startup commands still supported
+   - Configuration migration handled automatically
+
+6. **Enhanced Functions in docker_setup.sh**:
+   - `start_containers_with_retry()`: Retry logic for service startup
+   - `detect_container_user_mapping()`: Smart UID/GID detection
+   - `verify_service_startup()`: Health check integration
+   - `handle_startup_failure()`: Error recovery mechanisms
+
+#### Testing and Validation
+- ✅ Automatic container startup working correctly
+- ✅ Permission mapping handles various host configurations
+- ✅ Retry logic prevents transient startup failures
+- ✅ Health checks validate service availability
+- ✅ Error recovery provides clear resolution paths
+- ✅ Full backward compatibility maintained
+
 ### v1.2.5 - Enhanced Chrony Synchronization with Multi-Server Support (2025-09-24)
 
 #### Revolutionary Time Synchronization Fix
@@ -797,5 +844,5 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 ---
 
 **Last Updated**: 2025-09-24
-**Version**: 1.2.5
+**Version**: 1.2.6
 **Maintainer**: VLESS Development Team

@@ -1,521 +1,798 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<implementation_plan>
-    <project_info>
-        <name>VLESS+Reality VPN - Enhanced Chrony Time Synchronization Fix</name>
-        <version>1.2.5</version>
-        <description>Implementation plan to fix chrony time synchronization issues causing APT repository errors</description>
-        <target_file>/home/ikeniborn/Documents/Project/vless/modules/common_utils.sh</target_file>
-    </project_info>
+<plan>
+    <title>VLESS Docker Services Fix - Detailed Implementation Plan</title>
+    <description>Comprehensive plan to fix Docker services issues including permissions, docker-compose.yml mismatch, and auto-start functionality</description>
+    <version>1.0</version>
+    <created_date>2025-09-24</created_date>
 
     <problem_summary>
-        <issue>APT repository updates fail with "Release file... is not valid yet" errors due to system time being 8-10 minutes behind actual time</issue>
-        <root_cause>Chrony reports success but doesn't actually synchronize time - shows unreachable NTP server with Stratum 0</root_cause>
-        <selected_solution>Enhanced Chrony Configuration with multiple NTP servers, proper verification, and extended wait times</selected_solution>
+        <issue id="1">Docker-compose.yml version mismatch between repository (modern security-hardened) and system (legacy basic)</issue>
+        <issue id="2">Permission conflicts: vless user (UID=995, GID=982) vs container expectations (user: "1000:1000")</issue>
+        <issue id="3">No automatic service startup after installation completion</issue>
+        <issue id="4">Missing health check validation after container startup</issue>
     </problem_summary>
 
-    <implementation_tasks>
-        <task id="1" priority="critical">
-            <name>Enhance chrony configuration with multiple reliable NTP servers</name>
-            <description>Modify configure_chrony_for_large_offset() to include multiple reliable NTP servers and proper configuration</description>
-            <target_function>configure_chrony_for_large_offset()</target_function>
-            <line_range>667-710</line_range>
-            <changes>
-                <change type="modify">
-                    <description>Add pool of reliable NTP servers to chrony configuration</description>
-                    <code_block>
-# Define reliable NTP server pool
-local ntp_servers=(
-    "pool.ntp.org"
-    "time.nist.gov"
-    "time.google.com"
-    "time.cloudflare.com"
-    "0.pool.ntp.org"
-    "1.pool.ntp.org"
-    "2.pool.ntp.org"
-    "3.pool.ntp.org"
-)
+    <solution_approach>
+        <strategy>Fix installer modules for automatic configuration (Selected Solution #3)</strategy>
+        <rationale>Provides systematic solution that prevents future occurrences and improves user experience</rationale>
+    </solution_approach>
 
-# Create comprehensive chrony configuration
-cat > "$temp_conf" << EOF
-# Multiple reliable NTP servers for redundancy
-$(for server in "${ntp_servers[@]}"; do echo "server $server iburst"; done)
+    <phases>
+        <phase id="1" name="Immediate Fix">
+            <description>Resolve current service startup issues to restore functionality</description>
+            <priority>Critical</priority>
+            <estimated_time>15 minutes</estimated_time>
 
-# Aggressive step settings for large offsets
-makestep 1000 -1
+            <tasks>
+                <task id="1.1">
+                    <name>Update system docker-compose.yml</name>
+                    <description>Replace old docker-compose.yml with updated version from repository</description>
+                    <files_modified>
+                        <file>/opt/vless/docker-compose.yml</file>
+                    </files_modified>
+                    <commands>
+                        <command>sudo cp /home/ikeniborn/Documents/Project/vless/config/docker-compose.yml /opt/vless/docker-compose.yml</command>
+                        <command>sudo chown vless:vless /opt/vless/docker-compose.yml</command>
+                        <command>sudo chmod 644 /opt/vless/docker-compose.yml</command>
+                    </commands>
+                    <validation>
+                        <check>Verify file copied and has correct ownership</check>
+                        <check>Validate docker-compose syntax with docker-compose config</check>
+                    </validation>
+                </task>
 
-# Allow for quick synchronization
-driftfile /var/lib/chrony/chrony.drift
-rtcsync
-maxupdateskew 100.0
+                <task id="1.2">
+                    <name>Fix container user permissions</name>
+                    <description>Adjust user directive in docker-compose.yml to match vless system user UID</description>
+                    <approach>Change user: "1000:1000" to user: "995:982" to match system vless user</approach>
+                    <files_modified>
+                        <file>/opt/vless/docker-compose.yml</file>
+                    </files_modified>
+                    <implementation>
+                        <step>Edit docker-compose.yml xray service user directive</step>
+                        <step>Change from user: "1000:1000" to user: "995:982"</step>
+                        <step>Maintain security hardening features from new version</step>
+                    </implementation>
+                </task>
 
-# Enable command access
-cmdallow 127.0.0.1
-bindcmdaddress 127.0.0.1
+                <task id="1.3">
+                    <name>Fix file permissions for container access</name>
+                    <description>Ensure config files are readable by container user</description>
+                    <files_modified>
+                        <file>/opt/vless/config/config.json</file>
+                        <file>/opt/vless/config/</file>
+                        <file>/opt/vless/logs/</file>
+                        <file>/opt/vless/certs/</file>
+                    </files_modified>
+                    <commands>
+                        <command>sudo chmod 644 /opt/vless/config/config.json</command>
+                        <command>sudo chmod 755 /opt/vless/config /opt/vless/logs /opt/vless/certs</command>
+                        <command>sudo chown -R vless:vless /opt/vless/config /opt/vless/logs /opt/vless/certs</command>
+                    </commands>
+                </task>
 
-# Logging
-logdir /var/log/chrony
-EOF
-                    </code_block>
-                </change>
-            </changes>
-        </task>
+                <task id="1.4">
+                    <name>Test service startup</name>
+                    <description>Start services and verify functionality</description>
+                    <commands>
+                        <command>cd /opt/vless && sudo -u vless docker-compose down</command>
+                        <command>cd /opt/vless && sudo -u vless docker-compose up -d</command>
+                    </commands>
+                    <validation>
+                        <check>Verify vless-xray container starts without errors</check>
+                        <check>Check container logs for successful startup</check>
+                        <check>Confirm xray config.json is readable by container</check>
+                        <check>Validate health checks pass</check>
+                    </validation>
+                </task>
+            </tasks>
+        </phase>
 
-        <task id="2" priority="critical">
-            <name>Implement chrony synchronization status verification</name>
-            <description>Add new function to verify chrony synchronization using 'chronyc tracking' and 'chronyc sources'</description>
-            <target_function>verify_chrony_sync_status()</target_function>
-            <line_range>new_function</line_range>
-            <changes>
-                <change type="add">
-                    <description>Create function to verify chrony synchronization status</description>
-                    <code_block>
-# Verify chrony synchronization status using tracking and sources
-verify_chrony_sync_status() {
-    local max_retries="${1:-5}"
-    local retry_delay="${2:-3}"
+        <phase id="2" name="Installer Module Updates">
+            <description>Fix installer modules to handle permissions and docker-compose.yml management correctly</description>
+            <priority>High</priority>
+            <estimated_time>45 minutes</estimated_time>
 
-    log_debug "Verifying chrony synchronization status"
+            <tasks>
+                <task id="2.1">
+                    <name>Enhance container_management.sh</name>
+                    <description>Add functions for proper permission handling and docker-compose.yml management</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/container_management.sh</file>
+                    </files_modified>
 
-    for ((i=1; i<=max_retries; i++)); do
-        log_debug "Verification attempt $i/$max_retries"
+                    <new_functions>
+                        <function name="ensure_docker_compose_updated">
+                            <description>Check and update docker-compose.yml if repository version is newer</description>
+                            <parameters>
+                                <param>source_file: Path to repository docker-compose.yml</param>
+                                <param>target_file: Path to system docker-compose.yml</param>
+                            </parameters>
+                            <logic>
+                                <step>Compare file timestamps/checksums</step>
+                                <step>Backup existing file if different</step>
+                                <step>Copy new version and adjust user UID/GID</step>
+                                <step>Set proper ownership and permissions</step>
+                            </logic>
+                        </function>
 
-        # Check tracking status
-        local tracking_output
-        if tracking_output=$(safe_execute_output 15 chronyc tracking 2>/dev/null); then
-            log_debug "Chrony tracking output: $tracking_output"
+                        <function name="fix_container_permissions">
+                            <description>Adjust docker-compose.yml user directives to match system user</description>
+                            <parameters>
+                                <param>compose_file: Path to docker-compose.yml</param>
+                                <param>system_user: Target system user name</param>
+                            </parameters>
+                            <logic>
+                                <step>Get system user UID and GID</step>
+                                <step>Update user directives in docker-compose.yml</step>
+                                <step>Validate yaml syntax</step>
+                                <step>Set proper file ownership</step>
+                            </logic>
+                        </function>
 
-            # Parse tracking output for synchronization indicators
-            if echo "$tracking_output" | grep -q "Stratum.*[1-9]"; then
-                local stratum=$(echo "$tracking_output" | grep "Stratum" | awk '{print $3}')
-                log_debug "Chrony synchronized with Stratum: $stratum"
+                        <function name="ensure_proper_file_permissions">
+                            <description>Set correct permissions for all container-accessed files</description>
+                            <parameters>
+                                <param>base_dir: Base directory (/opt/vless)</param>
+                                <param>system_user: System user name</param>
+                            </parameters>
+                            <logic>
+                                <step>Set directory permissions (755)</step>
+                                <step>Set config file permissions (644)</step>
+                                <step>Set log directory permissions (755)</step>
+                                <step>Set certificate directory permissions (755)</step>
+                                <step>Ensure proper ownership</step>
+                            </logic>
+                        </function>
 
-                # Check if we have a valid time source
-                if echo "$tracking_output" | grep -q "Reference time"; then
-                    log_success "Chrony synchronization verified - Stratum $stratum active"
-                    return 0
-                fi
-            fi
-        fi
+                        <function name="start_services_with_health_check">
+                            <description>Start services and wait for health validation</description>
+                            <logic>
+                                <step>Start containers with docker-compose up -d</step>
+                                <step>Wait for containers to reach running state</step>
+                                <step>Perform health checks with retries</step>
+                                <step>Log status and any issues</step>
+                                <step>Return success/failure status</step>
+                            </logic>
+                        </function>
+                    </new_functions>
 
-        # Check sources status for reachable servers
-        local sources_output
-        if sources_output=$(safe_execute_output 15 chronyc sources 2>/dev/null); then
-            log_debug "Chrony sources output: $sources_output"
+                    <modifications>
+                        <modification location="prepare_system_environment()">
+                            <change>Add call to ensure_docker_compose_updated()</change>
+                            <change>Add call to fix_container_permissions()</change>
+                            <change>Replace manual ownership setting with ensure_proper_file_permissions()</change>
+                        </modification>
 
-            # Look for active sources (marked with '*' or '+')
-            if echo "$sources_output" | grep -E "^\^[\*\+]" | head -1; then
-                local active_server=$(echo "$sources_output" | grep -E "^\^[\*\+]" | head -1 | awk '{print $2}')
-                log_success "Chrony has active server: $active_server"
-                return 0
-            fi
-        fi
+                        <modification location="start_services()">
+                            <change>Replace basic startup with start_services_with_health_check()</change>
+                            <change>Add comprehensive error handling and logging</change>
+                        </modification>
+                    </modifications>
+                </task>
 
-        if [[ $i -lt $max_retries ]]; then
-            log_debug "Chrony not yet synchronized, waiting ${retry_delay}s before retry $((i+1))"
-            interruptible_sleep "$retry_delay" 1
-        fi
-    done
+                <task id="2.2">
+                    <name>Update docker_setup.sh module</name>
+                    <description>Add post-installation container deployment</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh</file>
+                    </files_modified>
 
-    log_warn "Chrony synchronization verification failed after $max_retries attempts"
-    return 1
-}
-                    </code_block>
-                </change>
-            </changes>
-        </task>
+                    <modifications>
+                        <modification location="install_docker_complete()">
+                            <change>Add call to configure container environment after Docker installation</change>
+                            <change>Trigger container_management setup if VLESS system detected</change>
+                        </modification>
+                    </modifications>
 
-        <task id="3" priority="high">
-            <name>Enhance sync_system_time() chrony method with proper verification</name>
-            <description>Modify the chrony section in sync_system_time() to use verification and extended wait times</description>
-            <target_function>sync_system_time()</target_function>
-            <line_range>533-579</line_range>
-            <changes>
-                <change type="modify">
-                    <description>Replace existing chrony sync logic with enhanced verification</description>
-                    <code_block>
-    # Method 4: Try chrony if available (enhanced with status verification)
-    if command_exists chronyc; then
-        log_debug "Attempting time sync with chrony (enhanced mode)"
+                    <new_functions>
+                        <function name="post_docker_vless_setup">
+                            <description>Configure VLESS containers after Docker installation</description>
+                            <logic>
+                                <step>Check if /opt/vless exists</step>
+                                <step>Call container_management.sh prepare_system_environment</step>
+                                <step>Attempt to start services if configuration exists</step>
+                            </logic>
+                        </function>
+                    </new_functions>
+                </task>
 
-        # Store current time for comparison
-        local time_before=$(date +%s)
-        log_debug "System time before chrony sync: $(date)"
+                <task id="2.3">
+                    <name>Update phase integration script</name>
+                    <description>Ensure Phase 2 includes service startup</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/modules/phase4_integration.sh</file>
+                    </files_modified>
 
-        # Configure chrony for large step corrections with multiple servers
-        if configure_chrony_for_large_offset; then
-            log_debug "Chrony configured with multiple NTP servers for large offset correction"
+                    <modifications>
+                        <modification location="run_phase_2()">
+                            <change>Add service startup after VLESS server implementation</change>
+                            <change>Include health check validation</change>
+                            <change>Log startup status</change>
+                        </modification>
+                    </modifications>
+                </task>
+            </tasks>
+        </phase>
 
-            # Restart chrony service to apply new configuration
-            if safe_execute 30 systemctl restart chrony; then
-                log_debug "Chrony service restarted with new configuration"
+        <phase id="3" name="Installation Process Enhancement">
+            <description>Improve main installer to handle service startup automatically</description>
+            <priority>High</priority>
+            <estimated_time>30 minutes</estimated_time>
 
-                # Wait for service to fully start
-                interruptible_sleep 3 1
+            <tasks>
+                <task id="3.1">
+                    <name>Enhance install.sh main script</name>
+                    <description>Add automatic service startup and validation after installation</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/install.sh</file>
+                    </files_modified>
 
-                # Force immediate sync with all NTP servers using burst mode
-                if safe_execute 30 chronyc burst 4/4; then
-                    log_debug "Chrony burst mode initiated with 4 servers"
+                    <modifications>
+                        <modification location="end of installation process">
+                            <change>Add post-installation service startup</change>
+                            <change>Include service health validation</change>
+                            <change>Display service status to user</change>
+                            <change>Provide troubleshooting guidance if services fail</change>
+                        </modification>
+                    </modifications>
 
-                    # Extended wait for burst mode to complete and synchronization to occur
-                    log_debug "Waiting for chrony synchronization (20 seconds)"
-                    interruptible_sleep 20 2
+                    <new_sections>
+                        <section name="post_installation_startup">
+                            <description>Handle service startup after successful installation</description>
+                            <logic>
+                                <step>Call container_management.sh to start services</step>
+                                <step>Wait for health checks to pass</step>
+                                <step>Display service status</step>
+                                <step>Show user connection information if successful</step>
+                            </logic>
+                        </section>
+                    </new_sections>
+                </task>
+            </tasks>
+        </phase>
 
-                    # Verify synchronization status before makestep
-                    if verify_chrony_sync_status 3 5; then
-                        log_success "Chrony synchronization verified before makestep"
+        <phase id="4" name="Testing and Validation">
+            <description>Comprehensive testing of fixes and enhancements</description>
+            <priority>Medium</priority>
+            <estimated_time>60 minutes</estimated_time>
 
-                        # Force step adjustment with verification
-                        if safe_execute 30 chronyc makestep; then
-                            log_debug "Chrony makestep command executed"
+            <tasks>
+                <task id="4.1">
+                    <name>Create comprehensive test suite</name>
+                    <description>Develop tests for permission handling and service startup</description>
+                    <files_created>
+                        <file>/home/ikeniborn/Documents/Project/vless/tests/test_docker_services_fix.sh</file>
+                    </files_created>
 
-                            # Wait for time adjustment to settle
-                            interruptible_sleep 5 1
+                    <test_categories>
+                        <category name="Permission Tests">
+                            <test>Verify vless user UID/GID detection</test>
+                            <test>Test docker-compose.yml user directive updates</test>
+                            <test>Validate file permission corrections</test>
+                        </category>
 
-                            # Validate the time change
-                            if validate_time_sync_result "$time_before"; then
-                                log_success "Time synchronized using chrony with verified sync status"
+                        <category name="Docker Compose Management">
+                            <test>Test docker-compose.yml version detection</test>
+                            <test>Verify file update and backup processes</test>
+                            <test>Validate YAML syntax after modifications</test>
+                        </category>
 
-                                # Force hardware clock update after successful chrony sync
-                                if command_exists hwclock; then
-                                    safe_execute 30 hwclock --systohc 2>/dev/null || true
-                                    log_debug "Hardware clock updated after chrony sync"
-                                fi
+                        <category name="Service Startup Tests">
+                            <test>Test container startup with correct permissions</test>
+                            <test>Verify health check functionality</test>
+                            <test>Test service recovery from failures</test>
+                        </category>
 
-                                return 0
-                            else
-                                log_warn "Chrony makestep executed but time wasn't corrected significantly"
-                            fi
-                        fi
-                    else
-                        log_warn "Chrony synchronization verification failed, attempting makestep anyway"
+                        <category name="Integration Tests">
+                            <test>Full installer run with service startup</test>
+                            <test>Test upgrade scenarios (existing installation)</test>
+                            <test>Verify backward compatibility</test>
+                        </category>
+                    </test_categories>
+                </task>
 
-                        # Try makestep even if verification failed
-                        if safe_execute 30 chronyc makestep; then
-                            interruptible_sleep 5 1
-                            if validate_time_sync_result "$time_before"; then
-                                log_success "Time synchronized using chrony makestep (unverified sync)"
-                                return 0
-                            fi
-                        fi
-                    fi
-                else
-                    log_warn "Chrony burst mode failed, trying makestep directly"
+                <task id="4.2">
+                    <name>Manual testing procedures</name>
+                    <description>Step-by-step manual validation procedures</description>
+                    <procedures>
+                        <procedure name="Fresh Installation Test">
+                            <step>Clean test environment setup</step>
+                            <step>Run installer with new enhancements</step>
+                            <step>Verify automatic service startup</step>
+                            <step>Check container logs for errors</step>
+                            <step>Test VLESS connection functionality</step>
+                        </procedure>
 
-                    # Try direct makestep if burst failed
-                    if safe_execute 30 chronyc makestep; then
-                        interruptible_sleep 5 1
-                        if validate_time_sync_result "$time_before"; then
-                            log_success "Time synchronized using chrony direct makestep"
-                            return 0
-                        fi
-                    fi
-                fi
-            else
-                log_error "Failed to restart chrony service"
-            fi
-        else
-            log_warn "Failed to configure chrony, attempting with existing configuration"
+                        <procedure name="Existing Installation Upgrade">
+                            <step>Test with current broken installation</step>
+                            <step>Run container_management.sh fixes</step>
+                            <step>Verify service recovery</step>
+                            <step>Check for regression issues</step>
+                        </procedure>
 
-            # Fallback to original method if configuration fails
-            if safe_execute 30 chronyc makestep; then
-                interruptible_sleep 5 1
-                if validate_time_sync_result "$time_before"; then
-                    log_success "Time synchronized using chrony (fallback method)"
-                    return 0
-                fi
-            fi
-        fi
+                        <procedure name="Permission Edge Cases">
+                            <step>Test with different system user UIDs</step>
+                            <step>Verify handling of permission conflicts</step>
+                            <step>Test recovery from permission errors</step>
+                        </procedure>
+                    </procedures>
+                </task>
+            </tasks>
+        </phase>
 
-        log_debug "chrony sync failed or insufficient correction"
-    fi
-                    </code_block>
-                </change>
-            </changes>
-        </task>
+        <phase id="5" name="Documentation and Maintenance">
+            <description>Update documentation and add maintenance utilities</description>
+            <priority>Low</priority>
+            <estimated_time>30 minutes</estimated_time>
 
-        <task id="4" priority="medium">
-            <name>Add retry logic with exponential backoff</name>
-            <description>Create a wrapper function that implements retry logic with exponential backoff for time sync operations</description>
-            <target_function>sync_with_retry()</target_function>
-            <line_range>new_function</line_range>
-            <changes>
-                <change type="add">
-                    <description>Create retry wrapper with exponential backoff</description>
-                    <code_block>
-# Sync time with retry logic and exponential backoff
-sync_with_retry() {
-    local max_attempts="${1:-3}"
-    local base_delay="${2:-5}"
-    local force_mode="${3:-false}"
+            <tasks>
+                <task id="5.1">
+                    <name>Update troubleshooting documentation</name>
+                    <description>Add common issues and solutions related to Docker services</description>
+                    <files_modified>
+                        <file>/home/ikeniborn/Documents/Project/vless/docs/troubleshooting.md</file>
+                    </files_modified>
 
-    log_info "Starting time synchronization with retry logic"
-    log_info "Max attempts: $max_attempts, Base delay: ${base_delay}s, Force mode: $force_mode"
+                    <sections_to_add>
+                        <section name="Docker Services Issues">
+                            <subsection>Container startup failures</subsection>
+                            <subsection>Permission-related errors</subsection>
+                            <subsection>Docker-compose.yml mismatches</subsection>
+                            <subsection>Health check failures</subsection>
+                        </section>
+                    </sections_to_add>
+                </task>
 
-    for ((attempt=1; attempt<=max_attempts; attempt++)); do
-        log_info "Time sync attempt $attempt/$max_attempts"
+                <task id="5.2">
+                    <name>Add maintenance utilities</name>
+                    <description>Create utilities for ongoing maintenance of Docker services</description>
+                    <files_created>
+                        <file>/home/ikeniborn/Documents/Project/vless/scripts/fix_docker_services.sh</file>
+                    </files_created>
 
-        # Attempt synchronization
-        if sync_system_time "$force_mode"; then
-            log_success "Time synchronization successful on attempt $attempt"
-            return 0
-        fi
+                    <utilities>
+                        <utility name="fix_docker_services.sh">
+                            <description>Standalone script to fix common Docker service issues</description>
+                            <functions>
+                                <function>Detect and fix permission issues</function>
+                                <function>Update docker-compose.yml if needed</function>
+                                <function>Restart services with health validation</function>
+                                <function>Generate diagnostic report</function>
+                            </functions>
+                        </utility>
+                    </utilities>
+                </task>
+            </tasks>
+        </phase>
+    </phases>
 
-        # If not the last attempt, wait with exponential backoff
-        if [[ $attempt -lt $max_attempts ]]; then
-            local delay=$((base_delay * attempt))
-            log_info "Attempt $attempt failed, waiting ${delay}s before retry $((attempt+1))"
-            interruptible_sleep "$delay" 1
+    <implementation_details>
+        <code_changes>
+            <file path="/home/ikeniborn/Documents/Project/vless/modules/container_management.sh">
+                <change location="after line 127" type="addition">
+                    <code><![CDATA[
+# Ensure docker-compose.yml is up to date
+ensure_docker_compose_updated() {
+    local source_file="$1"
+    local target_file="$2"
+    local system_user="${3:-vless}"
 
-            # Force mode for subsequent attempts if first attempt failed
-            force_mode="true"
-        fi
-    done
+    log_info "Checking docker-compose.yml version..."
 
-    log_error "Time synchronization failed after $max_attempts attempts"
-    return 1
-}
-                    </code_block>
-                </change>
-            </changes>
-        </task>
-
-        <task id="5" priority="medium">
-            <name>Add safe_execute_output helper function</name>
-            <description>Add helper function to safely execute commands and capture output for parsing</description>
-            <target_function>safe_execute_output()</target_function>
-            <line_range>new_function</line_range>
-            <changes>
-                <change type="add">
-                    <description>Create safe command execution with output capture</description>
-                    <code_block>
-# Execute command safely and capture output
-safe_execute_output() {
-    local timeout="$1"
-    shift
-    local cmd=("$@")
-
-    log_debug "Executing with output capture: ${cmd[*]} (timeout: ${timeout}s)"
-
-    local output
-    local exit_code
-
-    # Use timeout to prevent hanging
-    if output=$(timeout "$timeout" "${cmd[@]}" 2>&1); then
-        exit_code=0
-    else
-        exit_code=$?
-    fi
-
-    if [[ $exit_code -eq 0 ]]; then
-        echo "$output"
-        return 0
-    else
-        log_debug "Command failed with exit code $exit_code: ${cmd[*]}"
-        log_debug "Command output: $output"
-        return $exit_code
-    fi
-}
-                    </code_block>
-                </change>
-            </changes>
-        </task>
-
-        <task id="6" priority="low">
-            <name>Update enhanced_time_sync() to use new retry logic</name>
-            <description>Modify enhanced_time_sync() function to use the new sync_with_retry() function</description>
-            <target_function>enhanced_time_sync()</target_function>
-            <line_range>909-975</line_range>
-            <changes>
-                <change type="modify">
-                    <description>Replace direct sync_system_time call with retry logic</description>
-                    <code_block>
-    # Use retry logic for enhanced synchronization reliability
-    if sync_with_retry 3 10 "$force"; then
-        local final_time=$(date +%s)
-        local total_correction=$((final_time - initial_time))
-
-        log_success "=== Enhanced Time Synchronization Completed Successfully ==="
-        log_info "Total time correction: ${total_correction} seconds"
-        log_info "Final system time: $(date)"
-        log_info "Final system time (UTC): $(date -u)"
-
-        # Force comprehensive hardware clock sync
-        if force_hwclock_sync; then
-            log_debug "Hardware clock synchronized with system time"
-        fi
-
-        return 0
-    else
-        log_error "=== Enhanced Time Synchronization Failed ==="
-        log_error "All synchronization methods failed after multiple attempts"
-        log_error "System time may still be incorrect"
+    if [[ ! -f "$source_file" ]]; then
+        log_warn "Source docker-compose.yml not found: $source_file"
         return 1
     fi
-                    </code_block>
+
+    # Check if update is needed
+    local needs_update=false
+    if [[ ! -f "$target_file" ]]; then
+        needs_update=true
+        log_info "Target docker-compose.yml does not exist, will create"
+    else
+        # Compare checksums
+        local source_checksum=$(sha256sum "$source_file" | cut -d' ' -f1)
+        local target_checksum=$(sha256sum "$target_file" | cut -d' ' -f1)
+
+        if [[ "$source_checksum" != "$target_checksum" ]]; then
+            needs_update=true
+            log_info "docker-compose.yml versions differ, will update"
+        fi
+    fi
+
+    if [[ "$needs_update" == "true" ]]; then
+        # Backup existing file
+        if [[ -f "$target_file" ]]; then
+            backup_file "$target_file"
+        fi
+
+        # Copy and update
+        cp "$source_file" "$target_file"
+        fix_container_permissions "$target_file" "$system_user"
+
+        log_success "docker-compose.yml updated successfully"
+    else
+        log_info "docker-compose.yml is up to date"
+    fi
+}
+
+# Fix container user permissions in docker-compose.yml
+fix_container_permissions() {
+    local compose_file="$1"
+    local system_user="${2:-vless}"
+
+    log_info "Fixing container permissions for user: $system_user"
+
+    # Get system user UID and GID
+    local user_info
+    if ! user_info=$(id "$system_user" 2>/dev/null); then
+        log_error "System user not found: $system_user"
+        return 1
+    fi
+
+    local uid=$(echo "$user_info" | grep -o 'uid=[0-9]*' | cut -d'=' -f2)
+    local gid=$(echo "$user_info" | grep -o 'gid=[0-9]*' | cut -d'=' -f2)
+
+    log_debug "System user $system_user has UID=$uid, GID=$gid"
+
+    # Update user directive in docker-compose.yml
+    if grep -q 'user:.*"[0-9]*:[0-9]*"' "$compose_file"; then
+        sed -i "s/user: \"[0-9]*:[0-9]*\"/user: \"$uid:$gid\"/" "$compose_file"
+        log_info "Updated container user to $uid:$gid"
+    else
+        log_debug "No user directive found in docker-compose.yml"
+    fi
+
+    # Validate YAML syntax
+    if command_exists docker-compose; then
+        if docker-compose -f "$compose_file" config >/dev/null 2>&1; then
+            log_success "docker-compose.yml syntax validated"
+        else
+            log_error "docker-compose.yml syntax validation failed"
+            return 1
+        fi
+    fi
+
+    # Set proper ownership
+    chown "$system_user:$system_user" "$compose_file"
+    chmod 644 "$compose_file"
+}
+
+# Ensure proper file permissions for containers
+ensure_proper_file_permissions() {
+    local base_dir="$1"
+    local system_user="${2:-vless}"
+
+    log_info "Setting proper file permissions for containers..."
+
+    local directories=(
+        "$base_dir/config"
+        "$base_dir/logs"
+        "$base_dir/certs"
+    )
+
+    # Set directory permissions
+    for dir in "${directories[@]}"; do
+        if [[ -d "$dir" ]]; then
+            chmod 755 "$dir"
+            chown -R "$system_user:$system_user" "$dir"
+            log_debug "Set permissions for directory: $dir"
+        fi
+    done
+
+    # Set specific file permissions
+    local config_file="$base_dir/config/config.json"
+    if [[ -f "$config_file" ]]; then
+        chmod 644 "$config_file"
+        chown "$system_user:$system_user" "$config_file"
+        log_debug "Set permissions for config file: $config_file"
+    fi
+
+    log_success "File permissions configured correctly"
+}
+
+# Start services with comprehensive health checking
+start_services_with_health_check() {
+    local service="${1:-}"
+    local max_wait="${2:-120}"
+
+    log_info "Starting services with health validation..."
+
+    # Start services
+    if [[ -n "$service" ]]; then
+        if ! safe_docker_compose "$START_TIMEOUT" up -d "$service"; then
+            log_error "Failed to start service: $service"
+            return 1
+        fi
+    else
+        if ! safe_docker_compose "$START_TIMEOUT" up -d; then
+            log_error "Failed to start services"
+            return 1
+        fi
+    fi
+
+    # Wait for containers to be in running state
+    log_info "Waiting for containers to reach running state..."
+    local wait_time=0
+    while [[ $wait_time -lt $max_wait ]]; do
+        local all_running=true
+        local containers=("vless-xray" "vless-nginx" "vless-watchtower")
+
+        for container in "${containers[@]}"; do
+            if [[ -n "$service" && "$container" != "vless-$service" ]]; then
+                continue
+            fi
+
+            local state
+            state=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
+
+            if [[ "$state" != "running" ]]; then
+                all_running=false
+                log_debug "Container $container state: $state"
+                break
+            fi
+        done
+
+        if [[ "$all_running" == "true" ]]; then
+            log_success "All containers are running"
+            break
+        fi
+
+        sleep 5
+        wait_time=$((wait_time + 5))
+    done
+
+    if [[ $wait_time -ge $max_wait ]]; then
+        log_error "Timeout waiting for containers to start"
+        return 1
+    fi
+
+    # Perform health checks
+    log_info "Performing health checks..."
+    if ! wait_for_services_healthy "$max_wait"; then
+        log_error "Health check validation failed"
+        return 1
+    fi
+
+    log_success "Services started and validated successfully"
+    return 0
+}
+                    ]]></code>
                 </change>
-            </changes>
-        </task>
 
-        <task id="7" priority="low">
-            <name>Update function exports</name>
-            <description>Add new functions to the export list at the end of the file</description>
-            <target_function>exports</target_function>
-            <line_range>1380-1382</line_range>
-            <changes>
-                <change type="modify">
-                    <description>Add new functions to export list</description>
-                    <code_block>
-export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors force_hwclock_sync enhanced_time_sync
-export -f configure_chrony_for_large_offset sync_time_from_web_api validate_time_sync_result verify_chrony_sync_status
-export -f sync_with_retry safe_execute_output
-                    </code_block>
+                <change location="line 139" type="modification">
+                    <old_code>    prepare_system_environment</old_code>
+                    <new_code>    prepare_system_environment
+
+    # Update docker-compose.yml if needed
+    ensure_docker_compose_updated "$COMPOSE_FILE" "$SYSTEM_COMPOSE_FILE"
+
+    # Ensure proper permissions
+    ensure_proper_file_permissions "/opt/vless"</new_code>
                 </change>
-            </changes>
-        </task>
-    </implementation_tasks>
 
-    <testing_approach>
-        <test_category name="Unit Tests">
-            <test name="test_verify_chrony_sync_status">
-                <description>Test chrony synchronization status verification function</description>
-                <approach>Mock chronyc tracking and sources commands with different outputs</approach>
-            </test>
-            <test name="test_safe_execute_output">
-                <description>Test safe command execution with output capture</description>
-                <approach>Test timeout handling and output parsing</approach>
-            </test>
-            <test name="test_sync_with_retry">
-                <description>Test retry logic with exponential backoff</description>
-                <approach>Mock sync_system_time to fail and verify retry behavior</approach>
-            </test>
-        </test_category>
+                <change location="line 160-164" type="modification">
+                    <old_code>    # Wait for services to be healthy
+    wait_for_services_healthy
 
-        <test_category name="Integration Tests">
-            <test name="test_enhanced_chrony_sync">
-                <description>Test complete chrony synchronization workflow</description>
-                <approach>Test with controlled time offset and verify correction</approach>
-            </test>
-            <test name="test_multiple_ntp_servers">
-                <description>Test chrony configuration with multiple NTP servers</description>
-                <approach>Verify chrony.conf generation and service restart</approach>
-            </test>
-        </test_category>
+    log_success "Services started successfully"
+    show_service_status</old_code>
+                    <new_code>    # Start services with comprehensive health checking
+    if ! start_services_with_health_check "$service"; then
+        log_error "Failed to start and validate services"
+        return 1
+    fi
 
-        <test_category name="System Tests">
-            <test name="test_apt_error_resolution">
-                <description>Test complete APT error resolution workflow</description>
-                <approach>Create time offset scenario and verify APT update success</approach>
-            </test>
-        </test_category>
-    </testing_approach>
+    log_success "Services started and validated successfully"
+    show_service_status</new_code>
+                </change>
+            </file>
+        </code_changes>
 
-    <rollback_strategy>
-        <backup_plan>
-            <step number="1">Create backup of original common_utils.sh before modifications</step>
-            <step number="2">Store original chrony configuration in /tmp/chrony_original.conf</step>
-            <step number="3">Implement configuration validation before applying changes</step>
-        </backup_plan>
+        <configuration_updates>
+            <update target="/opt/vless/docker-compose.yml">
+                <change>Update user directive from "1000:1000" to "995:982" (vless user UID/GID)</change>
+                <change>Keep all security hardening features from repository version</change>
+                <change>Ensure proper volume mounts and network configuration</change>
+            </update>
+        </configuration_updates>
+    </implementation_details>
 
-        <rollback_triggers>
-            <trigger>Any syntax error in modified functions</trigger>
-            <trigger>Chrony service fails to start with new configuration</trigger>
-            <trigger>Time synchronization completely fails after changes</trigger>
-            <trigger>System becomes unstable after modifications</trigger>
-        </rollback_triggers>
+    <testing_strategy>
+        <test_environments>
+            <environment name="Current System">
+                <description>Test fixes on current broken installation</description>
+                <validation>
+                    <check>Services start without errors</check>
+                    <check>Health checks pass</check>
+                    <check>Container logs show successful startup</check>
+                    <check>VLESS functionality works</check>
+                </validation>
+            </environment>
 
-        <rollback_steps>
-            <step number="1">Stop chrony service: systemctl stop chrony</step>
-            <step number="2">Restore original chrony configuration</step>
-            <step number="3">Restore original common_utils.sh from backup</step>
-            <step number="4">Restart chrony service: systemctl start chrony</step>
-            <step number="5">Verify system functionality with original code</step>
-        </rollback_steps>
-    </rollback_strategy>
+            <environment name="Fresh Installation">
+                <description>Test complete installer with new enhancements</description>
+                <validation>
+                    <check>Automatic service startup after installation</check>
+                    <check>Correct permissions set during installation</check>
+                    <check>No manual intervention required</check>
+                </validation>
+            </environment>
 
-    <configuration_changes>
-        <chrony_config>
-            <description>Enhanced chrony.conf with multiple reliable NTP servers</description>
-            <changes>
-                <change>Add pool.ntp.org and regional NTP pools</change>
-                <change>Add Google, Cloudflare, and NIST time servers</change>
-                <change>Configure aggressive makestep for large offsets</change>
-                <change>Enable burst mode for faster initial sync</change>
-                <change>Configure proper logging and drift file</change>
-            </changes>
-        </chrony_config>
+            <environment name="Upgrade Scenario">
+                <description>Test upgrade from old to new docker-compose.yml</description>
+                <validation>
+                    <check>Backup of old configuration</check>
+                    <check>Successful migration to new format</check>
+                    <check>No service interruption</check>
+                </validation>
+            </environment>
+        </test_environments>
 
-        <service_management>
-            <description>Chrony service management improvements</description>
-            <changes>
-                <change>Automatic service restart after configuration changes</change>
-                <change>Service status verification before operations</change>
-                <change>Graceful fallback if service operations fail</change>
-            </changes>
-        </service_management>
-    </configuration_changes>
+        <test_procedures>
+            <procedure name="Immediate Fix Testing">
+                <step>Apply Phase 1 changes (docker-compose.yml update and permission fixes)</step>
+                <step>Start services and verify logs</step>
+                <step>Test VLESS connection</step>
+                <step>Monitor for 10 minutes to ensure stability</step>
+            </procedure>
 
-    <validation_criteria>
-        <success_criteria>
-            <criterion>APT update succeeds without time-related errors</criterion>
-            <criterion>Chrony shows active synchronization with Stratum 1-4 servers</criterion>
-            <criterion>System time offset reduced to less than 30 seconds</criterion>
-            <criterion>Time synchronization completes within 60 seconds</criterion>
-            <criterion>Hardware clock is properly synchronized</criterion>
-        </success_criteria>
+            <procedure name="Installer Enhancement Testing">
+                <step>Create clean test environment</step>
+                <step>Run enhanced installer</step>
+                <step>Verify automatic service startup</step>
+                <step>Check for any error messages or warnings</step>
+                <step>Validate final system state</step>
+            </procedure>
 
-        <performance_criteria>
-            <criterion>Time sync operation completes within 2 minutes</criterion>
-            <criterion>No more than 3 retry attempts needed</criterion>
-            <criterion>Chrony service starts within 10 seconds</criterion>
-            <criterion>NTP server response time under 5 seconds</criterion>
-        </performance_criteria>
-    </validation_criteria>
+            <procedure name="Edge Case Testing">
+                <step>Test with different user UIDs</step>
+                <step>Test with corrupted docker-compose.yml</step>
+                <step>Test with Docker service down</step>
+                <step>Test recovery from various failure states</step>
+            </procedure>
+        </test_procedures>
+    </testing_strategy>
 
-    <implementation_sequence>
-        <phase number="1" name="Preparation">
-            <action>Create backup of current common_utils.sh</action>
-            <action>Validate current system state</action>
-            <action>Test current time sync functionality</action>
-        </phase>
+    <rollback_procedure>
+        <description>Steps to revert changes if issues occur during implementation</description>
+        <steps>
+            <step id="1">
+                <action>Stop all running containers</action>
+                <command>cd /opt/vless && sudo docker-compose down</command>
+            </step>
 
-        <phase number="2" name="Core Functions">
-            <action>Add safe_execute_output() function (Task 5)</action>
-            <action>Add verify_chrony_sync_status() function (Task 2)</action>
-            <action>Add sync_with_retry() function (Task 4)</action>
-        </phase>
+            <step id="2">
+                <action>Restore original docker-compose.yml</action>
+                <command>sudo cp /opt/vless/docker-compose.yml.backup /opt/vless/docker-compose.yml</command>
+                <note>Backup is created automatically by backup_file() function</note>
+            </step>
 
-        <phase number="3" name="Configuration Enhancement">
-            <action>Enhance configure_chrony_for_large_offset() function (Task 1)</action>
-            <action>Test chrony configuration generation</action>
-        </phase>
+            <step id="3">
+                <action>Restore module files if modified</action>
+                <command>git checkout HEAD -- modules/container_management.sh</command>
+                <command>git checkout HEAD -- modules/docker_setup.sh</command>
+            </step>
 
-        <phase number="4" name="Sync Logic Update">
-            <action>Modify sync_system_time() chrony section (Task 3)</action>
-            <action>Update enhanced_time_sync() function (Task 6)</action>
-            <action>Update function exports (Task 7)</action>
-        </phase>
+            <step id="4">
+                <action>Restore file permissions to original state</action>
+                <command>sudo chown -R vless:vless /opt/vless/</command>
+                <command>sudo chmod 755 /opt/vless/config /opt/vless/logs /opt/vless/certs</command>
+                <command>sudo chmod 644 /opt/vless/config/config.json</command>
+            </step>
 
-        <phase number="5" name="Testing and Validation">
-            <action>Run unit tests for new functions</action>
-            <action>Run integration tests for sync workflow</action>
-            <action>Test complete APT error resolution</action>
-        </phase>
-    </implementation_sequence>
+            <step id="5">
+                <action>Start services with original configuration</action>
+                <command>cd /opt/vless && sudo docker-compose up -d</command>
+            </step>
+        </steps>
+
+        <validation>
+            <check>Verify services return to previous state</check>
+            <check>Check container logs for startup issues</check>
+            <check>Confirm no data loss occurred</check>
+        </validation>
+    </rollback_procedure>
+
+    <success_criteria>
+        <immediate_goals>
+            <goal>Docker services start successfully without manual intervention</goal>
+            <goal>Container permissions allow proper access to configuration files</goal>
+            <goal>Health checks pass consistently</goal>
+            <goal>VLESS functionality works end-to-end</goal>
+        </immediate_goals>
+
+        <long_term_goals>
+            <goal>New installations automatically start services</goal>
+            <goal>Installer handles permission conflicts automatically</goal>
+            <goal>System is resilient to docker-compose.yml updates</goal>
+            <goal>Comprehensive error handling and recovery</goal>
+        </long_term_goals>
+
+        <quality_metrics>
+            <metric>Zero manual intervention required for service startup</metric>
+            <metric>Service startup time under 60 seconds</metric>
+            <metric>Health checks pass within 30 seconds</metric>
+            <metric>95% success rate for automated installations</metric>
+        </quality_metrics>
+    </success_criteria>
+
+    <timeline>
+        <milestones>
+            <milestone date="2025-09-24 immediate" phase="1">
+                <deliverable>Services restored and functional</deliverable>
+                <deliverable>Immediate user issues resolved</deliverable>
+            </milestone>
+
+            <milestone date="2025-09-24 +2 hours" phase="2-3">
+                <deliverable>Enhanced installer modules completed</deliverable>
+                <deliverable>Automatic service startup implemented</deliverable>
+            </milestone>
+
+            <milestone date="2025-09-24 +4 hours" phase="4">
+                <deliverable>Comprehensive testing completed</deliverable>
+                <deliverable>All edge cases validated</deliverable>
+            </milestone>
+
+            <milestone date="2025-09-24 +5 hours" phase="5">
+                <deliverable>Documentation updated</deliverable>
+                <deliverable>Maintenance utilities created</deliverable>
+            </milestone>
+        </milestones>
+
+        <critical_path>
+            <task>Phase 1: Immediate service restoration (blocking user)</task>
+            <task>Phase 2: Installer enhancements (prevents future issues)</task>
+            <task>Phase 4: Testing validation (ensures reliability)</task>
+        </critical_path>
+    </timeline>
 
     <risk_assessment>
-        <risk level="high">
-            <description>Chrony service failure could break system time completely</description>
-            <mitigation>Maintain fallback to original method and web API sync</mitigation>
-        </risk>
+        <risks>
+            <risk level="low" impact="medium">
+                <description>Permission changes might affect other system components</description>
+                <mitigation>Create backups before changes, test in isolated environment</mitigation>
+            </risk>
 
-        <risk level="medium">
-            <description>Extended wait times could slow down installation process</description>
-            <mitigation>Implement configurable timeouts and parallel operations where possible</mitigation>
-        </risk>
+            <risk level="medium" impact="high">
+                <description>Docker-compose.yml updates might introduce new issues</description>
+                <mitigation>Comprehensive testing, rollback procedure available</mitigation>
+            </risk>
 
-        <risk level="low">
-            <description>New NTP servers might be unreachable in some networks</description>
-            <mitigation>Use diverse set of servers including regional pools</mitigation>
-        </risk>
+            <risk level="low" impact="low">
+                <description>Service startup timing issues in different environments</description>
+                <mitigation>Configurable timeouts, robust retry logic</mitigation>
+            </risk>
+        </risks>
+
+        <contingencies>
+            <contingency scenario="Services fail to start after fixes">
+                <action>Execute rollback procedure</action>
+                <action>Analyze logs for specific failure points</action>
+                <action>Apply targeted fixes rather than wholesale changes</action>
+            </contingency>
+
+            <contingency scenario="Permission conflicts persist">
+                <action>Investigate alternative containerization approaches</action>
+                <action>Consider privileged container execution as temporary measure</action>
+                <action>Document specific environment requirements</action>
+            </contingency>
+        </contingencies>
     </risk_assessment>
-</implementation_plan>
+
+    <maintenance_considerations>
+        <ongoing_tasks>
+            <task>Monitor service startup success rates</task>
+            <task>Update docker-compose.yml management for future repository changes</task>
+            <task>Maintain compatibility with Docker version updates</task>
+            <task>Review and update permission handling for new security requirements</task>
+        </ongoing_tasks>
+
+        <monitoring_recommendations>
+            <recommendation>Add service startup monitoring to health check system</recommendation>
+            <recommendation>Log permission-related issues for trend analysis</recommendation>
+            <recommendation>Create alerts for docker-compose.yml version mismatches</recommendation>
+        </monitoring_recommendations>
+    </maintenance_considerations>
+</plan>

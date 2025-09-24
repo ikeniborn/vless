@@ -9,6 +9,7 @@ Comprehensive troubleshooting guide for the VLESS+Reality VPN Management System.
    - [System Time Synchronization Errors](#system-time-synchronization-errors)
    - [Enhanced Time Synchronization (v1.2.3)](#enhanced-time-synchronization-v123)
 3. [Service Problems](#service-problems)
+   - [Docker Services Issues (v1.2.6)](#docker-services-issues-v126)
 4. [Connection Issues](#connection-issues)
 5. [User Management Problems](#user-management-problems)
 6. [Performance Issues](#performance-issues)
@@ -608,6 +609,131 @@ sudo docker inspect xray-container
    ```bash
    curl -v https://localhost:443
    telnet localhost 443
+   ```
+
+### Docker Services Issues (v1.2.6)
+
+#### Problem: Docker containers not starting automatically after installation
+
+**Symptom**:
+- VLESS server is not accessible immediately after installation
+- Manual container startup required
+- Services appear configured but not running
+
+**Diagnostic Commands**:
+```bash
+# Check Docker service status
+sudo systemctl status docker
+
+# Check container status
+sudo docker ps -a
+
+# Check container logs
+sudo docker logs vless-server
+sudo docker logs -f vless-server
+
+# Check Docker compose status
+sudo docker-compose -f /opt/vless/config/docker-compose.yml ps
+```
+
+**Solutions**:
+
+1. **Automatic Startup (Built-in v1.2.6+)**:
+   - New installations automatically start containers after setup
+   - Includes 3-attempt retry logic with exponential backoff
+   - Health check integration validates service availability
+
+2. **Manual Container Startup**:
+   ```bash
+   # Navigate to config directory
+   cd /opt/vless/config
+
+   # Start containers using Docker Compose
+   sudo docker-compose up -d
+
+   # Verify containers are running
+   sudo docker ps
+   ```
+
+3. **Container Permission Issues**:
+   ```bash
+   # Check and fix container permissions
+   sudo /opt/vless/scripts/docker_setup.sh fix-permissions
+
+   # Or restart with proper UID/GID detection
+   sudo docker-compose down
+   sudo docker-compose up -d
+   ```
+
+4. **Container Restart Policy**:
+   ```bash
+   # Ensure containers restart on boot
+   sudo docker update --restart unless-stopped $(sudo docker ps -aq)
+   ```
+
+#### Problem: Container startup fails with permission errors
+
+**Symptom**:
+```
+Error response from daemon: driver failed programming external connectivity
+```
+
+**Solutions**:
+1. **UID/GID Mapping Fix**:
+   ```bash
+   # Detect and apply correct user mapping
+   sudo /opt/vless/scripts/docker_setup.sh detect-user-mapping
+
+   # Restart containers with new permissions
+   sudo docker-compose down && sudo docker-compose up -d
+   ```
+
+2. **Port Conflicts**:
+   ```bash
+   # Check for port conflicts
+   sudo netstat -tlnp | grep :443
+   sudo lsof -i :443
+
+   # Stop conflicting services
+   sudo systemctl stop apache2 nginx
+   ```
+
+3. **Docker Service Issues**:
+   ```bash
+   # Restart Docker service
+   sudo systemctl restart docker
+
+   # Clean up Docker system
+   sudo docker system prune -f
+   ```
+
+#### Problem: Health checks failing
+
+**Symptom**:
+- Containers show as "unhealthy" status
+- Intermittent connection issues
+
+**Diagnostic Commands**:
+```bash
+# Check container health status
+sudo docker inspect vless-server | grep -A 10 Health
+
+# Manual health check
+curl -k https://localhost:443 -m 5
+```
+
+**Solutions**:
+1. **Wait for Initialization**:
+   - Allow 30-60 seconds for container initialization
+   - Health checks may fail during startup period
+
+2. **Manual Health Verification**:
+   ```bash
+   # Test port accessibility
+   nc -zv localhost 443
+
+   # Check Xray configuration
+   sudo docker exec vless-server xray -test -config /etc/xray/config.json
    ```
 
 ## Connection Issues

@@ -11,45 +11,7 @@
         </architecture>
     </project>
     <context>
-[2025-09-24 11:43:55] [INFO] Ubuntu 24.04 detected - compatible
-[2025-09-24 11:43:55] [INFO] Architecture amd64 detected - compatible
-[2025-09-24 11:43:55] [INFO] Updating package repositories...
-[2025-09-24 11:43:55] [INFO] Performing safe APT update
-[2025-09-24 11:43:57] [WARN] APT update failed with exit code: 100
-[2025-09-24 11:43:57] [WARN] Detected time-related APT errors
-[2025-09-24 11:43:57] [INFO] Synchronizing system time
-[2025-09-24 11:43:57] [INFO] Current system time: Wed Sep 24 11:43:57 CEST 2025
-[2025-09-24 11:43:57] [INFO] Current system time (UTC): Wed Sep 24 09:43:57 UTC 2025
-Failed to restart systemd-timesyncd.service: Unit systemd-timesyncd.service not found.
-[2025-09-24 11:43:57] [ERROR] Command failed with exit code 5: systemctl restart systemd-timesyncd
-200 OK
-MS Name/IP address         Stratum Poll Reach LastRx Last sample               
-===============================================================================
-^? 193.109.69.144                0   7     0     -     +0ns[   +0ns] +/-    0ns
-200 OK
-[2025-09-24 11:44:13] [INFO] Time synchronized using chrony with large offset correction
-[2025-09-24 11:44:13] [INFO] Time synchronized, retrying APT update
-[2025-09-24 11:44:15] [WARN] APT update failed with exit code: 100
-[2025-09-24 11:44:15] [WARN] Detected time-related APT errors
-[2025-09-24 11:44:15] [INFO] Synchronizing system time
-[2025-09-24 11:44:15] [INFO] Current system time: Wed Sep 24 11:44:15 CEST 2025
-[2025-09-24 11:44:15] [INFO] Current system time (UTC): Wed Sep 24 09:44:15 UTC 2025
-Failed to restart systemd-timesyncd.service: Unit systemd-timesyncd.service not found.
-[2025-09-24 11:44:15] [ERROR] Command failed with exit code 5: systemctl restart systemd-timesyncd
-200 OK
-MS Name/IP address         Stratum Poll Reach LastRx Last sample               
-===============================================================================
-^? 193.109.69.144                0   7     0     -     +0ns[   +0ns] +/-    0ns
-200 OK
-[2025-09-24 11:44:30] [INFO] Time synchronized using chrony with large offset correction
-[2025-09-24 11:44:30] [INFO] Time synchronized, retrying APT update
-[2025-09-24 11:44:30] [ERROR] APT update failed after 2 attempts
-[2025-09-24 11:44:30] [ERROR] Last error output: E: Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-updates/InRelease is not valid yet (invalid for another 7min 57s). Updates for this repository will not be applied.
-E: Release file for http://us.archive.ubuntu.com/ubuntu/dists/noble-proposed/InRelease is not valid yet (invalid for another 9min 46s). Updates for this repository will not be applied.
-[2025-09-24 11:44:30] [ERROR] Failed to update package repositories
-[2025-09-24 11:44:30] [FATAL] Failed to update package repositories
-[2025-09-24 11:44:30] [ERROR] System update failed
-[2025-09-24 11:44:30] [FATAL] Phase 1 installation failed
+Устнвока завершилась успешно, но запущенных сервисов в докер нет. ВПН не рабоатет. 
     </context>
     <requirements>
         <point number="1">Проанализируй ошибку</point>
