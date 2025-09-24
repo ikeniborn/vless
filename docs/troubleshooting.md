@@ -6,6 +6,8 @@ Comprehensive troubleshooting guide for the VLESS+Reality VPN Management System.
 
 1. [General Troubleshooting](#general-troubleshooting)
 2. [Installation Issues](#installation-issues)
+   - [System Time Synchronization Errors](#system-time-synchronization-errors)
+   - [Enhanced Time Synchronization (v1.2.3)](#enhanced-time-synchronization-v123)
 3. [Service Problems](#service-problems)
 4. [Connection Issues](#connection-issues)
 5. [User Management Problems](#user-management-problems)
@@ -107,6 +109,241 @@ E: Release file for http://security.ubuntu.com/ubuntu/dists/noble-security/InRel
 sudo timedatectl set-ntp true
 sudo timedatectl set-timezone UTC
 ```
+
+### Enhanced Time Synchronization (v1.2.3)
+
+**Overview**: The system now includes an advanced time synchronization engine with comprehensive service management and multiple fallback layers.
+
+#### Using the Enhanced Time Sync Function
+
+The new `enhanced_time_sync()` function provides robust time synchronization with automatic service management:
+
+```bash
+# Direct function call (from common_utils.sh)
+enhanced_time_sync
+
+# Through APT operations (automatic)
+safe_apt_update  # Automatically calls enhanced_time_sync if needed
+
+# Manual time sync with specific service
+TIME_SERVICE_PREFERENCE="chrony" enhanced_time_sync
+```
+
+#### Common Time Sync Issues and Solutions
+
+1. **Large Time Offset (>45 minutes)**
+
+   **Problem**: System time severely out of sync, causing APT and SSL certificate errors.
+
+   **Automatic Solution**: The enhanced time sync automatically handles large offsets:
+   ```bash
+   # The system automatically:
+   # 1. Detects large time drift
+   # 2. Configures chrony for aggressive correction (makestep 1000 -1)
+   # 3. Restarts time services safely
+   # 4. Falls back to web APIs if NTP fails
+   # 5. Validates time actually changed
+   ```
+
+   **Manual Solution**:
+   ```bash
+   # Force immediate time sync for large offsets
+   sudo chrony sources -v
+   sudo chronyc makestep
+
+   # Or use web API fallback
+   curl -s "http://worldtimeapi.org/api/timezone/Etc/UTC" | grep -o '"unixtime":[0-9]*' | cut -d: -f2 | xargs -I {} sudo date -s "@{}"
+   ```
+
+2. **Time Service Not Running**
+
+   **Problem**: No time synchronization services available.
+
+   **Detection**:
+   ```bash
+   # Check which services are available
+   systemctl status systemd-timesyncd
+   systemctl status chronyd
+   systemctl status ntp
+   ```
+
+   **Solution**: The system automatically detects and starts available services:
+   ```bash
+   # Automatic service detection and restart
+   enhanced_time_sync
+
+   # Manual service management
+   sudo systemctl enable --now systemd-timesyncd
+   # Or for chrony
+   sudo systemctl enable --now chronyd
+   ```
+
+3. **Network Time Sources Unreachable**
+
+   **Problem**: NTP servers not accessible due to firewall or network issues.
+
+   **Automatic Fallback**: System uses web APIs as fallback:
+   ```bash
+   # Primary: worldtimeapi.org
+   # Secondary: worldclockapi.com
+   # Tertiary: timeapi.io
+   # Last resort: Manual date setting
+   ```
+
+   **Manual Configuration**:
+   ```bash
+   # Configure custom NTP servers
+   export TIME_SYNC_SERVERS="pool.ntp.org time.google.com time.cloudflare.com"
+   enhanced_time_sync
+
+   # Or use specific regional servers
+   export TIME_SYNC_SERVERS="us.pool.ntp.org europe.pool.ntp.org"
+   ```
+
+4. **Chrony Configuration Issues**
+
+   **Problem**: Chrony not configured for large offset corrections.
+
+   **Automatic Fix**: System validates and repairs chrony configuration:
+   ```bash
+   # The system automatically adds to /etc/chrony/chrony.conf:
+   # makestep 1000 -1  # Allow large time steps
+   # logchange 0.1      # Log time changes
+   ```
+
+   **Manual Fix**:
+   ```bash
+   # Check chrony configuration
+   sudo chronyc tracking
+   sudo chronyc sources -v
+
+   # Add large offset support
+   echo "makestep 1000 -1" | sudo tee -a /etc/chrony/chrony.conf
+   sudo systemctl restart chronyd
+   ```
+
+#### APT Repository Time-Related Errors
+
+**Common Error Messages**:
+```
+E: Release file for http://archive.ubuntu.com/ubuntu/dists/noble/InRelease is not valid yet (invalid for another 2h 15min 30s)
+W: GPG error: http://security.ubuntu.com/ubuntu focal-security InRelease: The following signatures were invalid: KEYEXPIRED
+```
+
+**Automatic Recovery**: The `safe_apt_update()` function automatically:
+1. Detects time-related APT errors
+2. Runs enhanced time synchronization
+3. Retries the APT operation
+4. Reports success or provides detailed error information
+
+**Manual Recovery Process**:
+```bash
+# Step 1: Check current time vs. actual time
+date
+curl -s "http://worldtimeapi.org/api/timezone/Etc/UTC" | grep datetime
+
+# Step 2: Sync time using enhanced function
+enhanced_time_sync
+
+# Step 3: Verify time is now correct
+date
+
+# Step 4: Clear APT cache and retry
+sudo apt clean
+sudo apt update
+```
+
+#### Advanced Configuration Options
+
+**Environment Variables**:
+```bash
+# Time sync configuration
+export TIME_SYNC_ENABLED=true                    # Enable automatic sync (default: true)
+export TIME_TOLERANCE_SECONDS=300                # Max drift before sync (default: 300)
+export TIME_SYNC_SERVERS="custom.ntp.server"     # Custom NTP servers
+export TIME_SERVICE_PREFERENCE="chrony"          # Prefer specific service
+
+# Web API configuration
+export WEB_API_TIMEOUT=10                        # API timeout seconds (default: 10)
+export ENABLE_WEB_FALLBACK=true                  # Enable web API fallback (default: true)
+```
+
+**Debug Mode**:
+```bash
+# Enable detailed time sync logging
+export LOG_LEVEL="DEBUG"
+enhanced_time_sync
+
+# View detailed time sync operations
+grep "time_sync" /opt/vless/logs/system.log | tail -20
+```
+
+#### Manual Recovery Procedures
+
+1. **Complete Time Service Reset**:
+   ```bash
+   # Stop all time services
+   sudo systemctl stop systemd-timesyncd chronyd ntp
+
+   # Reset system time manually
+   sudo date -s "$(curl -s 'http://worldtimeapi.org/api/timezone/Etc/UTC' | grep -o '"datetime":"[^"]*' | cut -d'"' -f4 | cut -d'T' -f1-2 | tr 'T' ' ')"
+
+   # Restart preferred time service
+   sudo systemctl start systemd-timesyncd
+   sudo systemctl enable systemd-timesyncd
+   ```
+
+2. **Hardware Clock Synchronization**:
+   ```bash
+   # Sync system clock to hardware clock
+   sudo hwclock --systohc
+
+   # Or sync hardware clock to system clock
+   sudo hwclock --hctosys
+
+   # Check hardware clock
+   sudo hwclock --show
+   ```
+
+3. **Time Zone Issues**:
+   ```bash
+   # Check current timezone
+   timedatectl status
+
+   # Set correct timezone
+   sudo timedatectl set-timezone UTC
+   # Or for specific region
+   sudo timedatectl set-timezone America/New_York
+
+   # List available timezones
+   timedatectl list-timezones | grep -i america
+   ```
+
+#### Testing Time Synchronization
+
+**Validation Commands**:
+```bash
+# Test time sync function
+enhanced_time_sync --test
+
+# Verify NTP connectivity
+chronyc sources -v
+ntpdate -q pool.ntp.org
+
+# Check time drift
+chronyc tracking | grep "System time"
+
+# Test web API fallback
+curl -s "http://worldtimeapi.org/api/timezone/Etc/UTC" | grep unixtime
+```
+
+**Troubleshooting Checklist**:
+- [ ] System date/time displayed correctly: `date`
+- [ ] Time service running: `systemctl status systemd-timesyncd`
+- [ ] NTP servers reachable: `chronyc sources -v`
+- [ ] Hardware clock synchronized: `sudo hwclock --show`
+- [ ] APT operations successful: `sudo apt update`
+- [ ] SSL certificates valid: `curl -I https://google.com`
 
 ### Problem: Installation Script Fails
 

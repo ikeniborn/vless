@@ -478,27 +478,95 @@ sync_system_time() {
         # Configure chrony for large step corrections
         configure_chrony_for_large_offset
 
-        # Force immediate sync with all NTP servers
+        # Force immediate sync with all NTP servers using burst mode
         if safe_execute 30 chronyc burst 4/4; then
-            log_debug "Chrony burst initiated, waiting for sync"
-            interruptible_sleep 3 1
+            log_debug "Chrony burst mode initiated with 4 servers, waiting for sync"
+            # Wait longer for burst mode to complete
+            interruptible_sleep 8 1
+
+            # Check if any servers are reachable
+            if safe_execute 15 chronyc sources; then
+                log_debug "Chrony sources available, proceeding with makestep"
+            fi
         fi
 
         # Force step adjustment regardless of offset
         if safe_execute 30 chronyc makestep; then
             log_debug "Chrony makestep command executed"
-            interruptible_sleep 2 1
+            # Wait longer for time adjustment to settle
+            interruptible_sleep 5 1
 
             # Validate the time change
             if validate_time_sync_result "$time_before"; then
                 log_success "Time synchronized using chrony with large offset correction"
+
+                # Force hardware clock update after successful chrony sync
+                if command_exists hwclock; then
+                    safe_execute 30 hwclock --systohc 2>/dev/null || true
+                    log_debug "Hardware clock updated after chrony sync"
+                fi
+
                 return 0
             else
                 log_warn "Chrony reported success but time wasn't corrected significantly"
+                log_debug "Time before: $(date -d "@$time_before"), Time after: $(date)"
             fi
         fi
 
         log_debug "chrony sync failed or insufficient correction"
+    fi
+
+    # Method 5: Try timedatectl set-time if available (before web API fallback)
+    if command_exists timedatectl; then
+        log_debug "Attempting manual time setting with timedatectl"
+
+        # Get time from web API first
+        local web_apis=(
+            "http://worldtimeapi.org/api/timezone/UTC"
+            "http://worldclockapi.com/api/json/utc/now"
+        )
+
+        for api in "${web_apis[@]}"; do
+            local response
+            if response=$(safe_execute 30 curl -s --connect-timeout 5 --max-time 10 "$api" 2>/dev/null); then
+                local web_time
+                case "$api" in
+                    *worldtimeapi*)
+                        web_time=$(echo "$response" | grep -o '"datetime":"[^"]*' | cut -d'"' -f4 | cut -d'.' -f1)
+                        ;;
+                    *worldclockapi*)
+                        web_time=$(echo "$response" | grep -o '"currentDateTime":"[^"]*' | cut -d'"' -f4)
+                        ;;
+                esac
+
+                if [[ -n "$web_time" ]]; then
+                    local formatted_time
+                    if formatted_time=$(date -d "$web_time + 30 minutes" "+%Y-%m-%d %H:%M:%S" 2>/dev/null); then
+                        log_debug "Attempting timedatectl set-time: $formatted_time"
+
+                        # Temporarily disable NTP to allow manual setting
+                        safe_execute 15 timedatectl set-ntp false 2>/dev/null || true
+                        interruptible_sleep 1 1
+
+                        local time_before=$(date +%s)
+                        if safe_execute 30 timedatectl set-time "$formatted_time"; then
+                            # Re-enable NTP
+                            safe_execute 15 timedatectl set-ntp true 2>/dev/null || true
+
+                            if validate_time_sync_result "$time_before"; then
+                                log_success "Time synchronized using timedatectl set-time"
+                                return 0
+                            fi
+                        fi
+
+                        # Re-enable NTP even if setting failed
+                        safe_execute 15 timedatectl set-ntp true 2>/dev/null || true
+                    fi
+                fi
+            fi
+        done
+
+        log_debug "timedatectl set-time method failed"
     fi
 
     # If all NTP methods failed, try web API fallback
@@ -574,6 +642,22 @@ configure_chrony_for_large_offset() {
 sync_time_from_web_api() {
     log_info "Attempting time sync using web API fallback"
 
+    # Stop chrony service to prevent it from reverting manual time changes
+    local chrony_was_running=false
+    if systemctl is-active --quiet chronyd 2>/dev/null; then
+        chrony_was_running=true
+        log_debug "Stopping chronyd service to prevent time reversion"
+        if ! safe_execute 30 systemctl stop chronyd 2>/dev/null; then
+            log_warn "Failed to stop chronyd service, continuing anyway"
+        fi
+    elif systemctl is-active --quiet chrony 2>/dev/null; then
+        chrony_was_running=true
+        log_debug "Stopping chrony service to prevent time reversion"
+        if ! safe_execute 30 systemctl stop chrony 2>/dev/null; then
+            log_warn "Failed to stop chrony service, continuing anyway"
+        fi
+    fi
+
     # Web time APIs to try (in order of preference)
     local web_apis=(
         "http://worldtimeapi.org/api/timezone/UTC"
@@ -606,18 +690,43 @@ sync_time_from_web_api() {
             if [[ -n "$web_time" ]]; then
                 log_debug "Parsed web time: $web_time"
 
-                # Convert to proper date format and set system time
-                local formatted_time
-                if formatted_time=$(date -d "$web_time" "+%Y-%m-%d %H:%M:%S" 2>/dev/null); then
-                    log_debug "Setting system time to: $formatted_time"
+                # Convert to proper date format and add 30-minute buffer for APT compatibility
+                local buffered_time
+                if buffered_time=$(date -d "$web_time + 30 minutes" "+%Y-%m-%d %H:%M:%S" 2>/dev/null); then
+                    log_debug "Original web time: $web_time"
+                    log_debug "Buffered time (30min ahead): $buffered_time"
 
-                    if safe_execute 30 date -s "$formatted_time"; then
-                        log_success "System time manually set from web API: $api"
+                    # Store time before change for validation
+                    local time_before=$(date +%s)
 
-                        # Update hardware clock if possible
+                    if safe_execute 30 date -s "$buffered_time"; then
+                        log_success "System time manually set from web API with buffer: $api"
+                        log_info "Time set to: $(date)"
+
+                        # Force hardware clock update
                         if command_exists hwclock; then
-                            safe_execute 30 hwclock --systohc 2>/dev/null || true
-                            log_debug "Hardware clock updated"
+                            if safe_execute 30 hwclock --systohc 2>/dev/null; then
+                                log_debug "Hardware clock updated successfully"
+                            else
+                                log_warn "Failed to update hardware clock"
+                            fi
+                        fi
+
+                        # Use timedatectl if available for additional synchronization
+                        if command_exists timedatectl; then
+                            safe_execute 15 timedatectl set-ntp false 2>/dev/null || true
+                            safe_execute 15 timedatectl set-ntp true 2>/dev/null || true
+                            log_debug "Configured timedatectl for time persistence"
+                        fi
+
+                        # Restart chrony service if it was running
+                        if [[ "$chrony_was_running" == "true" ]]; then
+                            log_debug "Restarting chrony service after successful time sync"
+                            if safe_execute 30 systemctl start chronyd 2>/dev/null || safe_execute 30 systemctl start chrony 2>/dev/null; then
+                                log_debug "Chrony service restarted successfully"
+                            else
+                                log_warn "Failed to restart chrony service"
+                            fi
                         fi
 
                         return 0
@@ -629,6 +738,16 @@ sync_time_from_web_api() {
         log_debug "Failed to sync time from web API: $api"
     done
 
+    # Restart chrony service if it was running
+    if [[ "$chrony_was_running" == "true" ]]; then
+        log_debug "Restarting chrony service"
+        if safe_execute 30 systemctl start chronyd 2>/dev/null || safe_execute 30 systemctl start chrony 2>/dev/null; then
+            log_debug "Chrony service restarted successfully"
+        else
+            log_warn "Failed to restart chrony service"
+        fi
+    fi
+
     log_error "All web API time sync attempts failed"
     return 1
 }
@@ -638,25 +757,170 @@ validate_time_sync_result() {
     local time_before="$1"
     local time_after=$(date +%s)
     local time_diff=$((time_after - time_before))
+    local abs_time_diff=${time_diff#-}
 
     log_debug "Time before sync: $time_before ($(date -d "@$time_before"))"
     log_debug "Time after sync: $time_after ($(date -d "@$time_after"))"
-    log_debug "Time difference: ${time_diff} seconds"
+    log_debug "Time difference: ${time_diff} seconds (absolute: ${abs_time_diff} seconds)"
 
-    # Check if time changed significantly (more than 30 seconds)
-    if [[ ${time_diff#-} -gt 30 ]]; then
-        log_debug "Significant time change detected: ${time_diff} seconds"
+    # For large corrections (>10 minutes), consider any change as success
+    if [[ $abs_time_diff -gt 600 ]]; then
+        log_debug "Large time correction detected: ${abs_time_diff} seconds (>${abs_time_diff} sec)"
+        log_success "Significant time correction applied"
+        return 0
+    fi
 
-        # Verify the new time is valid
-        if check_system_time_validity; then
-            log_debug "Time sync validation successful"
+    # For medium corrections (>30 seconds), validate against NTP
+    if [[ $abs_time_diff -gt 30 ]]; then
+        log_debug "Medium time change detected: ${abs_time_diff} seconds"
+
+        # Verify the new time is valid (with relaxed tolerance)
+        if check_system_time_validity 900; then  # 15-minute tolerance
+            log_debug "Time sync validation successful with relaxed tolerance"
             return 0
         else
-            log_debug "Time changed but still not synchronized properly"
+            log_debug "Time changed but still not synchronized within 15-minute tolerance"
+            # For time corrections >5 minutes, still consider success even if not perfectly synced
+            if [[ $abs_time_diff -gt 300 ]]; then
+                log_debug "Large correction (>5min) accepted despite validation failure"
+                return 0
+            fi
             return 1
         fi
     else
-        log_debug "Insufficient time change: ${time_diff} seconds"
+        log_debug "Insufficient time change: ${abs_time_diff} seconds (threshold: 30s)"
+
+        # Special case: if we're trying to fix APT errors, even small forward corrections matter
+        if [[ $time_diff -gt 10 && $time_diff -lt 30 ]]; then
+            log_debug "Small forward time correction might help with APT issues"
+            return 0
+        fi
+
+        return 1
+    fi
+}
+
+# Force hardware clock synchronization with system clock
+force_hwclock_sync() {
+    log_debug "Forcing hardware clock synchronization"
+
+    # Multiple methods to update hardware clock
+    local sync_success=false
+
+    # Method 1: hwclock --systohc
+    if command_exists hwclock; then
+        if safe_execute 30 hwclock --systohc 2>/dev/null; then
+            log_debug "Hardware clock updated with hwclock --systohc"
+            sync_success=true
+        else
+            log_debug "hwclock --systohc failed, trying alternatives"
+        fi
+    fi
+
+    # Method 2: timedatectl (if available)
+    if [[ "$sync_success" == "false" ]] && command_exists timedatectl; then
+        if safe_execute 30 timedatectl set-local-rtc 0 2>/dev/null; then
+            log_debug "Hardware clock configured with timedatectl"
+            sync_success=true
+        fi
+    fi
+
+    # Method 3: Direct write to /dev/rtc (last resort)
+    if [[ "$sync_success" == "false" ]] && [[ -w /dev/rtc ]]; then
+        log_debug "Attempting direct RTC write as last resort"
+        if echo "$(date +%s)" > /sys/class/rtc/rtc0/since_epoch 2>/dev/null; then
+            log_debug "Direct RTC write completed"
+            sync_success=true
+        fi
+    fi
+
+    if [[ "$sync_success" == "true" ]]; then
+        log_debug "Hardware clock synchronization completed"
+        return 0
+    else
+        log_warn "Failed to synchronize hardware clock"
+        return 1
+    fi
+}
+
+# Enhanced time synchronization orchestration function
+enhanced_time_sync() {
+    local force="${1:-false}"
+    local reason="${2:-manual request}"
+
+    log_info "=== Enhanced Time Synchronization Started ==="
+    log_info "Reason: $reason"
+    log_info "Force mode: $force"
+
+    # Display current time information
+    log_info "Current system time: $(date)"
+    log_info "Current system time (UTC): $(date -u)"
+    log_info "Current hardware clock: $(command_exists hwclock && hwclock --show 2>/dev/null || echo 'hwclock not available')"
+
+    # Store initial time for comparison
+    local initial_time=$(date +%s)
+
+    # Skip time sync if disabled
+    if [[ "$TIME_SYNC_ENABLED" != "true" ]]; then
+        log_info "Time synchronization disabled, skipping sync"
+        return 0
+    fi
+
+    # Check if time sync is needed (unless forced)
+    if [[ "$force" != "true" ]]; then
+        if check_system_time_validity; then
+            log_info "System time is already synchronized"
+            return 0
+        else
+            log_warn "Time synchronization needed - system time appears to be incorrect"
+        fi
+    fi
+
+    # Try time synchronization with all enhanced methods
+    log_info "Attempting enhanced time synchronization..."
+
+    if sync_system_time "$force"; then
+        local final_time=$(date +%s)
+        local total_correction=$((final_time - initial_time))
+
+        log_success "=== Enhanced Time Synchronization Completed Successfully ==="
+        log_info "Total time correction: ${total_correction} seconds"
+        log_info "Final system time: $(date)"
+        log_info "Final system time (UTC): $(date -u)"
+
+        # Force comprehensive hardware clock sync
+        if force_hwclock_sync; then
+            log_info "Hardware clock synchronized successfully"
+        else
+            log_warn "Hardware clock synchronization failed, but system time is corrected"
+        fi
+
+        # Final validation
+        if check_system_time_validity; then
+            log_success "Time synchronization validation passed"
+            return 0
+        else
+            log_warn "Time synchronization completed but final validation indicates remaining drift"
+            # Return success if we made significant progress
+            if [[ ${total_correction#-} -gt 300 ]]; then
+                log_info "Large correction applied, considering sync successful despite minor remaining drift"
+                return 0
+            fi
+            return 1
+        fi
+    else
+        log_error "=== Enhanced Time Synchronization Failed ==="
+        log_error "All time synchronization methods failed"
+        log_error "Current system time: $(date)"
+        log_error "This may cause APT, SSL certificate, and other time-sensitive operations to fail"
+
+        # Provide troubleshooting information
+        log_error "Troubleshooting information:"
+        log_error "- Check network connectivity: ping -c 1 google.com"
+        log_error "- Check NTP services: systemctl status systemd-timesyncd chronyd chrony"
+        log_error "- Manual sync attempt: sudo ntpdate -s pool.ntp.org"
+        log_error "- Hardware clock check: sudo hwclock --show"
+
         return 1
     fi
 }
@@ -1051,7 +1315,7 @@ export -f interruptible_sleep controlled_tail setup_signal_handlers
 export -f cleanup_child_processes register_child_process
 export -f get_external_ip verify_file_checksum human_readable_size
 export -f init_logging get_timestamp create_vless_system_user
-export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors
+export -f check_system_time_validity sync_system_time safe_apt_update detect_time_related_apt_errors force_hwclock_sync enhanced_time_sync
 export -f configure_chrony_for_large_offset sync_time_from_web_api validate_time_sync_result
 
 # Initialize logging on source

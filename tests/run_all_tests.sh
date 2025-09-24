@@ -46,6 +46,8 @@ declare -A TEST_SUITES=(
     ["apt_safe_update"]="test_apt_safe_update.sh"
     ["time_sync_functions"]="test_time_sync_functions.sh"
     ["apt_safe_simple"]="test_apt_safe_simple.sh"
+    ["time_sync_enhancements"]="test_time_sync_enhancements.sh"
+    ["time_sync_edge_cases"]="test_time_sync_edge_cases.sh"
 )
 
 # Test execution statistics

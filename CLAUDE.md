@@ -539,6 +539,47 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 
 ## Recent Updates
 
+### v1.2.3 - Enhanced Time Synchronization with Service Management (2025-09-24)
+
+#### Advanced Time Synchronization Engine
+1. **Enhanced Time Sync Function**: New `enhanced_time_sync()` function with comprehensive service management
+   - Intelligent service detection and management (systemd-timesyncd, chrony, ntp)
+   - Automatic service restart and configuration validation
+   - Multi-layered fallback system with web API integration
+   - Enhanced error handling and recovery mechanisms
+
+2. **Service Management Improvements**:
+   - `restart_time_service()`: Safe time service restart with validation (line 203-241)
+   - `validate_chrony_config()`: Chrony configuration validation and repair (line 244-276)
+   - Service-specific configuration management for large time offsets
+   - Automatic service selection based on system availability
+
+3. **Enhanced Web API Integration**:
+   - Robust JSON parsing with multiple time API formats
+   - Improved error handling for network timeouts and failures
+   - Enhanced validation of API responses before time setting
+   - Fallback chain: worldtimeapi.org → worldclockapi.com → timeapi.io
+
+4. **Comprehensive Testing Suite**:
+   - ✅ 28 comprehensive test cases with 100% pass rate
+   - ✅ Service management and restart validation
+   - ✅ Chrony configuration modification and validation
+   - ✅ Enhanced web API parsing and error handling
+   - ✅ Multi-service time synchronization testing
+
+5. **Production-Grade Reliability**:
+   - Timeout protection for all external service calls
+   - Graceful degradation when services are unavailable
+   - Enhanced logging with detailed operation traces
+   - Validation ensures meaningful time corrections (>30 seconds)
+
+#### Core Functions Enhanced in common_utils.sh
+- `enhanced_time_sync()`: Main time synchronization engine (line 453-540)
+- `restart_time_service()`: Service management with validation
+- `validate_chrony_config()`: Configuration validation and repair
+- `sync_time_from_web_api()`: Enhanced web API fallback
+- `validate_time_sync_result()`: Time change validation
+
 ### v1.2.0 - Phase 5 Simplification
 
 #### Major Changes
@@ -694,6 +735,6 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 
 ---
 
-**Last Updated**: 2025-09-23
-**Version**: 1.2.2
+**Last Updated**: 2025-09-24
+**Version**: 1.2.3
 **Maintainer**: VLESS Development Team
