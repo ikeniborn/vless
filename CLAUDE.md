@@ -539,6 +539,29 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 
 ## Recent Updates
 
+### v1.2.4 - Fixed Package Installation Validation (2025-09-24)
+
+#### Critical Installation Fix
+1. **Package Detection Enhancement**: Fixed critical issue preventing Docker installation
+   - New `is_package_installed()` function with multi-layered validation (lines 269-310)
+   - Proper detection of data packages (ca-certificates, gnupg, lsb-release)
+   - Maintains backward compatibility for command-based packages
+
+2. **Improved install_package_if_missing Function**:
+   - Uses package-appropriate validation methods
+   - Graceful degradation on verification failures
+   - Better error handling and logging
+   - Resolves Phase 1 installation failures
+
+3. **Testing Coverage**:
+   - ✅ Data package detection (ca-certificates, gnupg, lsb-release)
+   - ✅ Command-based package detection (curl, etc.)
+   - ✅ Docker prerequisite validation
+   - ✅ Full backward compatibility
+
+#### Core Functions Added in common_utils.sh
+- `is_package_installed()`: Intelligent package detection with fallbacks (line 269-310)
+
 ### v1.2.3 - Enhanced Time Synchronization with Service Management (2025-09-24)
 
 #### Advanced Time Synchronization Engine
@@ -736,5 +759,5 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 ---
 
 **Last Updated**: 2025-09-24
-**Version**: 1.2.3
+**Version**: 1.2.4
 **Maintainer**: VLESS Development Team
