@@ -14,8 +14,17 @@
 
 set -euo pipefail
 
+# Include guard to prevent multiple sourcing
+if [[ -n "${USER_DATABASE_LOADED:-}" ]]; then
+    return 0
+fi
+readonly USER_DATABASE_LOADED=true
+
 # Import common utilities
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Check if SCRIPT_DIR is already defined (e.g., by parent script)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 source "${SCRIPT_DIR}/common_utils.sh"
 
 # Database configuration

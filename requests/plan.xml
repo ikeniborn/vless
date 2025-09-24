@@ -1,798 +1,391 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<plan>
-    <title>VLESS Docker Services Fix - Detailed Implementation Plan</title>
-    <description>Comprehensive plan to fix Docker services issues including permissions, docker-compose.yml mismatch, and auto-start functionality</description>
-    <version>1.0</version>
-    <created_date>2025-09-24</created_date>
-
-    <problem_summary>
-        <issue id="1">Docker-compose.yml version mismatch between repository (modern security-hardened) and system (legacy basic)</issue>
-        <issue id="2">Permission conflicts: vless user (UID=995, GID=982) vs container expectations (user: "1000:1000")</issue>
-        <issue id="3">No automatic service startup after installation completion</issue>
-        <issue id="4">Missing health check validation after container startup</issue>
-    </problem_summary>
-
-    <solution_approach>
-        <strategy>Fix installer modules for automatic configuration (Selected Solution #3)</strategy>
-        <rationale>Provides systematic solution that prevents future occurrences and improves user experience</rationale>
-    </solution_approach>
-
-    <phases>
-        <phase id="1" name="Immediate Fix">
-            <description>Resolve current service startup issues to restore functionality</description>
-            <priority>Critical</priority>
-            <estimated_time>15 minutes</estimated_time>
-
-            <tasks>
-                <task id="1.1">
-                    <name>Update system docker-compose.yml</name>
-                    <description>Replace old docker-compose.yml with updated version from repository</description>
-                    <files_modified>
-                        <file>/opt/vless/docker-compose.yml</file>
-                    </files_modified>
-                    <commands>
-                        <command>sudo cp /home/ikeniborn/Documents/Project/vless/config/docker-compose.yml /opt/vless/docker-compose.yml</command>
-                        <command>sudo chown vless:vless /opt/vless/docker-compose.yml</command>
-                        <command>sudo chmod 644 /opt/vless/docker-compose.yml</command>
-                    </commands>
-                    <validation>
-                        <check>Verify file copied and has correct ownership</check>
-                        <check>Validate docker-compose syntax with docker-compose config</check>
-                    </validation>
-                </task>
-
-                <task id="1.2">
-                    <name>Fix container user permissions</name>
-                    <description>Adjust user directive in docker-compose.yml to match vless system user UID</description>
-                    <approach>Change user: "1000:1000" to user: "995:982" to match system vless user</approach>
-                    <files_modified>
-                        <file>/opt/vless/docker-compose.yml</file>
-                    </files_modified>
-                    <implementation>
-                        <step>Edit docker-compose.yml xray service user directive</step>
-                        <step>Change from user: "1000:1000" to user: "995:982"</step>
-                        <step>Maintain security hardening features from new version</step>
-                    </implementation>
-                </task>
-
-                <task id="1.3">
-                    <name>Fix file permissions for container access</name>
-                    <description>Ensure config files are readable by container user</description>
-                    <files_modified>
-                        <file>/opt/vless/config/config.json</file>
-                        <file>/opt/vless/config/</file>
-                        <file>/opt/vless/logs/</file>
-                        <file>/opt/vless/certs/</file>
-                    </files_modified>
-                    <commands>
-                        <command>sudo chmod 644 /opt/vless/config/config.json</command>
-                        <command>sudo chmod 755 /opt/vless/config /opt/vless/logs /opt/vless/certs</command>
-                        <command>sudo chown -R vless:vless /opt/vless/config /opt/vless/logs /opt/vless/certs</command>
-                    </commands>
-                </task>
-
-                <task id="1.4">
-                    <name>Test service startup</name>
-                    <description>Start services and verify functionality</description>
-                    <commands>
-                        <command>cd /opt/vless && sudo -u vless docker-compose down</command>
-                        <command>cd /opt/vless && sudo -u vless docker-compose up -d</command>
-                    </commands>
-                    <validation>
-                        <check>Verify vless-xray container starts without errors</check>
-                        <check>Check container logs for successful startup</check>
-                        <check>Confirm xray config.json is readable by container</check>
-                        <check>Validate health checks pass</check>
-                    </validation>
-                </task>
-            </tasks>
-        </phase>
-
-        <phase id="2" name="Installer Module Updates">
-            <description>Fix installer modules to handle permissions and docker-compose.yml management correctly</description>
-            <priority>High</priority>
-            <estimated_time>45 minutes</estimated_time>
-
-            <tasks>
-                <task id="2.1">
-                    <name>Enhance container_management.sh</name>
-                    <description>Add functions for proper permission handling and docker-compose.yml management</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/container_management.sh</file>
-                    </files_modified>
-
-                    <new_functions>
-                        <function name="ensure_docker_compose_updated">
-                            <description>Check and update docker-compose.yml if repository version is newer</description>
-                            <parameters>
-                                <param>source_file: Path to repository docker-compose.yml</param>
-                                <param>target_file: Path to system docker-compose.yml</param>
-                            </parameters>
-                            <logic>
-                                <step>Compare file timestamps/checksums</step>
-                                <step>Backup existing file if different</step>
-                                <step>Copy new version and adjust user UID/GID</step>
-                                <step>Set proper ownership and permissions</step>
-                            </logic>
-                        </function>
-
-                        <function name="fix_container_permissions">
-                            <description>Adjust docker-compose.yml user directives to match system user</description>
-                            <parameters>
-                                <param>compose_file: Path to docker-compose.yml</param>
-                                <param>system_user: Target system user name</param>
-                            </parameters>
-                            <logic>
-                                <step>Get system user UID and GID</step>
-                                <step>Update user directives in docker-compose.yml</step>
-                                <step>Validate yaml syntax</step>
-                                <step>Set proper file ownership</step>
-                            </logic>
-                        </function>
-
-                        <function name="ensure_proper_file_permissions">
-                            <description>Set correct permissions for all container-accessed files</description>
-                            <parameters>
-                                <param>base_dir: Base directory (/opt/vless)</param>
-                                <param>system_user: System user name</param>
-                            </parameters>
-                            <logic>
-                                <step>Set directory permissions (755)</step>
-                                <step>Set config file permissions (644)</step>
-                                <step>Set log directory permissions (755)</step>
-                                <step>Set certificate directory permissions (755)</step>
-                                <step>Ensure proper ownership</step>
-                            </logic>
-                        </function>
-
-                        <function name="start_services_with_health_check">
-                            <description>Start services and wait for health validation</description>
-                            <logic>
-                                <step>Start containers with docker-compose up -d</step>
-                                <step>Wait for containers to reach running state</step>
-                                <step>Perform health checks with retries</step>
-                                <step>Log status and any issues</step>
-                                <step>Return success/failure status</step>
-                            </logic>
-                        </function>
-                    </new_functions>
-
-                    <modifications>
-                        <modification location="prepare_system_environment()">
-                            <change>Add call to ensure_docker_compose_updated()</change>
-                            <change>Add call to fix_container_permissions()</change>
-                            <change>Replace manual ownership setting with ensure_proper_file_permissions()</change>
-                        </modification>
-
-                        <modification location="start_services()">
-                            <change>Replace basic startup with start_services_with_health_check()</change>
-                            <change>Add comprehensive error handling and logging</change>
-                        </modification>
-                    </modifications>
-                </task>
-
-                <task id="2.2">
-                    <name>Update docker_setup.sh module</name>
-                    <description>Add post-installation container deployment</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh</file>
-                    </files_modified>
-
-                    <modifications>
-                        <modification location="install_docker_complete()">
-                            <change>Add call to configure container environment after Docker installation</change>
-                            <change>Trigger container_management setup if VLESS system detected</change>
-                        </modification>
-                    </modifications>
-
-                    <new_functions>
-                        <function name="post_docker_vless_setup">
-                            <description>Configure VLESS containers after Docker installation</description>
-                            <logic>
-                                <step>Check if /opt/vless exists</step>
-                                <step>Call container_management.sh prepare_system_environment</step>
-                                <step>Attempt to start services if configuration exists</step>
-                            </logic>
-                        </function>
-                    </new_functions>
-                </task>
-
-                <task id="2.3">
-                    <name>Update phase integration script</name>
-                    <description>Ensure Phase 2 includes service startup</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/modules/phase4_integration.sh</file>
-                    </files_modified>
-
-                    <modifications>
-                        <modification location="run_phase_2()">
-                            <change>Add service startup after VLESS server implementation</change>
-                            <change>Include health check validation</change>
-                            <change>Log startup status</change>
-                        </modification>
-                    </modifications>
-                </task>
-            </tasks>
-        </phase>
-
-        <phase id="3" name="Installation Process Enhancement">
-            <description>Improve main installer to handle service startup automatically</description>
-            <priority>High</priority>
-            <estimated_time>30 minutes</estimated_time>
-
-            <tasks>
-                <task id="3.1">
-                    <name>Enhance install.sh main script</name>
-                    <description>Add automatic service startup and validation after installation</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/install.sh</file>
-                    </files_modified>
-
-                    <modifications>
-                        <modification location="end of installation process">
-                            <change>Add post-installation service startup</change>
-                            <change>Include service health validation</change>
-                            <change>Display service status to user</change>
-                            <change>Provide troubleshooting guidance if services fail</change>
-                        </modification>
-                    </modifications>
-
-                    <new_sections>
-                        <section name="post_installation_startup">
-                            <description>Handle service startup after successful installation</description>
-                            <logic>
-                                <step>Call container_management.sh to start services</step>
-                                <step>Wait for health checks to pass</step>
-                                <step>Display service status</step>
-                                <step>Show user connection information if successful</step>
-                            </logic>
-                        </section>
-                    </new_sections>
-                </task>
-            </tasks>
-        </phase>
-
-        <phase id="4" name="Testing and Validation">
-            <description>Comprehensive testing of fixes and enhancements</description>
-            <priority>Medium</priority>
-            <estimated_time>60 minutes</estimated_time>
-
-            <tasks>
-                <task id="4.1">
-                    <name>Create comprehensive test suite</name>
-                    <description>Develop tests for permission handling and service startup</description>
-                    <files_created>
-                        <file>/home/ikeniborn/Documents/Project/vless/tests/test_docker_services_fix.sh</file>
-                    </files_created>
-
-                    <test_categories>
-                        <category name="Permission Tests">
-                            <test>Verify vless user UID/GID detection</test>
-                            <test>Test docker-compose.yml user directive updates</test>
-                            <test>Validate file permission corrections</test>
-                        </category>
-
-                        <category name="Docker Compose Management">
-                            <test>Test docker-compose.yml version detection</test>
-                            <test>Verify file update and backup processes</test>
-                            <test>Validate YAML syntax after modifications</test>
-                        </category>
-
-                        <category name="Service Startup Tests">
-                            <test>Test container startup with correct permissions</test>
-                            <test>Verify health check functionality</test>
-                            <test>Test service recovery from failures</test>
-                        </category>
-
-                        <category name="Integration Tests">
-                            <test>Full installer run with service startup</test>
-                            <test>Test upgrade scenarios (existing installation)</test>
-                            <test>Verify backward compatibility</test>
-                        </category>
-                    </test_categories>
-                </task>
-
-                <task id="4.2">
-                    <name>Manual testing procedures</name>
-                    <description>Step-by-step manual validation procedures</description>
-                    <procedures>
-                        <procedure name="Fresh Installation Test">
-                            <step>Clean test environment setup</step>
-                            <step>Run installer with new enhancements</step>
-                            <step>Verify automatic service startup</step>
-                            <step>Check container logs for errors</step>
-                            <step>Test VLESS connection functionality</step>
-                        </procedure>
-
-                        <procedure name="Existing Installation Upgrade">
-                            <step>Test with current broken installation</step>
-                            <step>Run container_management.sh fixes</step>
-                            <step>Verify service recovery</step>
-                            <step>Check for regression issues</step>
-                        </procedure>
-
-                        <procedure name="Permission Edge Cases">
-                            <step>Test with different system user UIDs</step>
-                            <step>Verify handling of permission conflicts</step>
-                            <step>Test recovery from permission errors</step>
-                        </procedure>
-                    </procedures>
-                </task>
-            </tasks>
-        </phase>
-
-        <phase id="5" name="Documentation and Maintenance">
-            <description>Update documentation and add maintenance utilities</description>
-            <priority>Low</priority>
-            <estimated_time>30 minutes</estimated_time>
-
-            <tasks>
-                <task id="5.1">
-                    <name>Update troubleshooting documentation</name>
-                    <description>Add common issues and solutions related to Docker services</description>
-                    <files_modified>
-                        <file>/home/ikeniborn/Documents/Project/vless/docs/troubleshooting.md</file>
-                    </files_modified>
-
-                    <sections_to_add>
-                        <section name="Docker Services Issues">
-                            <subsection>Container startup failures</subsection>
-                            <subsection>Permission-related errors</subsection>
-                            <subsection>Docker-compose.yml mismatches</subsection>
-                            <subsection>Health check failures</subsection>
-                        </section>
-                    </sections_to_add>
-                </task>
-
-                <task id="5.2">
-                    <name>Add maintenance utilities</name>
-                    <description>Create utilities for ongoing maintenance of Docker services</description>
-                    <files_created>
-                        <file>/home/ikeniborn/Documents/Project/vless/scripts/fix_docker_services.sh</file>
-                    </files_created>
-
-                    <utilities>
-                        <utility name="fix_docker_services.sh">
-                            <description>Standalone script to fix common Docker service issues</description>
-                            <functions>
-                                <function>Detect and fix permission issues</function>
-                                <function>Update docker-compose.yml if needed</function>
-                                <function>Restart services with health validation</function>
-                                <function>Generate diagnostic report</function>
-                            </functions>
-                        </utility>
-                    </utilities>
-                </task>
-            </tasks>
-        </phase>
-    </phases>
-
-    <implementation_details>
-        <code_changes>
-            <file path="/home/ikeniborn/Documents/Project/vless/modules/container_management.sh">
-                <change location="after line 127" type="addition">
-                    <code><![CDATA[
-# Ensure docker-compose.yml is up to date
-ensure_docker_compose_updated() {
-    local source_file="$1"
-    local target_file="$2"
-    local system_user="${3:-vless}"
-
-    log_info "Checking docker-compose.yml version..."
-
-    if [[ ! -f "$source_file" ]]; then
-        log_warn "Source docker-compose.yml not found: $source_file"
-        return 1
-    fi
-
-    # Check if update is needed
-    local needs_update=false
-    if [[ ! -f "$target_file" ]]; then
-        needs_update=true
-        log_info "Target docker-compose.yml does not exist, will create"
-    else
-        # Compare checksums
-        local source_checksum=$(sha256sum "$source_file" | cut -d' ' -f1)
-        local target_checksum=$(sha256sum "$target_file" | cut -d' ' -f1)
-
-        if [[ "$source_checksum" != "$target_checksum" ]]; then
-            needs_update=true
-            log_info "docker-compose.yml versions differ, will update"
-        fi
-    fi
-
-    if [[ "$needs_update" == "true" ]]; then
-        # Backup existing file
-        if [[ -f "$target_file" ]]; then
-            backup_file "$target_file"
-        fi
-
-        # Copy and update
-        cp "$source_file" "$target_file"
-        fix_container_permissions "$target_file" "$system_user"
-
-        log_success "docker-compose.yml updated successfully"
-    else
-        log_info "docker-compose.yml is up to date"
-    fi
-}
-
-# Fix container user permissions in docker-compose.yml
-fix_container_permissions() {
-    local compose_file="$1"
-    local system_user="${2:-vless}"
-
-    log_info "Fixing container permissions for user: $system_user"
-
-    # Get system user UID and GID
-    local user_info
-    if ! user_info=$(id "$system_user" 2>/dev/null); then
-        log_error "System user not found: $system_user"
-        return 1
-    fi
-
-    local uid=$(echo "$user_info" | grep -o 'uid=[0-9]*' | cut -d'=' -f2)
-    local gid=$(echo "$user_info" | grep -o 'gid=[0-9]*' | cut -d'=' -f2)
-
-    log_debug "System user $system_user has UID=$uid, GID=$gid"
-
-    # Update user directive in docker-compose.yml
-    if grep -q 'user:.*"[0-9]*:[0-9]*"' "$compose_file"; then
-        sed -i "s/user: \"[0-9]*:[0-9]*\"/user: \"$uid:$gid\"/" "$compose_file"
-        log_info "Updated container user to $uid:$gid"
-    else
-        log_debug "No user directive found in docker-compose.yml"
-    fi
-
-    # Validate YAML syntax
-    if command_exists docker-compose; then
-        if docker-compose -f "$compose_file" config >/dev/null 2>&1; then
-            log_success "docker-compose.yml syntax validated"
-        else
-            log_error "docker-compose.yml syntax validation failed"
-            return 1
-        fi
-    fi
-
-    # Set proper ownership
-    chown "$system_user:$system_user" "$compose_file"
-    chmod 644 "$compose_file"
-}
-
-# Ensure proper file permissions for containers
-ensure_proper_file_permissions() {
-    local base_dir="$1"
-    local system_user="${2:-vless}"
-
-    log_info "Setting proper file permissions for containers..."
-
-    local directories=(
-        "$base_dir/config"
-        "$base_dir/logs"
-        "$base_dir/certs"
-    )
-
-    # Set directory permissions
-    for dir in "${directories[@]}"; do
-        if [[ -d "$dir" ]]; then
-            chmod 755 "$dir"
-            chown -R "$system_user:$system_user" "$dir"
-            log_debug "Set permissions for directory: $dir"
-        fi
-    done
-
-    # Set specific file permissions
-    local config_file="$base_dir/config/config.json"
-    if [[ -f "$config_file" ]]; then
-        chmod 644 "$config_file"
-        chown "$system_user:$system_user" "$config_file"
-        log_debug "Set permissions for config file: $config_file"
-    fi
-
-    log_success "File permissions configured correctly"
-}
-
-# Start services with comprehensive health checking
-start_services_with_health_check() {
-    local service="${1:-}"
-    local max_wait="${2:-120}"
-
-    log_info "Starting services with health validation..."
-
-    # Start services
-    if [[ -n "$service" ]]; then
-        if ! safe_docker_compose "$START_TIMEOUT" up -d "$service"; then
-            log_error "Failed to start service: $service"
-            return 1
-        fi
-    else
-        if ! safe_docker_compose "$START_TIMEOUT" up -d; then
-            log_error "Failed to start services"
-            return 1
-        fi
-    fi
-
-    # Wait for containers to be in running state
-    log_info "Waiting for containers to reach running state..."
-    local wait_time=0
-    while [[ $wait_time -lt $max_wait ]]; do
-        local all_running=true
-        local containers=("vless-xray" "vless-nginx" "vless-watchtower")
-
-        for container in "${containers[@]}"; do
-            if [[ -n "$service" && "$container" != "vless-$service" ]]; then
-                continue
-            fi
-
-            local state
-            state=$(docker inspect --format='{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
-
-            if [[ "$state" != "running" ]]; then
-                all_running=false
-                log_debug "Container $container state: $state"
-                break
-            fi
-        done
-
-        if [[ "$all_running" == "true" ]]; then
-            log_success "All containers are running"
-            break
-        fi
-
-        sleep 5
-        wait_time=$((wait_time + 5))
-    done
-
-    if [[ $wait_time -ge $max_wait ]]; then
-        log_error "Timeout waiting for containers to start"
-        return 1
-    fi
-
-    # Perform health checks
-    log_info "Performing health checks..."
-    if ! wait_for_services_healthy "$max_wait"; then
-        log_error "Health check validation failed"
-        return 1
-    fi
-
-    log_success "Services started and validated successfully"
-    return 0
-}
-                    ]]></code>
+<implementation_plan>
+    <project>VLESS+Reality VPN Management System - Critical Path Fix</project>
+    <date>2025-09-24</date>
+    <version>1.2.6-hotfix</version>
+
+    <executive_summary>
+        <description>Comprehensive fix for critical path issues preventing proper VLESS service startup during Phase 2 installation</description>
+        <severity>Critical - System non-functional after installation</severity>
+        <affected_components>
+            <component>container_management.sh</component>
+            <component>docker_setup.sh (indirectly)</component>
+            <component>Module sourcing pattern</component>
+            <component>Service startup sequence</component>
+        </affected_components>
+        <estimated_effort>2-3 hours</estimated_effort>
+        <risk_level>Low - Non-breaking changes to path resolution</risk_level>
+    </executive_summary>
+
+    <issue_analysis>
+        <critical_issues>
+            <issue id="CRIT-001" priority="1">
+                <title>Incorrect path in container_management.sh line 18</title>
+                <description>Script attempts to source common_utils.sh from wrong path causing module loading failure</description>
+                <current_path>${SCRIPT_DIR}/common_utils.sh</current_path>
+                <correct_path>${SCRIPT_DIR}/common_utils.sh (already correct, but SCRIPT_DIR definition is wrong)</correct_path>
+                <root_cause>SCRIPT_DIR readonly variable conflict preventing proper path resolution</root_cause>
+                <impact>Complete service startup failure, Phase 2 installation fails</impact>
+            </issue>
+
+            <issue id="HIGH-001" priority="2">
+                <title>Readonly variable reassignment in container_management.sh line 17</title>
+                <description>SCRIPT_DIR already defined as readonly, causing assignment error</description>
+                <current_code>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"</current_code>
+                <root_cause>common_utils.sh already conditionally defines SCRIPT_DIR, but container_management.sh unconditionally redefines it</root_cause>
+                <impact>Path resolution fails, incorrect module paths used</impact>
+            </issue>
+        </critical_issues>
+
+        <secondary_issues>
+            <issue id="MED-001" priority="3">
+                <title>Inconsistent path resolution patterns across modules</title>
+                <description>Mixed usage of SCRIPT_DIR vs SOURCE_DIR in different modules</description>
+                <affected_files>
+                    <file>backup_restore.sh - uses SOURCE_DIR</file>
+                    <file>maintenance_utils.sh - uses SOURCE_DIR</file>
+                    <file>logging_setup.sh - uses SOURCE_DIR and hardcoded path</file>
+                    <file>monitoring.sh - uses SOURCE_DIR</file>
+                    <file>security_hardening.sh - uses SOURCE_DIR</file>
+                    <file>safety_utils.sh - uses SOURCE_DIR</file>
+                    <file>ufw_config.sh - uses SOURCE_DIR</file>
+                </affected_files>
+                <impact>Potential future path resolution issues</impact>
+            </issue>
+
+            <issue id="LOW-001" priority="4">
+                <title>APT backup file warnings (potential)</title>
+                <description>Multiple installation attempts may create backup files causing cosmetic warnings</description>
+                <impact>Cosmetic only - no functional impact</impact>
+            </issue>
+        </secondary_issues>
+    </issue_analysis>
+
+    <solution_strategy>
+        <approach>Fix critical path issues first, then standardize path patterns</approach>
+        <phases>
+            <phase number="1" name="Critical Fix">
+                <description>Fix immediate path resolution issues in container_management.sh</description>
+                <success_criteria>Module loads successfully, services start properly</success_criteria>
+            </phase>
+            <phase number="2" name="Standardization">
+                <description>Standardize path resolution patterns across all modules</description>
+                <success_criteria>Consistent pattern usage, no path conflicts</success_criteria>
+            </phase>
+            <phase number="3" name="Validation">
+                <description>Comprehensive testing of service startup and module loading</description>
+                <success_criteria>All services start successfully, installation completes without errors</success_criteria>
+            </phase>
+            <phase number="4" name="Cleanup">
+                <description>System cleanup and documentation updates</description>
+                <success_criteria>Clean system state, updated documentation</success_criteria>
+            </phase>
+        </phases>
+    </solution_strategy>
+
+    <detailed_tasks>
+        <task id="TASK-001" phase="1" priority="critical" estimated_time="30min">
+            <title>Fix container_management.sh path resolution</title>
+            <description>Correct the SCRIPT_DIR definition and common_utils.sh sourcing</description>
+            <files>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/container_management.sh</file>
+            </files>
+            <changes>
+                <change line="17" type="replace">
+                    <current>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"</current>
+                    <new># Define SCRIPT_DIR only if not already set by parent script
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi</new>
+                    <rationale>Prevents readonly variable conflict while ensuring proper path resolution</rationale>
                 </change>
+            </changes>
+            <verification_steps>
+                <step>Source container_management.sh directly to verify no errors</step>
+                <step>Verify SCRIPT_DIR resolves to /home/ikeniborn/Documents/Project/vless/modules</step>
+                <step>Verify common_utils.sh loads successfully</step>
+            </verification_steps>
+        </task>
 
-                <change location="line 139" type="modification">
-                    <old_code>    prepare_system_environment</old_code>
-                    <new_code>    prepare_system_environment
+        <task id="TASK-002" phase="1" priority="critical" estimated_time="45min">
+            <title>Standardize path resolution pattern in problematic modules</title>
+            <description>Update modules using SOURCE_DIR to use consistent SCRIPT_DIR pattern</description>
+            <files>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/backup_restore.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/maintenance_utils.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/logging_setup.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/monitoring.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/security_hardening.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/safety_utils.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/ufw_config.sh</file>
+            </files>
+            <changes>
+                <pattern_change>
+                    <find>SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SOURCE_DIR}/common_utils.sh"</find>
+                    <replace># Define SCRIPT_DIR only if not already set by parent script
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+source "${SCRIPT_DIR}/common_utils.sh"</replace>
+                </pattern_change>
+            </changes>
+            <verification_steps>
+                <step>Test each modified module individually</step>
+                <step>Verify common_utils.sh loads without errors</step>
+                <step>Check that all module functions are accessible</step>
+            </verification_steps>
+        </task>
 
-    # Update docker-compose.yml if needed
-    ensure_docker_compose_updated "$COMPOSE_FILE" "$SYSTEM_COMPOSE_FILE"
-
-    # Ensure proper permissions
-    ensure_proper_file_permissions "/opt/vless"</new_code>
+        <task id="TASK-003" phase="2" priority="high" estimated_time="30min">
+            <title>Fix logging_setup.sh dual path issue</title>
+            <description>Remove duplicate sourcing and hardcoded path in logging_setup.sh</description>
+            <files>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/logging_setup.sh</file>
+            </files>
+            <changes>
+                <change type="remove_duplicate">
+                    <description>Remove the hardcoded path line: source "$(dirname "$0")/../modules/common_utils.sh"</description>
+                    <keep_line>source "${SCRIPT_DIR}/common_utils.sh"</keep_line>
+                    <rationale>Eliminate duplicate sourcing that could cause conflicts</rationale>
                 </change>
+            </changes>
+            <verification_steps>
+                <step>Verify logging_setup.sh loads common_utils.sh only once</step>
+                <step>Test logging functions work correctly</step>
+            </verification_steps>
+        </task>
 
-                <change location="line 160-164" type="modification">
-                    <old_code>    # Wait for services to be healthy
-    wait_for_services_healthy
+        <task id="TASK-004" phase="2" priority="medium" estimated_time="45min">
+            <title>Update modules using SCRIPT_DIR for consistency</title>
+            <description>Ensure all modules using SCRIPT_DIR follow the conditional assignment pattern</description>
+            <files>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/docker_setup.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/system_update.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/user_management.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/user_database.sh</file>
+                <file>/home/ikeniborn/Documents/Project/vless/modules/config_templates.sh</file>
+            </files>
+            <changes>
+                <pattern_change>
+                    <find>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"</find>
+                    <replace># Define SCRIPT_DIR only if not already set by parent script
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi</replace>
+                </pattern_change>
+            </changes>
+            <verification_steps>
+                <step>Test each module individually</step>
+                <step>Verify no readonly variable conflicts</step>
+                <step>Confirm proper path resolution in nested sourcing scenarios</step>
+            </verification_steps>
+        </task>
 
-    log_success "Services started successfully"
-    show_service_status</old_code>
-                    <new_code>    # Start services with comprehensive health checking
-    if ! start_services_with_health_check "$service"; then
-        log_error "Failed to start and validate services"
-        return 1
-    fi
+        <task id="TASK-005" phase="3" priority="high" estimated_time="60min">
+            <title>Comprehensive service startup testing</title>
+            <description>Test the complete installation process to verify fixes work end-to-end</description>
+            <test_scenarios>
+                <scenario name="Fresh Installation Test">
+                    <description>Run complete installation on clean system</description>
+                    <steps>
+                        <step>Run ./install.sh in test environment</step>
+                        <step>Monitor Phase 2 for container startup</step>
+                        <step>Verify Xray service starts successfully</step>
+                        <step>Check service health and port binding</step>
+                    </steps>
+                    <success_criteria>
+                        <criterion>Installation completes without path errors</criterion>
+                        <criterion>All containers start and remain healthy</criterion>
+                        <criterion>VLESS service binds to configured port</criterion>
+                        <criterion>No module loading errors in logs</criterion>
+                    </success_criteria>
+                </scenario>
 
-    log_success "Services started and validated successfully"
-    show_service_status</new_code>
-                </change>
-            </file>
-        </code_changes>
+                <scenario name="Module Independence Test">
+                    <description>Test individual modules can be sourced independently</description>
+                    <steps>
+                        <step>Source each module individually in clean shell</step>
+                        <step>Verify no dependency errors</step>
+                        <step>Test key functions from each module</step>
+                    </steps>
+                    <success_criteria>
+                        <criterion>All modules source without errors</criterion>
+                        <criterion>No readonly variable conflicts</criterion>
+                        <criterion>Functions are accessible after sourcing</criterion>
+                    </success_criteria>
+                </scenario>
 
-        <configuration_updates>
-            <update target="/opt/vless/docker-compose.yml">
-                <change>Update user directive from "1000:1000" to "995:982" (vless user UID/GID)</change>
-                <change>Keep all security hardening features from repository version</change>
-                <change>Ensure proper volume mounts and network configuration</change>
-            </update>
-        </configuration_updates>
-    </implementation_details>
+                <scenario name="Service Management Test">
+                    <description>Test container management functions</description>
+                    <steps>
+                        <step>Start services using container_management.sh</step>
+                        <step>Stop services</step>
+                        <step>Restart services</step>
+                        <step>Check service status</step>
+                    </steps>
+                    <success_criteria>
+                        <criterion>All service operations complete successfully</criterion>
+                        <criterion>Services respond to management commands</criterion>
+                        <criterion>Status reporting works correctly</criterion>
+                    </success_criteria>
+                </scenario>
+            </test_scenarios>
+        </task>
 
-    <testing_strategy>
-        <test_environments>
-            <environment name="Current System">
-                <description>Test fixes on current broken installation</description>
-                <validation>
-                    <check>Services start without errors</check>
-                    <check>Health checks pass</check>
-                    <check>Container logs show successful startup</check>
-                    <check>VLESS functionality works</check>
-                </validation>
-            </environment>
+        <task id="TASK-006" phase="3" priority="medium" estimated_time="30min">
+            <title>Install.sh integration testing</title>
+            <description>Verify main installation script works with path fixes</description>
+            <files>
+                <file>/home/ikeniborn/Documents/Project/vless/install.sh</file>
+            </files>
+            <test_steps>
+                <step>Run install.sh in different modes (minimal, balanced, full)</step>
+                <step>Monitor all phase executions for errors</step>
+                <step>Verify service startup in Phase 2</step>
+                <step>Check final system state</step>
+            </test_steps>
+            <verification_steps>
+                <step>All installation modes complete successfully</step>
+                <step>Services are running and healthy post-installation</step>
+                <step>No path resolution errors in installation logs</step>
+            </verification_steps>
+        </task>
 
-            <environment name="Fresh Installation">
-                <description>Test complete installer with new enhancements</description>
-                <validation>
-                    <check>Automatic service startup after installation</check>
-                    <check>Correct permissions set during installation</check>
-                    <check>No manual intervention required</check>
-                </validation>
-            </environment>
+        <task id="TASK-007" phase="4" priority="low" estimated_time="15min">
+            <title>APT backup files cleanup</title>
+            <description>Remove any stale APT backup files if they exist</description>
+            <cleanup_actions>
+                <action>Check for *.backup.* files in /etc/apt/apt.conf.d/</action>
+                <action>Remove files older than 7 days with .backup extension</action>
+                <action>Document cleanup in system logs</action>
+            </cleanup_actions>
+            <verification_steps>
+                <step>No APT warnings during package operations</step>
+                <step>apt update runs cleanly</step>
+            </verification_steps>
+        </task>
 
-            <environment name="Upgrade Scenario">
-                <description>Test upgrade from old to new docker-compose.yml</description>
-                <validation>
-                    <check>Backup of old configuration</check>
-                    <check>Successful migration to new format</check>
-                    <check>No service interruption</check>
-                </validation>
-            </environment>
-        </test_environments>
-
-        <test_procedures>
-            <procedure name="Immediate Fix Testing">
-                <step>Apply Phase 1 changes (docker-compose.yml update and permission fixes)</step>
-                <step>Start services and verify logs</step>
-                <step>Test VLESS connection</step>
-                <step>Monitor for 10 minutes to ensure stability</step>
-            </procedure>
-
-            <procedure name="Installer Enhancement Testing">
-                <step>Create clean test environment</step>
-                <step>Run enhanced installer</step>
-                <step>Verify automatic service startup</step>
-                <step>Check for any error messages or warnings</step>
-                <step>Validate final system state</step>
-            </procedure>
-
-            <procedure name="Edge Case Testing">
-                <step>Test with different user UIDs</step>
-                <step>Test with corrupted docker-compose.yml</step>
-                <step>Test with Docker service down</step>
-                <step>Test recovery from various failure states</step>
-            </procedure>
-        </test_procedures>
-    </testing_strategy>
-
-    <rollback_procedure>
-        <description>Steps to revert changes if issues occur during implementation</description>
-        <steps>
-            <step id="1">
-                <action>Stop all running containers</action>
-                <command>cd /opt/vless && sudo docker-compose down</command>
-            </step>
-
-            <step id="2">
-                <action>Restore original docker-compose.yml</action>
-                <command>sudo cp /opt/vless/docker-compose.yml.backup /opt/vless/docker-compose.yml</command>
-                <note>Backup is created automatically by backup_file() function</note>
-            </step>
-
-            <step id="3">
-                <action>Restore module files if modified</action>
-                <command>git checkout HEAD -- modules/container_management.sh</command>
-                <command>git checkout HEAD -- modules/docker_setup.sh</command>
-            </step>
-
-            <step id="4">
-                <action>Restore file permissions to original state</action>
-                <command>sudo chown -R vless:vless /opt/vless/</command>
-                <command>sudo chmod 755 /opt/vless/config /opt/vless/logs /opt/vless/certs</command>
-                <command>sudo chmod 644 /opt/vless/config/config.json</command>
-            </step>
-
-            <step id="5">
-                <action>Start services with original configuration</action>
-                <command>cd /opt/vless && sudo docker-compose up -d</command>
-            </step>
-        </steps>
-
-        <validation>
-            <check>Verify services return to previous state</check>
-            <check>Check container logs for startup issues</check>
-            <check>Confirm no data loss occurred</check>
-        </validation>
-    </rollback_procedure>
-
-    <success_criteria>
-        <immediate_goals>
-            <goal>Docker services start successfully without manual intervention</goal>
-            <goal>Container permissions allow proper access to configuration files</goal>
-            <goal>Health checks pass consistently</goal>
-            <goal>VLESS functionality works end-to-end</goal>
-        </immediate_goals>
-
-        <long_term_goals>
-            <goal>New installations automatically start services</goal>
-            <goal>Installer handles permission conflicts automatically</goal>
-            <goal>System is resilient to docker-compose.yml updates</goal>
-            <goal>Comprehensive error handling and recovery</goal>
-        </long_term_goals>
-
-        <quality_metrics>
-            <metric>Zero manual intervention required for service startup</metric>
-            <metric>Service startup time under 60 seconds</metric>
-            <metric>Health checks pass within 30 seconds</metric>
-            <metric>95% success rate for automated installations</metric>
-        </quality_metrics>
-    </success_criteria>
-
-    <timeline>
-        <milestones>
-            <milestone date="2025-09-24 immediate" phase="1">
-                <deliverable>Services restored and functional</deliverable>
-                <deliverable>Immediate user issues resolved</deliverable>
-            </milestone>
-
-            <milestone date="2025-09-24 +2 hours" phase="2-3">
-                <deliverable>Enhanced installer modules completed</deliverable>
-                <deliverable>Automatic service startup implemented</deliverable>
-            </milestone>
-
-            <milestone date="2025-09-24 +4 hours" phase="4">
-                <deliverable>Comprehensive testing completed</deliverable>
-                <deliverable>All edge cases validated</deliverable>
-            </milestone>
-
-            <milestone date="2025-09-24 +5 hours" phase="5">
-                <deliverable>Documentation updated</deliverable>
-                <deliverable>Maintenance utilities created</deliverable>
-            </milestone>
-        </milestones>
-
-        <critical_path>
-            <task>Phase 1: Immediate service restoration (blocking user)</task>
-            <task>Phase 2: Installer enhancements (prevents future issues)</task>
-            <task>Phase 4: Testing validation (ensures reliability)</task>
-        </critical_path>
-    </timeline>
+        <task id="TASK-008" phase="4" priority="low" estimated_time="30min">
+            <title>Update documentation and version</title>
+            <description>Update project documentation to reflect fixes and increment version</description>
+            <files>
+                <file>/home/ikeniborn/Documents/Project/vless/CLAUDE.md</file>
+            </files>
+            <updates>
+                <update section="Recent Updates">
+                    <version>v1.2.6-hotfix</version>
+                    <title>Critical Path Resolution Fix</title>
+                    <description>Fixed critical module loading issues preventing service startup</description>
+                    <changes>
+                        <change>Fixed SCRIPT_DIR readonly variable conflict in container_management.sh</change>
+                        <change>Standardized path resolution pattern across all modules</change>
+                        <change>Enhanced module independence and sourcing reliability</change>
+                        <change>Eliminated duplicate sourcing in logging_setup.sh</change>
+                        <change>Comprehensive service startup validation</change>
+                    </changes>
+                </update>
+            </updates>
+        </task>
+    </detailed_tasks>
 
     <risk_assessment>
         <risks>
-            <risk level="low" impact="medium">
-                <description>Permission changes might affect other system components</description>
-                <mitigation>Create backups before changes, test in isolated environment</mitigation>
+            <risk level="low" probability="low">
+                <description>Path changes might affect other scripts not in modules directory</description>
+                <mitigation>Comprehensive testing of install.sh and all entry points</mitigation>
             </risk>
-
-            <risk level="medium" impact="high">
-                <description>Docker-compose.yml updates might introduce new issues</description>
-                <mitigation>Comprehensive testing, rollback procedure available</mitigation>
+            <risk level="low" probability="medium">
+                <description>Existing installations might have cached path references</description>
+                <mitigation>Service restart after path fixes, validation of system state</mitigation>
             </risk>
-
-            <risk level="low" impact="low">
-                <description>Service startup timing issues in different environments</description>
-                <mitigation>Configurable timeouts, robust retry logic</mitigation>
+            <risk level="medium" probability="low">
+                <description>Some modules might have undiscovered path dependencies</description>
+                <mitigation>Individual module testing before integration</mitigation>
             </risk>
         </risks>
-
-        <contingencies>
-            <contingency scenario="Services fail to start after fixes">
-                <action>Execute rollback procedure</action>
-                <action>Analyze logs for specific failure points</action>
-                <action>Apply targeted fixes rather than wholesale changes</action>
-            </contingency>
-
-            <contingency scenario="Permission conflicts persist">
-                <action>Investigate alternative containerization approaches</action>
-                <action>Consider privileged container execution as temporary measure</action>
-                <action>Document specific environment requirements</action>
-            </contingency>
-        </contingencies>
+        <rollback_plan>
+            <description>All changes are non-destructive path fixes</description>
+            <steps>
+                <step>Git rollback to previous commit if issues arise</step>
+                <step>Individual file restoration from backup</step>
+                <step>Service restart to clear any cached state</step>
+            </steps>
+        </rollback_plan>
     </risk_assessment>
 
-    <maintenance_considerations>
-        <ongoing_tasks>
-            <task>Monitor service startup success rates</task>
-            <task>Update docker-compose.yml management for future repository changes</task>
-            <task>Maintain compatibility with Docker version updates</task>
-            <task>Review and update permission handling for new security requirements</task>
-        </ongoing_tasks>
+    <validation_checklist>
+        <pre_implementation>
+            <check>✓ Backup current working modules</check>
+            <check>✓ Identify all files needing modification</check>
+            <check>✓ Test current system state for baseline</check>
+            <check>✓ Prepare test environment</check>
+        </pre_implementation>
 
-        <monitoring_recommendations>
-            <recommendation>Add service startup monitoring to health check system</recommendation>
-            <recommendation>Log permission-related issues for trend analysis</recommendation>
-            <recommendation>Create alerts for docker-compose.yml version mismatches</recommendation>
-        </monitoring_recommendations>
-    </maintenance_considerations>
-</plan>
+        <post_implementation>
+            <check>□ All modules source without errors</check>
+            <check>□ No readonly variable conflicts</check>
+            <check>□ Container services start successfully</check>
+            <check>□ Install.sh completes all phases</check>
+            <check>□ Service management functions work</check>
+            <check>□ Individual module testing passes</check>
+            <check>□ Integration testing passes</check>
+            <check>□ Documentation updated</check>
+            <check>□ Version incremented</check>
+            <check>□ Change log updated</check>
+        </post_implementation>
+    </validation_checklist>
+
+    <success_metrics>
+        <metric name="Critical Issues Resolved">
+            <target>100% of critical path issues fixed</target>
+            <measurement>Service startup success rate</measurement>
+        </metric>
+        <metric name="Installation Success Rate">
+            <target>100% installation success across all modes</target>
+            <measurement>Automated testing results</measurement>
+        </metric>
+        <metric name="Module Loading Success">
+            <target>100% modules load without errors</target>
+            <measurement>Individual module testing</measurement>
+        </metric>
+        <metric name="Path Resolution Consistency">
+            <target>Consistent pattern usage across all modules</target>
+            <measurement>Code review and pattern analysis</measurement>
+        </metric>
+    </success_metrics>
+
+    <timeline>
+        <phase name="Critical Fix" duration="1.5 hours">
+            <tasks>TASK-001, TASK-002</tasks>
+            <milestone>Service startup works</milestone>
+        </phase>
+        <phase name="Standardization" duration="1.5 hours">
+            <tasks>TASK-003, TASK-004</tasks>
+            <milestone>All modules use consistent patterns</milestone>
+        </phase>
+        <phase name="Validation" duration="1.5 hours">
+            <tasks>TASK-005, TASK-006</tasks>
+            <milestone>Full system testing complete</milestone>
+        </phase>
+        <phase name="Cleanup" duration="45 minutes">
+            <tasks>TASK-007, TASK-008</tasks>
+            <milestone>System cleanup and documentation complete</milestone>
+        </phase>
+        <total_estimated_time>5 hours</total_estimated_time>
+    </timeline>
+
+    <implementation_notes>
+        <note priority="high">Start with container_management.sh as it's the critical blocker</note>
+        <note priority="medium">Test each module individually before integration testing</note>
+        <note priority="low">Consider creating automated tests for path resolution</note>
+        <note priority="low">Document the standardized pattern in developer guidelines</note>
+    </implementation_notes>
+
+    <dependencies>
+        <dependency type="external">Git repository access for version control</dependency>
+        <dependency type="internal">Access to /home/ikeniborn/Documents/Project/vless directory</dependency>
+        <dependency type="system">Test environment for validation</dependency>
+        <dependency type="tools">Text editor with search/replace capabilities</dependency>
+    </dependencies>
+</implementation_plan>

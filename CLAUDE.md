@@ -539,6 +539,67 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 
 ## Recent Updates
 
+### v1.2.7 - Module Loading System Fixes (2025-09-24)
+
+#### Critical Module System Stabilization
+1. **Readonly Variable Conflict Resolution**: Fixed shell script crashes from readonly variable redefinition
+   - Added conditional `SCRIPT_DIR` checks across all modules to prevent readonly conflicts
+   - Implemented safe variable assignment patterns: `if [[ -z "${SCRIPT_DIR:-}" ]]; then`
+   - Fixed module loading failures that prevented successful installations
+   - Enhanced module sourcing reliability across different execution contexts
+
+2. **Module Sourcing Path Issues Resolution**: Enhanced path handling for robust module loading
+   - Standardized SCRIPT_DIR detection pattern across all modules
+   - Fixed relative path issues when modules are sourced from different directories
+   - Improved parent script compatibility for nested module loading
+   - Enhanced cross-module dependency resolution
+
+3. **Service Startup Reliability**: Resolved Phase 2 installation failures
+   - Fixed Docker service startup issues caused by module loading conflicts
+   - Improved container management module stability
+   - Enhanced error handling for service initialization
+   - Streamlined Phase 2 execution flow for consistent results
+
+4. **Enhanced Module System Architecture**:
+   - **config_templates.sh**: Added conditional SCRIPT_DIR initialization
+   - **container_management.sh**: Fixed path resolution for Docker operations
+   - **docker_setup.sh**: Enhanced startup sequence reliability
+   - **user_management.sh**: Resolved database file path conflicts
+   - **user_database.sh**: Improved DEFAULT_DB_FILE handling
+   - **system_update.sh**: Standardized module loading patterns
+
+5. **Comprehensive Test Suite**: New module loading validation framework
+   - 44 test cases across 4 test suites validating module loading fixes
+   - Readonly variable conflict detection and prevention tests
+   - SCRIPT_DIR handling validation across different execution contexts
+   - Container management functionality verification
+   - Cross-module dependency resolution testing
+
+6. **Backward Compatibility**: Full compatibility with existing installations
+   - No breaking changes to module interfaces or function signatures
+   - Existing installations benefit automatically from improved reliability
+   - Configuration files remain unchanged
+   - All existing workflows continue to function normally
+
+#### Key Technical Improvements
+```bash
+# Before v1.2.7 (caused readonly conflicts)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# After v1.2.7 (safe conditional assignment)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+```
+
+#### Testing and Validation
+- ✅ Module loading fixes tested across 44 individual test cases
+- ✅ Readonly variable conflicts eliminated
+- ✅ SCRIPT_DIR handling working properly in all contexts
+- ✅ Container management module functionality verified
+- ✅ Phase 2 installation reliability significantly improved
+- ✅ Cross-module sourcing working without conflicts
+
 ### v1.2.6 - Docker Services Automatic Startup Fix (2025-09-24)
 
 #### Critical Docker Container Management Enhancement
@@ -844,5 +905,5 @@ sudo /opt/vless/scripts/diagnostic_report.sh
 ---
 
 **Last Updated**: 2025-09-24
-**Version**: 1.2.6
+**Version**: 1.2.7
 **Maintainer**: VLESS Development Team

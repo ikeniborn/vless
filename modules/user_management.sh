@@ -15,14 +15,17 @@
 set -euo pipefail
 
 # Import common utilities and dependencies
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Check if SCRIPT_DIR is already defined (e.g., by parent script)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 source "${SCRIPT_DIR}/common_utils.sh"
 source "${SCRIPT_DIR}/user_database.sh"
 
 # Configuration files
 readonly XRAY_CONFIG_FILE="/opt/vless/config/config.json"
 readonly PROJECT_XRAY_CONFIG="${SCRIPT_DIR}/../config/xray_config_template.json"
-readonly DEFAULT_DB_FILE="/opt/vless/users/users.json"
+# DEFAULT_DB_FILE is already defined in user_database.sh
 
 # User management operations
 

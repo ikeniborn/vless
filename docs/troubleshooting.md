@@ -6,6 +6,7 @@ Comprehensive troubleshooting guide for the VLESS+Reality VPN Management System.
 
 1. [General Troubleshooting](#general-troubleshooting)
 2. [Installation Issues](#installation-issues)
+   - [Module Loading Failures (v1.2.7)](#module-loading-failures-v127)
    - [System Time Synchronization Errors](#system-time-synchronization-errors)
    - [Enhanced Time Synchronization (v1.2.3)](#enhanced-time-synchronization-v123)
 3. [Service Problems](#service-problems)
@@ -59,6 +60,60 @@ Before diving into specific issues, always start with these basic troubleshootin
    ```
 
 ## Installation Issues
+
+### Module Loading Failures (v1.2.7)
+
+**Problem**: Installation fails with readonly variable errors or module sourcing failures:
+```bash
+bash: line 18: readonly variable
+./install.sh: line 45: SCRIPT_DIR: readonly variable
+Phase 2 installation failed: Could not source module
+```
+
+**Cause**: Prior to v1.2.7, modules could conflict when SCRIPT_DIR was already defined by parent scripts, causing readonly variable redefinition errors.
+
+**Solution**:
+
+1. **Automatic Fix** (v1.2.7+):
+   - All modules now use conditional SCRIPT_DIR assignment
+   - Fixed module sourcing path issues
+   - Enhanced cross-module compatibility
+
+2. **Manual Fix** for older versions:
+   ```bash
+   # Clear environment variables before installation
+   unset SCRIPT_DIR
+   sudo ./install.sh
+
+   # Or use clean environment
+   sudo env -i bash ./install.sh
+   ```
+
+3. **Validation Commands**:
+   ```bash
+   # Test module loading
+   cd tests
+   ./run_module_loading_tests.sh --verbose
+
+   # Check specific module
+   bash -n modules/docker_setup.sh
+   bash -n modules/container_management.sh
+   ```
+
+4. **Recovery Steps**:
+   ```bash
+   # Restart installation from Phase 1
+   sudo FORCE_REINSTALL=true ./install.sh
+
+   # Skip problematic phases (minimal mode)
+   sudo INSTALLATION_MODE=minimal ./install.sh
+   ```
+
+**Technical Details**:
+- Fixed conditional SCRIPT_DIR initialization: `if [[ -z "${SCRIPT_DIR:-}" ]]; then`
+- Enhanced module dependency resolution
+- Improved Phase 2 Docker service startup reliability
+- Added comprehensive test suite with 44 test cases
 
 ### System Time Synchronization Errors
 

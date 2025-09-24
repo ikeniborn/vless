@@ -510,9 +510,34 @@ sudo firewall-cmd --list-all
 
 ### Common Installation Issues
 
-#### 1. Permission Denied Errors
+#### 1. Module Loading Failures (v1.2.7+)
 
-**Problem**: Installation fails with permission errors or multiple sourcing errors.
+**Problem**: Installation fails with readonly variable errors or module sourcing failures.
+
+**Symptoms**:
+```bash
+bash: line 18: readonly variable
+./install.sh: line 45: SCRIPT_DIR: readonly variable
+Phase 2 installation failed: Could not source module
+```
+
+**Solution**: The system now includes automatic module loading fixes. For best results:
+```bash
+# Use clean environment (recommended)
+sudo env -i bash ./install.sh
+
+# Or restart installation
+sudo FORCE_REINSTALL=true ./install.sh
+
+# Validate module loading
+cd tests && ./run_module_loading_tests.sh --verbose
+```
+
+**Technical Details**: v1.2.7+ includes enhanced module loading with conditional SCRIPT_DIR initialization to prevent readonly variable conflicts.
+
+#### 2. Permission Denied Errors
+
+**Problem**: Installation fails with permission errors.
 
 **Solution**:
 ```bash

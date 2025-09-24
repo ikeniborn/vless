@@ -1,0 +1,5 @@
+[0;34m[INFO][0m Starting Readonly Variable Conflicts Test Suite
+Project Root: /home/ikeniborn/Documents/Project/vless
+Modules Directory: /home/ikeniborn/Documents/Project/vless/modules
+
+[0;34m[INFO][0m Starting test: Predefined Readonly SCRIPT_DIR
