@@ -1,0 +1,8 @@
+[0;34m========================================[0m
+[0;34mEnhanced Time Synchronization Tests v1.2.2[0m
+[0;34m========================================[0m
+Starting tests at Wed Sep 24 07:50:58 AM MSK 2025
+Test results will be logged to: /home/ikeniborn/Documents/Project/vless/tests/results/time_sync_enhancements.log
+
+[0;36mℹ INFO:[0m Successfully loaded common_utils.sh with mocks
+[0;36m--- Testing configure_chrony_for_large_offset function ---[0m
