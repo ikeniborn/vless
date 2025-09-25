@@ -427,6 +427,391 @@ EOF
 }
 
 #######################################################################################
+# CONFIGURATION GENERATION FUNCTIONS
+#######################################################################################
+
+# Generate X25519 key pair for Reality transport
+generate_keys() {
+    log_message "INFO" "Generating X25519 key pair..."
+
+    local private_key_file="$PROJECT_ROOT/data/keys/private.key"
+    local public_key_file="$PROJECT_ROOT/data/keys/public.key"
+
+    # Check if keys already exist
+    if [[ -f "$private_key_file" ]] && [[ -f "$public_key_file" ]]; then
+        log_message "INFO" "X25519 keys already exist, skipping generation"
+        return 0
+    fi
+
+    # Check if Docker is available
+    if ! command -v docker >/dev/null 2>&1; then
+        log_message "ERROR" "Docker is required for key generation but not found"
+        return 1
+    fi
+
+    # Check if Docker daemon is running
+    if ! docker info >/dev/null 2>&1; then
+        log_message "ERROR" "Docker daemon is not running"
+        return 1
+    fi
+
+    log_message "INFO" "Pulling Xray Docker image for key generation..."
+    if ! docker pull teddysun/xray:latest >/dev/null 2>&1; then
+        log_message "WARNING" "Failed to pull latest image, attempting to use existing image"
+    fi
+
+    # Generate X25519 key pair using Docker
+    log_message "INFO" "Generating key pair with Xray..."
+    local key_output
+    key_output=$(docker run --rm teddysun/xray:latest x25519 2>/dev/null)
+
+    if [[ $? -ne 0 ]] || [[ -z "$key_output" ]]; then
+        log_message "ERROR" "Failed to generate X25519 key pair"
+        return 1
+    fi
+
+    # Parse private and public keys from output
+    local private_key
+    local public_key
+
+    private_key=$(echo "$key_output" | grep "Private key:" | awk '{print $3}' | tr -d '\r\n')
+    public_key=$(echo "$key_output" | grep "Public key:" | awk '{print $3}' | tr -d '\r\n')
+
+    if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
+        log_message "ERROR" "Failed to parse generated keys from output"
+        return 1
+    fi
+
+    # Validate key format (should be base64-like strings)
+    if [[ ! $private_key =~ ^[A-Za-z0-9+/]+=*$ ]] || [[ ! $public_key =~ ^[A-Za-z0-9+/]+=*$ ]]; then
+        log_message "ERROR" "Generated keys have invalid format"
+        return 1
+    fi
+
+    # Save keys to files
+    echo "$private_key" > "$private_key_file"
+    echo "$public_key" > "$public_key_file"
+
+    # Set secure permissions
+    chmod 600 "$private_key_file"
+    chmod 600 "$public_key_file"
+
+    log_message "SUCCESS" "X25519 key pair generated and stored securely"
+    log_message "INFO" "Private key saved to: $private_key_file"
+    log_message "INFO" "Public key saved to: $public_key_file"
+
+    return 0
+}
+
+# Generate UUID v4 for user identification
+generate_uuid() {
+    local uuid
+
+    # Method 1: Use uuidgen command if available
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuid=$(uuidgen)
+        if [[ $? -eq 0 ]] && [[ -n "$uuid" ]]; then
+            echo "$uuid"
+            return 0
+        fi
+    fi
+
+    # Method 2: Use /proc/sys/kernel/random/uuid if available
+    if [[ -r "/proc/sys/kernel/random/uuid" ]]; then
+        uuid=$(cat /proc/sys/kernel/random/uuid)
+        if [[ $? -eq 0 ]] && [[ -n "$uuid" ]]; then
+            echo "$uuid"
+            return 0
+        fi
+    fi
+
+    # Method 3: Generate UUID manually using /dev/urandom
+    if [[ -r "/dev/urandom" ]]; then
+        # Generate 16 random bytes and format as UUID v4
+        local hex_string
+        hex_string=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
+
+        if [[ ${#hex_string} -eq 32 ]]; then
+            # Format as UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+            # Set version (4) and variant bits
+            local uuid_formatted
+            uuid_formatted="${hex_string:0:8}-${hex_string:8:4}-4${hex_string:13:3}-$(printf "%x" $(( 0x${hex_string:16:1} & 0x3 | 0x8 )))${hex_string:17:3}-${hex_string:20:12}"
+            echo "$uuid_formatted"
+            return 0
+        fi
+    fi
+
+    log_message "ERROR" "Failed to generate UUID using all available methods"
+    return 1
+}
+
+# Generate hexadecimal shortId for Reality transport
+generate_short_id() {
+    local length=${1:-8}
+
+    # Validate length parameter
+    if ! [[ "$length" =~ ^[0-9]+$ ]] || [[ $length -lt 2 ]] || [[ $length -gt 16 ]] || [[ $((length % 2)) -ne 0 ]]; then
+        log_message "WARNING" "Invalid shortId length: $length. Using default length 8"
+        length=8
+    fi
+
+    # Generate random bytes and convert to hexadecimal
+    if [[ -r "/dev/urandom" ]]; then
+        local hex_string
+        hex_string=$(dd if=/dev/urandom bs=$((length / 2)) count=1 2>/dev/null | od -An -tx1 | tr -d ' \n' | head -c $length)
+
+        if [[ ${#hex_string} -eq $length ]]; then
+            # Ensure lowercase
+            echo "$hex_string" | tr '[:upper:]' '[:lower:]'
+            return 0
+        fi
+    fi
+
+    log_message "ERROR" "Failed to generate shortId"
+    return 1
+}
+
+# Create Xray server configuration
+create_server_config() {
+    log_message "INFO" "Creating Xray server configuration..."
+
+    local config_file="$PROJECT_ROOT/config/server.json"
+    local env_file="$PROJECT_ROOT/.env"
+    local private_key_file="$PROJECT_ROOT/data/keys/private.key"
+
+    # Check if configuration already exists
+    if [[ -f "$config_file" ]]; then
+        log_message "INFO" "Server configuration already exists, regenerating..."
+    fi
+
+    # Check if environment file exists
+    if [[ ! -f "$env_file" ]]; then
+        log_message "ERROR" "Environment file not found: $env_file"
+        return 1
+    fi
+
+    # Source environment variables
+    source "$env_file"
+
+    # Check if private key exists
+    if [[ ! -f "$private_key_file" ]]; then
+        log_message "ERROR" "Private key file not found: $private_key_file"
+        log_message "ERROR" "Please run generate_keys() first"
+        return 1
+    fi
+
+    # Read private key
+    local private_key
+    private_key=$(cat "$private_key_file")
+    if [[ -z "$private_key" ]]; then
+        log_message "ERROR" "Private key is empty"
+        return 1
+    fi
+
+    # Generate admin UUID
+    local admin_uuid
+    admin_uuid=$(generate_uuid)
+    if [[ $? -ne 0 ]] || [[ -z "$admin_uuid" ]]; then
+        log_message "ERROR" "Failed to generate admin UUID"
+        return 1
+    fi
+
+    # Generate shortIds array
+    local short_id_1 short_id_2
+    short_id_1=$(generate_short_id 8)
+    short_id_2=$(generate_short_id 16)
+
+    if [[ $? -ne 0 ]] || [[ -z "$short_id_1" ]] || [[ -z "$short_id_2" ]]; then
+        log_message "ERROR" "Failed to generate shortIds"
+        return 1
+    fi
+
+    # Create server configuration JSON
+    cat > "$config_file" << EOF
+{
+  "log": {
+    "level": "${LOG_LEVEL:-warning}",
+    "output": "${LOG_FILE:-/app/logs/xray.log}"
+  },
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "port": ${XRAY_PORT:-443},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$admin_uuid",
+            "email": "admin@vless-service",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "${REALITY_DEST:-speed.cloudflare.com:443}",
+          "serverNames": [
+            "${REALITY_SERVER_NAMES:-speed.cloudflare.com}"
+          ],
+          "privateKey": "$private_key",
+          "shortIds": [
+            "",
+            "$short_id_1",
+            "$short_id_2"
+          ]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      }
+    ]
+  }
+}
+EOF
+
+    # Set secure permissions
+    chmod 600 "$config_file"
+
+    # Validate JSON syntax
+    if command -v python3 >/dev/null 2>&1; then
+        if ! python3 -m json.tool "$config_file" >/dev/null 2>&1; then
+            log_message "ERROR" "Generated configuration has invalid JSON syntax"
+            return 1
+        fi
+    elif command -v jq >/dev/null 2>&1; then
+        if ! jq . "$config_file" >/dev/null 2>&1; then
+            log_message "ERROR" "Generated configuration has invalid JSON syntax"
+            return 1
+        fi
+    else
+        log_message "WARNING" "Cannot validate JSON syntax (python3 or jq not found)"
+    fi
+
+    # Store admin UUID in environment for reference
+    echo "" >> "$env_file"
+    echo "# Generated configuration values" >> "$env_file"
+    echo "ADMIN_UUID=$admin_uuid" >> "$env_file"
+    echo "SHORT_ID_1=$short_id_1" >> "$env_file"
+    echo "SHORT_ID_2=$short_id_2" >> "$env_file"
+
+    log_message "SUCCESS" "Server configuration created: $config_file"
+    log_message "INFO" "Admin UUID: $admin_uuid"
+    log_message "INFO" "ShortIds: '' (empty), $short_id_1, $short_id_2"
+
+    return 0
+}
+
+# Create Docker Compose configuration
+create_docker_compose() {
+    log_message "INFO" "Creating Docker Compose configuration..."
+
+    local compose_file="$PROJECT_ROOT/docker-compose.yml"
+    local env_file="$PROJECT_ROOT/.env"
+
+    # Check if Docker Compose configuration already exists
+    if [[ -f "$compose_file" ]]; then
+        log_message "INFO" "Docker Compose configuration already exists, regenerating..."
+    fi
+
+    # Check if environment file exists
+    if [[ ! -f "$env_file" ]]; then
+        log_message "ERROR" "Environment file not found: $env_file"
+        return 1
+    fi
+
+    # Source environment variables
+    source "$env_file"
+
+    # Validate required environment variables
+    local required_vars=("DOCKER_IMAGE" "XRAY_PORT" "COMPOSE_PROJECT_NAME")
+    for var in "${required_vars[@]}"; do
+        if [[ -z "${!var}" ]]; then
+            log_message "ERROR" "Required environment variable not set: $var"
+            return 1
+        fi
+    done
+
+    # Create Docker Compose YAML
+    cat > "$compose_file" << EOF
+version: '3.8'
+
+services:
+  xray:
+    image: ${DOCKER_IMAGE:-teddysun/xray:latest}
+    container_name: vless-xray
+    restart: unless-stopped
+    ports:
+      - "${XRAY_PORT:-443}:443"
+    volumes:
+      - "./config:/etc/xray:ro"
+      - "./data:/app/data:rw"
+      - "./logs:/app/logs:rw"
+    environment:
+      - "TZ=UTC"
+    networks:
+      - vless-network
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -an | grep :443 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+networks:
+  vless-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+EOF
+
+    # Set proper permissions
+    chmod 644 "$compose_file"
+
+    # Validate Docker Compose syntax
+    if docker compose -f "$compose_file" config >/dev/null 2>&1; then
+        log_message "SUCCESS" "Docker Compose configuration validated successfully"
+    else
+        log_message "WARNING" "Docker Compose validation failed, but configuration was created"
+        log_message "INFO" "You can validate manually with: docker compose -f $compose_file config"
+    fi
+
+    log_message "SUCCESS" "Docker Compose configuration created: $compose_file"
+    log_message "INFO" "Service: vless-xray on port ${XRAY_PORT:-443}"
+    log_message "INFO" "Network: vless-network (172.20.0.0/16)"
+
+    return 0
+}
+
+#######################################################################################
 # HELP AND ARGUMENT PARSING FUNCTIONS
 #######################################################################################
 
@@ -460,6 +845,9 @@ ${YELLOW}INSTALLATION PROCESS:${NC}
     2. Docker and Docker Compose installation
     3. Project directory structure creation
     4. Environment configuration setup
+    5. X25519 key pair generation
+    6. Server configuration creation
+    7. Docker Compose configuration creation
 
 For more information, visit: https://github.com/your-repo/vless-manager
 
@@ -505,7 +893,7 @@ install_service() {
     local start_time=$(date +%s)
 
     # Step 1: System requirements check
-    color_echo "yellow" "[1/5] Checking system requirements..."
+    color_echo "yellow" "[1/8] Checking system requirements..."
     if ! check_system_requirements; then
         log_message "ERROR" "System requirements check failed"
         color_echo "red" "Installation aborted due to system requirements"
@@ -520,7 +908,7 @@ install_service() {
     echo
 
     # Step 2: Docker installation
-    color_echo "yellow" "[2/5] Installing Docker..."
+    color_echo "yellow" "[2/8] Installing Docker..."
     if ! install_docker; then
         log_message "ERROR" "Docker installation failed"
         color_echo "red" "Installation aborted due to Docker installation failure"
@@ -534,7 +922,7 @@ install_service() {
     echo
 
     # Step 3: Docker Compose installation
-    color_echo "yellow" "[3/5] Installing Docker Compose..."
+    color_echo "yellow" "[3/8] Installing Docker Compose..."
     if ! install_docker_compose; then
         log_message "ERROR" "Docker Compose installation failed"
         color_echo "red" "Installation aborted due to Docker Compose installation failure"
@@ -543,7 +931,7 @@ install_service() {
     echo
 
     # Step 4: Directory structure creation
-    color_echo "yellow" "[4/5] Creating directory structure..."
+    color_echo "yellow" "[4/8] Creating directory structure..."
     if ! create_directories; then
         log_message "ERROR" "Directory structure creation failed"
         color_echo "red" "Installation aborted due to directory creation failure"
@@ -552,10 +940,42 @@ install_service() {
     echo
 
     # Step 5: Environment configuration
-    color_echo "yellow" "[5/5] Configuring environment..."
+    color_echo "yellow" "[5/8] Configuring environment..."
     if ! create_env_file; then
         log_message "ERROR" "Environment configuration failed"
         color_echo "red" "Installation aborted due to environment configuration failure"
+        return 1
+    fi
+    echo
+
+    # Step 6: Generate X25519 keys
+    color_echo "yellow" "[6/8] Generating X25519 key pair..."
+    if ! generate_keys; then
+        log_message "ERROR" "X25519 key generation failed"
+        color_echo "red" "Installation aborted due to key generation failure"
+        echo
+        color_echo "yellow" "Troubleshooting suggestions:"
+        color_echo "white" "- Ensure Docker is running: sudo systemctl start docker"
+        color_echo "white" "- Check Docker permissions: sudo usermod -aG docker $USER"
+        color_echo "white" "- Verify internet connectivity for image download"
+        return 1
+    fi
+    echo
+
+    # Step 7: Create server configuration
+    color_echo "yellow" "[7/8] Creating server configuration..."
+    if ! create_server_config; then
+        log_message "ERROR" "Server configuration creation failed"
+        color_echo "red" "Installation aborted due to configuration creation failure"
+        return 1
+    fi
+    echo
+
+    # Step 8: Create Docker Compose configuration
+    color_echo "yellow" "[8/8] Creating Docker Compose configuration..."
+    if ! create_docker_compose; then
+        log_message "ERROR" "Docker Compose configuration creation failed"
+        color_echo "red" "Installation aborted due to Docker Compose configuration failure"
         return 1
     fi
     echo
@@ -578,6 +998,9 @@ install_service() {
     echo "  ✓ Docker Compose installed"
     echo "  ✓ Directory structure created"
     echo "  ✓ Environment configured"
+    echo "  ✓ X25519 key pair generated"
+    echo "  ✓ Server configuration created"
+    echo "  ✓ Docker Compose configuration created"
     echo
 
     color_echo "blue" "Project Structure:"
@@ -595,13 +1018,16 @@ install_service() {
     echo "  🖥️  Server IP: $(grep SERVER_IP $PROJECT_ROOT/.env | cut -d'=' -f2)"
     echo "  🔌 Service Port: 443"
     echo "  📝 Log Level: warning"
+    echo "  🔑 Admin UUID: $(grep ADMIN_UUID $PROJECT_ROOT/.env | cut -d'=' -f2 || echo 'Generated')"
+    echo "  📋 Configuration: $PROJECT_ROOT/config/server.json"
+    echo "  🐳 Docker Compose: $PROJECT_ROOT/docker-compose.yml"
     echo
 
     color_echo "yellow" "Next Steps:"
-    echo "  1. Review configuration in .env file"
-    echo "  2. Configure Xray server (Stage 2)"
-    echo "  3. Add users (Stage 3)"
-    echo "  4. Start the service (Stage 4)"
+    echo "  1. Review generated configuration files"
+    echo "  2. Add users (Stage 3)"
+    echo "  3. Start the service: docker compose up -d"
+    echo "  4. Check service status: docker compose logs"
     echo
 
     return 0
