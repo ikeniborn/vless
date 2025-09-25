@@ -1,81 +1,119 @@
 <request>
-    <role>
-        Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
-        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
-    </role>
-    <project>
-        <name>VLESS+Reality VPN</name>
-        <architecture>
-            <program_language>Bash, Python</program_language>
-            <infrastructure>Docker Compose</infrastructure>
-        </architecture>
-    </project>
+    <!-- Метаданные -->
+    <metadata>
+        <version>1.0</version>
+        <thinking_config>
+            <mode>interleaved</mode>
+            <max_length>16000</max_length>
+        </thinking_config>
+    </metadata>
+    
+    <!-- Контекст исполнения -->
+    <context>
+        <role>
+            Вы - опытный Full-Stack разработчик, специализирующийся на создании скриптов с использованием bash для linux платформ.
+            Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+        </role>
+        
+        <project>
+            <name>VLESS+Reality VPN</name>
+            <architecture>
+                <program_language>Bash, Python</program_language>
+                <infrastructure>Docker Compose</infrastructure>
+            </architecture>
+        </project>
+    </context>
+    
+    <!-- Требования -->
     <requirements>
-        <point number="1">Изучить актуальнуб докуменатцию по проколу Vless + Reality для организааци VPN доступа</point>
-        <point number="2">Проанализироватть и использовать документацию https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality</point>
-        <point number="3">Тщательно обудмавть несколько варинатов реализации сервиса равзвертывания и управления сервером на базе bash скриптов</point>
+        <requirement id="1">
+            Изучить актуальную документацию по протоколу VLESS + Reality для организации VPN доступа
+        </requirement>
+        <requirement id="2">
+            Проанализировать и использовать документацию https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality
+        </requirement>
+        <requirement id="3">
+            Тщательно обдумать несколько вариантов реализации сервиса развертывания и управления сервером на базе bash скриптов
+        </requirement>
     </requirements>
+    
+    <!-- Задачи -->
     <tasks>
-        <task number="1">
-            <step number="1">
-                <action>Изучить требования(requirements)</action>
-            </step>
-            <step number="2">
-                <thinking>
+        <task id="1" name="Анализ требований">
+            <steps>
+                <step id="1.1">
+                    <action>Изучить требования (requirements)</action>
+                </step>
+                
+                <step id="1.2">
                     <action>Обдумать требования (requirements) шаг за шагом</action>
-                </thinking>
-            </step>
-            <step number="3">
-                <context7>
+                    <use_thinking>true</use_thinking>
+                </step>
+                
+                <step id="1.3">
                     <action>Запросить актуальную документацию</action>
-                </context7>
-            </step>
-            <step number="4">
-                <action>Обдумать всю полученную информацию на полноту и корректность</action>
-            </step>
-            <step number="4">
-                <action>Скорректировать результаты анализа по итогам обдумывания</action>
-            </step>
-            <step number="5">
-                <action>Сформировать итоговый вариант анализа</action>
-            </step>
-            <step number="6">
-                <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses_plan.xml</action>
-                <requests_directory path="requests/">
-                    <file path="analyses_plan.xml"/>
-                </requests_directory>
-            </step>
-            <step number="7">
-                <action>Приступить к задаче task 2</action>
-            </step>
+                </step>
+                
+                <step id="1.4">
+                    <action>Обдумать всю полученную информацию на полноту и корректность</action>
+                    <use_thinking>true</use_thinking>
+                </step>
+                
+                <step id="1.5">
+                    <action>Скорректировать результаты анализа по итогам обдумывания</action>
+                </step>
+                
+                <step id="1.6">
+                    <action>Сформировать итоговый вариант анализа</action>
+                </step>
+                
+                <step id="1.7">
+                    <action>Сохранить результат анализа в формате XML</action>
+                    <output>
+                        <format>xml</format>
+                        <path>requests/analyses_plan.xml</path>
+                    </output>
+                </step>
+            </steps>
         </task>
-        <task number="2">
-            <step number="1">
-                <requests_directory path="requests/">
-                    <file path="analyses_plan.xml"/>
-                </requests_directory>
-                <action>Обдумать несколько вариантов реализациии на основании /requests/analyses_plan.xml</action>
-            </step>
-            <step number="2">
-                <action>Задать уточняющие вопросы</action>
-            </step>
-            <step number="3">
-                <action>Определить оптимальный вариант реализации</action>
-            </step>
-            <step number="4">
-                <thinking>
-                <action>Обдумать итоговый вариант реализации с учетом ответов</action>
-                </thinking>
-            </step>
-            <step number="5">
-                <action>Внеси изменения в итоговый вариант с учетом анализа и ответов</action>
-            </step>
-            <step number="6">
-                <action>Сформировать детальный план работ на оснвоании тогового варианта и сохранить в формате markdown в файле PLAN.md</action>
-                <plan_directory path="/">
-                    <file path="PLAN.md"/>
-                </plan_directory>
-            </step>
+        
+        <task id="2" name="Разработка плана реализации">
+            <dependencies>
+                <depends_on task="1"/>
+                <input_file>requests/analyses_plan.xml</input_file>
+            </dependencies>
+            
+            <steps>
+                <step id="2.1">
+                    <action>Обдумать несколько вариантов реализации на основании анализа</action>
+                    <input>requests/analyses_plan.xml</input>
+                </step>
+                
+                <step id="2.2">
+                    <action>Задать уточняющие вопросы</action>
+                </step>
+                
+                <step id="2.3">
+                    <action>Определить оптимальный вариант реализации</action>
+                </step>
+                
+                <step id="2.4">
+                    <action>Обдумать итоговый вариант реализации с учетом ответов</action>
+                    <use_thinking>true</use_thinking>
+                </step>
+                
+                <step id="2.5">
+                    <action>Внести изменения в итоговый вариант с учетом анализа и ответов</action>
+                </step>
+                
+                <step id="2.6">
+                    <action>Сформировать детальный план работ на основании итогового варианта</action>
+                    <output>
+                        <format>markdown</format>
+                        <path>PLAN.md</path>
+                    </output>
+                </step>
+            </steps>
         </task>
     </tasks>
 </request>

@@ -1,0 +1,160 @@
+<request>
+    <role>
+        Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
+        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+    </role>
+    <project>
+        <name>VLESS+Reality VPN</name>
+        <architecture>
+            <program_language>Bash, Python</program_language>
+            <infrastructure>Docker Compose</infrastructure>
+        </architecture>
+    </project>
+    <context>
+        <plan_directory path="/">
+            <file path="PLAN.md"/>
+        </plan_directory>
+    </context>
+    <requirements>
+        <point number="1">Реализовать задачи из PLAN.md по пункту Этап 4: Docker интеграция</point>
+    </requirements>
+    <tasks>
+        <task number="1">
+            <step number="1">
+                <action>Изучить контекст(context)</action>
+                <action>Изучить требования(requirements)</action>
+            </step>
+            <step number="2">
+                <thinking_mode>interleaved</thinking_mode>
+                <max_thinking_length>16000</max_thinking_length>
+                <thinking_requirements>
+                    <action>Обдумать требования (requirements) шаг за шагом</action>
+                </thinking_requirements>
+            </step>
+            <step number="3">
+                <action>Запросить актуальную документацию с помощью инструмента context7</action>
+            </step>
+            <step number="4">
+                <thinking_mode>interleaved</thinking_mode>
+                <max_thinking_length>16000</max_thinking_length>
+                <thinking_requirements>
+                    <action>Обдумать всю полученную информацию на полноту и корректность</action>
+                </thinking_requirements>
+            </step>
+            <step number="5">
+                <action>Скорректировать результаты анализа по итогам размышлений</action>
+            </step>
+            <step number="6">
+                <action>Сформировать итоговый вариант анализа</action>
+            </step>
+            <step number="7">
+                <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses.xml</action>
+                <requests_directory path="requests/">
+                    <file path="analyses.xml"/>
+                </requests_directory>
+            </step>
+            <step number="8">
+                <action>Приступить к задаче task 2</action>
+            </step>
+        </task>
+        <task number="2">
+            <step number="1">
+                <requests_directory path="requests/">
+                    <file path="analyses.xml"/>
+                </requests_directory>
+                <action>Сформировать план задач c помощью субагента на основании /requests/analyses.xml</action>
+            </step>
+            <step number="2">
+                <thinking_mode>interleaved</thinking_mode>
+                <max_thinking_length>16000</max_thinking_length>
+                <thinking_requirements>
+                    <action>Обумать план задач на корректность, эффективность, полноту в plan.xml</action>
+                </thinking_requirements>
+                <requests_directory path="requests/">
+                    <file path="plan.xml"/>
+                </requests_directory>
+            </step>
+            <step number="3">
+                <action>Сохранить итоговый план в формате xml в каталоге /requests с названием plan.xml</action>
+                <requests_directory path="requests/">
+                    <file path="plan.xml"/>
+                </requests_directory>
+            </step>
+            <step number="4">
+                <action>Приступить к задаче task 3</action>
+            </step>
+        </task>
+        <task number="3">
+            <step number="1">
+                <requests_directory path="requests/">
+                    <file path="plan.xml"/>
+                </requests_directory>
+                <action>Выполнить план задач /requests/plan.xml шаг за шагом с помощью субагентов</action>
+            </step>
+            <step number="2">
+                <action>Проверить, что план выполнен полностью</action>
+            </step>
+            <step number="3">
+                <action>ВЫполнить пропущенные задачи</action>
+            </step>
+            <step number="3">
+                <action>Созранить результаты плана в /requests/result.md</action>
+                <requests_directory path="requests/">
+                    <file path="result.md"/>
+                </requests_directory>
+            </step>
+            <step number="4">
+                <action>Приступить к задаче task 4</action>
+            </step>
+        </task>
+        <task number="4">
+            <step number="1">
+                <test_directory path="tests/"/>
+                <action>Реализовать тесты на новый или измененный функционал. Сохранить в каталоге /tests</action>
+            </step>
+            <step number="2">
+                <action>Выполнтиь тестирование</action>
+            </step>
+            <step number="3">
+                <action>Приступить к задаче task 5</action>
+            </step>
+        </task>
+        <task number="5">
+            <step number="1">
+                <documentation_directory path="docs/"/>
+                <action>Обновить документацию в /docs и README.md</action>
+            </step>
+            <step number="2">
+                <root_directory path="/">
+                    <file path="CLAUDE.md<"/>
+                </root_directory>
+                <action>Обновить память проекта CLAUDE.md</action>
+                <best_practice>
+                    <tip number="1">Be specific: “Use 2-space indentation” is better than “Format code properly”.</tip>
+                    <tip number="2">Use structure to organize: Format each individual memory as a bullet point and group related memories under descriptive markdown headings.</tip>
+                    <tip number="3">Review periodically: Update memories as your project evolves to ensure Claude is always using the most up to date information and context.</tip>
+                </best_practice>
+                <requirements>
+                    <point number="1">Размер CLAUDE.md не должен превышать 40000 токенов</point>
+                    <point number="2">Хранить только актуальную информацию по проекту</point>
+                </requirements>
+            </step>
+            <step number="3">
+                <action>Сделать коммит и пуш</action>
+            </step>
+        </task>
+        <task number="6">
+            <step number="1">
+                <action>Отметить выполненные задачи в PLAN.md</action>
+                <plan_directory path="/">
+                    <file path="PLAN.md"/>
+                </plan_directory>
+            </step>
+        </task>
+        <task number="7">
+            <step number="1">
+                <action>Сделать коммит и пуш</action>
+            </step>
+        </task>
+    </tasks>
+</request>

@@ -1,8 +1,22 @@
 <request>
+    <!-- Метаданные и настройки по умолчанию -->
+    <defaults>
+        <thinking mode="interleaved" max_length="16000"/>
+        <directories>
+            <dir name="requests" path="/requests/"/>
+            <dir name="tests" path="/tests/"/>
+            <dir name="docs" path="/docs/"/>
+            <dir name="root" path="/"/>
+        </directories>
+    </defaults>
+    
+    <!-- Определение роли -->
     <role>
         Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
         Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
     </role>
+    
+    <!-- Информация о проекте -->
     <project>
         <name>VLESS+Reality VPN</name>
         <architecture>
@@ -10,144 +24,172 @@
             <infrastructure>Docker Compose</infrastructure>
         </architecture>
     </project>
+    
+    <!-- Контекст -->
     <context>
-        <plan_directory path="/">
-            <file path="PLAN.md"/>
-        </plan_directory>
+        <file path="/PLAN.md" description="План проекта"/>
     </context>
+    
+    <!-- Требования -->
     <requirements>
-        <point number="1">Реализовать задачи из PLAN.md по пункту Этап 3: Управление пользователями</point>
+        <requirement id="1">Реализовать задачи из PLAN.md по пункту Этап 5: Сервисные функции</requirement>
     </requirements>
+    
+    <!-- Задачи с улучшенной структурой -->
     <tasks>
-        <task number="1">
-            <step number="1">
-                <action>Изучить контекст(context)</action>
-                <action>Изучить требования(requirements)</action>
+        <task id="1" name="Анализ требований" depends_on="">
+            <description>Изучение контекста и требований проекта</description>
+            
+            <step id="1.1" type="analysis">
+                <actions>
+                    <action>Изучить контекст(context)</action>
+                    <action>Изучить требования(requirements)</action>
+                </actions>
             </step>
-            <step number="2">
-                <thinking>
-                    <action>Обдумать требования (requirements) шаг за шагом</action>
-                </thinking>
+            
+            <step id="1.2" type="thinking">
+                <description>Обдумать требования шаг за шагом</description>
+                <use_defaults>thinking</use_defaults>
             </step>
-            <step number="3">
-                <context7>
-                    <action>Запросить актуальную документацию</action>
-                </context7>
+            
+            <step id="1.3" type="research">
+                <action>Запросить актуальную документацию</action>
             </step>
-            <step number="4">
-                <action>Обдумать всю полученную информацию на полноту и корректность</action>
+            
+            <step id="1.4" type="thinking">
+                <description>Обдумать всю полученную информацию на полноту и корректность</description>
+                <use_defaults>thinking</use_defaults>
             </step>
-            <step number="5">
+            
+            <step id="1.5" type="refinement">
                 <action>Скорректировать результаты анализа по итогам размышлений</action>
             </step>
-            <step number="6">
+            
+            <step id="1.6" type="finalization">
                 <action>Сформировать итоговый вариант анализа</action>
             </step>
-            <step number="7">
-                <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses.xml</action>
-                <requests_directory path="requests/">
-                    <file path="analyses.xml"/>
-                </requests_directory>
+            
+            <step id="1.7" type="save">
+                <action>Сохранить результат анализа</action>
+                <output dir_ref="requests" file="analyses.xml" format="xml"/>
             </step>
-            <step number="8">
-                <action>Приступить к задаче task 2</action>
-            </step>
+            
+            <success_criteria>
+                <criterion>Файл analyses.xml создан и содержит полный анализ</criterion>
+            </success_criteria>
         </task>
-        <task number="2">
-            <step number="1">
-                <requests_directory path="requests/">
-                    <file path="analyses.xml"/>
-                </requests_directory>
-                <action>Сформировать план задач c помощью субагента на основании /requests/analyses.xml</action>
+        
+        <task id="2" name="Планирование" depends_on="1">
+            <description>Формирование плана задач на основе анализа</description>
+            
+            <step id="2.1" type="planning">
+                <action>Сформировать план задач с помощью субагента</action>
+                <input dir_ref="requests" file="analyses.xml"/>
             </step>
-            <step number="2">
-                <thinking>
-                    <action>Обумать план задач на корректность, эффективность, полноту в plan.xml</action>
-                </thinking>
-                <requests_directory path="requests/">
-                    <file path="plan.xml"/>
-                </requests_directory>
+            
+            <step id="2.2" type="thinking">
+                <description>Обдумать план задач на корректность, эффективность, полноту</description>
+                <use_defaults>thinking</use_defaults>
             </step>
-            <step number="3">
-                <action>Сохранить итоговый план в формате xml в каталоге /requests с названием plan.xml</action>
-                <requests_directory path="requests/">
-                    <file path="plan.xml"/>
-                </requests_directory>
+            
+            <step id="2.3" type="save">
+                <action>Сохранить итоговый план</action>
+                <output dir_ref="requests" file="plan.xml" format="xml"/>
             </step>
-            <step number="4">
-                <action>Приступить к задаче task 3</action>
-            </step>
+            
+            <success_criteria>
+                <criterion>План задач создан и валидирован</criterion>
+            </success_criteria>
         </task>
-        <task number="3">
-            <step number="1">
-                <requests_directory path="requests/">
-                    <file path="plan.xml"/>
-                </requests_directory>
-                <action>Выполнить план задач /requests/plan.xml шаг за шагом с помощью субагентов</action>
+        
+        <task id="3" name="Выполнение плана" depends_on="2">
+            <description>Реализация запланированных задач</description>
+            
+            <step id="3.1" type="execution">
+                <action>Выполнить план задач шаг за шагом с помощью субагентов</action>
+                <input dir_ref="requests" file="plan.xml"/>
             </step>
-            <step number="2">
+            
+            <step id="3.2" type="validation">
                 <action>Проверить, что план выполнен полностью</action>
             </step>
-            <step number="3">
-                <action>ВЫполнить пропущенные задачи</action>
+            
+            <step id="3.3" type="correction">
+                <action>Выполнить пропущенные задачи</action>
             </step>
-            <step number="3">
-                <action>Созранить результаты плана в /requests/result.md</action>
-                <requests_directory path="requests/">
-                    <file path="result.md"/>
-                </requests_directory>
+            
+            <step id="3.4" type="save">
+                <action>Сохранить результаты плана</action>
+                <output dir_ref="requests" file="result.md" format="markdown"/>
             </step>
-            <step number="4">
-                <action>Приступить к задаче task 4</action>
-            </step>
+            
+            <success_criteria>
+                <criterion>Все задачи плана выполнены</criterion>
+                <criterion>Результаты задокументированы</criterion>
+            </success_criteria>
         </task>
-        <task number="4">
-            <step number="1">
-                <test_directory path="tests/"/>
-                <action>Реализовать тесты на новый или измененный функционал. Сохранить в каталоге /tests</action>
+        
+        <task id="4" name="Тестирование" depends_on="3">
+            <description>Создание и выполнение тестов</description>
+            
+            <step id="4.1" type="development">
+                <action>Реализовать тесты на новый или измененный функционал</action>
+                <output dir_ref="tests"/>
             </step>
-            <step number="2">
-                <action>Выполнтиь тестирование</action>
+            
+            <step id="4.2" type="testing">
+                <action>Выполнить тестирование</action>
             </step>
-            <step number="3">
-                <action>Приступить к задаче task 5</action>
-            </step>
+            
+            <success_criteria>
+                <criterion>Все тесты пройдены успешно</criterion>
+            </success_criteria>
         </task>
-        <task number="5">
-            <step number="1">
-                <documentation_directory path="docs/"/>
-                <action>Обновить документацию в /docs и README.md</action>
+        
+        <task id="5" name="Документирование" depends_on="4">
+            <description>Обновление документации проекта</description>
+            
+            <step id="5.1" type="documentation">
+                <action>Обновить документацию</action>
+                <outputs>
+                    <output dir_ref="docs"/>
+                    <output dir_ref="root" file="README.md"/>
+                </outputs>
             </step>
-            <step number="2">
-                <root_directory path="/">
-                    <file path="CLAUDE.md<"/>
-                </root_directory>
-                <action>Обновить память проекта CLAUDE.md</action>
-                <best_practice>
-                    <tip number="1">Be specific: “Use 2-space indentation” is better than “Format code properly”.</tip>
-                    <tip number="2">Use structure to organize: Format each individual memory as a bullet point and group related memories under descriptive markdown headings.</tip>
-                    <tip number="3">Review periodically: Update memories as your project evolves to ensure Claude is always using the most up to date information and context.</tip>
-                </best_practice>
-                <requirements>
-                    <point number="1">Размер CLAUDE.md не должен превышать 40000 токенов</point>
-                    <point number="2">Хранить только актуальную информацию по проекту</point>
-                </requirements>
+            
+            <step id="5.2" type="memory_update">
+                <action>Обновить память проекта</action>
+                <output dir_ref="root" file="CLAUDE.md"/>
+                <constraints>
+                    <constraint>Размер CLAUDE.md не должен превышать 40000 токенов</constraint>
+                    <constraint>Хранить только актуальную информацию по проекту</constraint>
+                </constraints>
+                <best_practices>
+                    <practice>Be specific: "Use 2-space indentation" is better than "Format code properly"</practice>
+                    <practice>Use structure to organize: Format each individual memory as a bullet point and group related memories under descriptive markdown headings</practice>
+                    <practice>Review periodically: Update memories as your project evolves to ensure Claude is always using the most up to date information and context</practice>
+                </best_practices>
             </step>
-            <step number="3">
+            
+            <step id="5.3" type="vcs">
                 <action>Сделать коммит и пуш</action>
             </step>
         </task>
-        <task number="6">
-            <step number="1">
+        
+        <task id="6" name="Обновление плана" depends_on="5">
+            <description>Отметка выполненных задач</description>
+            
+            <step id="6.1" type="update">
                 <action>Отметить выполненные задачи в PLAN.md</action>
-                <plan_directory path="/">
-                    <file path="PLAN.md"/>
-                </plan_directory>
+                <output dir_ref="root" file="PLAN.md"/>
             </step>
         </task>
-        <task number="7">
-            <step number="1">
-                <action>Сделать коммит и пуш</action>
+        
+        <task id="7" name="Финализация" depends_on="6">
+            <description>Завершение итерации разработки</description>
+            
+            <step id="7.1" type="vcs">
+                <action>Сделать финальный коммит и пуш</action>
             </step>
         </task>
     </tasks>

@@ -1,749 +1,557 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <implementation_plan>
   <project>
-    <name>VLESS+Reality VPN Service</name>
-    <stage>Stage 3: User Management</stage>
-    <date>2025-01-25</date>
+    <name>VLESS+Reality VPN - Stage 4: Docker Integration</name>
+    <date>2025-09-25</date>
+    <stage>4</stage>
     <version>1.0.0</version>
   </project>
 
   <overview>
-    <description>Implementation plan for Stage 3: User Management functionality in the VLESS+Reality VPN project. This stage will add comprehensive user management capabilities including add, remove, list, and client configuration generation for up to 10 concurrent users.</description>
-    <prerequisites>
-      <prerequisite>Stage 1: Basic Infrastructure (Completed)</prerequisite>
-      <prerequisite>Stage 2: Configuration Generation (Completed)</prerequisite>
-      <prerequisite>Docker CE and Docker Compose installed</prerequisite>
-      <prerequisite>Project directory structure established</prerequisite>
-    </prerequisites>
+    <description>
+      Stage 4 focuses on implementing Docker service management capabilities for the VLESS+Reality VPN project.
+      This includes adding service control functions, CLI command integration, and automated Docker Compose orchestration.
+      The implementation builds upon existing infrastructure from Stages 1-3 and integrates seamlessly with the current architecture.
+    </description>
+    <objectives>
+      <objective>Enable Docker service lifecycle management (start/stop/restart)</objective>
+      <objective>Implement container health monitoring and status reporting</objective>
+      <objective>Add service log viewing capabilities</objective>
+      <objective>Integrate Docker Compose configuration into installation process</objective>
+      <objective>Extend CLI interface with service management commands</objective>
+      <objective>Ensure proper error handling and recovery mechanisms</objective>
+    </objectives>
   </overview>
 
-  <implementation_tasks>
-    <task id="T1" priority="high" estimated_hours="3">
-      <name>User Database Management Functions</name>
-      <description>Implement core user database operations for managing the users.db file</description>
-      <deliverables>
-        <deliverable>init_user_database() function</deliverable>
-        <deliverable>add_user_to_database() function</deliverable>
-        <deliverable>remove_user_from_database() function</deliverable>
-        <deliverable>user_exists() function</deliverable>
-        <deliverable>get_user_info() function</deliverable>
-      </deliverables>
-      <implementation_details>
-        <function name="init_user_database">
-          <signature>init_user_database()</signature>
-          <purpose>Initialize users.db file if it doesn't exist</purpose>
-          <logic>
-            <step>Check if data/users.db exists</step>
-            <step>Create file with proper permissions (600)</step>
-            <step>Add header comment with format specification</step>
-          </logic>
+  <current_state>
+    <completed>
+      <item>Docker and Docker Compose installation functions implemented</item>
+      <item>create_docker_compose() function exists but not integrated into installation</item>
+      <item>Environment configuration generation working</item>
+      <item>Server configuration and user management complete</item>
+      <item>Comprehensive CLI structure with argument parsing</item>
+      <item>Error handling framework and logging system</item>
+    </completed>
+    <integration_points>
+      <point>install_service() function - needs Docker Compose integration</point>
+      <point>main() function case statement - needs new service commands</point>
+      <point>show_help() function - needs service command documentation</point>
+      <point>parse_arguments() function - needs validation for service commands</point>
+    </integration_points>
+  </current_state>
+
+  <implementation_steps>
+
+    <step id="1">
+      <title>Docker Service Utility Functions</title>
+      <priority>high</priority>
+      <dependencies>none</dependencies>
+      <description>Implement core Docker service utility functions before main service management functions</description>
+      <functions>
+        <function>
+          <name>check_docker_available</name>
+          <purpose>Verify Docker daemon is running and accessible</purpose>
+          <implementation>
+            <detail>Check if docker command exists and is executable</detail>
+            <detail>Test docker ps command to verify daemon connectivity</detail>
+            <detail>Check if user has proper Docker permissions</detail>
+            <detail>Return appropriate error codes for different failure scenarios</detail>
+          </implementation>
         </function>
-        <function name="add_user_to_database">
-          <signature>add_user_to_database(username, uuid, short_id)</signature>
-          <purpose>Add new user record to database</purpose>
-          <logic>
-            <step>Validate input parameters</step>
-            <step>Check for duplicate username</step>
-            <step>Create user record: username:uuid:shortId:created_date:active</step>
-            <step>Append to users.db with proper locking</step>
-            <step>Set file permissions to 600</step>
-          </logic>
+        <function>
+          <name>check_docker_compose_available</name>
+          <purpose>Verify Docker Compose is installed and functional</purpose>
+          <implementation>
+            <detail>Check if docker compose command exists (plugin version)</detail>
+            <detail>Test basic docker compose version command</detail>
+            <detail>Verify compose file exists in project directory</detail>
+            <detail>Return descriptive error messages for troubleshooting</detail>
+          </implementation>
         </function>
-        <function name="remove_user_from_database">
-          <signature>remove_user_from_database(username)</signature>
-          <purpose>Remove user record from database</purpose>
-          <logic>
-            <step>Validate username exists</step>
-            <step>Create temporary file</step>
-            <step>Copy all records except target user</step>
-            <step>Replace original file atomically</step>
-            <step>Set proper permissions</step>
-          </logic>
+        <function>
+          <name>get_container_id</name>
+          <purpose>Retrieve Xray container ID for direct Docker operations</purpose>
+          <implementation>
+            <detail>Use docker compose ps command to get container info</detail>
+            <detail>Parse output to extract container ID</detail>
+            <detail>Handle cases where container doesn't exist</detail>
+            <detail>Return empty string if container not found</detail>
+          </implementation>
         </function>
-        <function name="user_exists">
-          <signature>user_exists(username)</signature>
-          <purpose>Check if username already exists</purpose>
-          <returns>0 if exists, 1 if not found</returns>
-        </function>
-        <function name="get_user_info">
-          <signature>get_user_info(username)</signature>
-          <purpose>Retrieve user information from database</purpose>
-          <returns>User record fields as variables</returns>
-        </function>
-      </implementation_details>
-      <integration_points>
-        <point>Uses existing log_message() for consistent logging</point>
-        <point>Uses PROJECT_ROOT constant for file paths</point>
-        <point>Integrates with error handling trap mechanism</point>
-      </integration_points>
+      </functions>
+      <code_location>Insert after line 81 (after trap setup)</code_location>
       <testing>
-        <test>Test database initialization</test>
-        <test>Test user addition with valid data</test>
-        <test>Test duplicate user prevention</test>
-        <test>Test user removal</test>
-        <test>Test user existence check</test>
-        <test>Test file permission enforcement</test>
+        <test>Test when Docker is not installed</test>
+        <test>Test when Docker daemon is not running</test>
+        <test>Test when user lacks Docker permissions</test>
+        <test>Test when compose file doesn't exist</test>
       </testing>
-    </task>
+    </step>
 
-    <task id="T2" priority="high" estimated_hours="2">
-      <name>Input Validation Functions</name>
-      <description>Implement robust input validation for usernames and system checks</description>
-      <deliverables>
-        <deliverable>validate_username() function</deliverable>
-        <deliverable>sanitize_input() function</deliverable>
-        <deliverable>check_user_limit() function</deliverable>
-      </deliverables>
-      <implementation_details>
-        <function name="validate_username">
-          <signature>validate_username(username)</signature>
-          <purpose>Validate username format and constraints</purpose>
-          <validation_rules>
-            <rule>3-32 characters length</rule>
-            <rule>Alphanumeric characters only</rule>
-            <rule>Underscore and dash allowed</rule>
-            <rule>Must start with alphanumeric</rule>
-            <rule>Case insensitive duplicate check</rule>
-          </validation_rules>
-          <regex>^[a-zA-Z0-9][a-zA-Z0-9_-]{2,31}$</regex>
+    <step id="2">
+      <title>Core Service Management Functions</title>
+      <priority>high</priority>
+      <dependencies>step 1</dependencies>
+      <description>Implement the main Docker service management functions</description>
+      <functions>
+        <function>
+          <name>start_service</name>
+          <purpose>Start the Xray container using Docker Compose</purpose>
+          <implementation>
+            <detail>Check Docker availability using utility functions</detail>
+            <detail>Validate docker-compose.yml exists and is readable</detail>
+            <detail>Execute docker compose up -d with proper error capture</detail>
+            <detail>Wait for container to be healthy (with timeout)</detail>
+            <detail>Verify service is listening on port 443</detail>
+            <detail>Log success/failure with descriptive messages</detail>
+          </implementation>
         </function>
-        <function name="sanitize_input">
-          <signature>sanitize_input(input)</signature>
-          <purpose>Sanitize user input to prevent injection attacks</purpose>
-          <logic>
-            <step>Remove dangerous characters</step>
-            <step>Trim whitespace</step>
-            <step>Escape special characters</step>
-          </logic>
+        <function>
+          <name>stop_service</name>
+          <purpose>Stop the Xray container gracefully</purpose>
+          <implementation>
+            <detail>Check if container is currently running</detail>
+            <detail>Execute docker compose down with timeout</detail>
+            <detail>Verify container has stopped completely</detail>
+            <detail>Handle cases where container is already stopped</detail>
+            <detail>Clean up any orphaned containers</detail>
+          </implementation>
         </function>
-        <function name="check_user_limit">
-          <signature>check_user_limit()</signature>
-          <purpose>Ensure maximum user count (10) is not exceeded</purpose>
-          <returns>0 if under limit, 1 if at limit</returns>
+        <function>
+          <name>restart_service</name>
+          <purpose>Restart the Xray container</purpose>
+          <implementation>
+            <detail>Use docker compose restart for graceful restart</detail>
+            <detail>Alternative: stop_service followed by start_service</detail>
+            <detail>Verify service comes back online after restart</detail>
+            <detail>Maintain user connections if possible</detail>
+          </implementation>
         </function>
-      </implementation_details>
-      <testing>
-        <test>Test valid username formats</test>
-        <test>Test invalid username formats</test>
-        <test>Test username length limits</test>
-        <test>Test special character handling</test>
-        <test>Test user limit enforcement</test>
-      </testing>
-    </task>
+        <function>
+          <name>check_service_status</name>
+          <purpose>Get comprehensive service status information</purpose>
+          <implementation>
+            <detail>Check container existence and state</detail>
+            <detail>Get container uptime and health status</detail>
+            <detail>Verify port binding and network connectivity</detail>
+            <detail>Check Docker Compose service status</detail>
+            <detail>Return structured status information</detail>
+          </implementation>
+        </function>
+      </functions>
+      <code_location>Insert before user management functions (around line 850)</code_location>
+      <error_handling>
+        <scenario>Docker daemon not running</scenario>
+        <response>Provide clear error message and suggest starting Docker</response>
+        <scenario>Compose file missing or invalid</scenario>
+        <response>Check file existence and suggest reinstallation</response>
+        <scenario>Port 443 already in use</scenario>
+        <response>Identify conflicting process and suggest resolution</response>
+        <scenario>Container fails to start</scenario>
+        <response>Display container logs and common troubleshooting steps</response>
+      </error_handling>
+    </step>
 
-    <task id="T3" priority="high" estimated_hours="4">
-      <name>Server Configuration Management</name>
-      <description>Implement functions to update server.json configuration when users are added/removed</description>
-      <deliverables>
-        <deliverable>update_server_config() function</deliverable>
-        <deliverable>add_client_to_server() function</deliverable>
-        <deliverable>remove_client_from_server() function</deliverable>
-        <deliverable>backup_server_config() function</deliverable>
-        <deliverable>validate_server_config() function</deliverable>
-      </deliverables>
-      <implementation_details>
-        <function name="update_server_config">
-          <signature>update_server_config(action, username, uuid, short_id)</signature>
-          <purpose>Main function to update server configuration</purpose>
-          <parameters>
-            <param name="action">add|remove</param>
-            <param name="username">User identifier</param>
-            <param name="uuid">User UUID (for add action)</param>
-            <param name="short_id">User shortId (for add action)</param>
-          </parameters>
-          <logic>
-            <step>Backup current server.json</step>
-            <step>Call appropriate add/remove function</step>
-            <step>Validate updated configuration</step>
-            <step>Restore from backup if validation fails</step>
-          </logic>
+    <step id="3">
+      <title>Container Health and Monitoring Functions</title>
+      <priority>medium</priority>
+      <dependencies>step 2</dependencies>
+      <description>Implement advanced container monitoring and health checking</description>
+      <functions>
+        <function>
+          <name>container_health_check</name>
+          <purpose>Perform detailed container health assessment</purpose>
+          <implementation>
+            <detail>Check Docker health check status if configured</detail>
+            <detail>Test network connectivity to container port</detail>
+            <detail>Verify Xray is responding to connections</detail>
+            <detail>Check container resource usage (CPU/Memory)</detail>
+            <detail>Return health score and detailed diagnostics</detail>
+          </implementation>
         </function>
-        <function name="add_client_to_server">
-          <signature>add_client_to_server(uuid, short_id)</signature>
-          <purpose>Add new client entry to server.json</purpose>
-          <logic>
-            <step>Read current server.json</step>
-            <step>Create new client object</step>
-            <step>Add to inbounds[0].settings.clients array</step>
-            <step>Write updated configuration</step>
-          </logic>
-          <client_template>
-            {
-              "id": "UUID_HERE",
-              "flow": "xtls-rprx-vision",
-              "shortId": "SHORT_ID_HERE"
-            }
-          </client_template>
+        <function>
+          <name>view_service_logs</name>
+          <purpose>Display container logs with filtering and formatting</purpose>
+          <implementation>
+            <detail>Use docker compose logs command with options</detail>
+            <detail>Implement log filtering by time range</detail>
+            <detail>Add color coding for different log levels</detail>
+            <detail>Limit output to recent entries (default 50 lines)</detail>
+            <detail>Support follow mode for real-time monitoring</detail>
+          </implementation>
         </function>
-        <function name="remove_client_from_server">
-          <signature>remove_client_from_server(uuid)</signature>
-          <purpose>Remove client entry from server.json</purpose>
-          <logic>
-            <step>Read current server.json</step>
-            <step>Find and remove client with matching UUID</step>
-            <step>Update clients array</step>
-            <step>Write updated configuration</step>
-          </logic>
+        <function>
+          <name>get_service_metrics</name>
+          <purpose>Collect basic service metrics and statistics</purpose>
+          <implementation>
+            <detail>Get container uptime and restart count</detail>
+            <detail>Collect network statistics (connections, traffic)</detail>
+            <detail>Monitor resource usage over time</detail>
+            <detail>Track any container errors or warnings</detail>
+          </implementation>
         </function>
-        <function name="backup_server_config">
-          <signature>backup_server_config()</signature>
-          <purpose>Create timestamped backup of server.json</purpose>
-          <backup_location>config/server.json.backup.TIMESTAMP</backup_location>
-        </function>
-        <function name="validate_server_config">
-          <signature>validate_server_config()</signature>
-          <purpose>Validate server.json syntax and structure</purpose>
-          <validation>
-            <check>Valid JSON syntax</check>
-            <check>Required inbounds array exists</check>
-            <check>Clients array is properly formed</check>
-            <check>All UUIDs are valid format</check>
-          </validation>
-        </function>
-      </implementation_details>
-      <json_manipulation>
-        <tool>jq for JSON parsing and modification</tool>
-        <fallback>sed/awk for systems without jq</fallback>
-        <approach>Read → Modify → Validate → Write</approach>
-      </json_manipulation>
-      <testing>
-        <test>Test adding client to empty clients array</test>
-        <test>Test adding client to existing clients</test>
-        <test>Test removing existing client</test>
-        <test>Test removing non-existent client</test>
-        <test>Test JSON validation</test>
-        <test>Test backup and restore functionality</test>
-      </testing>
-    </task>
+      </functions>
+      <code_location>Insert after core service functions</code_location>
+    </step>
 
-    <task id="T4" priority="high" estimated_hours="3">
-      <name>Client Configuration Generation</name>
-      <description>Implement client configuration generation for VLESS+Reality connections</description>
-      <deliverables>
-        <deliverable>generate_client_config() function</deliverable>
-        <deliverable>create_vless_url() function</deliverable>
-        <deliverable>create_client_json() function</deliverable>
-        <deliverable>save_client_config() function</deliverable>
-      </deliverables>
-      <implementation_details>
-        <function name="generate_client_config">
-          <signature>generate_client_config(username, uuid, short_id)</signature>
-          <purpose>Generate complete client configuration</purpose>
-          <logic>
-            <step>Read environment variables (.env)</step>
-            <step>Read server public key from data/keys/public.key</step>
-            <step>Generate VLESS URL</step>
-            <step>Generate JSON configuration</step>
-            <step>Save both formats to config/users/</step>
-            <step>Set proper permissions (600)</step>
-          </logic>
-        </function>
-        <function name="create_vless_url">
-          <signature>create_vless_url(uuid, server_ip, port, public_key, short_id)</signature>
-          <purpose>Create VLESS URL for easy client import</purpose>
-          <format>vless://UUID@SERVER:PORT?encryption=none&flow=xtls-rprx-vision&security=reality&sni=speed.cloudflare.com&fp=chrome&pbk=PUBLIC_KEY&sid=SHORT_ID&type=tcp&headerType=none#VLESS_Reality</format>
-        </function>
-        <function name="create_client_json">
-          <signature>create_client_json(uuid, server_ip, port, public_key, short_id)</signature>
-          <purpose>Create JSON configuration for advanced clients</purpose>
-          <template>
-            {
-              "outbounds": [
-                {
-                  "protocol": "vless",
-                  "settings": {
-                    "vnext": [
-                      {
-                        "address": "SERVER_IP",
-                        "port": 443,
-                        "users": [
-                          {
-                            "id": "UUID",
-                            "encryption": "none",
-                            "flow": "xtls-rprx-vision"
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  "streamSettings": {
-                    "network": "tcp",
-                    "security": "reality",
-                    "realitySettings": {
-                      "serverName": "speed.cloudflare.com",
-                      "fingerprint": "chrome",
-                      "publicKey": "PUBLIC_KEY",
-                      "shortId": "SHORT_ID"
-                    }
-                  }
-                }
-              ]
-            }
-          </template>
-        </function>
-        <function name="save_client_config">
-          <signature>save_client_config(username, vless_url, json_config)</signature>
-          <purpose>Save client configurations to files</purpose>
-          <files>
-            <file>config/users/USERNAME.url - VLESS URL</file>
-            <file>config/users/USERNAME.json - JSON configuration</file>
-          </files>
-          <permissions>600</permissions>
-        </function>
-      </implementation_details>
-      <environment_integration>
-        <variable name="SERVER_IP">From .env file or auto-detection</variable>
-        <variable name="XRAY_PORT">From .env file (default: 443)</variable>
-        <file name="public.key">From data/keys/public.key</file>
-      </environment_integration>
-      <testing>
-        <test>Test VLESS URL generation</test>
-        <test>Test JSON configuration generation</test>
-        <test>Test file saving with correct permissions</test>
-        <test>Test environment variable integration</test>
-        <test>Test URL encoding handling</test>
-      </testing>
-    </task>
+    <step id="4">
+      <title>CLI Command Integration</title>
+      <priority>high</priority>
+      <dependencies>step 2</dependencies>
+      <description>Extend CLI interface with new service management commands</description>
+      <modifications>
+        <modification>
+          <file>vless-manager.sh</file>
+          <function>main()</function>
+          <location>lines 2464-2496</location>
+          <changes>
+            <change>Add "start" command case</change>
+            <change>Add "stop" command case</change>
+            <change>Add "restart" command case</change>
+            <change>Add "status" command case</change>
+            <change>Add "logs" command case</change>
+            <change>Ensure all service commands check root privileges</change>
+          </changes>
+        </modification>
+        <modification>
+          <file>vless-manager.sh</file>
+          <function>parse_arguments()</function>
+          <location>lines 2242-2296</location>
+          <changes>
+            <change>Add validation for service management commands</change>
+            <change>Handle optional parameters for logs command (follow, lines)</change>
+            <change>Validate command combinations and conflicts</change>
+          </changes>
+        </modification>
+        <modification>
+          <file>vless-manager.sh</file>
+          <function>show_help()</function>
+          <location>lines 2179-2238</location>
+          <changes>
+            <change>Add SERVICE MANAGEMENT COMMANDS section</change>
+            <change>Document all new commands with usage examples</change>
+            <change>Update command examples with service operations</change>
+          </changes>
+        </modification>
+      </modifications>
+      <new_commands>
+        <command>
+          <name>start</name>
+          <syntax>./vless-manager.sh start</syntax>
+          <description>Start the VPN service container</description>
+          <requires_root>yes</requires_root>
+        </command>
+        <command>
+          <name>stop</name>
+          <syntax>./vless-manager.sh stop</syntax>
+          <description>Stop the VPN service container</description>
+          <requires_root>yes</requires_root>
+        </command>
+        <command>
+          <name>restart</name>
+          <syntax>./vless-manager.sh restart</syntax>
+          <description>Restart the VPN service container</description>
+          <requires_root>yes</requires_root>
+        </command>
+        <command>
+          <name>status</name>
+          <syntax>./vless-manager.sh status</syntax>
+          <description>Show detailed service status and health</description>
+          <requires_root>yes</requires_root>
+        </command>
+        <command>
+          <name>logs</name>
+          <syntax>./vless-manager.sh logs [--follow] [--lines N]</syntax>
+          <description>View service logs with optional parameters</description>
+          <requires_root>yes</requires_root>
+        </command>
+      </new_commands>
+    </step>
 
-    <task id="T5" priority="high" estimated_hours="4">
-      <name>User Management Commands</name>
-      <description>Implement main user management command functions</description>
-      <deliverables>
-        <deliverable>add_user() function</deliverable>
-        <deliverable>remove_user() function</deliverable>
-        <deliverable>list_users() function</deliverable>
-        <deliverable>show_user() function</deliverable>
-      </deliverables>
-      <implementation_details>
-        <function name="add_user">
-          <signature>add_user(username)</signature>
-          <purpose>Complete user addition workflow</purpose>
-          <workflow>
-            <step>Validate username format</step>
-            <step>Check user doesn't exist</step>
-            <step>Check user limit (10 max)</step>
-            <step>Generate UUID using existing generate_uuid()</step>
-            <step>Generate shortId using existing generate_short_id()</step>
-            <step>Add to user database</step>
-            <step>Update server configuration</step>
-            <step>Generate client configuration</step>
-            <step>Restart Docker container</step>
-            <step>Display success message with connection info</step>
-          </workflow>
-          <error_handling>
-            <scenario>Duplicate username</scenario>
-            <scenario>User limit exceeded</scenario>
-            <scenario>Server config update failure</scenario>
-            <scenario>Docker restart failure</scenario>
-          </error_handling>
+    <step id="5">
+      <title>Docker Compose Integration Fix</title>
+      <priority>high</priority>
+      <dependencies>none</dependencies>
+      <description>Fix the installation process to properly call create_docker_compose()</description>
+      <issue>
+        <description>The create_docker_compose() function exists but is called during installation, but the docker-compose.yml file is not being used by service management</description>
+        <root_cause>Installation process calls create_docker_compose() but service functions don't verify compose file exists</root_cause>
+      </issue>
+      <modifications>
+        <modification>
+          <file>vless-manager.sh</file>
+          <function>install_service()</function>
+          <location>lines 2392-2398</location>
+          <changes>
+            <change>Verify create_docker_compose() is called and succeeds</change>
+            <change>Add verification that docker-compose.yml was created</change>
+            <change>Test basic docker compose config validation</change>
+            <change>Update success message to include Docker Compose status</change>
+          </changes>
+        </modification>
+        <modification>
+          <file>vless-manager.sh</file>
+          <function>create_docker_compose()</function>
+          <location>lines 725-790</location>
+          <changes>
+            <change>Add validation of generated docker-compose.yml syntax</change>
+            <change>Ensure proper file permissions (644) are set</change>
+            <change>Add success logging with file path</change>
+            <change>Verify all required Docker volumes/directories exist</change>
+          </changes>
+        </modification>
+      </modifications>
+    </step>
+
+    <step id="6">
+      <title>Enhanced Error Handling and Recovery</title>
+      <priority>medium</priority>
+      <dependencies>step 2, 4</dependencies>
+      <description>Implement comprehensive error handling and recovery mechanisms</description>
+      <error_scenarios>
+        <scenario>
+          <name>Docker daemon not running</name>
+          <detection>check_docker_available() returns false</detection>
+          <response>Provide systemctl commands to start Docker</response>
+          <recovery>Offer to attempt starting Docker service automatically</recovery>
+        </scenario>
+        <scenario>
+          <name>Container port conflict</name>
+          <detection>docker compose up fails with port binding error</detection>
+          <response>Identify process using port 443</response>
+          <recovery>Suggest alternative port or stopping conflicting service</recovery>
+        </scenario>
+        <scenario>
+          <name>Missing or corrupt configuration</name>
+          <detection>Config file validation fails</detection>
+          <response>Backup existing config and regenerate</response>
+          <recovery>Automatic config regeneration with user confirmation</recovery>
+        </scenario>
+        <scenario>
+          <name>Container fails to start</name>
+          <detection>Container exits immediately or fails health check</detection>
+          <response>Display recent container logs</response>
+          <recovery>Offer config validation and regeneration</recovery>
+        </scenario>
+      </error_scenarios>
+      <implementation>
+        <function>
+          <name>diagnose_service_issues</name>
+          <purpose>Automatically diagnose common service problems</purpose>
+          <checks>
+            <check>Docker daemon status</check>
+            <check>Port availability</check>
+            <check>Configuration file validity</check>
+            <check>Container logs for errors</check>
+            <check>Network connectivity</check>
+          </checks>
         </function>
-        <function name="remove_user">
-          <signature>remove_user(username)</signature>
-          <purpose>Complete user removal workflow</purpose>
-          <workflow>
-            <step>Validate username exists</step>
-            <step>Get user information from database</step>
-            <step>Remove from user database</step>
-            <step>Remove from server configuration</step>
-            <step>Delete client configuration files</step>
-            <step>Restart Docker container</step>
-            <step>Display confirmation message</step>
-          </workflow>
-          <cleanup>
-            <file>config/users/USERNAME.url</file>
-            <file>config/users/USERNAME.json</file>
-            <record>Database entry</record>
-            <config>Server.json client entry</config>
-          </cleanup>
+        <function>
+          <name>attempt_service_recovery</name>
+          <purpose>Try automatic recovery for common issues</purpose>
+          <actions>
+            <action>Restart Docker daemon if stopped</action>
+            <action>Kill conflicting processes on port 443</action>
+            <action>Regenerate corrupted configuration files</action>
+            <action>Clean up orphaned containers</action>
+          </actions>
         </function>
-        <function name="list_users">
-          <signature>list_users()</signature>
-          <purpose>Display formatted list of all users</purpose>
-          <output_format>
-            <header>Username | UUID | Status | Created | Config Files</header>
-            <row>username | uuid-short | active | YYYY-MM-DD | ✓/✗</row>
-          </output_format>
-          <features>
-            <feature>Color coding by status</feature>
-            <feature>File existence indicators</feature>
-            <feature>Total user count</feature>
-            <feature>Remaining slots (10 - current)</feature>
-          </features>
-        </function>
-        <function name="show_user">
-          <signature>show_user(username)</signature>
-          <purpose>Display detailed user information</purpose>
-          <output>
-            <info>Full user details</info>
-            <info>VLESS URL</info>
-            <info>QR code (if qrencode available)</info>
-            <info>Client configuration file paths</info>
-          </output>
-        </function>
-      </implementation_details>
-      <docker_integration>
-        <restart_command>docker compose restart xray</restart_command>
-        <status_check>docker compose ps xray</status_check>
-        <timeout>30 seconds</timeout>
-        <rollback>Restore backup config if restart fails</rollback>
-      </docker_integration>
-      <testing>
-        <test>Test complete user addition workflow</test>
-        <test>Test user removal workflow</test>
-        <test>Test user listing display</test>
-        <test>Test duplicate prevention</test>
-        <test>Test user limit enforcement</test>
-        <test>Test error recovery scenarios</test>
-      </testing>
-    </task>
+      </implementation>
+    </step>
 
-    <task id="T6" priority="medium" estimated_hours="2">
-      <name>Command Line Interface Integration</name>
-      <description>Integrate user management commands into main CLI interface</description>
-      <deliverables>
-        <deliverable>Updated show_help() function</deliverable>
-        <deliverable>Updated parse_arguments() function</deliverable>
-        <deliverable>New user management command routing</deliverable>
-      </deliverables>
-      <implementation_details>
-        <commands>
-          <command name="add-user">
-            <syntax>./vless-manager.sh add-user USERNAME</syntax>
-            <description>Add new VPN user</description>
-            <validation>Requires root/sudo</validation>
-          </command>
-          <command name="remove-user">
-            <syntax>./vless-manager.sh remove-user USERNAME</syntax>
-            <description>Remove existing VPN user</description>
-            <validation>Requires root/sudo</validation>
-          </command>
-          <command name="list-users">
-            <syntax>./vless-manager.sh list-users</syntax>
-            <description>List all VPN users</description>
-            <validation>Requires root/sudo</validation>
-          </command>
-          <command name="show-user">
-            <syntax>./vless-manager.sh show-user USERNAME</syntax>
-            <description>Show user details and configuration</description>
-            <validation>Requires root/sudo</validation>
-          </command>
-        </commands>
-        <help_integration>
-          <section name="User Management Commands">
-            <subsection>User operations for VLESS+Reality VPN service</subsection>
-          </section>
-        </help_integration>
-      </implementation_details>
-      <testing>
-        <test>Test help display updates</test>
-        <test>Test argument parsing for new commands</test>
-        <test>Test command routing</test>
-        <test>Test privilege checking for each command</test>
-      </testing>
-    </task>
+    <step id="7">
+      <title>Advanced Service Features</title>
+      <priority>low</priority>
+      <dependencies>step 3</dependencies>
+      <description>Implement advanced service features for better user experience</description>
+      <features>
+        <feature>
+          <name>Service Auto-Start</name>
+          <description>Configure container to auto-start on system boot</description>
+          <implementation>Docker restart policy: unless-stopped</implementation>
+        </feature>
+        <feature>
+          <name>Configuration Hot Reload</name>
+          <description>Reload configuration without stopping service</description>
+          <implementation>Send SIGHUP to container or restart gracefully</implementation>
+        </feature>
+        <feature>
+          <name>Service Monitoring Dashboard</name>
+          <description>Real-time status display with auto-refresh</description>
+          <implementation>Interactive status command with watch mode</implementation>
+        </feature>
+        <feature>
+          <name>Backup and Restore</name>
+          <description>Backup service state and restore functionality</description>
+          <implementation>Export/import configuration and user data</implementation>
+        </feature>
+      </features>
+    </step>
 
-    <task id="T7" priority="medium" estimated_hours="3">
-      <name>Comprehensive Test Suite</name>
-      <description>Create comprehensive test suite for all user management functionality</description>
-      <deliverables>
-        <deliverable>tests/test_user_management.sh</deliverable>
-        <deliverable>Integration with existing test framework</deliverable>
-        <deliverable>Mock environment setup</deliverable>
-      </deliverables>
-      <implementation_details>
-        <test_categories>
-          <category name="Unit Tests">
-            <test>test_validate_username()</test>
-            <test>test_user_database_operations()</test>
-            <test>test_server_config_updates()</test>
-            <test>test_client_config_generation()</test>
-            <test>test_input_sanitization()</test>
-          </category>
-          <category name="Integration Tests">
-            <test>test_complete_add_user_workflow()</test>
-            <test>test_complete_remove_user_workflow()</test>
-            <test>test_user_listing()</test>
-            <test>test_docker_integration()</test>
-            <test>test_file_permissions()</test>
-          </category>
-          <category name="Error Handling Tests">
-            <test>test_duplicate_user_handling()</test>
-            <test>test_user_limit_enforcement()</test>
-            <test>test_invalid_input_handling()</test>
-            <test>test_config_corruption_recovery()</test>
-            <test>test_docker_failure_handling()</test>
-          </category>
-        </test_categories>
-        <mock_setup>
-          <mock name="Docker commands">Prevent actual container operations</mock>
-          <mock name="File operations">Use temporary test directories</mock>
-          <mock name="Network calls">Mock external dependencies</mock>
-        </mock_setup>
-        <test_data>
-          <dataset name="Valid usernames">Various valid username formats</dataset>
-          <dataset name="Invalid usernames">Various invalid formats and edge cases</dataset>
-          <dataset name="Sample users">Pre-created user data for testing</dataset>
-        </test_data>
-      </implementation_details>
-      <integration_with_existing_tests>
-        <update>tests/run_all_tests.sh - Add user management test suite</update>
-        <pattern>Follow existing test patterns from test_configuration.sh</pattern>
-        <reporting>Integrate with existing test result reporting</reporting>
-      </integration_with_existing_tests>
-      <testing>
-        <test>Test suite execution</test>
-        <test>Test result reporting</test>
-        <test>Test coverage verification</test>
-        <test>Test isolation verification</test>
-      </testing>
-    </task>
-
-    <task id="T8" priority="low" estimated_hours="1">
-      <name>Documentation Updates</name>
-      <description>Update project documentation to reflect new user management capabilities</description>
-      <deliverables>
-        <deliverable>Updated CLAUDE.md</deliverable>
-        <deliverable>Usage examples in help text</deliverable>
-        <deliverable>Error message improvements</deliverable>
-      </deliverables>
-      <implementation_details>
-        <claude_md_updates>
-          <section>Implementation Status - Mark Stage 3 as completed</section>
-          <section>Key Functions - Add user management functions</section>
-          <section>Main Script Commands - Add new user commands</section>
-          <section>File Permissions - Document user database permissions</section>
-        </claude_md_updates>
-        <help_improvements>
-          <improvement>Add usage examples for each command</improvement>
-          <improvement>Add troubleshooting section</improvement>
-          <improvement>Add security recommendations</improvement>
-        </help_improvements>
-      </implementation_details>
-    </task>
-  </implementation_tasks>
-
-  <integration_strategy>
-    <existing_functions>
-      <reuse name="log_message()">Use for consistent logging throughout</reuse>
-      <reuse name="color_echo()">Use for colored output in user listing</reuse>
-      <reuse name="generate_uuid()">Reuse for user UUID generation</reuse>
-      <reuse name="generate_short_id()">Reuse for user shortId generation</reuse>
-      <reuse name="handle_error()">Integrate with existing error handling</reuse>
-    </existing_functions>
-    <environment_integration>
-      <env_vars>Read SERVER_IP, XRAY_PORT from .env file</env_vars>
-      <keys>Read public key from data/keys/public.key</keys>
-      <paths>Use PROJECT_ROOT constant for all file operations</paths>
-    </environment_integration>
-    <file_structure>
-      <database>data/users.db - User database (600 permissions)</database>
-      <configs>config/users/ - Client configurations (600 permissions)</configs>
-      <server>config/server.json - Server configuration updates</server>
-      <backups>config/server.json.backup.* - Configuration backups</backups>
-    </file_structure>
-  </integration_strategy>
-
-  <security_considerations>
-    <file_permissions>
-      <file path="data/users.db" mode="600">User database with sensitive UUIDs</file>
-      <directory path="config/users/" mode="700">Client configuration directory</directory>
-      <file path="config/users/*.url" mode="600">VLESS URLs with credentials</file>
-      <file path="config/users/*.json" mode="600">JSON configurations</file>
-    </file_permissions>
-    <input_validation>
-      <validation>Username format validation with regex</validation>
-      <validation>Input sanitization to prevent injection</validation>
-      <validation>Length limits on all inputs</validation>
-      <validation>Special character filtering</validation>
-    </input_validation>
-    <operational_security>
-      <measure>Atomic file operations to prevent corruption</measure>
-      <measure>Configuration backup before modifications</measure>
-      <measure>Rollback capability for failed operations</measure>
-      <measure>Process isolation for Docker commands</measure>
-    </operational_security>
-  </security_considerations>
+  </implementation_steps>
 
   <testing_strategy>
-    <test_levels>
-      <level name="Unit Testing">
-        <focus>Individual functions with mocked dependencies</focus>
-        <coverage>100% function coverage target</coverage>
-        <isolation>No system modifications or Docker operations</isolation>
-      </level>
-      <level name="Integration Testing">
-        <focus>Complete workflows with real file operations</focus>
-        <environment>Temporary test directories</environment>
-        <validation>End-to-end functionality verification</validation>
-      </level>
-      <level name="Error Testing">
-        <focus>Error conditions and recovery scenarios</focus>
-        <scenarios>Config corruption, Docker failures, filesystem issues</scenarios>
-        <validation>Proper error messages and recovery</validation>
-      </level>
-    </test_levels>
-    <test_data_management>
-      <setup>Create known test datasets</setup>
-      <cleanup>Automatic cleanup of test artifacts</cleanup>
-      <isolation>Each test runs in isolated environment</isolation>
-    </test_data_management>
-    <continuous_testing>
-      <automation>Integration with existing test runner</automation>
-      <reporting>Consistent reporting format</reporting>
-      <metrics>Test timing and coverage reporting</metrics>
-    </continuous_testing>
+    <unit_tests>
+      <test_file>tests/test_docker_integration.sh</test_file>
+      <test_categories>
+        <category>
+          <name>Docker Utility Functions</name>
+          <tests>
+            <test>test_check_docker_available</test>
+            <test>test_check_docker_compose_available</test>
+            <test>test_get_container_id</test>
+          </tests>
+        </category>
+        <category>
+          <name>Service Management Functions</name>
+          <tests>
+            <test>test_start_service</test>
+            <test>test_stop_service</test>
+            <test>test_restart_service</test>
+            <test>test_check_service_status</test>
+          </tests>
+        </category>
+        <category>
+          <name>Error Handling</name>
+          <tests>
+            <test>test_service_with_docker_down</test>
+            <test>test_service_with_missing_compose</test>
+            <test>test_service_with_port_conflict</test>
+          </tests>
+        </category>
+      </test_categories>
+    </unit_tests>
+    <integration_tests>
+      <test_file>tests/test_service_integration.sh</test_file>
+      <scenarios>
+        <scenario>Full service lifecycle (install -> start -> stop)</scenario>
+        <scenario>Service restart with active users</scenario>
+        <scenario>Recovery from container failure</scenario>
+        <scenario>CLI command integration testing</scenario>
+      </scenarios>
+    </integration_tests>
+    <test_execution>
+      <setup>Mock Docker commands to avoid actual container operations</setup>
+      <isolation>Each test should clean up Docker containers and files</isolation>
+      <validation>Verify all service states and file changes</validation>
+      <reporting>Generate detailed test reports with coverage info</reporting>
+    </test_execution>
   </testing_strategy>
 
-  <risk_management>
-    <technical_risks>
-      <risk level="medium" probability="low">
-        <description>Server configuration corruption during JSON updates</description>
-        <impact>Service interruption, user connectivity loss</impact>
-        <mitigation>
-          <measure>Create backup before every modification</measure>
-          <measure>Validate JSON after updates</measure>
-          <measure>Implement rollback on validation failure</measure>
-          <measure>Test JSON manipulation functions thoroughly</measure>
-        </mitigation>
-        <detection>JSON validation function returns error</detection>
-        <recovery>Restore from backup, log error, notify user</recovery>
-      </risk>
-      <risk level="low" probability="low">
-        <description>Docker container fails to restart after config changes</description>
-        <impact>Service unavailable until manual intervention</impact>
-        <mitigation>
-          <measure>Check Docker service status before operations</measure>
-          <measure>Implement timeout for restart operations</measure>
-          <measure>Provide rollback mechanism</measure>
-          <measure>Add Docker health checks</measure>
-        </mitigation>
-        <detection>Docker restart command returns non-zero exit</detection>
-        <recovery>Restore backup config, restart with old config</recovery>
-      </risk>
-      <risk level="low" probability="medium">
-        <description>Race condition during concurrent user operations</description>
-        <impact>Database corruption or inconsistent state</impact>
-        <mitigation>
-          <measure>Implement file locking for database operations</measure>
-          <measure>Use atomic file operations</measure>
-          <measure>Add operation serialization</measure>
-        </mitigation>
-        <detection>File lock acquisition failure</detection>
-        <recovery>Retry operation after delay</recovery>
-      </risk>
-    </technical_risks>
-    <operational_risks>
-      <risk level="low" probability="low">
-        <description>User database file corruption</description>
-        <impact>Loss of user management capability</impact>
-        <mitigation>
-          <measure>Regular database validation</measure>
-          <measure>Backup database before modifications</measure>
-          <measure>Implement database repair function</measure>
-        </mitigation>
-      </risk>
-    </operational_risks>
-  </risk_management>
+  <code_modifications>
+    <file_changes>
+      <file>
+        <name>vless-manager.sh</name>
+        <sections>
+          <section>
+            <name>Docker Utility Functions</name>
+            <location>After line 81</location>
+            <estimated_lines>60</estimated_lines>
+            <functions>check_docker_available, check_docker_compose_available, get_container_id</functions>
+          </section>
+          <section>
+            <name>Service Management Functions</name>
+            <location>Before line 850</location>
+            <estimated_lines>200</estimated_lines>
+            <functions>start_service, stop_service, restart_service, check_service_status</functions>
+          </section>
+          <section>
+            <name>Monitoring Functions</name>
+            <location>After Service Management</location>
+            <estimated_lines>120</estimated_lines>
+            <functions>container_health_check, view_service_logs, get_service_metrics</functions>
+          </section>
+          <section>
+            <name>CLI Integration</name>
+            <location>Multiple locations</location>
+            <estimated_lines>50</estimated_lines>
+            <functions>main(), parse_arguments(), show_help() updates</functions>
+          </section>
+        </sections>
+      </file>
+    </file_changes>
+    <new_files>
+      <file>
+        <name>tests/test_docker_integration.sh</name>
+        <purpose>Unit tests for Docker service functions</purpose>
+        <estimated_lines>300</estimated_lines>
+      </file>
+      <file>
+        <name>tests/test_service_integration.sh</name>
+        <purpose>Integration tests for service management</purpose>
+        <estimated_lines>200</estimated_lines>
+      </file>
+    </new_files>
+  </code_modifications>
 
-  <quality_assurance>
-    <code_standards>
-      <standard>Follow existing bash scripting patterns</standard>
-      <standard>Use 2-space indentation consistently</standard>
-      <standard>Implement comprehensive error handling</standard>
-      <standard>Add detailed function documentation</standard>
-      <standard>Use meaningful variable names</standard>
-    </code_standards>
-    <testing_requirements>
-      <requirement>100% function coverage in unit tests</requirement>
-      <requirement>All error paths tested</requirement>
-      <requirement>Integration tests for complete workflows</requirement>
-      <requirement>Performance testing for database operations</requirement>
-    </testing_requirements>
-    <review_criteria>
-      <criterion>Code follows project patterns</criterion>
-      <criterion>All functions have proper error handling</criterion>
-      <criterion>Security best practices implemented</criterion>
-      <criterion>Documentation is comprehensive</criterion>
-      <criterion>Tests provide adequate coverage</criterion>
-    </review_criteria>
-  </quality_assurance>
+  <security_considerations>
+    <docker_security>
+      <consideration>Ensure Docker socket access is properly restricted</consideration>
+      <consideration>Run containers with minimal privileges</consideration>
+      <consideration>Mount configuration files as read-only</consideration>
+      <consideration>Use official Docker images only</consideration>
+    </docker_security>
+    <service_security>
+      <consideration>All service commands require root/sudo privileges</consideration>
+      <consideration>Validate all user input for Docker commands</consideration>
+      <consideration>Sanitize log output to prevent information disclosure</consideration>
+      <consideration>Secure container network configuration</consideration>
+    </service_security>
+  </security_considerations>
 
-  <delivery_timeline>
-    <phases>
-      <phase number="1" duration="1 day">
-        <name>Core Database and Validation Functions</name>
-        <tasks>T1, T2</tasks>
-        <deliverables>User database management, input validation</deliverables>
-        <milestone>Basic user data operations working</milestone>
-      </phase>
-      <phase number="2" duration="2 days">
-        <name>Configuration Management</name>
-        <tasks>T3, T4</tasks>
-        <deliverables>Server config updates, client config generation</deliverables>
-        <milestone>Complete configuration pipeline working</milestone>
-      </phase>
-      <phase number="3" duration="2 days">
-        <name>User Management Commands</name>
-        <tasks>T5, T6</tasks>
-        <deliverables>Full user management CLI, command integration</deliverables>
-        <milestone>Complete user management functionality</milestone>
-      </phase>
-      <phase number="4" duration="1 day">
-        <name>Testing and Documentation</name>
-        <tasks>T7, T8</tasks>
-        <deliverables>Complete test suite, updated documentation</deliverables>
-        <milestone>Production-ready Stage 3 implementation</milestone>
-      </phase>
-    </phases>
-    <total_duration>6 days</total_duration>
-    <total_effort>22 hours</total_effort>
-  </delivery_timeline>
+  <deployment_considerations>
+    <compatibility>
+      <requirement>Docker CE 20.10+</requirement>
+      <requirement>Docker Compose plugin v2.0+</requirement>
+      <requirement>Linux kernel 3.10+</requirement>
+      <requirement>systemd for service management</requirement>
+    </compatibility>
+    <resource_requirements>
+      <cpu>Minimal - service management is lightweight</cpu>
+      <memory>Additional 50MB for Docker operations</memory>
+      <storage>Log files may grow - implement rotation</storage>
+      <network>Port 443 must remain available</network>
+    </resource_requirements>
+  </deployment_considerations>
+
+  <rollback_plan>
+    <scenarios>
+      <scenario>
+        <trigger>Service functions break existing functionality</trigger>
+        <action>Disable new commands, revert to Stage 3 state</action>
+      </scenario>
+      <scenario>
+        <trigger>Docker integration causes system instability</trigger>
+        <action>Remove Docker service management, keep manual control</action>
+      </scenario>
+    </scenarios>
+    <backup_strategy>
+      <item>Backup original vless-manager.sh before modifications</item>
+      <item>Version control all changes with descriptive commits</item>
+      <item>Test rollback procedures in isolated environment</item>
+    </backup_strategy>
+  </rollback_plan>
 
   <success_criteria>
-    <functional_criteria>
-      <criterion>Users can be added with unique usernames (3-32 chars, alphanumeric + _ -)</criterion>
-      <criterion>Users can be removed cleanly with all associated files deleted</criterion>
-      <criterion>User listing displays formatted information with status indicators</criterion>
-      <criterion>Client configurations generated in both URL and JSON formats</criterion>
-      <criterion>Maximum 10 user limit enforced</criterion>
-      <criterion>Server configuration automatically updated for each user operation</criterion>
-      <criterion>Docker container properly restarted after configuration changes</criterion>
-    </functional_criteria>
-    <technical_criteria>
-      <criterion>All user management functions integrated into main CLI</criterion>
-      <criterion>User database properly maintained with correct format and permissions</criterion>
-      <criterion>File permissions properly set (600 for sensitive files, 700 for directories)</criterion>
-      <criterion>JSON configuration valid and properly formatted</criterion>
-      <criterion>Error handling comprehensive with proper logging</criterion>
-      <criterion>Input validation prevents security vulnerabilities</criterion>
-    </technical_criteria>
-    <quality_criteria>
-      <criterion>100% test coverage for all new functions</criterion>
-      <criterion>All tests passing including error scenarios</criterion>
-      <criterion>Code follows project standards and patterns</criterion>
-      <criterion>Documentation updated and comprehensive</criterion>
-      <criterion>Performance acceptable for target user count (10)</criterion>
-    </quality_criteria>
+    <functional>
+      <criterion>All service management commands work correctly</criterion>
+      <criterion>Container starts and stops reliably</criterion>
+      <criterion>Service status reporting is accurate</criterion>
+      <criterion>Log viewing functions properly</criterion>
+      <criterion>Error handling provides helpful feedback</criterion>
+    </functional>
+    <technical>
+      <criterion>All unit tests pass with >90% coverage</criterion>
+      <criterion>Integration tests cover all service scenarios</criterion>
+      <criterion>Performance impact is minimal</criterion>
+      <criterion>Memory usage remains within acceptable limits</criterion>
+    </technical>
+    <usability>
+      <criterion>CLI commands are intuitive and consistent</criterion>
+      <criterion>Error messages are clear and actionable</criterion>
+      <criterion>Help documentation is comprehensive</criterion>
+      <criterion>Service operations complete in reasonable time</criterion>
+    </usability>
   </success_criteria>
 
-  <post_implementation>
-    <validation_checklist>
-      <check>Run complete test suite and verify 100% pass rate</check>
-      <check>Test user addition workflow end-to-end</check>
-      <check>Test user removal workflow end-to-end</check>
-      <check>Verify user limit enforcement</check>
-      <check>Test duplicate username prevention</check>
-      <check>Verify file permissions on all created files</check>
-      <check>Test Docker container restart after config changes</check>
-      <check>Validate generated VLESS URLs work with clients</check>
-      <check>Test error recovery scenarios</check>
-      <check>Verify integration with existing system</check>
-    </validation_checklist>
-    <handoff_preparation>
-      <item>Update CLAUDE.md with Stage 3 completion status</item>
-      <item>Document any deviations from original plan</item>
-      <item>Prepare Stage 4 requirements analysis</item>
-      <item>Update project timeline for remaining stages</item>
-    </handoff_preparation>
-  </post_implementation>
 </implementation_plan>

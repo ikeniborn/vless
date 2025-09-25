@@ -60,26 +60,21 @@ Available commands:
 # Install the service
 sudo ./vless-manager.sh install
 
-# Add a new user (coming in Stage 3)
-sudo ./vless-manager.sh add-user <username>
+# User Management Commands
+sudo ./vless-manager.sh add-user <username>     # Add a new VPN user
+sudo ./vless-manager.sh remove-user <username>  # Remove existing VPN user
+./vless-manager.sh list-users                   # List all VPN users
+./vless-manager.sh show-user <username>         # Show detailed user info
 
-# Remove a user (coming in Stage 3)
-sudo ./vless-manager.sh remove-user <username>
+# Service Management Commands
+sudo ./vless-manager.sh start                   # Start VPN service
+sudo ./vless-manager.sh stop                    # Stop VPN service
+sudo ./vless-manager.sh restart                 # Restart VPN service
+./vless-manager.sh status                       # Check service status
+./vless-manager.sh logs [--follow] [--lines N]  # View service logs
 
-# List all users (coming in Stage 3)
-./vless-manager.sh list-users
-
-# Check service status (coming in Stage 5)
-./vless-manager.sh status
-
-# Restart the service (coming in Stage 5)
-sudo ./vless-manager.sh restart
-
-# View service logs (coming in Stage 5)
-./vless-manager.sh logs
-
-# Uninstall the service (coming in Stage 5)
-sudo ./vless-manager.sh uninstall
+# System Commands (coming in Stage 5)
+sudo ./vless-manager.sh uninstall               # Uninstall the service
 ```
 
 ## Project Structure
