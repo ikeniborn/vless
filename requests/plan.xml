@@ -1,0 +1,945 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<implementation_plan>
+    <metadata>
+        <created>2025-01-24T23:13:00Z</created>
+        <version>1.0.0</version>
+        <variant>Standard</variant>
+        <target_platform>Linux (Ubuntu/Debian)</target_platform>
+        <estimated_duration>3-4 weeks</estimated_duration>
+    </metadata>
+
+    <project_overview>
+        <name>VLESS+Reality VPN Deployment Service</name>
+        <description>
+            A comprehensive bash-based VPN deployment system using VLESS+Reality protocol
+            with Docker containerization, automated user management, backup functionality,
+            monitoring, and QR code generation for client configurations.
+        </description>
+        <key_objectives>
+            <objective>Deploy secure VLESS+Reality VPN server with minimal manual configuration</objective>
+            <objective>Provide modular, maintainable bash script architecture</objective>
+            <objective>Implement automated user management with QR code generation</objective>
+            <objective>Ensure robust backup and restore capabilities</objective>
+            <objective>Enable comprehensive monitoring and logging</objective>
+            <objective>Maintain security best practices throughout the system</objective>
+        </key_objectives>
+    </project_overview>
+
+    <project_structure>
+        <directory_tree>
+            <root>/home/ikeniborn/Documents/Project/vless</root>
+            <structure>
+                ├── install.sh                         # Main installation script
+                ├── vless-manager.sh                   # Main management interface
+                ├── uninstall.sh                       # Complete removal script
+                ├── README.md                          # Project documentation
+                ├── LICENSE                            # License file
+                ├── CHANGELOG.md                       # Version history
+                ├── config/                            # Configuration templates and files
+                │   ├── docker-compose.yml             # Docker Compose configuration
+                │   ├── xray_config_template.json      # Xray configuration template
+                │   ├── nginx.conf                     # Nginx reverse proxy config
+                │   ├── vless-vpn.service              # Systemd service file
+                │   └── environment.env.example        # Environment variables template
+                ├── modules/                           # Modular bash scripts
+                │   ├── common_utils.sh                # Common utility functions
+                │   ├── docker_setup.sh                # Docker installation and management
+                │   ├── user_management.sh             # User CRUD operations
+                │   ├── config_management.sh           # Configuration handling
+                │   ├── backup_restore.sh              # Backup and restore functions
+                │   ├── monitoring.sh                  # System monitoring utilities
+                │   ├── security_hardening.sh          # Security configuration
+                │   ├── qr_generator.py                # QR code generation utility
+                │   ├── logging_setup.sh               # Logging configuration
+                │   └── maintenance_utils.sh           # System maintenance functions
+                ├── data/                              # Persistent data directory
+                │   ├── users/                         # User configurations
+                │   ├── backups/                       # Backup storage
+                │   ├── logs/                          # Application logs
+                │   └── certificates/                  # SSL certificates
+                ├── docker/                            # Docker-related files
+                │   ├── xray/                          # Xray container configuration
+                │   │   ├── Dockerfile                 # Custom Xray image
+                │   │   └── entrypoint.sh              # Container startup script
+                │   └── nginx/                         # Nginx container configuration
+                │       ├── Dockerfile                 # Custom Nginx image
+                │       └── nginx.conf                 # Nginx configuration
+                ├── scripts/                           # Utility and maintenance scripts
+                │   ├── update.sh                      # System update script
+                │   ├── health_check.sh                # Health monitoring script
+                │   ├── log_rotate.sh                  # Log rotation utility
+                │   └── performance_tune.sh            # Performance optimization
+                ├── tests/                             # Testing framework
+                │   ├── unit_tests.sh                  # Unit testing for modules
+                │   ├── integration_tests.sh           # Integration testing
+                │   ├── security_tests.sh              # Security validation tests
+                │   └── performance_tests.sh           # Performance benchmarking
+                └── docs/                              # Detailed documentation
+                    ├── installation.md                # Installation guide
+                    ├── user_guide.md                  # User management guide
+                    ├── api_reference.md               # API documentation
+                    ├── troubleshooting.md             # Common issues and solutions
+                    └── security.md                    # Security considerations
+            </structure>
+        </directory_tree>
+    </project_structure>
+
+    <phases>
+        <phase number="1" name="Infrastructure Setup">
+            <description>Establish foundation components and project structure</description>
+            <duration>1 week</duration>
+            <priority>Critical</priority>
+            <tasks>
+                <task id="1.1" priority="High">
+                    <name>Create project directory structure</name>
+                    <description>Establish complete directory hierarchy as defined in project structure</description>
+                    <estimated_hours>2</estimated_hours>
+                    <dependencies>None</dependencies>
+                    <deliverables>
+                        <deliverable>Complete directory structure</deliverable>
+                        <deliverable>Proper permissions set on directories</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="1.2" priority="High">
+                    <name>Develop common utilities module</name>
+                    <description>Create common_utils.sh with essential functions for logging, error handling, validation</description>
+                    <estimated_hours>8</estimated_hours>
+                    <dependencies>1.1</dependencies>
+                    <deliverables>
+                        <deliverable>common_utils.sh with logging functions</deliverable>
+                        <deliverable>Error handling framework</deliverable>
+                        <deliverable>Input validation utilities</deliverable>
+                        <deliverable>System information detection</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="1.3" priority="High">
+                    <name>Docker setup module</name>
+                    <description>Create docker_setup.sh for Docker and Docker Compose installation</description>
+                    <estimated_hours>6</estimated_hours>
+                    <dependencies>1.2</dependencies>
+                    <deliverables>
+                        <deliverable>Docker installation automation</deliverable>
+                        <deliverable>Docker Compose setup</deliverable>
+                        <deliverable>Docker daemon configuration</deliverable>
+                        <deliverable>User permission management for Docker</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="1.4" priority="Medium">
+                    <name>Logging and monitoring setup</name>
+                    <description>Implement comprehensive logging system with rotation and monitoring</description>
+                    <estimated_hours>4</estimated_hours>
+                    <dependencies>1.2</dependencies>
+                    <deliverables>
+                        <deliverable>Centralized logging configuration</deliverable>
+                        <deliverable>Log rotation policies</deliverable>
+                        <deliverable>Basic monitoring alerts</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+        </phase>
+
+        <phase number="2" name="Core VPN Service">
+            <description>Implement VLESS+Reality VPN core functionality</description>
+            <duration>1.5 weeks</duration>
+            <priority>Critical</priority>
+            <tasks>
+                <task id="2.1" priority="Critical">
+                    <name>Xray-core Docker configuration</name>
+                    <description>Create Docker Compose stack for Xray-core with VLESS+Reality</description>
+                    <estimated_hours>12</estimated_hours>
+                    <dependencies>1.3</dependencies>
+                    <deliverables>
+                        <deliverable>docker-compose.yml for Xray stack</deliverable>
+                        <deliverable>Xray configuration template</deliverable>
+                        <deliverable>Custom Dockerfile for Xray</deliverable>
+                        <deliverable>Container health checks</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="2.2" priority="Critical">
+                    <name>VLESS+Reality configuration management</name>
+                    <description>Implement dynamic configuration generation for VLESS+Reality protocol</description>
+                    <estimated_hours>10</estimated_hours>
+                    <dependencies>2.1</dependencies>
+                    <deliverables>
+                        <deliverable>Configuration template system</deliverable>
+                        <deliverable>X25519 key pair generation</deliverable>
+                        <deliverable>Reality target domain validation</deliverable>
+                        <deliverable>Port and security parameter configuration</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="2.3" priority="High">
+                    <name>Service management integration</name>
+                    <description>Create systemd service for automatic startup and management</description>
+                    <estimated_hours>4</estimated_hours>
+                    <dependencies>2.1</dependencies>
+                    <deliverables>
+                        <deliverable>Systemd service file</deliverable>
+                        <deliverable>Service startup/shutdown scripts</deliverable>
+                        <deliverable>Auto-restart configuration</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="2.4" priority="Medium">
+                    <name>Security hardening</name>
+                    <description>Implement security best practices for VPN server</description>
+                    <estimated_hours>6</estimated_hours>
+                    <dependencies>2.2</dependencies>
+                    <deliverables>
+                        <deliverable>Firewall configuration (UFW)</deliverable>
+                        <deliverable>Container security policies</deliverable>
+                        <deliverable>Network isolation setup</deliverable>
+                        <deliverable>SSH hardening (optional)</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+        </phase>
+
+        <phase number="3" name="User Management System">
+            <description>Develop comprehensive user management with client configuration</description>
+            <duration>1 week</duration>
+            <priority>High</priority>
+            <tasks>
+                <task id="3.1" priority="High">
+                    <name>User database system</name>
+                    <description>Create user management system with file-based storage</description>
+                    <estimated_hours>8</estimated_hours>
+                    <dependencies>1.2</dependencies>
+                    <deliverables>
+                        <deliverable>User database structure (JSON/CSV)</deliverable>
+                        <deliverable>User CRUD operations</deliverable>
+                        <deliverable>UUID generation for users</deliverable>
+                        <deliverable>User validation and conflict checking</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="3.2" priority="High">
+                    <name>Client configuration generation</name>
+                    <description>Implement automatic client configuration generation</description>
+                    <estimated_hours>6</estimated_hours>
+                    <dependencies>3.1, 2.2</dependencies>
+                    <deliverables>
+                        <deliverable>Client configuration templates</deliverable>
+                        <deliverable>Platform-specific configs (Android, iOS, Windows, etc.)</deliverable>
+                        <deliverable>Configuration validation</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="3.3" priority="Medium">
+                    <name>QR code generation</name>
+                    <description>Python utility for generating QR codes for client configurations</description>
+                    <estimated_hours>4</estimated_hours>
+                    <dependencies>3.2</dependencies>
+                    <deliverables>
+                        <deliverable>Python QR code generator script</deliverable>
+                        <deliverable>QR code image storage system</deliverable>
+                        <deliverable>QR code display in terminal</deliverable>
+                        <deliverable>Batch QR generation for multiple users</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="3.4" priority="Medium">
+                    <name>User traffic monitoring</name>
+                    <description>Basic user traffic tracking and reporting</description>
+                    <estimated_hours>6</estimated_hours>
+                    <dependencies>3.1</dependencies>
+                    <deliverables>
+                        <deliverable>Traffic logging configuration</deliverable>
+                        <deliverable>User traffic reporting</deliverable>
+                        <deliverable>Usage statistics generation</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+        </phase>
+
+        <phase number="4" name="Backup and Maintenance">
+            <description>Implement automated backup, restore, and maintenance capabilities</description>
+            <duration>0.5 weeks</duration>
+            <priority>Medium</priority>
+            <tasks>
+                <task id="4.1" priority="Medium">
+                    <name>Backup system implementation</name>
+                    <description>Create comprehensive backup solution for configurations and user data</description>
+                    <estimated_hours>8</estimated_hours>
+                    <dependencies>3.1, 2.2</dependencies>
+                    <deliverables>
+                        <deliverable>Automated backup scripts</deliverable>
+                        <deliverable>Incremental backup support</deliverable>
+                        <deliverable>Remote backup capabilities (optional)</deliverable>
+                        <deliverable>Backup verification system</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="4.2" priority="Medium">
+                    <name>Restore functionality</name>
+                    <description>Implement system restore from backup files</description>
+                    <estimated_hours>6</estimated_hours>
+                    <dependencies>4.1</dependencies>
+                    <deliverables>
+                        <deliverable>Complete system restore script</deliverable>
+                        <deliverable>Selective restore options</deliverable>
+                        <deliverable>Backup compatibility validation</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="4.3" priority="Low">
+                    <name>Maintenance utilities</name>
+                    <description>System maintenance and optimization tools</description>
+                    <estimated_hours>4</estimated_hours>
+                    <dependencies>1.4</dependencies>
+                    <deliverables>
+                        <deliverable>Log cleanup utilities</deliverable>
+                        <deliverable>System health checks</deliverable>
+                        <deliverable>Performance optimization scripts</deliverable>
+                        <deliverable>Automated update mechanisms</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+        </phase>
+
+        <phase number="5" name="User Interface and Integration">
+            <description>Create management interface and integrate all components</description>
+            <duration>1 week</duration>
+            <priority>High</priority>
+            <tasks>
+                <task id="5.1" priority="High">
+                    <name>Main management interface</name>
+                    <description>Create interactive menu-driven management system</description>
+                    <estimated_hours>10</estimated_hours>
+                    <dependencies>3.4, 4.3</dependencies>
+                    <deliverables>
+                        <deliverable>Main menu system with navigation</deliverable>
+                        <deliverable>User management interface</deliverable>
+                        <deliverable>System status dashboard</deliverable>
+                        <deliverable>Configuration management interface</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="5.2" priority="High">
+                    <name>Installation script</name>
+                    <description>Create comprehensive installation script</description>
+                    <estimated_hours>8</estimated_hours>
+                    <dependencies>All previous phases</dependencies>
+                    <deliverables>
+                        <deliverable>One-command installation script</deliverable>
+                        <deliverable>Pre-installation system checks</deliverable>
+                        <deliverable>Installation progress tracking</deliverable>
+                        <deliverable>Post-installation validation</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="5.3" priority="Medium">
+                    <name>Uninstallation script</name>
+                    <description>Complete system removal and cleanup</description>
+                    <estimated_hours>4</estimated_hours>
+                    <dependencies>5.2</dependencies>
+                    <deliverables>
+                        <deliverable>Complete uninstallation script</deliverable>
+                        <deliverable>Data backup before removal</deliverable>
+                        <deliverable>Service cleanup</deliverable>
+                        <deliverable>Configuration file removal</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+        </phase>
+
+        <phase number="6" name="Testing and Documentation">
+            <description>Comprehensive testing suite and documentation</description>
+            <duration>1 week</duration>
+            <priority>Medium</priority>
+            <tasks>
+                <task id="6.1" priority="Medium">
+                    <name>Testing framework</name>
+                    <description>Create comprehensive testing suite</description>
+                    <estimated_hours>12</estimated_hours>
+                    <dependencies>5.3</dependencies>
+                    <deliverables>
+                        <deliverable>Unit tests for all modules</deliverable>
+                        <deliverable>Integration tests</deliverable>
+                        <deliverable>Security validation tests</deliverable>
+                        <deliverable>Performance benchmarking</deliverable>
+                    </deliverables>
+                </task>
+
+                <task id="6.2" priority="Low">
+                    <name>Documentation creation</name>
+                    <description>Comprehensive project documentation</description>
+                    <estimated_hours>8</estimated_hours>
+                    <dependencies>6.1</dependencies>
+                    <deliverables>
+                        <deliverable>Installation guide</deliverable>
+                        <deliverable>User management guide</deliverable>
+                        <deliverable>API reference documentation</deliverable>
+                        <deliverable>Troubleshooting guide</deliverable>
+                        <deliverable>Security best practices document</deliverable>
+                    </deliverables>
+                </task>
+            </tasks>
+        </phase>
+    </phases>
+
+    <modules>
+        <module name="common_utils.sh">
+            <description>Core utility functions used across all modules</description>
+            <responsibilities>
+                <responsibility>Logging and error handling</responsibility>
+                <responsibility>Input validation and sanitization</responsibility>
+                <responsibility>System information detection</responsibility>
+                <responsibility>File and directory operations</responsibility>
+                <responsibility>Network connectivity checks</responsibility>
+                <responsibility>Configuration file parsing</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>log_info(), log_warn(), log_error()</function>
+                <function>validate_input(), sanitize_string()</function>
+                <function>check_root_privileges()</function>
+                <function>detect_os_version()</function>
+                <function>check_network_connectivity()</function>
+                <function>backup_file(), restore_file()</function>
+            </key_functions>
+        </module>
+
+        <module name="docker_setup.sh">
+            <description>Docker and Docker Compose installation and configuration</description>
+            <responsibilities>
+                <responsibility>Docker engine installation</responsibility>
+                <responsibility>Docker Compose installation</responsibility>
+                <responsibility>Docker daemon configuration</responsibility>
+                <responsibility>User permission management</responsibility>
+                <responsibility>Docker network creation</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>install_docker()</function>
+                <function>install_docker_compose()</function>
+                <function>configure_docker_daemon()</function>
+                <function>add_user_to_docker_group()</function>
+                <function>create_docker_networks()</function>
+            </key_functions>
+        </module>
+
+        <module name="user_management.sh">
+            <description>Complete user lifecycle management</description>
+            <responsibilities>
+                <responsibility>User creation and deletion</responsibility>
+                <responsibility>UUID generation and management</responsibility>
+                <responsibility>User database operations</responsibility>
+                <responsibility>Client configuration generation</responsibility>
+                <responsibility>User traffic monitoring</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>create_user(), delete_user(), list_users()</function>
+                <function>generate_uuid(), validate_uuid()</function>
+                <function>save_user_config(), load_user_config()</function>
+                <function>generate_client_config()</function>
+                <function>get_user_traffic_stats()</function>
+            </key_functions>
+        </module>
+
+        <module name="config_management.sh">
+            <description>Configuration file generation and management</description>
+            <responsibilities>
+                <responsibility>Xray configuration generation</responsibility>
+                <responsibility>Reality protocol configuration</responsibility>
+                <responsibility>X25519 key pair management</responsibility>
+                <responsibility>Configuration validation</responsibility>
+                <responsibility>Dynamic parameter updates</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>generate_xray_config()</function>
+                <function>generate_reality_config()</function>
+                <function>generate_x25519_keys()</function>
+                <function>validate_config()</function>
+                <function>update_config_parameter()</function>
+            </key_functions>
+        </module>
+
+        <module name="backup_restore.sh">
+            <description>System backup and restore capabilities</description>
+            <responsibilities>
+                <responsibility>Automated backup creation</responsibility>
+                <responsibility>Incremental backup support</responsibility>
+                <responsibility>System restore from backup</responsibility>
+                <responsibility>Backup verification</responsibility>
+                <responsibility>Remote backup management</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>create_backup(), restore_backup()</function>
+                <function>create_incremental_backup()</function>
+                <function>verify_backup_integrity()</function>
+                <function>schedule_automatic_backup()</function>
+                <function>upload_to_remote_storage()</function>
+            </key_functions>
+        </module>
+
+        <module name="monitoring.sh">
+            <description>System monitoring and health checks</description>
+            <responsibilities>
+                <responsibility>Service health monitoring</responsibility>
+                <responsibility>Resource usage tracking</responsibility>
+                <responsibility>Connection monitoring</responsibility>
+                <responsibility>Alert generation</responsibility>
+                <responsibility>Performance metrics collection</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>check_service_health()</function>
+                <function>monitor_resource_usage()</function>
+                <function>check_connection_status()</function>
+                <function>generate_alerts()</function>
+                <function>collect_performance_metrics()</function>
+            </key_functions>
+        </module>
+
+        <module name="security_hardening.sh">
+            <description>Security configuration and hardening</description>
+            <responsibilities>
+                <responsibility>Firewall configuration</responsibility>
+                <responsibility>SSH hardening</responsibility>
+                <responsibility>Container security policies</responsibility>
+                <responsibility>Network isolation</responsibility>
+                <responsibility>Security audit functions</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>configure_firewall()</function>
+                <function>harden_ssh_config()</function>
+                <function>apply_container_security()</function>
+                <function>setup_network_isolation()</function>
+                <function>run_security_audit()</function>
+            </key_functions>
+        </module>
+
+        <module name="qr_generator.py">
+            <description>QR code generation for client configurations</description>
+            <responsibilities>
+                <responsibility>QR code image generation</responsibility>
+                <responsibility>Terminal QR code display</responsibility>
+                <responsibility>Batch QR code creation</responsibility>
+                <responsibility>QR code storage management</responsibility>
+            </responsibilities>
+            <key_functions>
+                <function>generate_qr_code()</function>
+                <function>display_qr_terminal()</function>
+                <function>batch_generate_qr()</function>
+                <function>save_qr_image()</function>
+            </key_functions>
+        </module>
+    </modules>
+
+    <configuration_management>
+        <approach>Template-based configuration with environment variable substitution</approach>
+        <templates>
+            <template name="xray_config_template.json">
+                <description>Main Xray configuration template with VLESS+Reality setup</description>
+                <parameters>
+                    <parameter>SERVER_PORT</parameter>
+                    <parameter>REALITY_DEST</parameter>
+                    <parameter>REALITY_TARGET</parameter>
+                    <parameter>PRIVATE_KEY</parameter>
+                    <parameter>PUBLIC_KEY</parameter>
+                    <parameter>SHORT_IDS</parameter>
+                    <parameter>USER_UUIDS</parameter>
+                </parameters>
+            </template>
+
+            <template name="docker-compose.yml">
+                <description>Docker Compose stack configuration</description>
+                <parameters>
+                    <parameter>XRAY_IMAGE_TAG</parameter>
+                    <parameter>CONTAINER_NAME</parameter>
+                    <parameter>HOST_PORT</parameter>
+                    <parameter>DATA_VOLUME</parameter>
+                    <parameter>CONFIG_VOLUME</parameter>
+                </parameters>
+            </template>
+
+            <template name="client_config_template.json">
+                <description>Client configuration template for various platforms</description>
+                <parameters>
+                    <parameter>SERVER_ADDRESS</parameter>
+                    <parameter>SERVER_PORT</parameter>
+                    <parameter>USER_UUID</parameter>
+                    <parameter>PUBLIC_KEY</parameter>
+                    <parameter>SHORT_ID</parameter>
+                    <parameter>REALITY_TARGET</parameter>
+                </parameters>
+            </template>
+        </templates>
+
+        <validation>
+            <rule>All JSON configurations must be valid JSON syntax</rule>
+            <rule>UUIDs must conform to RFC 4122 standard</rule>
+            <rule>X25519 keys must be valid base64 encoded</rule>
+            <rule>Network ports must be in valid range (1-65535)</rule>
+            <rule>Reality target domains must be reachable and support TLS 1.3</rule>
+        </validation>
+    </configuration_management>
+
+    <security_considerations>
+        <principle name="Defense in Depth">
+            <implementation>
+                <layer>Host-level firewall (UFW) configuration</layer>
+                <layer>Container network isolation</layer>
+                <layer>Application-level access controls</layer>
+                <layer>Encrypted configuration storage</layer>
+            </implementation>
+        </principle>
+
+        <principle name="Least Privilege">
+            <implementation>
+                <measure>Docker containers run as non-root users</measure>
+                <measure>Minimal file system permissions</measure>
+                <measure>Restricted network access</measure>
+                <measure>Limited system capabilities in containers</measure>
+            </implementation>
+        </principle>
+
+        <principle name="Secure by Default">
+            <implementation>
+                <measure>Strong default encryption settings</measure>
+                <measure>Automatic security updates enabled</measure>
+                <measure>Secure logging without sensitive data exposure</measure>
+                <measure>Fail-secure error handling</measure>
+            </implementation>
+        </principle>
+
+        <vulnerabilities>
+            <vulnerability name="Configuration Exposure">
+                <mitigation>Store sensitive configs with 600 permissions</mitigation>
+                <mitigation>Use environment variables for secrets</mitigation>
+                <mitigation>Implement configuration encryption at rest</mitigation>
+            </vulnerability>
+
+            <vulnerability name="Container Escape">
+                <mitigation>Use read-only root filesystem</mitigation>
+                <mitigation>Drop all capabilities except required ones</mitigation>
+                <mitigation>Use user namespace remapping</mitigation>
+            </vulnerability>
+
+            <vulnerability name="Network Attacks">
+                <mitigation>Implement rate limiting</mitigation>
+                <mitigation>Use fail2ban for brute force protection</mitigation>
+                <mitigation>Enable DDoS protection at firewall level</mitigation>
+            </vulnerability>
+        </vulnerabilities>
+
+        <compliance>
+            <standard>Follow CIS Docker Benchmark recommendations</standard>
+            <standard>Implement NIST Cybersecurity Framework controls</standard>
+            <standard>Apply OWASP Container Security guidelines</standard>
+        </compliance>
+    </security_considerations>
+
+    <testing_strategy>
+        <unit_testing>
+            <framework>Bash Unit Testing (using bats-core)</framework>
+            <coverage>
+                <target>Functions in common_utils.sh</target>
+                <target>Configuration validation functions</target>
+                <target>User management operations</target>
+                <target>Backup and restore functions</target>
+            </coverage>
+            <test_cases>
+                <case>Input validation with various edge cases</case>
+                <case>Configuration file generation and parsing</case>
+                <case>Error handling and recovery scenarios</case>
+                <case>Permission and access control validation</case>
+            </test_cases>
+        </unit_testing>
+
+        <integration_testing>
+            <scenarios>
+                <scenario>Complete installation process from scratch</scenario>
+                <scenario>User creation and client configuration generation</scenario>
+                <scenario>Service restart and configuration reload</scenario>
+                <scenario>Backup creation and system restore</scenario>
+                <scenario>Security hardening and validation</scenario>
+            </scenarios>
+            <environments>
+                <environment>Ubuntu 22.04 LTS clean installation</environment>
+                <environment>Ubuntu 20.04 LTS with existing Docker</environment>
+                <environment>Debian 11 minimal installation</environment>
+                <environment>Low-resource VPS (1GB RAM, 1 CPU)</environment>
+            </environments>
+        </integration_testing>
+
+        <security_testing>
+            <tools>
+                <tool>Docker Bench Security</tool>
+                <tool>Lynis system auditing</tool>
+                <tool>OpenVAS vulnerability scanner</tool>
+                <tool>Custom penetration testing scripts</tool>
+            </tools>
+            <tests>
+                <test>Container escape attempt detection</test>
+                <test>Configuration file permission verification</test>
+                <test>Network port scanning and response analysis</test>
+                <test>Authentication bypass attempt detection</test>
+                <test>Denial of service resilience testing</test>
+            </tests>
+        </security_testing>
+
+        <performance_testing>
+            <metrics>
+                <metric>Installation completion time</metric>
+                <metric>Container startup time</metric>
+                <metric>User configuration generation speed</metric>
+                <metric>System resource usage under load</metric>
+                <metric>Network throughput and latency</metric>
+            </metrics>
+            <benchmarks>
+                <benchmark>Support 100 concurrent users</benchmark>
+                <benchmark>Installation completes within 10 minutes</benchmark>
+                <benchmark>Container restart within 30 seconds</benchmark>
+                <benchmark>Memory usage under 512MB during normal operation</benchmark>
+            </benchmarks>
+        </performance_testing>
+    </testing_strategy>
+
+    <deployment_steps>
+        <step number="1" name="System Preparation">
+            <description>Prepare target system for installation</description>
+            <actions>
+                <action>Update system packages</action>
+                <action>Install required dependencies (curl, wget, git)</action>
+                <action>Verify system requirements (disk space, RAM, network)</action>
+                <action>Check for conflicting services</action>
+            </actions>
+            <validation>System meets minimum requirements and has no conflicts</validation>
+        </step>
+
+        <step number="2" name="Download and Verify">
+            <description>Download installation package and verify integrity</description>
+            <actions>
+                <action>Download latest release package</action>
+                <action>Verify checksum and digital signature</action>
+                <action>Extract package to temporary location</action>
+                <action>Set appropriate permissions</action>
+            </actions>
+            <validation>Package integrity verified and files extracted correctly</validation>
+        </step>
+
+        <step number="3" name="Core Installation">
+            <description>Install core components and dependencies</description>
+            <actions>
+                <action>Execute main installation script</action>
+                <action>Install Docker and Docker Compose</action>
+                <action>Create project directories and files</action>
+                <action>Configure system services</action>
+            </actions>
+            <validation>All components installed successfully and services running</validation>
+        </step>
+
+        <step number="4" name="Security Configuration">
+            <description>Apply security hardening and configuration</description>
+            <actions>
+                <action>Configure firewall rules</action>
+                <action>Apply container security policies</action>
+                <action>Set file and directory permissions</action>
+                <action>Configure logging and monitoring</action>
+            </actions>
+            <validation>Security policies applied and audit checks pass</validation>
+        </step>
+
+        <step number="5" name="Service Deployment">
+            <description>Deploy and configure VLESS+Reality service</description>
+            <actions>
+                <action>Generate X25519 key pairs</action>
+                <action>Create Xray configuration</action>
+                <action>Deploy Docker Compose stack</action>
+                <action>Verify service connectivity</action>
+            </actions>
+            <validation>VPN service is running and accessible</validation>
+        </step>
+
+        <step number="6" name="Post-Installation">
+            <description>Complete setup and create initial user</description>
+            <actions>
+                <action>Create administrative user account</action>
+                <action>Generate initial client configurations</action>
+                <action>Set up automated backups</action>
+                <action>Perform comprehensive system test</action>
+            </actions>
+            <validation>System fully operational with test user connectivity</validation>
+        </step>
+    </deployment_steps>
+
+    <maintenance_procedures>
+        <procedure name="Regular Updates">
+            <frequency>Weekly</frequency>
+            <steps>
+                <step>Check for system package updates</step>
+                <step>Update Docker images to latest versions</step>
+                <step>Review and apply security patches</step>
+                <step>Restart services if required</step>
+                <step>Verify system functionality</step>
+            </steps>
+        </procedure>
+
+        <procedure name="Backup Management">
+            <frequency>Daily</frequency>
+            <steps>
+                <step>Create automated configuration backup</step>
+                <step>Backup user database and configurations</step>
+                <step>Verify backup integrity</step>
+                <step>Rotate old backups according to retention policy</step>
+                <step>Test restore procedure monthly</step>
+            </steps>
+        </procedure>
+
+        <procedure name="Security Audit">
+            <frequency>Monthly</frequency>
+            <steps>
+                <step>Run security scanning tools</step>
+                <step>Review access logs for anomalies</step>
+                <step>Update security configurations</step>
+                <step>Test firewall rules and access controls</step>
+                <step>Document and address any findings</step>
+            </steps>
+        </procedure>
+
+        <procedure name="Performance Monitoring">
+            <frequency>Daily</frequency>
+            <steps>
+                <step>Monitor system resource usage</step>
+                <step>Check service health and uptime</step>
+                <step>Review connection statistics</step>
+                <step>Analyze performance trends</step>
+                <step>Optimize configurations if needed</step>
+            </steps>
+        </procedure>
+    </maintenance_procedures>
+
+    <risk_management>
+        <risk id="R001" severity="High">
+            <description>Service compromise due to container vulnerability</description>
+            <probability>Medium</probability>
+            <impact>High</impact>
+            <mitigation>
+                <measure>Regular container image updates</measure>
+                <measure>Security scanning in CI/CD pipeline</measure>
+                <measure>Runtime security monitoring</measure>
+                <measure>Container isolation and sandboxing</measure>
+            </mitigation>
+        </risk>
+
+        <risk id="R002" severity="Medium">
+            <description>Configuration exposure through insecure file permissions</description>
+            <probability>Low</probability>
+            <impact>High</impact>
+            <mitigation>
+                <measure>Automated permission checking</measure>
+                <measure>Configuration encryption at rest</measure>
+                <measure>Regular security audits</measure>
+                <measure>Access logging and monitoring</measure>
+            </mitigation>
+        </risk>
+
+        <risk id="R003" severity="Medium">
+            <description>Service downtime due to Docker daemon failure</description>
+            <probability>Medium</probability>
+            <impact>Medium</impact>
+            <mitigation>
+                <measure>Docker daemon monitoring and auto-restart</measure>
+                <measure>Fallback to native Xray installation</measure>
+                <measure>Service redundancy planning</measure>
+                <measure>Automated health checks and alerts</measure>
+            </mitigation>
+        </risk>
+
+        <risk id="R004" severity="Low">
+            <description>Data loss due to inadequate backup procedures</description>
+            <probability>Low</probability>
+            <impact>Medium</impact>
+            <mitigation>
+                <measure>Automated daily backups</measure>
+                <measure>Multiple backup destinations</measure>
+                <measure>Regular restore testing</measure>
+                <measure>Backup integrity verification</measure>
+            </mitigation>
+        </risk>
+    </risk_management>
+
+    <success_criteria>
+        <criterion name="Functional Completeness">
+            <description>All specified features implemented and working correctly</description>
+            <measurement>Feature checklist 100% complete with automated tests passing</measurement>
+        </criterion>
+
+        <criterion name="Security Compliance">
+            <description>System meets security requirements and industry best practices</description>
+            <measurement>Security audit tools report no critical or high-severity findings</measurement>
+        </criterion>
+
+        <criterion name="Performance Requirements">
+            <description>System performs within specified parameters under load</description>
+            <measurement>Performance benchmarks met with 100 concurrent users</measurement>
+        </criterion>
+
+        <criterion name="Usability">
+            <description>Installation and management processes are user-friendly</description>
+            <measurement>Installation completes in under 10 minutes with clear progress indicators</measurement>
+        </criterion>
+
+        <criterion name="Reliability">
+            <description>System operates consistently with minimal downtime</description>
+            <measurement>99.9% uptime during testing period with automatic recovery</measurement>
+        </criterion>
+
+        <criterion name="Maintainability">
+            <description>Code is well-structured, documented, and easy to maintain</description>
+            <measurement>Code coverage >80%, comprehensive documentation, modular architecture</measurement>
+        </criterion>
+    </success_criteria>
+
+    <deliverables>
+        <deliverable name="Installation Package">
+            <description>Complete installation package with all scripts and configurations</description>
+            <format>Compressed archive (tar.gz)</format>
+            <contents>
+                <item>Main installation script (install.sh)</item>
+                <item>All module scripts and utilities</item>
+                <item>Configuration templates</item>
+                <item>Docker configurations</item>
+                <item>Documentation files</item>
+            </contents>
+        </deliverable>
+
+        <deliverable name="Management Interface">
+            <description>Interactive command-line management system</description>
+            <format>Bash script (vless-manager.sh)</format>
+            <features>
+                <feature>User management (create, delete, list, modify)</feature>
+                <feature>Service control (start, stop, restart, status)</feature>
+                <feature>Configuration management</feature>
+                <feature>Backup and restore operations</feature>
+                <feature>System monitoring and health checks</feature>
+            </features>
+        </deliverable>
+
+        <deliverable name="Documentation Suite">
+            <description>Comprehensive documentation for installation, usage, and maintenance</description>
+            <format>Markdown files in docs/ directory</format>
+            <documents>
+                <document>Installation Guide (installation.md)</document>
+                <document>User Management Guide (user_guide.md)</document>
+                <document>API Reference (api_reference.md)</document>
+                <document>Troubleshooting Guide (troubleshooting.md)</document>
+                <document>Security Best Practices (security.md)</document>
+            </documents>
+        </deliverable>
+
+        <deliverable name="Testing Suite">
+            <description>Comprehensive testing framework for validation</description>
+            <format>Shell scripts in tests/ directory</format>
+            <tests>
+                <test>Unit tests for all modules</test>
+                <test>Integration tests for complete workflows</test>
+                <test>Security validation tests</test>
+                <test>Performance benchmark tests</test>
+            </tests>
+        </deliverable>
+    </deliverables>
+</implementation_plan>

@@ -1,0 +1,76 @@
+<request>
+    <role>
+        Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
+        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+    </role>
+    <project>
+        <name>VLESS+Reality VPN</name>
+        <architecture>
+            <program_language>Bash, Python</program_language>
+            <infrastructure>Docker Compose</infrastructure>
+        </architecture>
+    </project>
+    <requirements>
+        <point number="1">Изучить актуальнуб докуменатцию по проколу Vless + Reality для организааци VPN доступа</point>
+        <point number="2">Проанализироватть и использовать документацию https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality</point>
+        <point number="3">Тщательно обудмавть несколько варинатов реализации сервиса равзвертывания и управления сервером на базе bash скриптов</point>
+    </requirements>
+    <tasks>
+        <task number="1">
+            <step number="1">
+                <action>Изучить требования(requirements)</action>
+                <action>Изучить CLAUDE.md</action>
+            </step>
+            <step number="2">
+                <thinking>
+                    <action>Обдумать требования (requirements) шаг за шагом с учетом CLAUDE.md</action>
+                </thinking>
+            </step>
+            <step number="3">
+                <context7>
+                    <action>Запросить актуальную документацию по стэку технологий</action>
+                </context7>
+            </step>
+            <step number="5">
+                <action>Сформировать результаты анализа в формате xml в каталоге /requests с названием analyses.xml</action>
+                <requests_directory path="requests/">
+                    <file path="analyses.xml"/>
+                </requests_directory>
+            </step>
+            <step number="4">
+                <action>Приступить к задаче task 2</action>
+            </step>
+        </task>
+        <task number="2">
+            <step number="1">
+                <requests_directory path="requests/">
+                    <file path="analyses.xml"/>
+                </requests_directory>
+                <action>Обдумать несколько вариантов реализациии c помощью субагентов на основании /requests/analyses.xml</action>
+            </step>
+            <step number="2">
+                <action>Задать уточняющие вопросы</action>
+            </step>
+            <step number="3">
+                <action>Определить оптимальный вариант реализации</action>
+            </step>
+            <step number="4">
+                <thinking>
+                <action>Обдумать итоговый вариант реализации с учетом ответов</action>
+                </thinking>
+            </step>
+            <step number="5">
+                <action>Внеси изменения в итоговый вариант с учетом анализа и ответов</action>
+            </step>
+            <step number="6">
+                <action>Внеси изменения в итоговый вариант с учетом анализа и ответов</action>
+            </step>
+            <step number="7">
+                <action>Сформировать и сохранить детальный план работ в формате markdown в файле PLAN.md</action>
+                <plan_directory path="/">
+                    <file path="PLAN.md"/>
+                </plan_directory>
+            </step>
+        </task>
+    </tasks>
+</request>
