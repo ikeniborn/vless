@@ -79,6 +79,91 @@ handle_error() {
 trap 'handle_error $LINENO' ERR
 
 #######################################################################################
+# DOCKER UTILITY FUNCTIONS
+#######################################################################################
+
+# Check if Docker is available and running
+check_docker_available() {
+  log_message "INFO" "Checking Docker availability..."
+
+  # Check if docker command exists
+  if ! command -v docker >/dev/null 2>&1; then
+    log_message "ERROR" "Docker is not installed"
+    log_message "INFO" "Install Docker with: sudo $0 install"
+    return 1
+  fi
+
+  # Check if Docker daemon is running
+  if ! docker info >/dev/null 2>&1; then
+    log_message "ERROR" "Docker daemon is not running"
+    log_message "INFO" "Start Docker with: sudo systemctl start docker"
+    return 1
+  fi
+
+  # Check if user has proper Docker permissions
+  if [[ $EUID -ne 0 ]] && ! docker ps >/dev/null 2>&1; then
+    log_message "ERROR" "User lacks Docker permissions"
+    log_message "INFO" "Add user to docker group: sudo usermod -aG docker $USER"
+    log_message "INFO" "Then log out and back in, or run with sudo"
+    return 1
+  fi
+
+  log_message "SUCCESS" "Docker is available and accessible"
+  return 0
+}
+
+# Check if Docker Compose is available and functional
+check_docker_compose_available() {
+  log_message "INFO" "Checking Docker Compose availability..."
+
+  # Check if docker compose command exists (plugin version)
+  if ! docker compose version >/dev/null 2>&1; then
+    log_message "ERROR" "Docker Compose plugin is not installed"
+    log_message "INFO" "Install Docker Compose with: sudo $0 install"
+    return 1
+  fi
+
+  # Check if compose file exists
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+  if [[ ! -f "$compose_file" ]]; then
+    log_message "ERROR" "Docker Compose file not found: $compose_file"
+    log_message "INFO" "Run installation to create: sudo $0 install"
+    return 1
+  fi
+
+  # Test basic compose configuration
+  if ! docker compose -f "$compose_file" config >/dev/null 2>&1; then
+    log_message "ERROR" "Docker Compose configuration is invalid"
+    log_message "INFO" "Check syntax: docker compose -f $compose_file config"
+    return 1
+  fi
+
+  log_message "SUCCESS" "Docker Compose is available and configuration is valid"
+  return 0
+}
+
+# Get Xray container ID
+get_container_id() {
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Check if compose file exists
+  if [[ ! -f "$compose_file" ]]; then
+    return 1
+  fi
+
+  # Get container ID using docker compose
+  local container_id
+  container_id=$(docker compose -f "$compose_file" ps -q xray 2>/dev/null || echo "")
+
+  if [[ -n "$container_id" ]]; then
+    echo "$container_id"
+    return 0
+  fi
+
+  return 1
+}
+
+#######################################################################################
 # SYSTEM REQUIREMENTS VERIFICATION FUNCTIONS
 #######################################################################################
 
@@ -809,6 +894,397 @@ EOF
     log_message "INFO" "Network: vless-network (172.20.0.0/16)"
 
     return 0
+}
+
+#######################################################################################
+# DOCKER SERVICE MANAGEMENT FUNCTIONS
+#######################################################################################
+
+# Start the VLESS service
+start_service() {
+  log_message "INFO" "Starting VLESS+Reality VPN service..."
+
+  # Check Docker availability
+  if ! check_docker_available; then
+    return 1
+  fi
+
+  # Check Docker Compose availability
+  if ! check_docker_compose_available; then
+    return 1
+  fi
+
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Check if service is already running
+  if is_service_running; then
+    log_message "INFO" "Service is already running"
+    color_echo "green" "✅ VLESS service is already active"
+    return 0
+  fi
+
+  # Start the service
+  log_message "INFO" "Executing docker compose up..."
+  if docker compose -f "$compose_file" up -d 2>/dev/null; then
+    log_message "INFO" "Docker compose up completed"
+  else
+    log_message "ERROR" "Failed to start service with docker compose"
+    return 1
+  fi
+
+  # Wait for container to be ready (with timeout)
+  log_message "INFO" "Waiting for service to be ready..."
+  local timeout=30
+  local count=0
+
+  while [[ $count -lt $timeout ]]; do
+    if is_service_running; then
+      break
+    fi
+    sleep 1
+    ((count++))
+  done
+
+  if [[ $count -ge $timeout ]]; then
+    log_message "ERROR" "Service failed to start within $timeout seconds"
+    view_logs 10
+    return 1
+  fi
+
+  # Verify service is listening on port 443
+  sleep 2
+  if check_port_listening 443; then
+    log_message "SUCCESS" "Service is running and listening on port 443"
+    color_echo "green" "✅ VLESS+Reality VPN service started successfully"
+    return 0
+  else
+    log_message "WARNING" "Service started but port 443 may not be accessible"
+    color_echo "yellow" "⚠️  Service started but port check failed"
+    return 0
+  fi
+}
+
+# Stop the VLESS service
+stop_service() {
+  log_message "INFO" "Stopping VLESS+Reality VPN service..."
+
+  # Check Docker availability
+  if ! check_docker_available; then
+    return 1
+  fi
+
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Check if compose file exists
+  if [[ ! -f "$compose_file" ]]; then
+    log_message "ERROR" "Docker Compose file not found: $compose_file"
+    return 1
+  fi
+
+  # Check if service is running
+  if ! is_service_running; then
+    log_message "INFO" "Service is not running"
+    color_echo "yellow" "⚠️  Service is already stopped"
+    return 0
+  fi
+
+  # Stop the service
+  log_message "INFO" "Executing docker compose down..."
+  if docker compose -f "$compose_file" down --timeout 10 2>/dev/null; then
+    log_message "SUCCESS" "Service stopped successfully"
+    color_echo "green" "✅ VLESS+Reality VPN service stopped"
+    return 0
+  else
+    log_message "ERROR" "Failed to stop service gracefully"
+
+    # Try force stop
+    log_message "INFO" "Attempting force stop..."
+    if docker compose -f "$compose_file" kill 2>/dev/null; then
+      docker compose -f "$compose_file" down 2>/dev/null || true
+      log_message "WARNING" "Service force stopped"
+      color_echo "yellow" "⚠️  Service force stopped"
+      return 0
+    else
+      log_message "ERROR" "Failed to stop service"
+      return 1
+    fi
+  fi
+}
+
+# Restart the VLESS service
+restart_service() {
+  log_message "INFO" "Restarting VLESS+Reality VPN service..."
+
+  # Check Docker availability
+  if ! check_docker_available; then
+    return 1
+  fi
+
+  # Check Docker Compose availability
+  if ! check_docker_compose_available; then
+    return 1
+  fi
+
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Use docker compose restart for graceful restart
+  log_message "INFO" "Executing docker compose restart..."
+  if docker compose -f "$compose_file" restart --timeout 10 2>/dev/null; then
+    log_message "INFO" "Service restart completed"
+  else
+    log_message "WARNING" "Graceful restart failed, trying stop/start sequence"
+
+    # Fallback: stop then start
+    if stop_service && start_service; then
+      log_message "SUCCESS" "Service restarted using stop/start sequence"
+      return 0
+    else
+      log_message "ERROR" "Failed to restart service"
+      return 1
+    fi
+  fi
+
+  # Wait for service to be ready
+  sleep 3
+  if is_service_running; then
+    log_message "SUCCESS" "Service restarted and is running"
+    color_echo "green" "✅ VLESS+Reality VPN service restarted successfully"
+    return 0
+  else
+    log_message "ERROR" "Service restart completed but service is not running"
+    return 1
+  fi
+}
+
+# Check if service is running
+is_service_running() {
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Check if compose file exists
+  if [[ ! -f "$compose_file" ]]; then
+    return 1
+  fi
+
+  # Get container status
+  local container_status
+  container_status=$(docker compose -f "$compose_file" ps --format "table {{.State}}" --filter "status=running" 2>/dev/null | grep -v "STATE" || echo "")
+
+  if [[ -n "$container_status" ]] && [[ "$container_status" == *"running"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Check service status and display detailed information
+check_service_status() {
+  log_message "INFO" "Checking VLESS+Reality VPN service status..."
+
+  # Check Docker availability
+  if ! check_docker_available; then
+    echo
+    color_echo "red" "❌ Docker is not available"
+    echo
+    return 1
+  fi
+
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Check if compose file exists
+  if [[ ! -f "$compose_file" ]]; then
+    echo
+    color_echo "red" "❌ Docker Compose configuration not found"
+    echo "   File: $compose_file"
+    echo "   Run: sudo $0 install"
+    echo
+    return 1
+  fi
+
+  echo
+  color_echo "blue" "🔍 VLESS+Reality VPN Service Status"
+  echo "═══════════════════════════════════════════════════════════"
+
+  # Get container information
+  local container_info
+  container_info=$(docker compose -f "$compose_file" ps --format "table {{.Name}}\t{{.State}}\t{{.Status}}" 2>/dev/null || echo "")
+
+  if [[ -z "$container_info" ]] || [[ "$container_info" == *"NAME"* ]] && [[ $(echo "$container_info" | wc -l) -le 1 ]]; then
+    color_echo "yellow" "⚠️  Service Status: Not Running"
+    echo "   Container: Not found or stopped"
+    echo
+    color_echo "yellow" "💡 Start the service with: sudo $0 start"
+    echo
+    return 0
+  fi
+
+  # Display container status
+  echo "Container Status:"
+  echo "$container_info" | tail -n +2 | while IFS=$'\t' read -r name state status; do
+    case "$state" in
+      "running")
+        color_echo "green" "✅ $name: $state ($status)"
+        ;;
+      "exited")
+        color_echo "red" "❌ $name: $state ($status)"
+        ;;
+      *)
+        color_echo "yellow" "⚠️  $name: $state ($status)"
+        ;;
+    esac
+  done
+  echo
+
+  # Check port binding
+  color_echo "blue" "Network Status:"
+  echo "────────────────────────────────────────────────────────────"
+  if check_port_listening 443; then
+    color_echo "green" "✅ Port 443: Listening"
+  else
+    color_echo "red" "❌ Port 443: Not accessible"
+  fi
+
+  # Get container uptime if running
+  if is_service_running; then
+    local container_id
+    container_id=$(get_container_id)
+    if [[ -n "$container_id" ]]; then
+      local uptime
+      uptime=$(docker inspect "$container_id" --format '{{.State.StartedAt}}' 2>/dev/null | xargs -I {} date -d {} "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "Unknown")
+      echo "Started: $uptime"
+    fi
+  fi
+  echo
+
+  # Display resource usage
+  if is_service_running; then
+    local container_id
+    container_id=$(get_container_id)
+    if [[ -n "$container_id" ]]; then
+      color_echo "blue" "Resource Usage:"
+      echo "────────────────────────────────────────────────────────────"
+      local stats
+      stats=$(timeout 3 docker stats "$container_id" --no-stream --format "table {{.CPUPerc}}\t{{.MemUsage}}" 2>/dev/null || echo "N/A\tN/A")
+      echo "$stats" | tail -n +2 | while IFS=$'\t' read -r cpu mem; do
+        echo "CPU: $cpu, Memory: $mem"
+      done
+      echo
+    fi
+  fi
+
+  # Health check
+  container_health_check
+
+  return 0
+}
+
+# Check if a port is listening
+check_port_listening() {
+  local port="$1"
+
+  if command -v netstat >/dev/null 2>&1; then
+    if netstat -tuln 2>/dev/null | grep -q ":$port "; then
+      return 0
+    fi
+  elif command -v ss >/dev/null 2>&1; then
+    if ss -tuln 2>/dev/null | grep -q ":$port "; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Perform container health check
+container_health_check() {
+  local container_id
+  container_id=$(get_container_id)
+
+  if [[ -z "$container_id" ]]; then
+    color_echo "red" "❌ Health: Container not found"
+    return 1
+  fi
+
+  color_echo "blue" "Health Status:"
+  echo "────────────────────────────────────────────────────────────"
+
+  # Check container health
+  local health_status
+  health_status=$(docker inspect "$container_id" --format '{{.State.Health.Status}}' 2>/dev/null || echo "none")
+
+  case "$health_status" in
+    "healthy")
+      color_echo "green" "✅ Container Health: Healthy"
+      ;;
+    "unhealthy")
+      color_echo "red" "❌ Container Health: Unhealthy"
+      ;;
+    "starting")
+      color_echo "yellow" "⚠️  Container Health: Starting"
+      ;;
+    "none")
+      # No health check configured, check if container is running
+      if is_service_running; then
+        color_echo "green" "✅ Container Health: Running (no health check configured)"
+      else
+        color_echo "red" "❌ Container Health: Not running"
+      fi
+      ;;
+    *)
+      color_echo "yellow" "⚠️  Container Health: $health_status"
+      ;;
+  esac
+
+  # Test network connectivity
+  if check_port_listening 443; then
+    color_echo "green" "✅ Network: Port 443 accessible"
+  else
+    color_echo "red" "❌ Network: Port 443 not accessible"
+  fi
+
+  echo
+  return 0
+}
+
+# View service logs
+view_logs() {
+  local lines="${1:-50}"
+  local follow="${2:-false}"
+
+  log_message "INFO" "Retrieving service logs (last $lines lines)..."
+
+  # Check Docker availability
+  if ! check_docker_available; then
+    return 1
+  fi
+
+  local compose_file="$PROJECT_ROOT/docker-compose.yml"
+
+  # Check if compose file exists
+  if [[ ! -f "$compose_file" ]]; then
+    log_message "ERROR" "Docker Compose file not found: $compose_file"
+    return 1
+  fi
+
+  echo
+  color_echo "blue" "📋 VLESS Service Logs (last $lines lines)"
+  echo "═══════════════════════════════════════════════════════════"
+
+  # Display logs
+  if [[ "$follow" == "true" ]]; then
+    log_message "INFO" "Following logs (press Ctrl+C to stop)..."
+    docker compose -f "$compose_file" logs -f --tail "$lines" xray 2>/dev/null || {
+      log_message "ERROR" "Failed to retrieve logs"
+      return 1
+    }
+  else
+    docker compose -f "$compose_file" logs --tail "$lines" xray 2>/dev/null || {
+      log_message "ERROR" "Failed to retrieve logs"
+      return 1
+    }
+  fi
+
+  echo
+  return 0
 }
 
 #######################################################################################
@@ -1801,31 +2277,18 @@ add_user() {
         return 1
     fi
 
-    # Restart Docker container to apply changes
-    log_message "INFO" "Restarting Xray service to apply configuration changes..."
-    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-        local compose_dir="$PROJECT_ROOT"
-        local restart_result=0
-
-        # Use timeout to prevent hanging
-        if timeout 30 docker compose -f "${compose_dir}/docker-compose.yml" restart xray >/dev/null 2>&1; then
-            log_message "SUCCESS" "Xray service restarted successfully"
+    # Restart service if it's running to apply changes
+    if is_service_running; then
+        log_message "INFO" "Service is running, restarting to apply configuration changes..."
+        if restart_service >/dev/null 2>&1; then
+            log_message "SUCCESS" "Service restarted successfully to apply changes"
         else
-            log_message "WARNING" "Failed to restart Xray service automatically"
-            log_message "INFO" "Please restart manually: cd $PROJECT_ROOT && docker compose restart xray"
-            restart_result=1
-        fi
-
-        # Verify service is running
-        sleep 2
-        if docker compose -f "${compose_dir}/docker-compose.yml" ps xray | grep -q "Up\|running"; then
-            log_message "SUCCESS" "Xray service is running"
-        else
-            log_message "WARNING" "Xray service may not be running properly"
-            log_message "INFO" "Check status: cd $PROJECT_ROOT && docker compose ps"
+            log_message "WARNING" "Failed to restart service automatically"
+            log_message "INFO" "Please restart manually: sudo $0 restart"
         fi
     else
-        log_message "WARNING" "Docker or Docker Compose not available, manual service restart required"
+        log_message "INFO" "Service is not running, configuration will be applied when started"
+        log_message "INFO" "Start the service with: sudo $0 start"
     fi
 
     # Display success message
@@ -1919,29 +2382,18 @@ remove_user() {
         log_message "INFO" "Removed JSON configuration file: $json_file"
     fi
 
-    # Restart Docker container to apply changes
-    log_message "INFO" "Restarting Xray service to apply configuration changes..."
-    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-        local compose_dir="$PROJECT_ROOT"
-
-        # Use timeout to prevent hanging
-        if timeout 30 docker compose -f "${compose_dir}/docker-compose.yml" restart xray >/dev/null 2>&1; then
-            log_message "SUCCESS" "Xray service restarted successfully"
+    # Restart service if it's running to apply changes
+    if is_service_running; then
+        log_message "INFO" "Service is running, restarting to apply configuration changes..."
+        if restart_service >/dev/null 2>&1; then
+            log_message "SUCCESS" "Service restarted successfully to apply changes"
         else
-            log_message "WARNING" "Failed to restart Xray service automatically"
-            log_message "INFO" "Please restart manually: cd $PROJECT_ROOT && docker compose restart xray"
-        fi
-
-        # Verify service is running
-        sleep 2
-        if docker compose -f "${compose_dir}/docker-compose.yml" ps xray | grep -q "Up\|running"; then
-            log_message "SUCCESS" "Xray service is running"
-        else
-            log_message "WARNING" "Xray service may not be running properly"
-            log_message "INFO" "Check status: cd $PROJECT_ROOT && docker compose ps"
+            log_message "WARNING" "Failed to restart service automatically"
+            log_message "INFO" "Please restart manually: sudo $0 restart"
         fi
     else
-        log_message "WARNING" "Docker or Docker Compose not available, manual service restart required"
+        log_message "INFO" "Service is not running, configuration will be applied when started"
+        log_message "INFO" "Start the service with: sudo $0 start"
     fi
 
     # Display success message
@@ -2188,6 +2640,13 @@ ${YELLOW}SYSTEM COMMANDS:${NC}
     install                 Install and configure the service
     help                    Show this help message
 
+${YELLOW}SERVICE MANAGEMENT COMMANDS:${NC}
+    start                   Start the VPN service
+    stop                    Stop the VPN service
+    restart                 Restart the VPN service
+    status                  Show service status and health
+    logs [--follow] [--lines N]  View service logs
+
 ${YELLOW}USER MANAGEMENT COMMANDS:${NC}
     add-user USERNAME       Add a new VPN user
     remove-user USERNAME    Remove an existing VPN user
@@ -2196,6 +2655,9 @@ ${YELLOW}USER MANAGEMENT COMMANDS:${NC}
 
 ${YELLOW}EXAMPLES:${NC}
     $0 install              Run full installation process
+    $0 start                Start the VPN service
+    $0 status               Check service status
+    $0 logs --follow        View service logs in real-time
     $0 add-user alice       Add user 'alice' to VPN service
     $0 remove-user alice    Remove user 'alice' from VPN service
     $0 list-users           Display all VPN users
@@ -2225,12 +2687,14 @@ ${YELLOW}INSTALLATION PROCESS:${NC}
     6. Server configuration creation
     7. Docker Compose configuration creation
 
-${YELLOW}USER WORKFLOW:${NC}
+${YELLOW}SERVICE WORKFLOW:${NC}
     1. Install the service: sudo $0 install
-    2. Add users: sudo $0 add-user USERNAME
-    3. Start service: docker compose up -d
-    4. Share client configs from config/users/
-    5. Manage users as needed
+    2. Start the service: sudo $0 start
+    3. Add users: sudo $0 add-user USERNAME
+    4. Check status: sudo $0 status
+    5. View logs: sudo $0 logs
+    6. Share client configs from config/users/
+    7. Manage users and service as needed
 
 For more information, visit: https://github.com/your-repo/vless-manager
 
@@ -2270,6 +2734,21 @@ parse_arguments() {
             fi
             return 0
             ;;
+        "start")
+            return 0
+            ;;
+        "stop")
+            return 0
+            ;;
+        "restart")
+            return 0
+            ;;
+        "status")
+            return 0
+            ;;
+        "logs")
+            return 0
+            ;;
         "help"|"-h"|"--help")
             show_help
             exit 0
@@ -2284,6 +2763,11 @@ parse_arguments() {
             echo
             color_echo "yellow" "Available commands:"
             echo "  install                 - Install and configure the service"
+            echo "  start                   - Start the VPN service"
+            echo "  stop                    - Stop the VPN service"
+            echo "  restart                 - Restart the VPN service"
+            echo "  status                  - Show service status and health"
+            echo "  logs                    - View service logs"
             echo "  add-user USERNAME       - Add a new VPN user"
             echo "  remove-user USERNAME    - Remove an existing VPN user"
             echo "  list-users             - List all VPN users"
@@ -2442,10 +2926,19 @@ install_service() {
     echo
 
     color_echo "yellow" "Next Steps:"
-    echo "  1. Review generated configuration files"
-    echo "  2. Add users (Stage 3)"
-    echo "  3. Start the service: docker compose up -d"
-    echo "  4. Check service status: docker compose logs"
+    echo "  1. Start the service: sudo $0 start"
+    echo "  2. Add users: sudo $0 add-user USERNAME"
+    echo "  3. Check service status: sudo $0 status"
+    echo "  4. View service logs: sudo $0 logs"
+    echo "  5. Share client configurations from config/users/"
+    echo
+    color_echo "blue" "Service Management Commands:"
+    echo "  sudo $0 start         # Start the VPN service"
+    echo "  sudo $0 stop          # Stop the VPN service"
+    echo "  sudo $0 restart       # Restart the VPN service"
+    echo "  sudo $0 status        # Check service status"
+    echo "  sudo $0 logs          # View recent logs"
+    echo "  sudo $0 logs --follow # Follow logs in real-time"
     echo
 
     return 0
@@ -2492,6 +2985,69 @@ main() {
                 exit 1
             fi
             show_user "$2"
+            ;;
+        "start")
+            # Check for root privileges for service management
+            if ! check_root; then
+                exit 1
+            fi
+            start_service
+            ;;
+        "stop")
+            # Check for root privileges for service management
+            if ! check_root; then
+                exit 1
+            fi
+            stop_service
+            ;;
+        "restart")
+            # Check for root privileges for service management
+            if ! check_root; then
+                exit 1
+            fi
+            restart_service
+            ;;
+        "status")
+            # Check for root privileges for service management
+            if ! check_root; then
+                exit 1
+            fi
+            check_service_status
+            ;;
+        "logs")
+            # Check for root privileges for service management
+            if ! check_root; then
+                exit 1
+            fi
+            # Parse log options
+            local lines=50
+            local follow=false
+            shift  # Remove 'logs' from arguments
+
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    "--follow"|"--f")
+                        follow=true
+                        shift
+                        ;;
+                    "--lines")
+                        if [[ -n "${2:-}" ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+                            lines="$2"
+                            shift 2
+                        else
+                            log_message "ERROR" "--lines requires a numeric value"
+                            exit 1
+                        fi
+                        ;;
+                    *)
+                        log_message "ERROR" "Unknown option for logs: $1"
+                        echo "Usage: $0 logs [--follow] [--lines N]"
+                        exit 1
+                        ;;
+                esac
+            done
+
+            view_logs "$lines" "$follow"
             ;;
     esac
 }
