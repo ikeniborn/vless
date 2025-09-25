@@ -1,227 +1,224 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <timestamp>2025-01-24</timestamp>
-    <project_name>VLESS+Reality VPN Deployment Service</project_name>
+    <project>
+        <name>VLESS+Reality VPN Service</name>
+        <type>Minimalistic Quick Start</type>
+        <platform>Linux (Debian/Ubuntu)</platform>
+        <architecture>x86_64, ARM64</architecture>
+        <users>up to 10</users>
+        <interface>CLI only</interface>
+    </project>
 
-    <protocol_analysis>
-        <vless_reality>
-            <description>VLESS+TCP+REALITY - высокоуровневый протокол проксирования с усиленной защитой от обнаружения</description>
-            <key_features>
-                <feature>Устранение TLS-фингерпринтинга на стороне сервера</feature>
-                <feature>Маскировка под легитимный HTTPS-трафик</feature>
-                <feature>Поддержка протокола XTLS Vision для оптимизации производительности</feature>
-                <feature>Не требует покупки доменного имени</feature>
-                <feature>Защита от атак на цепочку сертификатов</feature>
-            </key_features>
-            <requirements>
-                <server>
-                    <requirement>Linux-сервер с поддержкой Docker</requirement>
-                    <requirement>Открытый порт 443 (или другой настраиваемый)</requirement>
-                    <requirement>Xray-core последней версии</requirement>
-                    <requirement>X25519 приватный ключ для REALITY</requirement>
-                </server>
-                <client>
-                    <requirement>Xray-совместимый клиент</requirement>
-                    <requirement>Публичный ключ сервера</requirement>
-                    <requirement>UUID пользователя</requirement>
-                    <requirement>ShortID для идентификации</requirement>
-                </client>
-            </requirements>
-        </vless_reality>
-    </protocol_analysis>
+    <stage number="1" name="Basic Infrastructure">
+        <description>Implementation of base infrastructure for VLESS+Reality VPN service</description>
 
-    <technology_stack>
-        <core_technologies>
-            <technology name="Bash">
-                <purpose>Основной язык для скриптов установки и управления</purpose>
+        <requirements>
+            <requirement id="R1">
+                <description>Create main management script vless-manager.sh</description>
+                <priority>high</priority>
+                <details>
+                    <item>Bash script with shebang (#!/bin/bash)</item>
+                    <item>Command-line argument parsing</item>
+                    <item>Main menu/dispatcher for various operations</item>
+                    <item>Color-coded output (green for success, red for errors, yellow for warnings)</item>
+                    <item>Proper exit codes and error handling</item>
+                </details>
+            </requirement>
+
+            <requirement id="R2">
+                <description>System requirements verification</description>
+                <priority>high</priority>
+                <details>
+                    <item>OS check: Ubuntu 20.04+ or Debian 11+</item>
+                    <item>Architecture check: x86_64 or ARM64</item>
+                    <item>RAM check: minimum 512 MB</item>
+                    <item>Disk space check: minimum 1 GB free</item>
+                    <item>Network port check: 443 availability</item>
+                    <item>Permission check: root or sudo access</item>
+                </details>
+            </requirement>
+
+            <requirement id="R3">
+                <description>Docker installation function</description>
+                <priority>high</priority>
+                <details>
+                    <item>Check if Docker is already installed</item>
+                    <item>Add Docker GPG key</item>
+                    <item>Configure Docker APT repository</item>
+                    <item>Install docker-ce, docker-ce-cli, containerd.io</item>
+                    <item>Enable and start Docker service</item>
+                    <item>Verify installation with docker run hello-world</item>
+                </details>
+            </requirement>
+
+            <requirement id="R4">
+                <description>Docker Compose installation function</description>
+                <priority>high</priority>
+                <details>
+                    <item>Check if Docker Compose is already installed</item>
+                    <item>Install docker-compose-plugin via APT</item>
+                    <item>Verify installation with docker compose version</item>
+                </details>
+            </requirement>
+
+            <requirement id="R5">
+                <description>Directory structure creation</description>
+                <priority>high</priority>
+                <details>
+                    <item>Create config/ directory for server.json</item>
+                    <item>Create config/users/ directory for client configurations</item>
+                    <item>Create data/ directory for user database</item>
+                    <item>Create data/keys/ directory for key storage</item>
+                    <item>Create logs/ directory for xray.log</item>
+                    <item>Set proper permissions (600 for keys, 700 for directories)</item>
+                </details>
+            </requirement>
+
+            <requirement id="R6">
+                <description>Environment configuration</description>
+                <priority>medium</priority>
+                <details>
+                    <item>Create .env file for environment variables</item>
+                    <item>Define PROJECT_PATH variable</item>
+                    <item>Define SERVER_IP variable</item>
+                    <item>Define XRAY_PORT variable (default 443)</item>
+                    <item>Define LOG_LEVEL variable (default warning)</item>
+                </details>
+            </requirement>
+        </requirements>
+
+        <technologies>
+            <technology>
+                <name>Bash</name>
                 <version>5.0+</version>
-                <features>
-                    <feature>Модульная архитектура скриптов</feature>
-                    <feature>Обработка ошибок и логирование</feature>
-                    <feature>Интерактивное меню управления</feature>
-                </features>
+                <usage>Main scripting language for management script</usage>
             </technology>
-            <technology name="Docker">
-                <purpose>Контейнеризация Xray-core сервиса</purpose>
-                <version>24.0+</version>
-                <features>
-                    <feature>Изоляция сервиса</feature>
-                    <feature>Простое обновление</feature>
-                    <feature>Управление ресурсами</feature>
-                </features>
+            <technology>
+                <name>Docker</name>
+                <version>latest stable</version>
+                <usage>Container runtime for Xray service</usage>
             </technology>
-            <technology name="Docker Compose">
-                <purpose>Оркестрация контейнеров</purpose>
-                <version>2.20+</version>
-                <features>
-                    <feature>Декларативная конфигурация</feature>
-                    <feature>Управление сетями и томами</feature>
-                    <feature>Простое масштабирование</feature>
-                </features>
+            <technology>
+                <name>Docker Compose</name>
+                <version>2.0+</version>
+                <usage>Container orchestration and configuration</usage>
             </technology>
-            <technology name="Python">
-                <purpose>Вспомогательные утилиты</purpose>
-                <version>3.8+</version>
-                <use_cases>
-                    <use_case>Генерация QR-кодов для клиентов</use_case>
-                    <use_case>Парсинг и валидация конфигураций</use_case>
-                    <use_case>API для управления пользователями</use_case>
-                </use_cases>
+            <technology>
+                <name>Xray-core</name>
+                <version>latest</version>
+                <usage>VLESS+Reality protocol implementation</usage>
+                <docker_image>teddysun/xray:latest</docker_image>
             </technology>
-            <technology name="Xray-core">
-                <purpose>Основной прокси-сервер</purpose>
-                <version>Latest stable</version>
-                <features>
-                    <feature>Поддержка VLESS протокола</feature>
-                    <feature>REALITY технология</feature>
-                    <feature>XTLS Vision</feature>
-                    <feature>Мультиплексирование</feature>
-                </features>
-            </technology>
-        </core_technologies>
-    </technology_stack>
+        </technologies>
 
-    <implementation_variants>
-        <variant number="1" name="Minimal">
-            <description>Минимальная конфигурация для быстрого развертывания</description>
-            <components>
-                <component>Единый bash-скрипт установки</component>
-                <component>Docker контейнер с Xray-core</component>
-                <component>Базовая конфигурация VLESS+Reality</component>
-                <component>Простое управление пользователями через CLI</component>
-            </components>
-            <pros>
-                <pro>Быстрое развертывание (5-10 минут)</pro>
-                <pro>Минимальные системные требования</pro>
-                <pro>Простота в обслуживании</pro>
-            </pros>
-            <cons>
-                <con>Ограниченный функционал</con>
-                <con>Нет веб-интерфейса</con>
-                <con>Базовый мониторинг</con>
-            </cons>
-        </variant>
+        <implementation_approach>
+            <principle>Modular and reusable functions</principle>
+            <principle>Idempotent operations (can run multiple times safely)</principle>
+            <principle>Clear error messages and recovery suggestions</principle>
+            <principle>Logging for troubleshooting</principle>
+            <principle>Security best practices (proper permissions, no hardcoded secrets)</principle>
+        </implementation_approach>
 
-        <variant number="2" name="Standard">
-            <description>Стандартная конфигурация с расширенными возможностями</description>
-            <components>
-                <component>Модульная система bash-скриптов</component>
-                <component>Docker Compose стек</component>
-                <component>Система управления пользователями</component>
-                <component>Автоматическое резервное копирование</component>
-                <component>Мониторинг и логирование</component>
-                <component>Генератор QR-кодов</component>
-            </components>
-            <pros>
-                <pro>Полнофункциональное решение</pro>
-                <pro>Автоматизация рутинных задач</pro>
-                <pro>Расширенное управление пользователями</pro>
-                <pro>Система резервного копирования</pro>
-            </pros>
-            <cons>
-                <con>Более сложная установка</con>
-                <con>Требует больше ресурсов</con>
-            </cons>
-        </variant>
+        <functions_to_implement>
+            <function>
+                <name>check_root</name>
+                <description>Verify root or sudo privileges</description>
+            </function>
+            <function>
+                <name>check_os</name>
+                <description>Verify OS compatibility (Ubuntu/Debian)</description>
+            </function>
+            <function>
+                <name>check_architecture</name>
+                <description>Verify system architecture (x86_64/ARM64)</description>
+            </function>
+            <function>
+                <name>check_resources</name>
+                <description>Verify RAM and disk space availability</description>
+            </function>
+            <function>
+                <name>check_port</name>
+                <description>Verify port 443 availability</description>
+            </function>
+            <function>
+                <name>install_docker</name>
+                <description>Install Docker if not present</description>
+            </function>
+            <function>
+                <name>install_docker_compose</name>
+                <description>Install Docker Compose plugin</description>
+            </function>
+            <function>
+                <name>create_directories</name>
+                <description>Create project directory structure</description>
+            </function>
+            <function>
+                <name>create_env_file</name>
+                <description>Generate .env configuration file</description>
+            </function>
+            <function>
+                <name>show_help</name>
+                <description>Display usage information</description>
+            </function>
+            <function>
+                <name>log_message</name>
+                <description>Unified logging function</description>
+            </function>
+            <function>
+                <name>color_echo</name>
+                <description>Colored output function</description>
+            </function>
+        </functions_to_implement>
 
-        <variant number="3" name="Enterprise">
-            <description>Корпоративное решение с максимальными возможностями</description>
-            <components>
-                <component>Полный стек управления инфраструктурой</component>
-                <component>Веб-панель администратора</component>
-                <component>API для интеграции</component>
-                <component>Кластеризация и балансировка</component>
-                <component>Расширенный мониторинг (Prometheus/Grafana)</component>
-                <component>Автоматическое обновление и откат</component>
-                <component>Multi-server управление</component>
-            </components>
-            <pros>
-                <pro>Максимальная функциональность</pro>
-                <pro>Веб-интерфейс управления</pro>
-                <pro>API для интеграции</pro>
-                <pro>Поддержка кластеризации</pro>
-                <pro>Профессиональный мониторинг</pro>
-            </pros>
-            <cons>
-                <con>Сложная архитектура</con>
-                <con>Высокие системные требования</con>
-                <con>Требует опыта администрирования</con>
-            </cons>
-        </variant>
-    </implementation_variants>
+        <commands_to_support>
+            <command>
+                <name>install</name>
+                <description>Run full installation process</description>
+                <actions>
+                    <action>Check system requirements</action>
+                    <action>Install Docker and Docker Compose</action>
+                    <action>Create directory structure</action>
+                    <action>Generate environment configuration</action>
+                </actions>
+            </command>
+        </commands_to_support>
 
-    <clarifying_questions>
-        <question number="1">
-            <text>Какой вариант реализации предпочтительнее: Minimal, Standard или Enterprise?</text>
-            <reason>Определит сложность архитектуры и набор функций</reason>
-        </question>
-        <question number="2">
-            <text>Нужна ли веб-панель управления или достаточно CLI интерфейса?</text>
-            <reason>Влияет на выбор технологий и сложность разработки</reason>
-        </question>
-        <question number="3">
-            <text>Планируется ли многопользовательский режим? Сколько примерно пользователей?</text>
-            <reason>Определит требования к системе управления пользователями</reason>
-        </question>
-        <question number="4">
-            <text>Требуется ли интеграция с существующими системами через API?</text>
-            <reason>Необходимость разработки API endpoints</reason>
-        </question>
-        <question number="5">
-            <text>Какие требования к мониторингу и логированию?</text>
-            <reason>Определит необходимость интеграции систем мониторинга</reason>
-        </question>
-        <question number="6">
-            <text>Нужна ли поддержка автоматического обновления и резервного копирования?</text>
-            <reason>Влияет на архитектуру системы обслуживания</reason>
-        </question>
-        <question number="7">
-            <text>Планируется ли использование на нескольких серверах одновременно?</text>
-            <reason>Определит необходимость системы централизованного управления</reason>
-        </question>
-    </clarifying_questions>
+        <testing_requirements>
+            <test>Verify script runs with proper permissions</test>
+            <test>Test on Ubuntu 20.04, 22.04, 24.04</test>
+            <test>Test on Debian 11, 12</test>
+            <test>Test on both x86_64 and ARM64 architectures</test>
+            <test>Test Docker installation on clean system</test>
+            <test>Test idempotency (run install multiple times)</test>
+            <test>Test error handling for insufficient resources</test>
+            <test>Test port conflict detection</test>
+        </testing_requirements>
 
-    <recommended_approach>
-        <recommendation>
-            <title>Рекомендуемый подход - Standard вариант</title>
-            <reasoning>
-                <point>Оптимальный баланс между функциональностью и сложностью</point>
-                <point>Покрывает большинство типовых сценариев использования</point>
-                <point>Возможность последующего расширения до Enterprise</point>
-                <point>Достаточная автоматизация для удобного администрирования</point>
-            </reasoning>
-            <architecture>
-                <layer name="Infrastructure">
-                    <component>Docker и Docker Compose для контейнеризации</component>
-                    <component>Системные bash-скрипты для управления</component>
-                </layer>
-                <layer name="Core Services">
-                    <component>Xray-core контейнер с VLESS+Reality</component>
-                    <component>Nginx для reverse proxy (опционально)</component>
-                </layer>
-                <layer name="Management">
-                    <component>Модульная система bash-скриптов</component>
-                    <component>Python утилиты для специфичных задач</component>
-                    <component>Система управления конфигурациями</component>
-                </layer>
-                <layer name="Features">
-                    <component>Управление пользователями</component>
-                    <component>Генерация QR-кодов</component>
-                    <component>Резервное копирование</component>
-                    <component>Мониторинг и логирование</component>
-                    <component>Автоматические обновления</component>
-                </layer>
-            </architecture>
-        </recommendation>
-    </recommended_approach>
+        <security_considerations>
+            <consideration>All sensitive files must have 600 permissions</consideration>
+            <consideration>Directories containing sensitive data must have 700 permissions</consideration>
+            <consideration>No hardcoded credentials or keys in scripts</consideration>
+            <consideration>Validate all user inputs</consideration>
+            <consideration>Use secure methods for Docker installation (official GPG keys)</consideration>
+        </security_considerations>
 
-    <next_steps>
-        <step number="1">Получить ответы на уточняющие вопросы</step>
-        <step number="2">Подготовить детальный план реализации выбранного варианта</step>
-        <step number="3">Создать структуру проекта и модули</step>
-        <step number="4">Реализовать core функциональность</step>
-        <step number="5">Добавить расширенные возможности</step>
-        <step number="6">Провести тестирование</step>
-        <step number="7">Подготовить документацию</step>
-    </next_steps>
+        <deliverables>
+            <deliverable>
+                <file>vless-manager.sh</file>
+                <description>Main management script with install command</description>
+            </deliverable>
+            <deliverable>
+                <file>.env.example</file>
+                <description>Example environment configuration</description>
+            </deliverable>
+            <deliverable>
+                <structure>Directory structure created and ready</structure>
+                <description>config/, data/, logs/ directories with proper permissions</description>
+            </deliverable>
+            <deliverable>
+                <service>Docker and Docker Compose installed and running</service>
+                <description>Container runtime ready for Xray deployment</description>
+            </deliverable>
+        </deliverables>
+    </stage>
 </analysis>

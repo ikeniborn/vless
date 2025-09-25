@@ -19,25 +19,33 @@
         <task number="1">
             <step number="1">
                 <action>Изучить требования(requirements)</action>
-                <action>Изучить CLAUDE.md</action>
             </step>
             <step number="2">
                 <thinking>
-                    <action>Обдумать требования (requirements) шаг за шагом с учетом CLAUDE.md</action>
+                    <action>Обдумать требования (requirements) шаг за шагом</action>
                 </thinking>
             </step>
             <step number="3">
                 <context7>
-                    <action>Запросить актуальную документацию по стэку технологий</action>
+                    <action>Запросить актуальную документацию</action>
                 </context7>
             </step>
+            <step number="4">
+                <action>Обдумать всю полученную информацию на полноту и корректность</action>
+            </step>
+            <step number="4">
+                <action>Скорректировать результаты анализа по итогам обдумывания</action>
+            </step>
             <step number="5">
-                <action>Сформировать результаты анализа в формате xml в каталоге /requests с названием analyses.xml</action>
+                <action>Сформировать итоговый вариант анализа</action>
+            </step>
+            <step number="6">
+                <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses.xml</action>
                 <requests_directory path="requests/">
                     <file path="analyses.xml"/>
                 </requests_directory>
             </step>
-            <step number="4">
+            <step number="7">
                 <action>Приступить к задаче task 2</action>
             </step>
         </task>
@@ -46,7 +54,7 @@
                 <requests_directory path="requests/">
                     <file path="analyses.xml"/>
                 </requests_directory>
-                <action>Обдумать несколько вариантов реализациии c помощью субагентов на основании /requests/analyses.xml</action>
+                <action>Обдумать несколько вариантов реализациии на основании /requests/analyses.xml</action>
             </step>
             <step number="2">
                 <action>Задать уточняющие вопросы</action>
@@ -63,10 +71,7 @@
                 <action>Внеси изменения в итоговый вариант с учетом анализа и ответов</action>
             </step>
             <step number="6">
-                <action>Внеси изменения в итоговый вариант с учетом анализа и ответов</action>
-            </step>
-            <step number="7">
-                <action>Сформировать и сохранить детальный план работ в формате markdown в файле PLAN.md</action>
+                <action>Сформировать детальный план работ на оснвоании тогового варианта и сохранить в формате markdown в файле PLAN.md</action>
                 <plan_directory path="/">
                     <file path="PLAN.md"/>
                 </plan_directory>

@@ -1,25 +1,16 @@
-# Stage 1: Basic Infrastructure - Detailed Implementation Plan
-
-## Overview
-This plan implements the basic infrastructure for the VLESS+Reality VPN service, focusing on creating the main management script `vless-manager.sh` with system requirements checking, Docker installation, directory structure creation, and environment configuration.
-
-## Task Breakdown with Dependencies
-
-### Task 1: Project Structure Setup (15 minutes)
-**Priority:** High
-**Dependencies:** None
-**Estimated Time:** 15 minutes
-
-#### Actions:
-1. Create main script file `vless-manager.sh` with proper permissions
-2. Set up basic script structure with shebang and initial constants
-
-#### Code Snippets:
-```bash
 #!/bin/bash
 set -euo pipefail
 
-# Script constants
+# VLESS+Reality VPN Service Management Script
+# Version: 1.0.0
+# Description: Complete management solution for VLESS+Reality VPN service
+# Author: VLESS Management Team
+# License: MIT
+
+#######################################################################################
+# SCRIPT CONSTANTS AND CONFIGURATION
+#######################################################################################
+
 readonly SCRIPT_NAME="vless-manager"
 readonly SCRIPT_VERSION="1.0.0"
 readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,29 +23,13 @@ readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
+readonly WHITE='\033[1;37m'
 readonly NC='\033[0m' # No Color
-```
 
-#### Testing:
-```bash
-chmod +x vless-manager.sh
-bash -n vless-manager.sh  # Syntax check
-```
+#######################################################################################
+# CORE UTILITY FUNCTIONS
+#######################################################################################
 
----
-
-### Task 2: Core Utility Functions (30 minutes)
-**Priority:** High
-**Dependencies:** Task 1
-**Estimated Time:** 30 minutes
-
-#### Actions:
-1. Implement logging function with timestamp and color coding
-2. Implement colored output function
-3. Implement error handling function
-
-#### Code Snippets:
-```bash
 # Logging function with colors and timestamps
 log_message() {
     local level="$1"
@@ -87,6 +62,7 @@ color_echo() {
         "green")  echo -e "${GREEN}$message${NC}" ;;
         "yellow") echo -e "${YELLOW}$message${NC}" ;;
         "blue")   echo -e "${BLUE}$message${NC}" ;;
+        "white")  echo -e "${WHITE}$message${NC}" ;;
         *)        echo "$message" ;;
     esac
 }
@@ -101,33 +77,11 @@ handle_error() {
 
 # Set up error trap
 trap 'handle_error $LINENO' ERR
-```
 
-#### Testing:
-```bash
-# Test logging functions
-log_message "INFO" "Testing info message"
-log_message "SUCCESS" "Testing success message"
-log_message "WARNING" "Testing warning message"
-log_message "ERROR" "Testing error message"
-```
+#######################################################################################
+# SYSTEM REQUIREMENTS VERIFICATION FUNCTIONS
+#######################################################################################
 
----
-
-### Task 3: System Requirements Verification Functions (45 minutes)
-**Priority:** High
-**Dependencies:** Task 2
-**Estimated Time:** 45 minutes
-
-#### Actions:
-1. Implement root privilege check
-2. Implement OS compatibility check
-3. Implement architecture verification
-4. Implement resource availability check
-5. Implement port availability check
-
-#### Code Snippets:
-```bash
 # Check for root privileges
 check_root() {
     log_message "INFO" "Checking root privileges..."
@@ -262,34 +216,11 @@ check_system_requirements() {
     log_message "SUCCESS" "All system requirements met"
     return 0
 }
-```
 
-#### Testing:
-```bash
-# Test each function individually
-check_root
-check_os
-check_architecture
-check_resources
-check_port
-check_system_requirements
-```
+#######################################################################################
+# DOCKER INSTALLATION FUNCTIONS
+#######################################################################################
 
----
-
-### Task 4: Docker Installation Function (40 minutes)
-**Priority:** High
-**Dependencies:** Task 3
-**Estimated Time:** 40 minutes
-
-#### Actions:
-1. Implement Docker presence check
-2. Implement Docker installation with proper GPG key handling
-3. Implement Docker service configuration
-4. Implement installation verification
-
-#### Code Snippets:
-```bash
 # Install Docker
 install_docker() {
     log_message "INFO" "Starting Docker installation..."
@@ -359,30 +290,7 @@ install_docker() {
         return 1
     fi
 }
-```
 
-#### Testing:
-```bash
-# Test Docker installation
-install_docker
-docker --version
-docker info
-```
-
----
-
-### Task 5: Docker Compose Installation Function (20 minutes)
-**Priority:** High
-**Dependencies:** Task 4
-**Estimated Time:** 20 minutes
-
-#### Actions:
-1. Check for existing Docker Compose installation
-2. Install Docker Compose plugin via APT
-3. Verify installation
-
-#### Code Snippets:
-```bash
 # Install Docker Compose
 install_docker_compose() {
     log_message "INFO" "Starting Docker Compose installation..."
@@ -412,29 +320,11 @@ install_docker_compose() {
         return 1
     fi
 }
-```
 
-#### Testing:
-```bash
-# Test Docker Compose installation
-install_docker_compose
-docker compose version
-```
+#######################################################################################
+# PROJECT STRUCTURE FUNCTIONS
+#######################################################################################
 
----
-
-### Task 6: Directory Structure Creation Function (25 minutes)
-**Priority:** High
-**Dependencies:** Task 2
-**Estimated Time:** 25 minutes
-
-#### Actions:
-1. Create project directory structure
-2. Set proper permissions for security
-3. Create placeholder files where necessary
-
-#### Code Snippets:
-```bash
 # Create project directory structure
 create_directories() {
     log_message "INFO" "Creating project directory structure..."
@@ -483,29 +373,11 @@ create_directories() {
     log_message "SUCCESS" "Directory structure created successfully"
     return 0
 }
-```
 
-#### Testing:
-```bash
-# Test directory creation
-create_directories
-ls -la config/ data/ logs/
-```
+#######################################################################################
+# ENVIRONMENT CONFIGURATION FUNCTIONS
+#######################################################################################
 
----
-
-### Task 7: Environment Configuration Function (20 minutes)
-**Priority:** Medium
-**Dependencies:** Task 6
-**Estimated Time:** 20 minutes
-
-#### Actions:
-1. Create .env file with default configuration
-2. Detect server IP automatically
-3. Set up environment variables
-
-#### Code Snippets:
-```bash
 # Create environment configuration
 create_env_file() {
     log_message "INFO" "Creating environment configuration..."
@@ -551,35 +423,13 @@ EOF
     log_message "SUCCESS" "Environment configuration created: $env_file"
     log_message "INFO" "Detected server IP: $server_ip"
 
-    # Create example file
-    cp "$env_file" "$PROJECT_ROOT/.env.example"
-    log_message "INFO" "Created example configuration: .env.example"
-
     return 0
 }
-```
 
-#### Testing:
-```bash
-# Test environment file creation
-create_env_file
-cat .env
-```
+#######################################################################################
+# HELP AND ARGUMENT PARSING FUNCTIONS
+#######################################################################################
 
----
-
-### Task 8: Help and Argument Parsing Functions (25 minutes)
-**Priority:** Medium
-**Dependencies:** Task 2
-**Estimated Time:** 25 minutes
-
-#### Actions:
-1. Implement help display function
-2. Implement command-line argument parsing
-3. Create main dispatcher function
-
-#### Code Snippets:
-```bash
 # Display help information
 show_help() {
     cat << EOF
@@ -638,31 +488,11 @@ parse_arguments() {
             ;;
     esac
 }
-```
 
-#### Testing:
-```bash
-# Test help and argument parsing
-./vless-manager.sh help
-./vless-manager.sh --help
-./vless-manager.sh invalid_command
-```
+#######################################################################################
+# MAIN INSTALLATION FUNCTION
+#######################################################################################
 
----
-
-### Task 9: Main Install Command Implementation (30 minutes)
-**Priority:** High
-**Dependencies:** Tasks 3-7
-**Estimated Time:** 30 minutes
-
-#### Actions:
-1. Implement main install orchestrator function
-2. Add progress tracking
-3. Add error recovery suggestions
-4. Add installation summary
-
-#### Code Snippets:
-```bash
 # Main installation function
 install_service() {
     log_message "INFO" "Starting VLESS+Reality VPN service installation..."
@@ -777,6 +607,10 @@ install_service() {
     return 0
 }
 
+#######################################################################################
+# MAIN SCRIPT EXECUTION
+#######################################################################################
+
 # Main script execution
 main() {
     # Parse command line arguments
@@ -791,130 +625,6 @@ main() {
 }
 
 # Execute main function with all arguments
-main "$@"
-```
-
-#### Testing:
-```bash
-# Test full installation
-sudo ./vless-manager.sh install
-```
-
----
-
-### Task 10: Script Finalization and Testing (30 minutes)
-**Priority:** High
-**Dependencies:** All previous tasks
-**Estimated Time:** 30 minutes
-
-#### Actions:
-1. Combine all functions into complete script
-2. Add final error handling and cleanup
-3. Run comprehensive testing
-4. Create test scenarios
-
-#### Complete Script Testing Commands:
-```bash
-# Syntax validation
-bash -n vless-manager.sh
-
-# Permission test
-chmod +x vless-manager.sh
-
-# Help function test
-./vless-manager.sh help
-./vless-manager.sh --help
-
-# Error handling test
-./vless-manager.sh invalid_command
-
-# Full installation test (requires sudo)
-sudo ./vless-manager.sh install
-
-# Idempotency test (run twice)
-sudo ./vless-manager.sh install
-sudo ./vless-manager.sh install
-
-# Directory structure verification
-ls -la config/ data/ logs/
-cat .env
-
-# Docker verification
-docker --version
-docker compose version
-docker info
-
-# File permissions check
-ls -la .env data/users.db
-stat -c "%a" data/keys/ config/
-```
-
----
-
-## Implementation Order Summary
-
-1. **Task 1** → **Task 2** → **Task 8** (Basic structure and utilities)
-2. **Task 3** (System checks - depends on utilities)
-3. **Task 4** → **Task 5** (Docker installation - sequential dependency)
-4. **Task 6** → **Task 7** (Directory and environment setup)
-5. **Task 9** (Main install function - depends on all others)
-6. **Task 10** (Final testing and validation)
-
-## Testing Strategy
-
-### Unit Testing (per task):
-- Function syntax validation
-- Individual function execution
-- Error condition testing
-- Input validation testing
-
-### Integration Testing:
-- Full installation process
-- Idempotency testing
-- Cross-architecture testing (x86_64, ARM64)
-- Multi-OS testing (Ubuntu 20.04+, Debian 11+)
-
-### Error Recovery Testing:
-- Insufficient permissions
-- Network connectivity issues
-- Insufficient system resources
-- Port conflicts
-- Partial installation recovery
-
-## Time Estimates
-
-| Task | Estimated Time | Priority |
-|------|---------------|----------|
-| 1. Project Structure | 15 min | High |
-| 2. Core Utilities | 30 min | High |
-| 3. System Checks | 45 min | High |
-| 4. Docker Install | 40 min | High |
-| 5. Docker Compose | 20 min | High |
-| 6. Directory Structure | 25 min | High |
-| 7. Environment Config | 20 min | Medium |
-| 8. CLI Interface | 25 min | Medium |
-| 9. Main Install | 30 min | High |
-| 10. Testing & QA | 30 min | High |
-
-**Total Estimated Time:** 4 hours 20 minutes
-
-## Success Criteria
-
-✅ **Script runs without syntax errors**
-✅ **All system requirements are properly verified**
-✅ **Docker and Docker Compose install successfully**
-✅ **Directory structure is created with correct permissions**
-✅ **Environment configuration is generated correctly**
-✅ **Script is idempotent (can run multiple times safely)**
-✅ **Comprehensive error handling and user feedback**
-✅ **Cross-platform compatibility (x86_64, ARM64)**
-
-## Security Considerations Implemented
-
-🔒 **File Permissions:** Keys directory (700), sensitive files (600)
-🔒 **Input Validation:** All user inputs and system values validated
-🔒 **Secure Installation:** Official Docker GPG keys and repositories
-🔒 **No Hardcoded Secrets:** All sensitive data in configuration files
-🔒 **Privilege Checking:** Proper root/sudo verification
-
-This implementation plan provides a comprehensive, step-by-step approach to building the Stage 1 infrastructure with proper error handling, security considerations, and thorough testing procedures.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

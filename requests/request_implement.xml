@@ -11,38 +11,45 @@
         </architecture>
     </project>
     <context>
+        <plan_directory path="/">
+            <file path="PLAN.md"/>
+        </plan_directory>
     </context>
     <requirements>
-        <point number="1">Изучить актуальнуб докуменатцию по проколу Vless + Reality для организааци VPN доступа</point>
-        <point number="1">Проанализироватть и использовать документацию https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality</point>
-        <point number="2">Тщательно обудмавть несколько варинатов реализации сервиса равзвертывания и управления сервером на базе bash скриптов</point>
-        <point number="2">Задать уточняющие вопросы</point>
-        <point number="2">Подготовить детальный план работ по реализации сервиса развертывания и сохраинть в PLAN.md</point>
-        <point number="3">Проверить план шаг за шагом итоговй план</point>
+        <point number="1">Реализовать задачи из PLAN.md по пункту Этап 1: Базовая инфраструктура</point>
     </requirements>
     <tasks>
         <task number="1">
             <step number="1">
-                <action>Изучить контекст(context), требования(requirements), память CLAUDE.md</action>
+                <action>Изучить контекст(context)</action>
+                <action>Изучить требования(requirements)</action>
             </step>
             <step number="2">
                 <thinking>
-                    <action>Проанализировать контекст (context) </action>
-                    <action>Обдумать требования (requirements) шаг за шагом с учетом CLAUDE.md</action>
+                    <action>Обдумать требования (requirements) шаг за шагом</action>
                 </thinking>
             </step>
             <step number="3">
                 <context7>
-                    <action>Запросить актуальную документацию по стэку технологий</action>
+                    <action>Запросить актуальную документацию</action>
                 </context7>
             </step>
-            <step number="3">
+            <step number="4">
+                <action>Обдумать всю полученную информацию на полноту и корректность</action>
+            </step>
+            <step number="5">
+                <action>Скорректировать результаты анализа по итогам размышлений</action>
+            </step>
+            <step number="6">
+                <action>Сформировать итоговый вариант анализа</action>
+            </step>
+            <step number="7">
                 <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses.xml</action>
                 <requests_directory path="requests/">
                     <file path="analyses.xml"/>
                 </requests_directory>
             </step>
-            <step number="4">
+            <step number="8">
                 <action>Приступить к задаче task 2</action>
             </step>
         </task>
@@ -54,12 +61,20 @@
                 <action>Сформировать план задач c помощью субагента на основании /requests/analyses.xml</action>
             </step>
             <step number="2">
-                <action>Сохранить план в формате xml в каталоге /requests с названием plan.xml</action>
+                <thinking>
+                    <action>Обумать план задач на корректность, эффективность, полноту в plan.xml</action>
+                </thinking>
                 <requests_directory path="requests/">
                     <file path="plan.xml"/>
                 </requests_directory>
             </step>
             <step number="3">
+                <action>Сохранить итоговый план в формате xml в каталоге /requests с названием plan.xml</action>
+                <requests_directory path="requests/">
+                    <file path="plan.xml"/>
+                </requests_directory>
+            </step>
+            <step number="4">
                 <action>Приступить к задаче task 3</action>
             </step>
         </task>
@@ -92,7 +107,7 @@
                 <action>Реализовать тесты на новый или измененный функционал. Сохранить в каталоге /tests</action>
             </step>
             <step number="2">
-                <action>ВЫполнтиь тестирование</action>
+                <action>Выполнтиь тестирование</action>
             </step>
             <step number="3">
                 <action>Приступить к задаче task 5</action>
@@ -123,6 +138,14 @@
             </step>
         </task>
         <task number="6">
+            <step number="1">
+                <action>Отметить выполненные задачи в PLAN.md</action>
+                <plan_directory path="/">
+                    <file path="PLAN.md"/>
+                </plan_directory>
+            </step>
+        </task>
+        <task number="7">
             <step number="1">
                 <action>Сделать коммит и пуш</action>
             </step>
