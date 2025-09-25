@@ -1,139 +1,152 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-  <project>
-    <name>VLESS+Reality VPN - Stage 4: Docker Integration</name>
-    <date>2025-09-25</date>
-    <stage>4</stage>
-  </project>
+    <project>
+        <name>VLESS+Reality VPN Service</name>
+        <stage>Stage 5: Service Functions</stage>
+        <timestamp>2025-01-25T14:30:00Z</timestamp>
+    </project>
 
-  <requirements>
-    <requirement id="1">
-      <title>Docker Compose Configuration</title>
-      <description>Create docker-compose.yml for Xray container orchestration</description>
-      <components>
-        <component>Docker Compose version 3.8</component>
-        <component>Xray service with teddysun/xray:latest image</component>
-        <component>Port mapping 443:443</component>
-        <component>Volume mounts for config and logs</component>
-        <component>Restart policy: unless-stopped</component>
-        <component>Optional health check configuration</component>
-      </components>
-    </requirement>
+    <current_state>
+        <completed_stages>
+            <stage id="1" name="Basic Infrastructure" status="completed"/>
+            <stage id="2" name="Configuration Generation" status="completed"/>
+            <stage id="3" name="User Management" status="completed"/>
+            <stage id="4" name="Docker Integration" status="completed"/>
+        </completed_stages>
 
-    <requirement id="2">
-      <title>Service Management Functions</title>
-      <description>Implement Docker service control functions in vless-manager.sh</description>
-      <functions>
-        <function>
-          <name>start_service</name>
-          <purpose>Start Xray container using docker compose up -d</purpose>
-        </function>
-        <function>
-          <name>stop_service</name>
-          <purpose>Stop Xray container using docker compose down</purpose>
-        </function>
-        <function>
-          <name>restart_service</name>
-          <purpose>Restart Xray container using docker compose restart</purpose>
-        </function>
-        <function>
-          <name>check_service_status</name>
-          <purpose>Check container status using docker compose ps</purpose>
-        </function>
-        <function>
-          <name>view_logs</name>
-          <purpose>Display container logs using docker compose logs</purpose>
-        </function>
-        <function>
-          <name>container_health_check</name>
-          <purpose>Check container health status using docker inspect</purpose>
-        </function>
-      </functions>
-    </requirement>
+        <stage_5_status>
+            <function name="status" status="implemented" command="check_service_status"/>
+            <function name="restart" status="implemented" command="restart_service"/>
+            <function name="logs" status="implemented" command="view_logs"/>
+            <function name="uninstall" status="not_implemented"/>
+            <function name="help" status="not_implemented"/>
+        </stage_5_status>
+    </current_state>
 
-    <requirement id="3">
-      <title>CLI Integration</title>
-      <description>Add new commands to vless-manager.sh CLI interface</description>
-      <commands>
-        <command>
-          <name>start</name>
-          <description>Start the VPN service</description>
-        </command>
-        <command>
-          <name>stop</name>
-          <description>Stop the VPN service</description>
-        </command>
-        <command>
-          <name>restart</name>
-          <description>Restart the VPN service</description>
-        </command>
-        <command>
-          <name>status</name>
-          <description>Show service status</description>
-        </command>
-        <command>
-          <name>logs</name>
-          <description>View service logs</description>
-        </command>
-      </commands>
-    </requirement>
+    <requirements>
+        <requirement id="1">
+            <name>uninstall_service</name>
+            <description>Complete removal of VPN service</description>
+            <actions>
+                <action>Stop and remove Docker container</action>
+                <action>Remove Docker image</action>
+                <action>Delete configuration files</action>
+                <action>Delete user database</action>
+                <action>Remove project directories</action>
+                <action>Optional backup before deletion</action>
+            </actions>
+        </requirement>
 
-    <requirement id="4">
-      <title>Installation Integration</title>
-      <description>Integrate docker-compose.yml creation into installation process</description>
-      <tasks>
-        <task>Call create_docker_compose() during installation</task>
-        <task>Verify docker-compose.yml creation</task>
-        <task>Set proper file permissions (644)</task>
-      </tasks>
-    </requirement>
-  </requirements>
+        <requirement id="2">
+            <name>show_help</name>
+            <description>Display available commands and usage</description>
+            <actions>
+                <action>Show command categories</action>
+                <action>Display command descriptions</action>
+                <action>Provide usage examples</action>
+                <action>Indicate required privileges</action>
+            </actions>
+        </requirement>
 
-  <technical_details>
-    <docker_compose>
-      <version>3.8</version>
-      <service_name>xray</service_name>
-      <image>teddysun/xray:latest</image>
-      <restart_policy>unless-stopped</restart_policy>
-      <ports>
-        <port>443:443</port>
-      </ports>
-      <volumes>
-        <volume>./config/server.json:/etc/xray/config.json:ro</volume>
-        <volume>./logs:/var/log/xray</volume>
-      </volumes>
-      <healthcheck>
-        <test>["CMD", "nc", "-zv", "localhost", "443"]</test>
-        <interval>30s</interval>
-        <timeout>10s</timeout>
-        <retries>3</retries>
-        <start_period>40s</start_period>
-      </healthcheck>
-    </docker_compose>
-  </technical_details>
+        <requirement id="3">
+            <name>backup_service</name>
+            <description>Create backup archive before uninstall</description>
+            <actions>
+                <action>Archive configuration files</action>
+                <action>Backup user database</action>
+                <action>Save encryption keys</action>
+                <action>Include environment variables</action>
+                <action>Create timestamped archive</action>
+            </actions>
+        </requirement>
+    </requirements>
 
-  <implementation_notes>
-    <note>Docker and Docker Compose must be installed before service management</note>
-    <note>All service commands require sudo privileges</note>
-    <note>Service functions should check Docker availability</note>
-    <note>Proper error handling with colored output</note>
-    <note>Logs should be limited to recent entries for better UX</note>
-    <note>Health checks are optional but recommended</note>
-  </implementation_notes>
+    <implementation_approach>
+        <principle>Follow existing code patterns and conventions</principle>
+        <principle>Maintain consistent error handling</principle>
+        <principle>Use colored output for better UX</principle>
+        <principle>Implement comprehensive logging</principle>
+        <principle>Ensure operations are safe and reversible where possible</principle>
+    </implementation_approach>
 
-  <security_considerations>
-    <consideration>Docker socket access requires root/sudo</consideration>
-    <consideration>Config files mounted as read-only</consideration>
-    <consideration>Logs directory with restricted permissions</consideration>
-    <consideration>No sensitive data in docker-compose.yml</consideration>
-  </security_considerations>
+    <technical_details>
+        <uninstall_function>
+            <confirmation>Interactive confirmation with clear warning</confirmation>
+            <backup_option>Offer optional backup before deletion</backup_option>
+            <cleanup_scope>
+                <item>Docker container: xray</item>
+                <item>Docker image: teddysun/xray:latest</item>
+                <item>Directories: config/, data/, logs/</item>
+                <item>Files: .env, docker-compose.yml</item>
+            </cleanup_scope>
+            <error_handling>Continue cleanup even if some components missing</error_handling>
+        </uninstall_function>
 
-  <testing_requirements>
-    <test>Test service start/stop/restart operations</test>
-    <test>Verify container health checks</test>
-    <test>Test log viewing functionality</test>
-    <test>Verify docker-compose.yml generation</test>
-    <test>Test error handling when Docker is not installed</test>
-    <test>Test CLI command integration</test>
-  </testing_requirements>
+        <help_function>
+            <categories>
+                <category name="System Commands">
+                    <command>help - Show this help message</command>
+                    <command>install - Install VPN service</command>
+                    <command>uninstall - Remove VPN service</command>
+                </category>
+                <category name="User Management">
+                    <command>add-user - Add new VPN user</command>
+                    <command>remove-user - Remove existing user</command>
+                    <command>list-users - List all users</command>
+                    <command>show-user - Show user details</command>
+                </category>
+                <category name="Service Control">
+                    <command>start - Start VPN service</command>
+                    <command>stop - Stop VPN service</command>
+                    <command>restart - Restart VPN service</command>
+                    <command>status - Check service status</command>
+                    <command>logs - View service logs</command>
+                </category>
+            </categories>
+        </help_function>
+
+        <backup_function>
+            <archive_format>tar.gz</archive_format>
+            <naming_convention>vless_backup_YYYYMMDD_HHMMSS.tar.gz</naming_convention>
+            <content>
+                <directory>config/</directory>
+                <directory>data/</directory>
+                <file>.env</file>
+                <file>docker-compose.yml</file>
+            </content>
+            <location>Current directory or /tmp/</location>
+        </backup_function>
+    </technical_details>
+
+    <testing_requirements>
+        <test_file>test_service_functions.sh</test_file>
+        <test_cases>
+            <test>Test help command output</test>
+            <test>Test backup creation</test>
+            <test>Test uninstall with confirmation</test>
+            <test>Test uninstall without backup</test>
+            <test>Test uninstall with backup</test>
+            <test>Test cleanup of all components</test>
+        </test_cases>
+    </testing_requirements>
+
+    <risks_and_mitigations>
+        <risk>
+            <description>Accidental data loss during uninstall</description>
+            <mitigation>Mandatory confirmation prompt and optional backup</mitigation>
+        </risk>
+        <risk>
+            <description>Incomplete cleanup leaving orphaned resources</description>
+            <mitigation>Comprehensive cleanup with error tolerance</mitigation>
+        </risk>
+    </risks_and_mitigations>
+
+    <success_criteria>
+        <criterion>All service functions working correctly</criterion>
+        <criterion>Help command provides clear guidance</criterion>
+        <criterion>Uninstall removes all components cleanly</criterion>
+        <criterion>Backup preserves all critical data</criterion>
+        <criterion>Tests pass successfully</criterion>
+        <criterion>Documentation updated</criterion>
+    </success_criteria>
 </analysis>

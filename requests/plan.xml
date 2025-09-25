@@ -1,557 +1,136 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<implementation_plan>
-  <project>
-    <name>VLESS+Reality VPN - Stage 4: Docker Integration</name>
-    <date>2025-09-25</date>
-    <stage>4</stage>
-    <version>1.0.0</version>
-  </project>
+<plan>
+    <metadata>
+        <stage>Stage 5: Service Functions</stage>
+        <created>2025-01-25T14:35:00Z</created>
+        <priority>High</priority>
+    </metadata>
 
-  <overview>
-    <description>
-      Stage 4 focuses on implementing Docker service management capabilities for the VLESS+Reality VPN project.
-      This includes adding service control functions, CLI command integration, and automated Docker Compose orchestration.
-      The implementation builds upon existing infrastructure from Stages 1-3 and integrates seamlessly with the current architecture.
-    </description>
-    <objectives>
-      <objective>Enable Docker service lifecycle management (start/stop/restart)</objective>
-      <objective>Implement container health monitoring and status reporting</objective>
-      <objective>Add service log viewing capabilities</objective>
-      <objective>Integrate Docker Compose configuration into installation process</objective>
-      <objective>Extend CLI interface with service management commands</objective>
-      <objective>Ensure proper error handling and recovery mechanisms</objective>
-    </objectives>
-  </overview>
+    <tasks>
+        <task id="1" priority="1">
+            <name>Implement show_help function</name>
+            <description>Create comprehensive help display</description>
+            <location>vless-manager.sh</location>
+            <position>After parse_arguments function</position>
+            <implementation>
+                <step>Create show_help() function</step>
+                <step>Group commands by category</step>
+                <step>Add descriptions and examples</step>
+                <step>Use colored output</step>
+            </implementation>
+        </task>
 
-  <current_state>
-    <completed>
-      <item>Docker and Docker Compose installation functions implemented</item>
-      <item>create_docker_compose() function exists but not integrated into installation</item>
-      <item>Environment configuration generation working</item>
-      <item>Server configuration and user management complete</item>
-      <item>Comprehensive CLI structure with argument parsing</item>
-      <item>Error handling framework and logging system</item>
-    </completed>
-    <integration_points>
-      <point>install_service() function - needs Docker Compose integration</point>
-      <point>main() function case statement - needs new service commands</point>
-      <point>show_help() function - needs service command documentation</point>
-      <point>parse_arguments() function - needs validation for service commands</point>
-    </integration_points>
-  </current_state>
+        <task id="2" priority="2">
+            <name>Implement backup_service function</name>
+            <description>Create backup archive functionality</description>
+            <location>vless-manager.sh</location>
+            <position>After service management functions</position>
+            <implementation>
+                <step>Create backup_service() function</step>
+                <step>Generate timestamped archive name</step>
+                <step>Check for required files/directories</step>
+                <step>Create tar.gz archive</step>
+                <step>Report backup location and size</step>
+            </implementation>
+        </task>
 
-  <implementation_steps>
+        <task id="3" priority="3">
+            <name>Implement uninstall_service function</name>
+            <description>Complete service removal with safety checks</description>
+            <location>vless-manager.sh</location>
+            <position>After backup_service function</position>
+            <implementation>
+                <step>Create uninstall_service() function</step>
+                <step>Add confirmation prompt</step>
+                <step>Offer backup option</step>
+                <step>Stop and remove container</step>
+                <step>Remove Docker image</step>
+                <step>Delete project directories</step>
+                <step>Clean up configuration files</step>
+            </implementation>
+        </task>
 
-    <step id="1">
-      <title>Docker Service Utility Functions</title>
-      <priority>high</priority>
-      <dependencies>none</dependencies>
-      <description>Implement core Docker service utility functions before main service management functions</description>
-      <functions>
-        <function>
-          <name>check_docker_available</name>
-          <purpose>Verify Docker daemon is running and accessible</purpose>
-          <implementation>
-            <detail>Check if docker command exists and is executable</detail>
-            <detail>Test docker ps command to verify daemon connectivity</detail>
-            <detail>Check if user has proper Docker permissions</detail>
-            <detail>Return appropriate error codes for different failure scenarios</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>check_docker_compose_available</name>
-          <purpose>Verify Docker Compose is installed and functional</purpose>
-          <implementation>
-            <detail>Check if docker compose command exists (plugin version)</detail>
-            <detail>Test basic docker compose version command</detail>
-            <detail>Verify compose file exists in project directory</detail>
-            <detail>Return descriptive error messages for troubleshooting</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>get_container_id</name>
-          <purpose>Retrieve Xray container ID for direct Docker operations</purpose>
-          <implementation>
-            <detail>Use docker compose ps command to get container info</detail>
-            <detail>Parse output to extract container ID</detail>
-            <detail>Handle cases where container doesn't exist</detail>
-            <detail>Return empty string if container not found</detail>
-          </implementation>
-        </function>
-      </functions>
-      <code_location>Insert after line 81 (after trap setup)</code_location>
-      <testing>
-        <test>Test when Docker is not installed</test>
-        <test>Test when Docker daemon is not running</test>
-        <test>Test when user lacks Docker permissions</test>
-        <test>Test when compose file doesn't exist</test>
-      </testing>
-    </step>
+        <task id="4" priority="4">
+            <name>Update main function</name>
+            <description>Add help and uninstall command handlers</description>
+            <location>vless-manager.sh main()</location>
+            <implementation>
+                <step>Add "help" case handler</step>
+                <step>Add "uninstall" case handler</step>
+                <step>Update default case to show help</step>
+            </implementation>
+        </task>
 
-    <step id="2">
-      <title>Core Service Management Functions</title>
-      <priority>high</priority>
-      <dependencies>step 1</dependencies>
-      <description>Implement the main Docker service management functions</description>
-      <functions>
-        <function>
-          <name>start_service</name>
-          <purpose>Start the Xray container using Docker Compose</purpose>
-          <implementation>
-            <detail>Check Docker availability using utility functions</detail>
-            <detail>Validate docker-compose.yml exists and is readable</detail>
-            <detail>Execute docker compose up -d with proper error capture</detail>
-            <detail>Wait for container to be healthy (with timeout)</detail>
-            <detail>Verify service is listening on port 443</detail>
-            <detail>Log success/failure with descriptive messages</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>stop_service</name>
-          <purpose>Stop the Xray container gracefully</purpose>
-          <implementation>
-            <detail>Check if container is currently running</detail>
-            <detail>Execute docker compose down with timeout</detail>
-            <detail>Verify container has stopped completely</detail>
-            <detail>Handle cases where container is already stopped</detail>
-            <detail>Clean up any orphaned containers</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>restart_service</name>
-          <purpose>Restart the Xray container</purpose>
-          <implementation>
-            <detail>Use docker compose restart for graceful restart</detail>
-            <detail>Alternative: stop_service followed by start_service</detail>
-            <detail>Verify service comes back online after restart</detail>
-            <detail>Maintain user connections if possible</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>check_service_status</name>
-          <purpose>Get comprehensive service status information</purpose>
-          <implementation>
-            <detail>Check container existence and state</detail>
-            <detail>Get container uptime and health status</detail>
-            <detail>Verify port binding and network connectivity</detail>
-            <detail>Check Docker Compose service status</detail>
-            <detail>Return structured status information</detail>
-          </implementation>
-        </function>
-      </functions>
-      <code_location>Insert before user management functions (around line 850)</code_location>
-      <error_handling>
-        <scenario>Docker daemon not running</scenario>
-        <response>Provide clear error message and suggest starting Docker</response>
-        <scenario>Compose file missing or invalid</scenario>
-        <response>Check file existence and suggest reinstallation</response>
-        <scenario>Port 443 already in use</scenario>
-        <response>Identify conflicting process and suggest resolution</response>
-        <scenario>Container fails to start</scenario>
-        <response>Display container logs and common troubleshooting steps</response>
-      </error_handling>
-    </step>
+        <task id="5" priority="5">
+            <name>Create test file</name>
+            <description>Comprehensive tests for service functions</description>
+            <location>tests/test_service_functions.sh</location>
+            <implementation>
+                <step>Create test file structure</step>
+                <step>Add help command tests</step>
+                <step>Add backup function tests</step>
+                <step>Add uninstall function tests</step>
+                <step>Mock dangerous operations</step>
+            </implementation>
+        </task>
 
-    <step id="3">
-      <title>Container Health and Monitoring Functions</title>
-      <priority>medium</priority>
-      <dependencies>step 2</dependencies>
-      <description>Implement advanced container monitoring and health checking</description>
-      <functions>
-        <function>
-          <name>container_health_check</name>
-          <purpose>Perform detailed container health assessment</purpose>
-          <implementation>
-            <detail>Check Docker health check status if configured</detail>
-            <detail>Test network connectivity to container port</detail>
-            <detail>Verify Xray is responding to connections</detail>
-            <detail>Check container resource usage (CPU/Memory)</detail>
-            <detail>Return health score and detailed diagnostics</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>view_service_logs</name>
-          <purpose>Display container logs with filtering and formatting</purpose>
-          <implementation>
-            <detail>Use docker compose logs command with options</detail>
-            <detail>Implement log filtering by time range</detail>
-            <detail>Add color coding for different log levels</detail>
-            <detail>Limit output to recent entries (default 50 lines)</detail>
-            <detail>Support follow mode for real-time monitoring</detail>
-          </implementation>
-        </function>
-        <function>
-          <name>get_service_metrics</name>
-          <purpose>Collect basic service metrics and statistics</purpose>
-          <implementation>
-            <detail>Get container uptime and restart count</detail>
-            <detail>Collect network statistics (connections, traffic)</detail>
-            <detail>Monitor resource usage over time</detail>
-            <detail>Track any container errors or warnings</detail>
-          </implementation>
-        </function>
-      </functions>
-      <code_location>Insert after core service functions</code_location>
-    </step>
+        <task id="6" priority="6">
+            <name>Update existing tests</name>
+            <description>Add service function tests to run_all_tests.sh</description>
+            <location>tests/run_all_tests.sh</location>
+            <implementation>
+                <step>Register test_service_functions.sh</step>
+                <step>Update test count</step>
+            </implementation>
+        </task>
 
-    <step id="4">
-      <title>CLI Command Integration</title>
-      <priority>high</priority>
-      <dependencies>step 2</dependencies>
-      <description>Extend CLI interface with new service management commands</description>
-      <modifications>
-        <modification>
-          <file>vless-manager.sh</file>
-          <function>main()</function>
-          <location>lines 2464-2496</location>
-          <changes>
-            <change>Add "start" command case</change>
-            <change>Add "stop" command case</change>
-            <change>Add "restart" command case</change>
-            <change>Add "status" command case</change>
-            <change>Add "logs" command case</change>
-            <change>Ensure all service commands check root privileges</change>
-          </changes>
-        </modification>
-        <modification>
-          <file>vless-manager.sh</file>
-          <function>parse_arguments()</function>
-          <location>lines 2242-2296</location>
-          <changes>
-            <change>Add validation for service management commands</change>
-            <change>Handle optional parameters for logs command (follow, lines)</change>
-            <change>Validate command combinations and conflicts</change>
-          </changes>
-        </modification>
-        <modification>
-          <file>vless-manager.sh</file>
-          <function>show_help()</function>
-          <location>lines 2179-2238</location>
-          <changes>
-            <change>Add SERVICE MANAGEMENT COMMANDS section</change>
-            <change>Document all new commands with usage examples</change>
-            <change>Update command examples with service operations</change>
-          </changes>
-        </modification>
-      </modifications>
-      <new_commands>
-        <command>
-          <name>start</name>
-          <syntax>./vless-manager.sh start</syntax>
-          <description>Start the VPN service container</description>
-          <requires_root>yes</requires_root>
-        </command>
-        <command>
-          <name>stop</name>
-          <syntax>./vless-manager.sh stop</syntax>
-          <description>Stop the VPN service container</description>
-          <requires_root>yes</requires_root>
-        </command>
-        <command>
-          <name>restart</name>
-          <syntax>./vless-manager.sh restart</syntax>
-          <description>Restart the VPN service container</description>
-          <requires_root>yes</requires_root>
-        </command>
-        <command>
-          <name>status</name>
-          <syntax>./vless-manager.sh status</syntax>
-          <description>Show detailed service status and health</description>
-          <requires_root>yes</requires_root>
-        </command>
-        <command>
-          <name>logs</name>
-          <syntax>./vless-manager.sh logs [--follow] [--lines N]</syntax>
-          <description>View service logs with optional parameters</description>
-          <requires_root>yes</requires_root>
-        </command>
-      </new_commands>
-    </step>
+        <task id="7" priority="7">
+            <name>Execute tests</name>
+            <description>Run all tests to verify implementation</description>
+            <implementation>
+                <step>Run test_service_functions.sh</step>
+                <step>Run full test suite</step>
+                <step>Fix any failures</step>
+            </implementation>
+        </task>
 
-    <step id="5">
-      <title>Docker Compose Integration Fix</title>
-      <priority>high</priority>
-      <dependencies>none</dependencies>
-      <description>Fix the installation process to properly call create_docker_compose()</description>
-      <issue>
-        <description>The create_docker_compose() function exists but is called during installation, but the docker-compose.yml file is not being used by service management</description>
-        <root_cause>Installation process calls create_docker_compose() but service functions don't verify compose file exists</root_cause>
-      </issue>
-      <modifications>
-        <modification>
-          <file>vless-manager.sh</file>
-          <function>install_service()</function>
-          <location>lines 2392-2398</location>
-          <changes>
-            <change>Verify create_docker_compose() is called and succeeds</change>
-            <change>Add verification that docker-compose.yml was created</change>
-            <change>Test basic docker compose config validation</change>
-            <change>Update success message to include Docker Compose status</change>
-          </changes>
-        </modification>
-        <modification>
-          <file>vless-manager.sh</file>
-          <function>create_docker_compose()</function>
-          <location>lines 725-790</location>
-          <changes>
-            <change>Add validation of generated docker-compose.yml syntax</change>
-            <change>Ensure proper file permissions (644) are set</change>
-            <change>Add success logging with file path</change>
-            <change>Verify all required Docker volumes/directories exist</change>
-          </changes>
-        </modification>
-      </modifications>
-    </step>
+        <task id="8" priority="8">
+            <name>Update documentation</name>
+            <description>Update project documentation</description>
+            <implementation>
+                <step>Update CLAUDE.md with new functions</step>
+                <step>Update README.md with uninstall instructions</step>
+                <step>Mark Stage 5 as completed in PLAN.md</step>
+            </implementation>
+        </task>
+    </tasks>
 
-    <step id="6">
-      <title>Enhanced Error Handling and Recovery</title>
-      <priority>medium</priority>
-      <dependencies>step 2, 4</dependencies>
-      <description>Implement comprehensive error handling and recovery mechanisms</description>
-      <error_scenarios>
-        <scenario>
-          <name>Docker daemon not running</name>
-          <detection>check_docker_available() returns false</detection>
-          <response>Provide systemctl commands to start Docker</response>
-          <recovery>Offer to attempt starting Docker service automatically</recovery>
-        </scenario>
-        <scenario>
-          <name>Container port conflict</name>
-          <detection>docker compose up fails with port binding error</detection>
-          <response>Identify process using port 443</response>
-          <recovery>Suggest alternative port or stopping conflicting service</recovery>
-        </scenario>
-        <scenario>
-          <name>Missing or corrupt configuration</name>
-          <detection>Config file validation fails</detection>
-          <response>Backup existing config and regenerate</response>
-          <recovery>Automatic config regeneration with user confirmation</recovery>
-        </scenario>
-        <scenario>
-          <name>Container fails to start</name>
-          <detection>Container exits immediately or fails health check</detection>
-          <response>Display recent container logs</response>
-          <recovery>Offer config validation and regeneration</recovery>
-        </scenario>
-      </error_scenarios>
-      <implementation>
-        <function>
-          <name>diagnose_service_issues</name>
-          <purpose>Automatically diagnose common service problems</purpose>
-          <checks>
-            <check>Docker daemon status</check>
-            <check>Port availability</check>
-            <check>Configuration file validity</check>
-            <check>Container logs for errors</check>
-            <check>Network connectivity</check>
-          </checks>
-        </function>
-        <function>
-          <name>attempt_service_recovery</name>
-          <purpose>Try automatic recovery for common issues</purpose>
-          <actions>
-            <action>Restart Docker daemon if stopped</action>
-            <action>Kill conflicting processes on port 443</action>
-            <action>Regenerate corrupted configuration files</action>
-            <action>Clean up orphaned containers</action>
-          </actions>
-        </function>
-      </implementation>
-    </step>
+    <code_locations>
+        <location>
+            <file>vless-manager.sh</file>
+            <line_after>2948</line_after>
+            <description>Add show_help, backup_service, uninstall_service functions</description>
+        </location>
+        <location>
+            <file>vless-manager.sh</file>
+            <line>2957</line>
+            <description>Update main() function with new commands</description>
+        </location>
+    </code_locations>
 
-    <step id="7">
-      <title>Advanced Service Features</title>
-      <priority>low</priority>
-      <dependencies>step 3</dependencies>
-      <description>Implement advanced service features for better user experience</description>
-      <features>
-        <feature>
-          <name>Service Auto-Start</name>
-          <description>Configure container to auto-start on system boot</description>
-          <implementation>Docker restart policy: unless-stopped</implementation>
-        </feature>
-        <feature>
-          <name>Configuration Hot Reload</name>
-          <description>Reload configuration without stopping service</description>
-          <implementation>Send SIGHUP to container or restart gracefully</implementation>
-        </feature>
-        <feature>
-          <name>Service Monitoring Dashboard</name>
-          <description>Real-time status display with auto-refresh</description>
-          <implementation>Interactive status command with watch mode</implementation>
-        </feature>
-        <feature>
-          <name>Backup and Restore</name>
-          <description>Backup service state and restore functionality</description>
-          <implementation>Export/import configuration and user data</implementation>
-        </feature>
-      </features>
-    </step>
+    <estimated_time>2 hours</estimated_time>
 
-  </implementation_steps>
+    <dependencies>
+        <dependency>Existing Docker functions</dependency>
+        <dependency>Logging functions</dependency>
+        <dependency>Color output functions</dependency>
+    </dependencies>
 
-  <testing_strategy>
-    <unit_tests>
-      <test_file>tests/test_docker_integration.sh</test_file>
-      <test_categories>
-        <category>
-          <name>Docker Utility Functions</name>
-          <tests>
-            <test>test_check_docker_available</test>
-            <test>test_check_docker_compose_available</test>
-            <test>test_get_container_id</test>
-          </tests>
-        </category>
-        <category>
-          <name>Service Management Functions</name>
-          <tests>
-            <test>test_start_service</test>
-            <test>test_stop_service</test>
-            <test>test_restart_service</test>
-            <test>test_check_service_status</test>
-          </tests>
-        </category>
-        <category>
-          <name>Error Handling</name>
-          <tests>
-            <test>test_service_with_docker_down</test>
-            <test>test_service_with_missing_compose</test>
-            <test>test_service_with_port_conflict</test>
-          </tests>
-        </category>
-      </test_categories>
-    </unit_tests>
-    <integration_tests>
-      <test_file>tests/test_service_integration.sh</test_file>
-      <scenarios>
-        <scenario>Full service lifecycle (install -> start -> stop)</scenario>
-        <scenario>Service restart with active users</scenario>
-        <scenario>Recovery from container failure</scenario>
-        <scenario>CLI command integration testing</scenario>
-      </scenarios>
-    </integration_tests>
-    <test_execution>
-      <setup>Mock Docker commands to avoid actual container operations</setup>
-      <isolation>Each test should clean up Docker containers and files</isolation>
-      <validation>Verify all service states and file changes</validation>
-      <reporting>Generate detailed test reports with coverage info</reporting>
-    </test_execution>
-  </testing_strategy>
-
-  <code_modifications>
-    <file_changes>
-      <file>
-        <name>vless-manager.sh</name>
-        <sections>
-          <section>
-            <name>Docker Utility Functions</name>
-            <location>After line 81</location>
-            <estimated_lines>60</estimated_lines>
-            <functions>check_docker_available, check_docker_compose_available, get_container_id</functions>
-          </section>
-          <section>
-            <name>Service Management Functions</name>
-            <location>Before line 850</location>
-            <estimated_lines>200</estimated_lines>
-            <functions>start_service, stop_service, restart_service, check_service_status</functions>
-          </section>
-          <section>
-            <name>Monitoring Functions</name>
-            <location>After Service Management</location>
-            <estimated_lines>120</estimated_lines>
-            <functions>container_health_check, view_service_logs, get_service_metrics</functions>
-          </section>
-          <section>
-            <name>CLI Integration</name>
-            <location>Multiple locations</location>
-            <estimated_lines>50</estimated_lines>
-            <functions>main(), parse_arguments(), show_help() updates</functions>
-          </section>
-        </sections>
-      </file>
-    </file_changes>
-    <new_files>
-      <file>
-        <name>tests/test_docker_integration.sh</name>
-        <purpose>Unit tests for Docker service functions</purpose>
-        <estimated_lines>300</estimated_lines>
-      </file>
-      <file>
-        <name>tests/test_service_integration.sh</name>
-        <purpose>Integration tests for service management</purpose>
-        <estimated_lines>200</estimated_lines>
-      </file>
-    </new_files>
-  </code_modifications>
-
-  <security_considerations>
-    <docker_security>
-      <consideration>Ensure Docker socket access is properly restricted</consideration>
-      <consideration>Run containers with minimal privileges</consideration>
-      <consideration>Mount configuration files as read-only</consideration>
-      <consideration>Use official Docker images only</consideration>
-    </docker_security>
-    <service_security>
-      <consideration>All service commands require root/sudo privileges</consideration>
-      <consideration>Validate all user input for Docker commands</consideration>
-      <consideration>Sanitize log output to prevent information disclosure</consideration>
-      <consideration>Secure container network configuration</consideration>
-    </service_security>
-  </security_considerations>
-
-  <deployment_considerations>
-    <compatibility>
-      <requirement>Docker CE 20.10+</requirement>
-      <requirement>Docker Compose plugin v2.0+</requirement>
-      <requirement>Linux kernel 3.10+</requirement>
-      <requirement>systemd for service management</requirement>
-    </compatibility>
-    <resource_requirements>
-      <cpu>Minimal - service management is lightweight</cpu>
-      <memory>Additional 50MB for Docker operations</memory>
-      <storage>Log files may grow - implement rotation</storage>
-      <network>Port 443 must remain available</network>
-    </resource_requirements>
-  </deployment_considerations>
-
-  <rollback_plan>
-    <scenarios>
-      <scenario>
-        <trigger>Service functions break existing functionality</trigger>
-        <action>Disable new commands, revert to Stage 3 state</action>
-      </scenario>
-      <scenario>
-        <trigger>Docker integration causes system instability</trigger>
-        <action>Remove Docker service management, keep manual control</action>
-      </scenario>
-    </scenarios>
-    <backup_strategy>
-      <item>Backup original vless-manager.sh before modifications</item>
-      <item>Version control all changes with descriptive commits</item>
-      <item>Test rollback procedures in isolated environment</item>
-    </backup_strategy>
-  </rollback_plan>
-
-  <success_criteria>
-    <functional>
-      <criterion>All service management commands work correctly</criterion>
-      <criterion>Container starts and stops reliably</criterion>
-      <criterion>Service status reporting is accurate</criterion>
-      <criterion>Log viewing functions properly</criterion>
-      <criterion>Error handling provides helpful feedback</criterion>
-    </functional>
-    <technical>
-      <criterion>All unit tests pass with >90% coverage</criterion>
-      <criterion>Integration tests cover all service scenarios</criterion>
-      <criterion>Performance impact is minimal</criterion>
-      <criterion>Memory usage remains within acceptable limits</criterion>
-    </technical>
-    <usability>
-      <criterion>CLI commands are intuitive and consistent</criterion>
-      <criterion>Error messages are clear and actionable</criterion>
-      <criterion>Help documentation is comprehensive</criterion>
-      <criterion>Service operations complete in reasonable time</criterion>
-    </usability>
-  </success_criteria>
-
-</implementation_plan>
+    <validation>
+        <check>Help command displays all commands correctly</check>
+        <check>Backup creates valid archive</check>
+        <check>Uninstall removes all components</check>
+        <check>Tests pass successfully</check>
+        <check>Documentation is complete</check>
+    </validation>
+</plan>

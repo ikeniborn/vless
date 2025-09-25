@@ -2749,6 +2749,9 @@ parse_arguments() {
         "logs")
             return 0
             ;;
+        "uninstall")
+            return 0
+            ;;
         "help"|"-h"|"--help")
             show_help
             exit 0
@@ -2763,6 +2766,7 @@ parse_arguments() {
             echo
             color_echo "yellow" "Available commands:"
             echo "  install                 - Install and configure the service"
+            echo "  uninstall              - Remove VPN service completely"
             echo "  start                   - Start the VPN service"
             echo "  stop                    - Stop the VPN service"
             echo "  restart                 - Restart the VPN service"
@@ -2945,6 +2949,219 @@ install_service() {
 }
 
 #######################################################################################
+# SERVICE FUNCTIONS
+#######################################################################################
+
+# Show help and usage information
+show_help() {
+    local script_name=$(basename "$0")
+
+    echo
+    color_echo "blue" "VLESS+Reality VPN Service Manager"
+    echo "=================================="
+    echo
+    echo "Usage: $script_name [COMMAND] [OPTIONS]"
+    echo
+    color_echo "yellow" "System Commands:"
+    echo "  help                  Show this help message"
+    echo "  install               Install VPN service (requires sudo)"
+    echo "  uninstall             Remove VPN service completely (requires sudo)"
+    echo
+    color_echo "yellow" "User Management:"
+    echo "  add-user USERNAME     Add new VPN user (requires sudo)"
+    echo "  remove-user USERNAME  Remove existing VPN user (requires sudo)"
+    echo "  list-users            List all VPN users (requires sudo)"
+    echo "  show-user USERNAME    Show user configuration and QR code (requires sudo)"
+    echo
+    color_echo "yellow" "Service Control:"
+    echo "  start                 Start VPN service (requires sudo)"
+    echo "  stop                  Stop VPN service (requires sudo)"
+    echo "  restart               Restart VPN service (requires sudo)"
+    echo "  status                Check service status (requires sudo)"
+    echo "  logs [OPTIONS]        View service logs (requires sudo)"
+    echo "    --follow, -f        Follow log output"
+    echo "    --lines N           Show last N lines (default: 50)"
+    echo
+    color_echo "yellow" "Examples:"
+    echo "  sudo $script_name install"
+    echo "  sudo $script_name add-user john_doe"
+    echo "  sudo $script_name status"
+    echo "  sudo $script_name logs --follow"
+    echo
+    color_echo "blue" "Note: Most commands require sudo privileges"
+    echo
+}
+
+# Create backup of service configuration and data
+backup_service() {
+    log_message "INFO" "Creating backup of VPN service..."
+
+    # Set PROJECT_PATH if not set
+    if [[ -z "${PROJECT_PATH:-}" ]]; then
+        PROJECT_PATH="$(pwd)"
+    fi
+
+    # Check if service is installed
+    if [[ ! -f "$PROJECT_PATH/.env" ]]; then
+        log_message "WARNING" "Service not installed, nothing to backup"
+        return 1
+    fi
+
+    # Create timestamp for backup
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local backup_name="vless_backup_${timestamp}.tar.gz"
+    local backup_path="${PROJECT_PATH}/${backup_name}"
+
+    # Create temporary directory for backup
+    local temp_dir=$(mktemp -d)
+    trap "rm -rf $temp_dir" EXIT
+
+    log_message "INFO" "Preparing backup files..."
+
+    # Copy files to backup
+    local files_to_backup=(
+        ".env"
+        "docker-compose.yml"
+    )
+
+    local dirs_to_backup=(
+        "config"
+        "data"
+    )
+
+    # Copy files
+    for file in "${files_to_backup[@]}"; do
+        if [[ -f "$PROJECT_PATH/$file" ]]; then
+            cp "$PROJECT_PATH/$file" "$temp_dir/" 2>/dev/null || true
+        fi
+    done
+
+    # Copy directories
+    for dir in "${dirs_to_backup[@]}"; do
+        if [[ -d "$PROJECT_PATH/$dir" ]]; then
+            cp -r "$PROJECT_PATH/$dir" "$temp_dir/" 2>/dev/null || true
+        fi
+    done
+
+    # Create archive
+    log_message "INFO" "Creating backup archive: $backup_name"
+    tar -czf "$backup_path" -C "$temp_dir" . 2>/dev/null
+
+    if [[ $? -eq 0 ]]; then
+        local backup_size=$(du -h "$backup_path" | cut -f1)
+        log_message "SUCCESS" "Backup created successfully"
+        color_echo "green" "Backup saved to: $backup_path"
+        color_echo "green" "Backup size: $backup_size"
+        echo "$backup_path"
+        return 0
+    else
+        log_message "ERROR" "Failed to create backup archive"
+        return 1
+    fi
+}
+
+# Uninstall VPN service completely
+uninstall_service() {
+    log_message "INFO" "Starting VPN service uninstallation..."
+
+    # Set PROJECT_PATH if not set
+    if [[ -z "${PROJECT_PATH:-}" ]]; then
+        PROJECT_PATH="$(pwd)"
+    fi
+
+    # Check if service is installed
+    if [[ ! -f "$PROJECT_PATH/.env" ]] && [[ ! -f "$PROJECT_PATH/docker-compose.yml" ]]; then
+        log_message "WARNING" "VPN service is not installed"
+        return 1
+    fi
+
+    # Warning message
+    echo
+    color_echo "red" "WARNING: This will completely remove the VPN service!"
+    color_echo "yellow" "The following will be deleted:"
+    echo "  - All user configurations and data"
+    echo "  - Docker containers and images"
+    echo "  - Configuration files and keys"
+    echo "  - Log files"
+    echo
+
+    # Ask for confirmation
+    read -p "Are you sure you want to continue? (type 'yes' to confirm): " confirmation
+    if [[ "$confirmation" != "yes" ]]; then
+        log_message "INFO" "Uninstallation cancelled by user"
+        return 0
+    fi
+
+    # Ask about backup
+    echo
+    read -p "Do you want to create a backup before uninstalling? (y/n): " backup_choice
+    if [[ "$backup_choice" == "y" ]] || [[ "$backup_choice" == "Y" ]]; then
+        log_message "INFO" "Creating backup before uninstall..."
+        backup_service
+        if [[ $? -eq 0 ]]; then
+            log_message "SUCCESS" "Backup created successfully"
+        else
+            log_message "WARNING" "Backup failed, but continuing with uninstall"
+        fi
+    fi
+
+    # Stop and remove Docker container
+    if command -v docker >/dev/null 2>&1; then
+        log_message "INFO" "Stopping and removing Docker containers..."
+
+        # Stop container
+        docker compose -f "$PROJECT_PATH/docker-compose.yml" down 2>/dev/null || \
+        docker-compose -f "$PROJECT_PATH/docker-compose.yml" down 2>/dev/null || true
+
+        # Remove container directly if still exists
+        docker rm -f xray 2>/dev/null || true
+
+        # Remove Docker image
+        log_message "INFO" "Removing Docker images..."
+        docker rmi teddysun/xray:latest 2>/dev/null || true
+    fi
+
+    # Remove project directories and files
+    log_message "INFO" "Removing project files and directories..."
+
+    # Remove directories
+    local dirs_to_remove=(
+        "config"
+        "data"
+        "logs"
+    )
+
+    for dir in "${dirs_to_remove[@]}"; do
+        if [[ -d "$PROJECT_PATH/$dir" ]]; then
+            rm -rf "$PROJECT_PATH/$dir"
+            log_message "INFO" "Removed directory: $dir"
+        fi
+    done
+
+    # Remove files
+    local files_to_remove=(
+        ".env"
+        "docker-compose.yml"
+    )
+
+    for file in "${files_to_remove[@]}"; do
+        if [[ -f "$PROJECT_PATH/$file" ]]; then
+            rm -f "$PROJECT_PATH/$file"
+            log_message "INFO" "Removed file: $file"
+        fi
+    done
+
+    log_message "SUCCESS" "VPN service has been completely uninstalled"
+    color_echo "green" "Uninstallation completed successfully!"
+    echo
+    echo "Note: The main script (vless-manager.sh) has been preserved."
+    echo "You can reinstall the service anytime by running: sudo $0 install"
+    echo
+
+    return 0
+}
+
+#######################################################################################
 # MAIN SCRIPT EXECUTION
 #######################################################################################
 
@@ -3049,10 +3266,29 @@ main() {
 
             view_logs "$lines" "$follow"
             ;;
+        "help"|"--help"|"-h")
+            show_help
+            ;;
+        "uninstall")
+            # Check for root privileges for uninstall
+            if ! check_root; then
+                exit 1
+            fi
+            uninstall_service
+            ;;
+        *)
+            # Show help for unknown commands or no arguments
+            if [[ -n "${1:-}" ]]; then
+                color_echo "red" "Error: Unknown command '$1'"
+                echo
+            fi
+            show_help
+            exit 1
+            ;;
     esac
 }
 
-# Execute main function with all arguments
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# Execute main function with all arguments (unless sourcing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ -z "${SOURCING_MODE:-}" ]]; then
     main "$@"
 fi

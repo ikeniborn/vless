@@ -23,6 +23,7 @@ declare -A TEST_SUITES=(
     ["configuration"]="Configuration Generation Tests"
     ["docker_integration"]="Docker Integration Tests"
     ["user_management"]="User Management Tests"
+    ["service_functions"]="Service Functions Tests"
     ["main"]="Main Integration Tests"
 )
 
@@ -33,6 +34,7 @@ declare -A SUITE_RESULTS=(
     ["configuration"]="PENDING"
     ["docker_integration"]="PENDING"
     ["user_management"]="PENDING"
+    ["service_functions"]="PENDING"
     ["main"]="PENDING"
 )
 
