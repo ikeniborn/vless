@@ -1,145 +1,242 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-  <project>VLESS+Reality VPN Service</project>
-  <stage>Stage 2: Configuration Generation</stage>
-  <date>2025-01-25</date>
+  <project>
+    <name>VLESS+Reality VPN Service</name>
+    <stage>Stage 3: User Management</stage>
+    <date>2025-01-25</date>
+  </project>
+
+  <context>
+    <completed_stages>
+      <stage number="1" name="Basic Infrastructure">
+        <status>Completed</status>
+        <functions>check_root, check_os, check_architecture, check_resources, install_docker, create_directories, create_env_file</functions>
+      </stage>
+      <stage number="2" name="Configuration Generation">
+        <status>Completed</status>
+        <functions>generate_keys, generate_uuid, generate_short_id, create_server_config, create_docker_compose</functions>
+      </stage>
+    </completed_stages>
+
+    <current_infrastructure>
+      <directories>
+        <dir path="config/" permissions="700">Server configuration storage</dir>
+        <dir path="config/users/" permissions="700">Client configurations</dir>
+        <dir path="data/" permissions="700">User data storage</dir>
+        <dir path="data/keys/" permissions="700">Key storage</dir>
+        <dir path="logs/" permissions="755">Service logs</dir>
+      </directories>
+      <files>
+        <file path="vless-manager.sh" permissions="755">Main management script</file>
+        <file path=".env">Environment configuration</file>
+      </files>
+    </current_infrastructure>
+  </context>
 
   <requirements>
-    <requirement id="1">
-      <description>Generate X25519 key pairs (privateKey/publicKey)</description>
-      <technical_details>
-        <detail>X25519 is an elliptic curve Diffie-Hellman key exchange mechanism</detail>
-        <detail>Keys are 32 bytes (256 bits) long</detail>
-        <detail>Generated using xray x25519 command</detail>
-        <detail>privateKey stays on server, publicKey shared with clients</detail>
-      </technical_details>
-      <implementation>Use docker run with xray image to execute x25519 command</implementation>
-    </requirement>
+    <functional>
+      <requirement id="F1">
+        <name>Add User</name>
+        <description>Add new users to the VPN service</description>
+        <function>add_user()</function>
+        <inputs>username (alphanumeric, underscore, dash)</inputs>
+        <outputs>Client configuration file, success/error message</outputs>
+      </requirement>
+      <requirement id="F2">
+        <name>Remove User</name>
+        <description>Remove existing users from the VPN service</description>
+        <function>remove_user()</function>
+        <inputs>username</inputs>
+        <outputs>Success/error message</outputs>
+      </requirement>
+      <requirement id="F3">
+        <name>List Users</name>
+        <description>Display list of all active users</description>
+        <function>list_users()</function>
+        <inputs>None</inputs>
+        <outputs>Formatted user list with status</outputs>
+      </requirement>
+      <requirement id="F4">
+        <name>Generate Client Config</name>
+        <description>Create client configuration for user</description>
+        <function>generate_client_config()</function>
+        <inputs>username, uuid, server_ip, port, public_key, shortId</inputs>
+        <outputs>VLESS connection string and JSON config</outputs>
+      </requirement>
+    </functional>
 
-    <requirement id="2">
-      <description>Generate UUID for users</description>
-      <technical_details>
-        <detail>UUID v4 format required (e.g., 550e8400-e29b-41d4-a716-446655440000)</detail>
-        <detail>Unique identifier for each VLESS user</detail>
-        <detail>Stored in users.db file</detail>
-      </technical_details>
-      <implementation>Use uuidgen command or /proc/sys/kernel/random/uuid</implementation>
-    </requirement>
+    <technical>
+      <requirement id="T1">
+        <name>User Database</name>
+        <format>username:uuid:shortId:created_date:status</format>
+        <location>data/users.db</location>
+        <permissions>600</permissions>
+      </requirement>
+      <requirement id="T2">
+        <name>Server Config Update</name>
+        <description>Update server.json clients array when adding/removing users</description>
+        <method>JSON manipulation with jq or sed</method>
+      </requirement>
+      <requirement id="T3">
+        <name>Docker Service Reload</name>
+        <description>Reload Xray container after configuration changes</description>
+        <command>docker compose restart xray</command>
+      </requirement>
+      <requirement id="T4">
+        <name>Input Validation</name>
+        <description>Validate usernames and check for duplicates</description>
+        <rules>Alphanumeric with underscore and dash, 3-32 characters</rules>
+      </requirement>
+    </technical>
 
-    <requirement id="3">
-      <description>Generate shortIds for REALITY</description>
-      <technical_details>
-        <detail>Characters: 0-9 and a-f (hexadecimal)</detail>
-        <detail>Length: multiple of 2, maximum 16 characters</detail>
-        <detail>Can include empty shortId</detail>
-        <detail>Used to distinguish different clients</detail>
-      </technical_details>
-      <implementation>Generate random hex strings using /dev/urandom</implementation>
-    </requirement>
-
-    <requirement id="4">
-      <description>Create Xray server configuration</description>
-      <technical_details>
-        <detail>JSON format at config/server.json</detail>
-        <detail>VLESS protocol with REALITY transport</detail>
-        <detail>Minimal logging (warning level)</detail>
-        <detail>Port 443 for VLESS+Reality</detail>
-        <detail>Destination: speed.cloudflare.com:443</detail>
-      </technical_details>
-      <implementation>Generate JSON config with dynamic values from previous steps</implementation>
-    </requirement>
-
-    <requirement id="5">
-      <description>Create Docker Compose configuration</description>
-      <technical_details>
-        <detail>Image: teddysun/xray:latest</detail>
-        <detail>Port mapping: 443:443</detail>
-        <detail>Volume mounts: config, logs, data</detail>
-        <detail>Restart policy: unless-stopped</detail>
-      </technical_details>
-      <implementation>Generate docker-compose.yml with proper structure</implementation>
-    </requirement>
+    <security>
+      <requirement id="S1">
+        <name>File Permissions</name>
+        <description>Ensure proper permissions for sensitive files</description>
+        <details>users.db (600), client configs (600), directories (700)</details>
+      </requirement>
+      <requirement id="S2">
+        <name>Input Sanitization</name>
+        <description>Sanitize user inputs to prevent injection attacks</description>
+      </requirement>
+      <requirement id="S3">
+        <name>Unique Identifiers</name>
+        <description>Generate unique UUID and shortId for each user</description>
+      </requirement>
+    </security>
   </requirements>
 
-  <functions_to_implement>
-    <function name="generate_keys">
-      <purpose>Generate X25519 key pair for REALITY transport</purpose>
-      <inputs>None</inputs>
-      <outputs>privateKey and publicKey stored in data/keys/</outputs>
-      <error_handling>Check Docker availability, handle generation failures</error_handling>
-    </function>
+  <implementation_details>
+    <user_management>
+      <add_user_flow>
+        <step number="1">Validate username format and uniqueness</step>
+        <step number="2">Generate UUID using generate_uuid()</step>
+        <step number="3">Generate shortId using generate_short_id()</step>
+        <step number="4">Add user to users.db</step>
+        <step number="5">Update server.json with new client</step>
+        <step number="6">Generate client configuration</step>
+        <step number="7">Save client config to config/users/</step>
+        <step number="8">Restart Docker container</step>
+        <step number="9">Display connection information</step>
+      </add_user_flow>
 
-    <function name="generate_uuid">
-      <purpose>Create UUID v4 for user identification</purpose>
-      <inputs>None</inputs>
-      <outputs>UUID string in standard format</outputs>
-      <error_handling>Fallback to /dev/urandom if uuidgen unavailable</error_handling>
-    </function>
+      <remove_user_flow>
+        <step number="1">Validate username exists</step>
+        <step number="2">Remove from users.db</step>
+        <step number="3">Update server.json (remove client)</step>
+        <step number="4">Delete client configuration file</step>
+        <step number="5">Restart Docker container</step>
+        <step number="6">Confirm removal</step>
+      </remove_user_flow>
 
-    <function name="generate_short_id">
-      <purpose>Generate random hexadecimal shortId</purpose>
-      <inputs>Length (optional, default 8)</inputs>
-      <outputs>Hexadecimal string of specified length</outputs>
-      <error_handling>Validate length is even and <= 16</error_handling>
-    </function>
+      <list_users_flow>
+        <step number="1">Read users.db file</step>
+        <step number="2">Parse user records</step>
+        <step number="3">Format output table</step>
+        <step number="4">Display with color coding</step>
+      </list_users_flow>
+    </user_management>
 
-    <function name="create_server_config">
-      <purpose>Generate Xray server JSON configuration</purpose>
-      <inputs>privateKey, shortIds array</inputs>
-      <outputs>config/server.json file</outputs>
-      <error_handling>Validate JSON format, check file permissions</error_handling>
-    </function>
+    <data_structures>
+      <user_record>
+        <field name="username" type="string" validation="^[a-zA-Z0-9_-]{3,32}$"/>
+        <field name="uuid" type="string" format="UUID v4"/>
+        <field name="shortId" type="string" format="8-16 hex characters"/>
+        <field name="created_date" type="string" format="YYYY-MM-DD"/>
+        <field name="status" type="string" values="active|suspended|deleted"/>
+      </user_record>
 
-    <function name="create_docker_compose">
-      <purpose>Generate Docker Compose configuration</purpose>
-      <inputs>Environment variables from .env</inputs>
-      <outputs>docker-compose.yml file</outputs>
-      <error_handling>Validate YAML format, check port availability</error_handling>
-    </function>
-  </functions_to_implement>
+      <client_config>
+        <field name="address" type="string" description="Server IP or domain"/>
+        <field name="port" type="integer" default="443"/>
+        <field name="uuid" type="string" description="User UUID"/>
+        <field name="flow" type="string" value="xtls-rprx-vision"/>
+        <field name="encryption" type="string" value="none"/>
+        <field name="network" type="string" value="tcp"/>
+        <field name="security" type="string" value="reality"/>
+        <field name="sni" type="string" value="speed.cloudflare.com"/>
+        <field name="fp" type="string" value="chrome"/>
+        <field name="pbk" type="string" description="Public key"/>
+        <field name="sid" type="string" description="Short ID"/>
+      </client_config>
+    </data_structures>
 
-  <integration_points>
-    <integration>
-      <location>install command in vless-manager.sh</location>
-      <description>Call configuration functions after directory creation</description>
-      <order>After create_directories(), before completion message</order>
-    </integration>
-
-    <integration>
-      <location>Environment variables</location>
-      <description>Use existing .env file for configuration values</description>
-      <variables>PROJECT_PATH, SERVER_IP, XRAY_PORT, LOG_LEVEL</variables>
-    </integration>
-  </integration_points>
-
-  <security_considerations>
-    <consideration>Store keys with 600 permissions in data/keys/</consideration>
-    <consideration>Config files accessible only by root (600 permissions)</consideration>
-    <consideration>No hardcoded secrets in scripts</consideration>
-    <consideration>Validate all user inputs</consideration>
-    <consideration>Use secure random generation for keys and IDs</consideration>
-  </security_considerations>
+    <integration_points>
+      <point id="I1">
+        <name>Server Configuration</name>
+        <file>config/server.json</file>
+        <modification>Update inbounds[0].settings.clients array</modification>
+      </point>
+      <point id="I2">
+        <name>Docker Compose</name>
+        <file>docker-compose.yml</file>
+        <modification>No changes needed, uses volume mount</modification>
+      </point>
+      <point id="I3">
+        <name>Environment Variables</name>
+        <file>.env</file>
+        <usage>Read SERVER_IP, XRAY_PORT for client config</usage>
+      </point>
+    </integration_points>
+  </implementation_details>
 
   <testing_requirements>
-    <test>Unit test for each generation function</test>
-    <test>Validate JSON configuration format</test>
-    <test>Check file permissions after creation</test>
-    <test>Test error handling for missing dependencies</test>
-    <test>Integration test for full configuration flow</test>
+    <unit_tests>
+      <test name="test_add_user">Validate user addition with various inputs</test>
+      <test name="test_remove_user">Validate user removal and cleanup</test>
+      <test name="test_list_users">Validate user listing format</test>
+      <test name="test_generate_client_config">Validate config generation</test>
+      <test name="test_input_validation">Test username validation rules</test>
+      <test name="test_duplicate_user">Ensure duplicate prevention</test>
+    </unit_tests>
+
+    <integration_tests>
+      <test name="test_server_config_update">Verify server.json updates correctly</test>
+      <test name="test_docker_restart">Verify container restart after changes</test>
+      <test name="test_file_permissions">Verify correct permissions set</test>
+    </integration_tests>
   </testing_requirements>
 
-  <dependencies>
-    <dependency>Docker with xray image for key generation</dependency>
-    <dependency>uuidgen or /proc/sys/kernel/random/uuid</dependency>
-    <dependency>/dev/urandom for random generation</dependency>
-    <dependency>jq for JSON manipulation (optional)</dependency>
-  </dependencies>
+  <deliverables>
+    <code>
+      <file path="vless-manager.sh">
+        <functions>add_user, remove_user, list_users, generate_client_config, validate_username, user_exists, update_server_config</functions>
+      </file>
+    </code>
+
+    <tests>
+      <file path="tests/test_user_management.sh">Complete test suite for user management</file>
+    </tests>
+
+    <documentation>
+      <file path="README.md">Update with user management commands</file>
+      <file path="docs/USER_MANAGEMENT.md">Detailed user management guide</file>
+      <file path="CLAUDE.md">Update project memory with implementation status</file>
+    </documentation>
+  </deliverables>
+
+  <risks>
+    <risk level="medium">
+      <description>Server configuration corruption during updates</description>
+      <mitigation>Create backup before modification, validate JSON after update</mitigation>
+    </risk>
+    <risk level="low">
+      <description>Race condition during concurrent user operations</description>
+      <mitigation>Implement file locking mechanism</mitigation>
+    </risk>
+    <risk level="low">
+      <description>Docker container fails to restart</description>
+      <mitigation>Implement rollback mechanism, check container status</mitigation>
+    </risk>
+  </risks>
 
   <success_criteria>
-    <criterion>All configuration files generated correctly</criterion>
-    <criterion>Proper file permissions set</criterion>
-    <criterion>Functions integrated into install workflow</criterion>
-    <criterion>Error handling prevents partial states</criterion>
-    <criterion>All tests passing</criterion>
+    <criterion>All four user management functions implemented and working</criterion>
+    <criterion>User database properly maintained with correct format</criterion>
+    <criterion>Server configuration automatically updated</criterion>
+    <criterion>Client configurations generated with correct VLESS format</criterion>
+    <criterion>Docker container properly reloaded after changes</criterion>
+    <criterion>All tests passing with 100% coverage</criterion>
+    <criterion>Documentation updated and comprehensive</criterion>
   </success_criteria>
 </analysis>

@@ -1,591 +1,749 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <implementation_plan>
-  <project>VLESS+Reality VPN Service</project>
-  <stage>Stage 2: Configuration Generation</stage>
-  <date>2025-01-25</date>
-  <version>1.0</version>
+  <project>
+    <name>VLESS+Reality VPN Service</name>
+    <stage>Stage 3: User Management</stage>
+    <date>2025-01-25</date>
+    <version>1.0.0</version>
+  </project>
 
   <overview>
-    <description>Implement configuration generation functions for VLESS+Reality VPN service</description>
-    <goal>Add cryptographic key generation, UUID creation, and configuration file generation to vless-manager.sh</goal>
-    <integration_point>Insert new functions after environment configuration and before installation completion</integration_point>
-    <dependencies>
-      <dependency>Docker with teddysun/xray image for X25519 key generation</dependency>
-      <dependency>uuidgen utility or /proc/sys/kernel/random/uuid</dependency>
-      <dependency>/dev/urandom for secure random generation</dependency>
-      <dependency>Existing vless-manager.sh infrastructure</dependency>
-    </dependencies>
+    <description>Implementation plan for Stage 3: User Management functionality in the VLESS+Reality VPN project. This stage will add comprehensive user management capabilities including add, remove, list, and client configuration generation for up to 10 concurrent users.</description>
+    <prerequisites>
+      <prerequisite>Stage 1: Basic Infrastructure (Completed)</prerequisite>
+      <prerequisite>Stage 2: Configuration Generation (Completed)</prerequisite>
+      <prerequisite>Docker CE and Docker Compose installed</prerequisite>
+      <prerequisite>Project directory structure established</prerequisite>
+    </prerequisites>
   </overview>
 
   <implementation_tasks>
-
-    <!-- Task 1: X25519 Key Generation Function -->
-    <task id="1" priority="high">
-      <name>implement_generate_keys_function</name>
-      <description>Create generate_keys() function for X25519 key pair generation</description>
-      <location>vless-manager.sh, line ~428 (after create_env_file function)</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add function header with documentation</action>
-          <details>Include purpose, parameters, return values, and error conditions</details>
-        </step>
-        <step order="2">
-          <action>Implement Docker-based key generation</action>
-          <details>Use 'docker run --rm teddysun/xray x25519' command to generate key pair</details>
-        </step>
-        <step order="3">
-          <action>Parse and validate key output</action>
-          <details>Extract privateKey and publicKey from command output using regex</details>
-        </step>
-        <step order="4">
-          <action>Store keys securely</action>
-          <details>Save to data/keys/private.key and data/keys/public.key with 600 permissions</details>
-        </step>
-        <step order="5">
-          <action>Add comprehensive error handling</action>
-          <details>Handle Docker unavailable, image pull failures, parsing errors, file write failures</details>
-        </step>
-        <step order="6">
-          <action>Add logging and status messages</action>
-          <details>Log start, progress, success, and error states with appropriate colors</details>
-        </step>
-      </implementation_steps>
-      <error_handling>
-        <scenario>Docker not available</scenario>
-        <solution>Check docker command existence and daemon status before execution</solution>
-        <scenario>Xray image not found</scenario>
-        <solution>Attempt to pull image, provide fallback instructions</solution>
-        <scenario>Key parsing failure</scenario>
-        <solution>Validate output format, provide detailed error message</solution>
-        <scenario>File write permission denied</scenario>
-        <solution>Verify directory permissions, provide path fix suggestions</solution>
-      </error_handling>
+    <task id="T1" priority="high" estimated_hours="3">
+      <name>User Database Management Functions</name>
+      <description>Implement core user database operations for managing the users.db file</description>
+      <deliverables>
+        <deliverable>init_user_database() function</deliverable>
+        <deliverable>add_user_to_database() function</deliverable>
+        <deliverable>remove_user_from_database() function</deliverable>
+        <deliverable>user_exists() function</deliverable>
+        <deliverable>get_user_info() function</deliverable>
+      </deliverables>
+      <implementation_details>
+        <function name="init_user_database">
+          <signature>init_user_database()</signature>
+          <purpose>Initialize users.db file if it doesn't exist</purpose>
+          <logic>
+            <step>Check if data/users.db exists</step>
+            <step>Create file with proper permissions (600)</step>
+            <step>Add header comment with format specification</step>
+          </logic>
+        </function>
+        <function name="add_user_to_database">
+          <signature>add_user_to_database(username, uuid, short_id)</signature>
+          <purpose>Add new user record to database</purpose>
+          <logic>
+            <step>Validate input parameters</step>
+            <step>Check for duplicate username</step>
+            <step>Create user record: username:uuid:shortId:created_date:active</step>
+            <step>Append to users.db with proper locking</step>
+            <step>Set file permissions to 600</step>
+          </logic>
+        </function>
+        <function name="remove_user_from_database">
+          <signature>remove_user_from_database(username)</signature>
+          <purpose>Remove user record from database</purpose>
+          <logic>
+            <step>Validate username exists</step>
+            <step>Create temporary file</step>
+            <step>Copy all records except target user</step>
+            <step>Replace original file atomically</step>
+            <step>Set proper permissions</step>
+          </logic>
+        </function>
+        <function name="user_exists">
+          <signature>user_exists(username)</signature>
+          <purpose>Check if username already exists</purpose>
+          <returns>0 if exists, 1 if not found</returns>
+        </function>
+        <function name="get_user_info">
+          <signature>get_user_info(username)</signature>
+          <purpose>Retrieve user information from database</purpose>
+          <returns>User record fields as variables</returns>
+        </function>
+      </implementation_details>
+      <integration_points>
+        <point>Uses existing log_message() for consistent logging</point>
+        <point>Uses PROJECT_ROOT constant for file paths</point>
+        <point>Integrates with error handling trap mechanism</point>
+      </integration_points>
       <testing>
-        <unit_test>Test successful key generation with mocked Docker output</unit_test>
-        <unit_test>Test error handling for missing Docker</unit_test>
-        <unit_test>Test error handling for malformed key output</unit_test>
-        <unit_test>Test file permission setting</unit_test>
-        <integration_test>Test with real Docker environment</integration_test>
+        <test>Test database initialization</test>
+        <test>Test user addition with valid data</test>
+        <test>Test duplicate user prevention</test>
+        <test>Test user removal</test>
+        <test>Test user existence check</test>
+        <test>Test file permission enforcement</test>
       </testing>
     </task>
 
-    <!-- Task 2: UUID Generation Function -->
-    <task id="2" priority="medium">
-      <name>implement_generate_uuid_function</name>
-      <description>Create generate_uuid() function for UUID v4 generation</description>
-      <location>vless-manager.sh, line ~480 (after generate_keys function)</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add function header with documentation</action>
-          <details>Include purpose, return format, and fallback mechanisms</details>
-        </step>
-        <step order="2">
-          <action>Implement primary UUID generation method</action>
-          <details>Use 'uuidgen' command if available</details>
-        </step>
-        <step order="3">
-          <action>Implement fallback UUID generation</action>
-          <details>Use /proc/sys/kernel/random/uuid or custom generation from /dev/urandom</details>
-        </step>
-        <step order="4">
-          <action>Validate UUID format</action>
-          <details>Ensure output matches UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx</details>
-        </step>
-        <step order="5">
-          <action>Add error handling and logging</action>
-          <details>Handle all generation method failures, provide informative messages</details>
-        </step>
-      </implementation_steps>
-      <error_handling>
-        <scenario>uuidgen command not found</scenario>
-        <solution>Fall back to /proc/sys/kernel/random/uuid</solution>
-        <scenario>/proc/sys/kernel/random/uuid not available</scenario>
-        <solution>Generate UUID manually using /dev/urandom and proper formatting</solution>
-        <scenario>Invalid UUID format generated</scenario>
-        <solution>Validate format and regenerate if necessary</solution>
-      </error_handling>
+    <task id="T2" priority="high" estimated_hours="2">
+      <name>Input Validation Functions</name>
+      <description>Implement robust input validation for usernames and system checks</description>
+      <deliverables>
+        <deliverable>validate_username() function</deliverable>
+        <deliverable>sanitize_input() function</deliverable>
+        <deliverable>check_user_limit() function</deliverable>
+      </deliverables>
+      <implementation_details>
+        <function name="validate_username">
+          <signature>validate_username(username)</signature>
+          <purpose>Validate username format and constraints</purpose>
+          <validation_rules>
+            <rule>3-32 characters length</rule>
+            <rule>Alphanumeric characters only</rule>
+            <rule>Underscore and dash allowed</rule>
+            <rule>Must start with alphanumeric</rule>
+            <rule>Case insensitive duplicate check</rule>
+          </validation_rules>
+          <regex>^[a-zA-Z0-9][a-zA-Z0-9_-]{2,31}$</regex>
+        </function>
+        <function name="sanitize_input">
+          <signature>sanitize_input(input)</signature>
+          <purpose>Sanitize user input to prevent injection attacks</purpose>
+          <logic>
+            <step>Remove dangerous characters</step>
+            <step>Trim whitespace</step>
+            <step>Escape special characters</step>
+          </logic>
+        </function>
+        <function name="check_user_limit">
+          <signature>check_user_limit()</signature>
+          <purpose>Ensure maximum user count (10) is not exceeded</purpose>
+          <returns>0 if under limit, 1 if at limit</returns>
+        </function>
+      </implementation_details>
       <testing>
-        <unit_test>Test UUID format validation</unit_test>
-        <unit_test>Test fallback mechanisms</unit_test>
-        <unit_test>Test with mocked system conditions</unit_test>
-        <integration_test>Test UUID uniqueness across multiple calls</integration_test>
+        <test>Test valid username formats</test>
+        <test>Test invalid username formats</test>
+        <test>Test username length limits</test>
+        <test>Test special character handling</test>
+        <test>Test user limit enforcement</test>
       </testing>
     </task>
 
-    <!-- Task 3: ShortId Generation Function -->
-    <task id="3" priority="medium">
-      <name>implement_generate_short_id_function</name>
-      <description>Create generate_short_id() function for hexadecimal shortId generation</description>
-      <location>vless-manager.sh, line ~520 (after generate_uuid function)</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add function header with documentation</action>
-          <details>Include purpose, length parameter (optional, default 8), format specification</details>
-        </step>
-        <step order="2">
-          <action>Implement parameter validation</action>
-          <details>Ensure length is even number between 2 and 16</details>
-        </step>
-        <step order="3">
-          <action>Generate random hexadecimal string</action>
-          <details>Use /dev/urandom with hexdump or dd/od to create hex string</details>
-        </step>
-        <step order="4">
-          <action>Format and validate output</action>
-          <details>Ensure lowercase hexadecimal characters only (0-9, a-f)</details>
-        </step>
-        <step order="5">
-          <action>Add error handling and logging</action>
-          <details>Handle /dev/urandom access issues, invalid parameters</details>
-        </step>
-      </implementation_steps>
-      <error_handling>
-        <scenario>Invalid length parameter</scenario>
-        <solution>Validate input, provide usage message, default to 8</solution>
-        <scenario>/dev/urandom access denied</scenario>
-        <solution>Check permissions, suggest running as root</solution>
-        <scenario>Hexadecimal conversion failure</scenario>
-        <solution>Retry generation, provide fallback method</solution>
-      </error_handling>
+    <task id="T3" priority="high" estimated_hours="4">
+      <name>Server Configuration Management</name>
+      <description>Implement functions to update server.json configuration when users are added/removed</description>
+      <deliverables>
+        <deliverable>update_server_config() function</deliverable>
+        <deliverable>add_client_to_server() function</deliverable>
+        <deliverable>remove_client_from_server() function</deliverable>
+        <deliverable>backup_server_config() function</deliverable>
+        <deliverable>validate_server_config() function</deliverable>
+      </deliverables>
+      <implementation_details>
+        <function name="update_server_config">
+          <signature>update_server_config(action, username, uuid, short_id)</signature>
+          <purpose>Main function to update server configuration</purpose>
+          <parameters>
+            <param name="action">add|remove</param>
+            <param name="username">User identifier</param>
+            <param name="uuid">User UUID (for add action)</param>
+            <param name="short_id">User shortId (for add action)</param>
+          </parameters>
+          <logic>
+            <step>Backup current server.json</step>
+            <step>Call appropriate add/remove function</step>
+            <step>Validate updated configuration</step>
+            <step>Restore from backup if validation fails</step>
+          </logic>
+        </function>
+        <function name="add_client_to_server">
+          <signature>add_client_to_server(uuid, short_id)</signature>
+          <purpose>Add new client entry to server.json</purpose>
+          <logic>
+            <step>Read current server.json</step>
+            <step>Create new client object</step>
+            <step>Add to inbounds[0].settings.clients array</step>
+            <step>Write updated configuration</step>
+          </logic>
+          <client_template>
+            {
+              "id": "UUID_HERE",
+              "flow": "xtls-rprx-vision",
+              "shortId": "SHORT_ID_HERE"
+            }
+          </client_template>
+        </function>
+        <function name="remove_client_from_server">
+          <signature>remove_client_from_server(uuid)</signature>
+          <purpose>Remove client entry from server.json</purpose>
+          <logic>
+            <step>Read current server.json</step>
+            <step>Find and remove client with matching UUID</step>
+            <step>Update clients array</step>
+            <step>Write updated configuration</step>
+          </logic>
+        </function>
+        <function name="backup_server_config">
+          <signature>backup_server_config()</signature>
+          <purpose>Create timestamped backup of server.json</purpose>
+          <backup_location>config/server.json.backup.TIMESTAMP</backup_location>
+        </function>
+        <function name="validate_server_config">
+          <signature>validate_server_config()</signature>
+          <purpose>Validate server.json syntax and structure</purpose>
+          <validation>
+            <check>Valid JSON syntax</check>
+            <check>Required inbounds array exists</check>
+            <check>Clients array is properly formed</check>
+            <check>All UUIDs are valid format</check>
+          </validation>
+        </function>
+      </implementation_details>
+      <json_manipulation>
+        <tool>jq for JSON parsing and modification</tool>
+        <fallback>sed/awk for systems without jq</fallback>
+        <approach>Read → Modify → Validate → Write</approach>
+      </json_manipulation>
       <testing>
-        <unit_test>Test various length parameters</unit_test>
-        <unit_test>Test invalid parameter handling</unit_test>
-        <unit_test>Test output format validation</unit_test>
-        <integration_test>Test randomness and uniqueness</integration_test>
+        <test>Test adding client to empty clients array</test>
+        <test>Test adding client to existing clients</test>
+        <test>Test removing existing client</test>
+        <test>Test removing non-existent client</test>
+        <test>Test JSON validation</test>
+        <test>Test backup and restore functionality</test>
       </testing>
     </task>
 
-    <!-- Task 4: Server Configuration Generation Function -->
-    <task id="4" priority="high">
-      <name>implement_create_server_config_function</name>
-      <description>Create create_server_config() function to generate Xray server JSON configuration</description>
-      <location>vless-manager.sh, line ~560 (after generate_short_id function)</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add function header with comprehensive documentation</action>
-          <details>Include purpose, required parameters, configuration structure</details>
-        </step>
-        <step order="2">
-          <action>Load environment variables and keys</action>
-          <details>Source .env file, read private key from data/keys/private.key</details>
-        </step>
-        <step order="3">
-          <action>Generate shortIds array</action>
-          <details>Create multiple shortIds including empty string, random 8 and 16 char ids</details>
-        </step>
-        <step order="4">
-          <action>Create JSON configuration structure</action>
-          <details>Build complete Xray server config with VLESS inbound and Reality transport</details>
-        </step>
-        <step order="5">
-          <action>Write configuration to file</action>
-          <details>Save to config/server.json with 600 permissions</details>
-        </step>
-        <step order="6">
-          <action>Validate JSON format</action>
-          <details>Use python -m json.tool or jq to validate syntax</details>
-        </step>
-        <step order="7">
-          <action>Add comprehensive logging</action>
-          <details>Log configuration generation steps and final validation</details>
-        </step>
-      </implementation_steps>
-      <configuration_template>
-        <json_structure>
-          <log>
-            <level>${LOG_LEVEL}</level>
-            <output>${LOG_FILE}</output>
-          </log>
-          <inbounds>
-            <protocol>vless</protocol>
-            <port>${XRAY_PORT}</port>
-            <settings>
-              <clients>
-                <id>${ADMIN_UUID}</id>
-              </clients>
-              <decryption>none</decryption>
-            </settings>
-            <streamSettings>
-              <network>tcp</network>
-              <security>reality</security>
-              <realitySettings>
-                <dest>${REALITY_DEST}</dest>
-                <serverNames>${REALITY_SERVER_NAMES}</serverNames>
-                <privateKey>${PRIVATE_KEY}</privateKey>
-                <shortIds>${SHORT_IDS_ARRAY}</shortIds>
-              </realitySettings>
-            </streamSettings>
-          </inbounds>
-        </json_structure>
-      </configuration_template>
-      <error_handling>
-        <scenario>Missing environment variables</scenario>
-        <solution>Check .env file existence and required variables, provide detailed error</solution>
-        <scenario>Private key file not found</scenario>
-        <solution>Check if generate_keys() was called, provide recovery instructions</solution>
-        <scenario>JSON validation failure</scenario>
-        <solution>Check configuration structure, provide syntax error details</solution>
-        <scenario>File write permission denied</scenario>
-        <solution>Verify config directory permissions, run with proper privileges</solution>
-      </error_handling>
+    <task id="T4" priority="high" estimated_hours="3">
+      <name>Client Configuration Generation</name>
+      <description>Implement client configuration generation for VLESS+Reality connections</description>
+      <deliverables>
+        <deliverable>generate_client_config() function</deliverable>
+        <deliverable>create_vless_url() function</deliverable>
+        <deliverable>create_client_json() function</deliverable>
+        <deliverable>save_client_config() function</deliverable>
+      </deliverables>
+      <implementation_details>
+        <function name="generate_client_config">
+          <signature>generate_client_config(username, uuid, short_id)</signature>
+          <purpose>Generate complete client configuration</purpose>
+          <logic>
+            <step>Read environment variables (.env)</step>
+            <step>Read server public key from data/keys/public.key</step>
+            <step>Generate VLESS URL</step>
+            <step>Generate JSON configuration</step>
+            <step>Save both formats to config/users/</step>
+            <step>Set proper permissions (600)</step>
+          </logic>
+        </function>
+        <function name="create_vless_url">
+          <signature>create_vless_url(uuid, server_ip, port, public_key, short_id)</signature>
+          <purpose>Create VLESS URL for easy client import</purpose>
+          <format>vless://UUID@SERVER:PORT?encryption=none&flow=xtls-rprx-vision&security=reality&sni=speed.cloudflare.com&fp=chrome&pbk=PUBLIC_KEY&sid=SHORT_ID&type=tcp&headerType=none#VLESS_Reality</format>
+        </function>
+        <function name="create_client_json">
+          <signature>create_client_json(uuid, server_ip, port, public_key, short_id)</signature>
+          <purpose>Create JSON configuration for advanced clients</purpose>
+          <template>
+            {
+              "outbounds": [
+                {
+                  "protocol": "vless",
+                  "settings": {
+                    "vnext": [
+                      {
+                        "address": "SERVER_IP",
+                        "port": 443,
+                        "users": [
+                          {
+                            "id": "UUID",
+                            "encryption": "none",
+                            "flow": "xtls-rprx-vision"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                      "serverName": "speed.cloudflare.com",
+                      "fingerprint": "chrome",
+                      "publicKey": "PUBLIC_KEY",
+                      "shortId": "SHORT_ID"
+                    }
+                  }
+                }
+              ]
+            }
+          </template>
+        </function>
+        <function name="save_client_config">
+          <signature>save_client_config(username, vless_url, json_config)</signature>
+          <purpose>Save client configurations to files</purpose>
+          <files>
+            <file>config/users/USERNAME.url - VLESS URL</file>
+            <file>config/users/USERNAME.json - JSON configuration</file>
+          </files>
+          <permissions>600</permissions>
+        </function>
+      </implementation_details>
+      <environment_integration>
+        <variable name="SERVER_IP">From .env file or auto-detection</variable>
+        <variable name="XRAY_PORT">From .env file (default: 443)</variable>
+        <file name="public.key">From data/keys/public.key</file>
+      </environment_integration>
       <testing>
-        <unit_test>Test JSON structure generation</unit_test>
-        <unit_test>Test environment variable substitution</unit_test>
-        <unit_test>Test error handling for missing dependencies</unit_test>
-        <integration_test>Test complete configuration generation flow</integration_test>
-        <validation_test>Validate generated JSON against Xray schema</validation_test>
+        <test>Test VLESS URL generation</test>
+        <test>Test JSON configuration generation</test>
+        <test>Test file saving with correct permissions</test>
+        <test>Test environment variable integration</test>
+        <test>Test URL encoding handling</test>
       </testing>
     </task>
 
-    <!-- Task 5: Docker Compose Configuration Function -->
-    <task id="5" priority="high">
-      <name>implement_create_docker_compose_function</name>
-      <description>Create create_docker_compose() function to generate Docker Compose YAML</description>
-      <location>vless-manager.sh, line ~650 (after create_server_config function)</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add function header with documentation</action>
-          <details>Include purpose, dependencies, generated file structure</details>
-        </step>
-        <step order="2">
-          <action>Load environment variables</action>
-          <details>Source .env file for Docker image, ports, and paths</details>
-        </step>
-        <step order="3">
-          <action>Generate Docker Compose YAML structure</action>
-          <details>Create service definition with proper volumes, ports, and restart policy</details>
-        </step>
-        <step order="4">
-          <action>Configure volume mounts</action>
-          <details>Mount config, data, and logs directories with proper permissions</details>
-        </step>
-        <step order="5">
-          <action>Set resource limits and policies</action>
-          <details>Configure restart policy, resource limits, network settings</details>
-        </step>
-        <step order="6">
-          <action>Write YAML file</action>
-          <details>Save to docker-compose.yml with 644 permissions</details>
-        </step>
-        <step order="7">
-          <action>Validate YAML syntax</action>
-          <details>Use docker compose config to validate generated file</details>
-        </step>
-      </implementation_steps>
-      <yaml_template>
-        <structure>
-          <version>3.8</version>
-          <services>
-            <xray>
-              <image>${DOCKER_IMAGE}</image>
-              <container_name>vless-xray</container_name>
-              <restart>unless-stopped</restart>
-              <ports>
-                <mapping>${XRAY_PORT}:443</mapping>
-              </ports>
-              <volumes>
-                <config_mount>./config:/etc/xray:ro</config_mount>
-                <data_mount>./data:/app/data:rw</data_mount>
-                <logs_mount>./logs:/app/logs:rw</logs_mount>
-              </volumes>
-              <environment>
-                <compose_project>${COMPOSE_PROJECT_NAME}</compose_project>
-              </environment>
-              <networks>
-                <network>vless-network</network>
-              </networks>
-            </xray>
-          </services>
-          <networks>
-            <vless_network>
-              <driver>bridge</driver>
-            </vless_network>
-          </networks>
-        </structure>
-      </yaml_template>
-      <error_handling>
-        <scenario>Environment variables missing</scenario>
-        <solution>Validate .env file completeness, provide missing variable list</solution>
-        <scenario>YAML syntax errors</scenario>
-        <solution>Validate indentation and structure, provide line-specific errors</solution>
-        <scenario>Docker Compose validation failure</scenario>
-        <solution>Run docker compose config and display validation errors</solution>
-        <scenario>Port conflicts</scenario>
-        <solution>Check port availability before generating configuration</solution>
-      </error_handling>
+    <task id="T5" priority="high" estimated_hours="4">
+      <name>User Management Commands</name>
+      <description>Implement main user management command functions</description>
+      <deliverables>
+        <deliverable>add_user() function</deliverable>
+        <deliverable>remove_user() function</deliverable>
+        <deliverable>list_users() function</deliverable>
+        <deliverable>show_user() function</deliverable>
+      </deliverables>
+      <implementation_details>
+        <function name="add_user">
+          <signature>add_user(username)</signature>
+          <purpose>Complete user addition workflow</purpose>
+          <workflow>
+            <step>Validate username format</step>
+            <step>Check user doesn't exist</step>
+            <step>Check user limit (10 max)</step>
+            <step>Generate UUID using existing generate_uuid()</step>
+            <step>Generate shortId using existing generate_short_id()</step>
+            <step>Add to user database</step>
+            <step>Update server configuration</step>
+            <step>Generate client configuration</step>
+            <step>Restart Docker container</step>
+            <step>Display success message with connection info</step>
+          </workflow>
+          <error_handling>
+            <scenario>Duplicate username</scenario>
+            <scenario>User limit exceeded</scenario>
+            <scenario>Server config update failure</scenario>
+            <scenario>Docker restart failure</scenario>
+          </error_handling>
+        </function>
+        <function name="remove_user">
+          <signature>remove_user(username)</signature>
+          <purpose>Complete user removal workflow</purpose>
+          <workflow>
+            <step>Validate username exists</step>
+            <step>Get user information from database</step>
+            <step>Remove from user database</step>
+            <step>Remove from server configuration</step>
+            <step>Delete client configuration files</step>
+            <step>Restart Docker container</step>
+            <step>Display confirmation message</step>
+          </workflow>
+          <cleanup>
+            <file>config/users/USERNAME.url</file>
+            <file>config/users/USERNAME.json</file>
+            <record>Database entry</record>
+            <config>Server.json client entry</config>
+          </cleanup>
+        </function>
+        <function name="list_users">
+          <signature>list_users()</signature>
+          <purpose>Display formatted list of all users</purpose>
+          <output_format>
+            <header>Username | UUID | Status | Created | Config Files</header>
+            <row>username | uuid-short | active | YYYY-MM-DD | ✓/✗</row>
+          </output_format>
+          <features>
+            <feature>Color coding by status</feature>
+            <feature>File existence indicators</feature>
+            <feature>Total user count</feature>
+            <feature>Remaining slots (10 - current)</feature>
+          </features>
+        </function>
+        <function name="show_user">
+          <signature>show_user(username)</signature>
+          <purpose>Display detailed user information</purpose>
+          <output>
+            <info>Full user details</info>
+            <info>VLESS URL</info>
+            <info>QR code (if qrencode available)</info>
+            <info>Client configuration file paths</info>
+          </output>
+        </function>
+      </implementation_details>
+      <docker_integration>
+        <restart_command>docker compose restart xray</restart_command>
+        <status_check>docker compose ps xray</status_check>
+        <timeout>30 seconds</timeout>
+        <rollback>Restore backup config if restart fails</rollback>
+      </docker_integration>
       <testing>
-        <unit_test>Test YAML structure generation</unit_test>
-        <unit_test>Test environment variable substitution</unit_test>
-        <unit_test>Test error handling for invalid configurations</unit_test>
-        <integration_test>Test Docker Compose file validation</integration_test>
-        <system_test>Test Docker Compose up with generated file</system_test>
+        <test>Test complete user addition workflow</test>
+        <test>Test user removal workflow</test>
+        <test>Test user listing display</test>
+        <test>Test duplicate prevention</test>
+        <test>Test user limit enforcement</test>
+        <test>Test error recovery scenarios</test>
       </testing>
     </task>
 
-    <!-- Task 6: Integration with Main Installation Flow -->
-    <task id="6" priority="critical">
-      <name>integrate_configuration_functions</name>
-      <description>Integrate configuration generation functions into main installation flow</description>
-      <location>vless-manager.sh, install_service function, line ~555 (after Step 5)</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add Step 6: Generate X25519 Keys</action>
-          <details>Insert call to generate_keys() with proper error handling</details>
-        </step>
-        <step order="2">
-          <action>Add Step 7: Create Server Configuration</action>
-          <details>Insert call to create_server_config() with dependency checks</details>
-        </step>
-        <step order="3">
-          <action>Add Step 8: Create Docker Compose Configuration</action>
-          <details>Insert call to create_docker_compose() with validation</details>
-        </step>
-        <step order="4">
-          <action>Update progress indicators</action>
-          <details>Change step numbering from [1/5] to [1/8] format throughout</details>
-        </step>
-        <step order="5">
-          <action>Update installation summary</action>
-          <details>Add configuration generation items to success summary</details>
-        </step>
-        <step order="6">
-          <action>Update next steps guidance</action>
-          <details>Modify next steps to reflect completed configuration</details>
-        </step>
-      </implementation_steps>
-      <error_handling>
-        <scenario>Configuration generation failure</scenario>
-        <solution>Halt installation, provide rollback instructions</solution>
-        <scenario>Partial configuration state</scenario>
-        <solution>Clean up partial files, maintain installation consistency</solution>
-      </error_handling>
+    <task id="T6" priority="medium" estimated_hours="2">
+      <name>Command Line Interface Integration</name>
+      <description>Integrate user management commands into main CLI interface</description>
+      <deliverables>
+        <deliverable>Updated show_help() function</deliverable>
+        <deliverable>Updated parse_arguments() function</deliverable>
+        <deliverable>New user management command routing</deliverable>
+      </deliverables>
+      <implementation_details>
+        <commands>
+          <command name="add-user">
+            <syntax>./vless-manager.sh add-user USERNAME</syntax>
+            <description>Add new VPN user</description>
+            <validation>Requires root/sudo</validation>
+          </command>
+          <command name="remove-user">
+            <syntax>./vless-manager.sh remove-user USERNAME</syntax>
+            <description>Remove existing VPN user</description>
+            <validation>Requires root/sudo</validation>
+          </command>
+          <command name="list-users">
+            <syntax>./vless-manager.sh list-users</syntax>
+            <description>List all VPN users</description>
+            <validation>Requires root/sudo</validation>
+          </command>
+          <command name="show-user">
+            <syntax>./vless-manager.sh show-user USERNAME</syntax>
+            <description>Show user details and configuration</description>
+            <validation>Requires root/sudo</validation>
+          </command>
+        </commands>
+        <help_integration>
+          <section name="User Management Commands">
+            <subsection>User operations for VLESS+Reality VPN service</subsection>
+          </section>
+        </help_integration>
+      </implementation_details>
       <testing>
-        <integration_test>Test complete installation flow with all steps</integration_test>
-        <integration_test>Test error handling and rollback scenarios</integration_test>
-        <system_test>Verify installation produces working configuration</system_test>
+        <test>Test help display updates</test>
+        <test>Test argument parsing for new commands</test>
+        <test>Test command routing</test>
+        <test>Test privilege checking for each command</test>
       </testing>
     </task>
 
-    <!-- Task 7: Error Handling Enhancement -->
-    <task id="7" priority="medium">
-      <name>enhance_error_handling_framework</name>
-      <description>Enhance existing error handling framework for configuration functions</description>
-      <location>vless-manager.sh, handle_error function area, line ~71</location>
-      <implementation_steps>
-        <step order="1">
-          <action>Add configuration-specific error codes</action>
-          <details>Define error codes for key generation, config creation, validation failures</details>
-        </step>
-        <step order="2">
-          <action>Implement cleanup function</action>
-          <details>Create cleanup_partial_config() to remove partial configuration files</details>
-        </step>
-        <step order="3">
-          <action>Add rollback mechanisms</action>
-          <details>Implement rollback for each configuration step</details>
-        </step>
-        <step order="4">
-          <action>Enhance error reporting</action>
-          <details>Provide detailed error messages with recovery suggestions</details>
-        </step>
-      </implementation_steps>
-      <error_codes>
-        <code value="10">KEY_GENERATION_FAILED</code>
-        <code value="11">UUID_GENERATION_FAILED</code>
-        <code value="12">CONFIG_CREATION_FAILED</code>
-        <code value="13">DOCKER_COMPOSE_FAILED</code>
-        <code value="14">VALIDATION_FAILED</code>
-      </error_codes>
+    <task id="T7" priority="medium" estimated_hours="3">
+      <name>Comprehensive Test Suite</name>
+      <description>Create comprehensive test suite for all user management functionality</description>
+      <deliverables>
+        <deliverable>tests/test_user_management.sh</deliverable>
+        <deliverable>Integration with existing test framework</deliverable>
+        <deliverable>Mock environment setup</deliverable>
+      </deliverables>
+      <implementation_details>
+        <test_categories>
+          <category name="Unit Tests">
+            <test>test_validate_username()</test>
+            <test>test_user_database_operations()</test>
+            <test>test_server_config_updates()</test>
+            <test>test_client_config_generation()</test>
+            <test>test_input_sanitization()</test>
+          </category>
+          <category name="Integration Tests">
+            <test>test_complete_add_user_workflow()</test>
+            <test>test_complete_remove_user_workflow()</test>
+            <test>test_user_listing()</test>
+            <test>test_docker_integration()</test>
+            <test>test_file_permissions()</test>
+          </category>
+          <category name="Error Handling Tests">
+            <test>test_duplicate_user_handling()</test>
+            <test>test_user_limit_enforcement()</test>
+            <test>test_invalid_input_handling()</test>
+            <test>test_config_corruption_recovery()</test>
+            <test>test_docker_failure_handling()</test>
+          </category>
+        </test_categories>
+        <mock_setup>
+          <mock name="Docker commands">Prevent actual container operations</mock>
+          <mock name="File operations">Use temporary test directories</mock>
+          <mock name="Network calls">Mock external dependencies</mock>
+        </mock_setup>
+        <test_data>
+          <dataset name="Valid usernames">Various valid username formats</dataset>
+          <dataset name="Invalid usernames">Various invalid formats and edge cases</dataset>
+          <dataset name="Sample users">Pre-created user data for testing</dataset>
+        </test_data>
+      </implementation_details>
+      <integration_with_existing_tests>
+        <update>tests/run_all_tests.sh - Add user management test suite</update>
+        <pattern>Follow existing test patterns from test_configuration.sh</pattern>
+        <reporting>Integrate with existing test result reporting</reporting>
+      </integration_with_existing_tests>
+      <testing>
+        <test>Test suite execution</test>
+        <test>Test result reporting</test>
+        <test>Test coverage verification</test>
+        <test>Test isolation verification</test>
+      </testing>
     </task>
 
+    <task id="T8" priority="low" estimated_hours="1">
+      <name>Documentation Updates</name>
+      <description>Update project documentation to reflect new user management capabilities</description>
+      <deliverables>
+        <deliverable>Updated CLAUDE.md</deliverable>
+        <deliverable>Usage examples in help text</deliverable>
+        <deliverable>Error message improvements</deliverable>
+      </deliverables>
+      <implementation_details>
+        <claude_md_updates>
+          <section>Implementation Status - Mark Stage 3 as completed</section>
+          <section>Key Functions - Add user management functions</section>
+          <section>Main Script Commands - Add new user commands</section>
+          <section>File Permissions - Document user database permissions</section>
+        </claude_md_updates>
+        <help_improvements>
+          <improvement>Add usage examples for each command</improvement>
+          <improvement>Add troubleshooting section</improvement>
+          <improvement>Add security recommendations</improvement>
+        </help_improvements>
+      </implementation_details>
+    </task>
   </implementation_tasks>
 
-  <implementation_order>
-    <phase name="Foundation" order="1">
-      <task_ref>1</task_ref> <!-- generate_keys function -->
-      <task_ref>2</task_ref> <!-- generate_uuid function -->
-      <task_ref>3</task_ref> <!-- generate_short_id function -->
-      <rationale>Core generation functions must be implemented first as dependencies</rationale>
-    </phase>
+  <integration_strategy>
+    <existing_functions>
+      <reuse name="log_message()">Use for consistent logging throughout</reuse>
+      <reuse name="color_echo()">Use for colored output in user listing</reuse>
+      <reuse name="generate_uuid()">Reuse for user UUID generation</reuse>
+      <reuse name="generate_short_id()">Reuse for user shortId generation</reuse>
+      <reuse name="handle_error()">Integrate with existing error handling</reuse>
+    </existing_functions>
+    <environment_integration>
+      <env_vars>Read SERVER_IP, XRAY_PORT from .env file</env_vars>
+      <keys>Read public key from data/keys/public.key</keys>
+      <paths>Use PROJECT_ROOT constant for all file operations</paths>
+    </environment_integration>
+    <file_structure>
+      <database>data/users.db - User database (600 permissions)</database>
+      <configs>config/users/ - Client configurations (600 permissions)</configs>
+      <server>config/server.json - Server configuration updates</server>
+      <backups>config/server.json.backup.* - Configuration backups</backups>
+    </file_structure>
+  </integration_strategy>
 
-    <phase name="Configuration" order="2">
-      <task_ref>4</task_ref> <!-- create_server_config function -->
-      <task_ref>5</task_ref> <!-- create_docker_compose function -->
-      <rationale>Configuration functions depend on generation functions</rationale>
-    </phase>
-
-    <phase name="Integration" order="3">
-      <task_ref>7</task_ref> <!-- enhance_error_handling_framework -->
-      <task_ref>6</task_ref> <!-- integrate_configuration_functions -->
-      <rationale>Error handling must be enhanced before integration to ensure robustness</rationale>
-    </phase>
-  </implementation_order>
+  <security_considerations>
+    <file_permissions>
+      <file path="data/users.db" mode="600">User database with sensitive UUIDs</file>
+      <directory path="config/users/" mode="700">Client configuration directory</directory>
+      <file path="config/users/*.url" mode="600">VLESS URLs with credentials</file>
+      <file path="config/users/*.json" mode="600">JSON configurations</file>
+    </file_permissions>
+    <input_validation>
+      <validation>Username format validation with regex</validation>
+      <validation>Input sanitization to prevent injection</validation>
+      <validation>Length limits on all inputs</validation>
+      <validation>Special character filtering</validation>
+    </input_validation>
+    <operational_security>
+      <measure>Atomic file operations to prevent corruption</measure>
+      <measure>Configuration backup before modifications</measure>
+      <measure>Rollback capability for failed operations</measure>
+      <measure>Process isolation for Docker commands</measure>
+    </operational_security>
+  </security_considerations>
 
   <testing_strategy>
-    <unit_testing>
-      <description>Test individual functions in isolation</description>
-      <location>tests/test_vless_manager.sh</location>
-      <requirements>
-        <requirement>Mock external dependencies (Docker, system files)</requirement>
-        <requirement>Test all error conditions and edge cases</requirement>
-        <requirement>Validate output formats and file permissions</requirement>
-        <requirement>Test parameter validation and input sanitization</requirement>
-      </requirements>
-    </unit_testing>
-
-    <integration_testing>
-      <description>Test functions working together in realistic scenarios</description>
-      <location>tests/test_configuration.sh (new file)</location>
-      <requirements>
-        <requirement>Test complete configuration generation flow</requirement>
-        <requirement>Validate configuration file relationships</requirement>
-        <requirement>Test error propagation and rollback mechanisms</requirement>
-        <requirement>Verify Docker Compose functionality</requirement>
-      </requirements>
-    </integration_testing>
-
-    <system_testing>
-      <description>Test configuration with actual Xray service</description>
-      <location>tests/test_system_integration.sh (new file)</location>
-      <requirements>
-        <requirement>Test generated configuration with real Docker environment</requirement>
-        <requirement>Validate Xray service startup with generated config</requirement>
-        <requirement>Test configuration validation tools</requirement>
-        <requirement>Verify network connectivity and service functionality</requirement>
-      </requirements>
-    </system_testing>
-
-    <security_testing>
-      <description>Validate security aspects of generated configurations</description>
-      <requirements>
-        <requirement>Verify file permissions on sensitive files</requirement>
-        <requirement>Test key generation randomness and strength</requirement>
-        <requirement>Validate no secrets in logs or temporary files</requirement>
-        <requirement>Test configuration sanitization</requirement>
-      </requirements>
-    </security_testing>
+    <test_levels>
+      <level name="Unit Testing">
+        <focus>Individual functions with mocked dependencies</focus>
+        <coverage>100% function coverage target</coverage>
+        <isolation>No system modifications or Docker operations</isolation>
+      </level>
+      <level name="Integration Testing">
+        <focus>Complete workflows with real file operations</focus>
+        <environment>Temporary test directories</environment>
+        <validation>End-to-end functionality verification</validation>
+      </level>
+      <level name="Error Testing">
+        <focus>Error conditions and recovery scenarios</focus>
+        <scenarios>Config corruption, Docker failures, filesystem issues</scenarios>
+        <validation>Proper error messages and recovery</validation>
+      </level>
+    </test_levels>
+    <test_data_management>
+      <setup>Create known test datasets</setup>
+      <cleanup>Automatic cleanup of test artifacts</cleanup>
+      <isolation>Each test runs in isolated environment</isolation>
+    </test_data_management>
+    <continuous_testing>
+      <automation>Integration with existing test runner</automation>
+      <reporting>Consistent reporting format</reporting>
+      <metrics>Test timing and coverage reporting</metrics>
+    </continuous_testing>
   </testing_strategy>
 
-  <validation_criteria>
-    <functional_requirements>
-      <requirement>X25519 key pair generated and stored securely</requirement>
-      <requirement>Valid UUID v4 generated for admin user</requirement>
-      <requirement>Hexadecimal shortIds generated with correct format</requirement>
-      <requirement>Xray server configuration valid and complete</requirement>
-      <requirement>Docker Compose configuration functional</requirement>
-      <requirement>All functions integrated into installation flow</requirement>
-    </functional_requirements>
+  <risk_management>
+    <technical_risks>
+      <risk level="medium" probability="low">
+        <description>Server configuration corruption during JSON updates</description>
+        <impact>Service interruption, user connectivity loss</impact>
+        <mitigation>
+          <measure>Create backup before every modification</measure>
+          <measure>Validate JSON after updates</measure>
+          <measure>Implement rollback on validation failure</measure>
+          <measure>Test JSON manipulation functions thoroughly</measure>
+        </mitigation>
+        <detection>JSON validation function returns error</detection>
+        <recovery>Restore from backup, log error, notify user</recovery>
+      </risk>
+      <risk level="low" probability="low">
+        <description>Docker container fails to restart after config changes</description>
+        <impact>Service unavailable until manual intervention</impact>
+        <mitigation>
+          <measure>Check Docker service status before operations</measure>
+          <measure>Implement timeout for restart operations</measure>
+          <measure>Provide rollback mechanism</measure>
+          <measure>Add Docker health checks</measure>
+        </mitigation>
+        <detection>Docker restart command returns non-zero exit</detection>
+        <recovery>Restore backup config, restart with old config</recovery>
+      </risk>
+      <risk level="low" probability="medium">
+        <description>Race condition during concurrent user operations</description>
+        <impact>Database corruption or inconsistent state</impact>
+        <mitigation>
+          <measure>Implement file locking for database operations</measure>
+          <measure>Use atomic file operations</measure>
+          <measure>Add operation serialization</measure>
+        </mitigation>
+        <detection>File lock acquisition failure</detection>
+        <recovery>Retry operation after delay</recovery>
+      </risk>
+    </technical_risks>
+    <operational_risks>
+      <risk level="low" probability="low">
+        <description>User database file corruption</description>
+        <impact>Loss of user management capability</impact>
+        <mitigation>
+          <measure>Regular database validation</measure>
+          <measure>Backup database before modifications</measure>
+          <measure>Implement database repair function</measure>
+        </mitigation>
+      </risk>
+    </operational_risks>
+  </risk_management>
 
-    <security_requirements>
-      <requirement>Private keys stored with 600 permissions</requirement>
-      <requirement>Configuration files secured appropriately</requirement>
-      <requirement>No hardcoded secrets or credentials</requirement>
-      <requirement>Secure random generation for all cryptographic material</requirement>
-    </security_requirements>
+  <quality_assurance>
+    <code_standards>
+      <standard>Follow existing bash scripting patterns</standard>
+      <standard>Use 2-space indentation consistently</standard>
+      <standard>Implement comprehensive error handling</standard>
+      <standard>Add detailed function documentation</standard>
+      <standard>Use meaningful variable names</standard>
+    </code_standards>
+    <testing_requirements>
+      <requirement>100% function coverage in unit tests</requirement>
+      <requirement>All error paths tested</requirement>
+      <requirement>Integration tests for complete workflows</requirement>
+      <requirement>Performance testing for database operations</requirement>
+    </testing_requirements>
+    <review_criteria>
+      <criterion>Code follows project patterns</criterion>
+      <criterion>All functions have proper error handling</criterion>
+      <criterion>Security best practices implemented</criterion>
+      <criterion>Documentation is comprehensive</criterion>
+      <criterion>Tests provide adequate coverage</criterion>
+    </review_criteria>
+  </quality_assurance>
 
-    <quality_requirements>
-      <requirement>All functions have comprehensive error handling</requirement>
-      <requirement>Logging provides clear status and error information</requirement>
-      <requirement>Code follows established style and patterns</requirement>
-      <requirement>All test suites pass successfully</requirement>
-      <requirement>Configuration files validate against schemas</requirement>
-    </quality_requirements>
-  </validation_criteria>
+  <delivery_timeline>
+    <phases>
+      <phase number="1" duration="1 day">
+        <name>Core Database and Validation Functions</name>
+        <tasks>T1, T2</tasks>
+        <deliverables>User database management, input validation</deliverables>
+        <milestone>Basic user data operations working</milestone>
+      </phase>
+      <phase number="2" duration="2 days">
+        <name>Configuration Management</name>
+        <tasks>T3, T4</tasks>
+        <deliverables>Server config updates, client config generation</deliverables>
+        <milestone>Complete configuration pipeline working</milestone>
+      </phase>
+      <phase number="3" duration="2 days">
+        <name>User Management Commands</name>
+        <tasks>T5, T6</tasks>
+        <deliverables>Full user management CLI, command integration</deliverables>
+        <milestone>Complete user management functionality</milestone>
+      </phase>
+      <phase number="4" duration="1 day">
+        <name>Testing and Documentation</name>
+        <tasks>T7, T8</tasks>
+        <deliverables>Complete test suite, updated documentation</deliverables>
+        <milestone>Production-ready Stage 3 implementation</milestone>
+      </phase>
+    </phases>
+    <total_duration>6 days</total_duration>
+    <total_effort>22 hours</total_effort>
+  </delivery_timeline>
 
-  <deliverables>
-    <file name="vless-manager.sh">
-      <description>Updated main script with configuration generation functions</description>
-      <changes>
-        <change>Added generate_keys() function</change>
-        <change>Added generate_uuid() function</change>
-        <change>Added generate_short_id() function</change>
-        <change>Added create_server_config() function</change>
-        <change>Added create_docker_compose() function</change>
-        <change>Enhanced error handling framework</change>
-        <change>Integrated functions into installation flow</change>
-        <change>Updated help and progress indicators</change>
-      </changes>
-    </file>
+  <success_criteria>
+    <functional_criteria>
+      <criterion>Users can be added with unique usernames (3-32 chars, alphanumeric + _ -)</criterion>
+      <criterion>Users can be removed cleanly with all associated files deleted</criterion>
+      <criterion>User listing displays formatted information with status indicators</criterion>
+      <criterion>Client configurations generated in both URL and JSON formats</criterion>
+      <criterion>Maximum 10 user limit enforced</criterion>
+      <criterion>Server configuration automatically updated for each user operation</criterion>
+      <criterion>Docker container properly restarted after configuration changes</criterion>
+    </functional_criteria>
+    <technical_criteria>
+      <criterion>All user management functions integrated into main CLI</criterion>
+      <criterion>User database properly maintained with correct format and permissions</criterion>
+      <criterion>File permissions properly set (600 for sensitive files, 700 for directories)</criterion>
+      <criterion>JSON configuration valid and properly formatted</criterion>
+      <criterion>Error handling comprehensive with proper logging</criterion>
+      <criterion>Input validation prevents security vulnerabilities</criterion>
+    </technical_criteria>
+    <quality_criteria>
+      <criterion>100% test coverage for all new functions</criterion>
+      <criterion>All tests passing including error scenarios</criterion>
+      <criterion>Code follows project standards and patterns</criterion>
+      <criterion>Documentation updated and comprehensive</criterion>
+      <criterion>Performance acceptable for target user count (10)</criterion>
+    </quality_criteria>
+  </success_criteria>
 
-    <file name="config/server.json">
-      <description>Generated Xray server configuration</description>
-      <generated_by>create_server_config() function</generated_by>
-      <permissions>600</permissions>
-    </file>
-
-    <file name="docker-compose.yml">
-      <description>Generated Docker Compose configuration</description>
-      <generated_by>create_docker_compose() function</generated_by>
-      <permissions>644</permissions>
-    </file>
-
-    <file name="data/keys/private.key">
-      <description>X25519 private key for Reality transport</description>
-      <generated_by>generate_keys() function</generated_by>
-      <permissions>600</permissions>
-    </file>
-
-    <file name="data/keys/public.key">
-      <description>X25519 public key for client configurations</description>
-      <generated_by>generate_keys() function</generated_by>
-      <permissions>600</permissions>
-    </file>
-
-    <file name="tests/test_configuration.sh">
-      <description>Integration tests for configuration generation</description>
-      <purpose>Validate configuration generation workflow</purpose>
-      <permissions>755</permissions>
-    </file>
-  </deliverables>
-
-  <risk_mitigation>
-    <risk level="high">
-      <description>Docker unavailable during key generation</description>
-      <mitigation>Check Docker availability, provide installation instructions</mitigation>
-      <fallback>Provide manual key generation instructions</fallback>
-    </risk>
-
-    <risk level="medium">
-      <description>Network connectivity issues during Docker image pull</description>
-      <mitigation>Check connectivity, provide offline alternatives</mitigation>
-      <fallback>Use pre-downloaded image or manual installation</fallback>
-    </risk>
-
-    <risk level="medium">
-      <description>Insufficient permissions for file operations</description>
-      <mitigation>Verify permissions before operations, provide clear error messages</mitigation>
-      <fallback>Guide user to run with proper privileges</fallback>
-    </risk>
-
-    <risk level="low">
-      <description>Configuration validation failures</description>
-      <mitigation>Implement robust validation, provide detailed error information</mitigation>
-      <fallback>Provide manual configuration templates</fallback>
-    </risk>
-  </risk_mitigation>
-
-  <success_metrics>
-    <metric>All configuration generation functions implemented and functional</metric>
-    <metric>Complete integration with existing installation workflow</metric>
-    <metric>All test suites passing (unit, integration, system)</metric>
-    <metric>Generated configurations validate successfully</metric>
-    <metric>Docker Compose service starts successfully with generated config</metric>
-    <metric>Proper file permissions and security measures implemented</metric>
-    <metric>Comprehensive error handling and user guidance</metric>
-  </success_metrics>
-
-  <next_stage_preparation>
-    <stage_3_requirements>
-      <requirement>User management functions will use generated UUIDs</requirement>
-      <requirement>Client configurations will use public key from generated pair</requirement>
-      <requirement>User database will reference generated server configuration</requirement>
-    </stage_3_requirements>
-
-    <stage_4_requirements>
-      <requirement>Docker Compose configuration must be functional for service startup</requirement>
-      <requirement>Generated server configuration must be valid for Xray service</requirement>
-      <requirement>Network and volume mounts must be properly configured</requirement>
-    </stage_4_requirements>
-  </next_stage_preparation>
-
+  <post_implementation>
+    <validation_checklist>
+      <check>Run complete test suite and verify 100% pass rate</check>
+      <check>Test user addition workflow end-to-end</check>
+      <check>Test user removal workflow end-to-end</check>
+      <check>Verify user limit enforcement</check>
+      <check>Test duplicate username prevention</check>
+      <check>Verify file permissions on all created files</check>
+      <check>Test Docker container restart after config changes</check>
+      <check>Validate generated VLESS URLs work with clients</check>
+      <check>Test error recovery scenarios</check>
+      <check>Verify integration with existing system</check>
+    </validation_checklist>
+    <handoff_preparation>
+      <item>Update CLAUDE.md with Stage 3 completion status</item>
+      <item>Document any deviations from original plan</item>
+      <item>Prepare Stage 4 requirements analysis</item>
+      <item>Update project timeline for remaining stages</item>
+    </handoff_preparation>
+  </post_implementation>
 </implementation_plan>

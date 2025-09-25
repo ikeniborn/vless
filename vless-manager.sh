@@ -812,6 +812,1366 @@ EOF
 }
 
 #######################################################################################
+# USER DATABASE MANAGEMENT FUNCTIONS
+#######################################################################################
+
+# Initialize user database
+init_user_database() {
+    log_message "INFO" "Initializing user database..."
+
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Check if database already exists
+    if [[ -f "$users_db" ]]; then
+        log_message "INFO" "User database already exists"
+        return 0
+    fi
+
+    # Create database file with header
+    cat > "$users_db" << EOF
+# VLESS+Reality VPN Service User Database
+# Format: username:uuid:shortId:created_date:status
+# Generated on $(date '+%Y-%m-%d %H:%M:%S')
+#
+EOF
+
+    # Set secure permissions
+    chmod 600 "$users_db"
+
+    log_message "SUCCESS" "User database initialized: $users_db"
+    return 0
+}
+
+# Add user to database
+add_user_to_database() {
+    local username="$1"
+    local uuid="$2"
+    local short_id="$3"
+
+    # Validate input parameters
+    if [[ -z "$username" ]] || [[ -z "$uuid" ]] || [[ -z "$short_id" ]]; then
+        log_message "ERROR" "Missing required parameters for add_user_to_database"
+        return 1
+    fi
+
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Initialize database if it doesn't exist
+    if [[ ! -f "$users_db" ]]; then
+        init_user_database || return 1
+    fi
+
+    # Check for duplicate username (case-insensitive)
+    if user_exists "$username"; then
+        log_message "ERROR" "Username '$username' already exists"
+        return 1
+    fi
+
+    # Create user record
+    local created_date=$(date '+%Y-%m-%d')
+    local user_record="${username}:${uuid}:${short_id}:${created_date}:active"
+
+    # Use file locking to prevent race conditions
+    (
+        flock -w 10 200 || {
+            log_message "ERROR" "Could not acquire lock on user database"
+            return 1
+        }
+
+        # Append user record to database
+        echo "$user_record" >> "$users_db"
+
+    ) 200>"${users_db}.lock"
+
+    # Remove lock file
+    rm -f "${users_db}.lock"
+
+    # Ensure proper permissions
+    chmod 600 "$users_db"
+
+    log_message "SUCCESS" "User '$username' added to database"
+    return 0
+}
+
+# Remove user from database
+remove_user_from_database() {
+    local username="$1"
+
+    # Validate input parameter
+    if [[ -z "$username" ]]; then
+        log_message "ERROR" "Username parameter is required"
+        return 1
+    fi
+
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Check if database exists
+    if [[ ! -f "$users_db" ]]; then
+        log_message "ERROR" "User database not found: $users_db"
+        return 1
+    fi
+
+    # Check if user exists
+    if ! user_exists "$username"; then
+        log_message "ERROR" "Username '$username' does not exist"
+        return 1
+    fi
+
+    # Use file locking to prevent race conditions
+    (
+        flock -w 10 200 || {
+            log_message "ERROR" "Could not acquire lock on user database"
+            return 1
+        }
+
+        # Create temporary file
+        local temp_file="${users_db}.tmp"
+
+        # Copy all records except the target user (case-insensitive)
+        while IFS=':' read -r db_username db_uuid db_short_id db_created_date db_status || [[ -n "$db_username" ]]; do
+            # Skip comments and empty lines
+            if [[ "$db_username" =~ ^#.*$ ]] || [[ -z "$db_username" ]]; then
+                echo "${db_username}:${db_uuid}:${db_short_id}:${db_created_date}:${db_status}" >> "$temp_file"
+                continue
+            fi
+
+            # Skip the user to be removed (case-insensitive comparison)
+            if [[ "${db_username,,}" != "${username,,}" ]]; then
+                echo "${db_username}:${db_uuid}:${db_short_id}:${db_created_date}:${db_status}" >> "$temp_file"
+            fi
+        done < "$users_db"
+
+        # Replace original file atomically
+        if [[ -f "$temp_file" ]]; then
+            mv "$temp_file" "$users_db"
+        else
+            log_message "ERROR" "Failed to create temporary file for user removal"
+            return 1
+        fi
+
+    ) 200>"${users_db}.lock"
+
+    # Remove lock file
+    rm -f "${users_db}.lock"
+
+    # Ensure proper permissions
+    chmod 600 "$users_db"
+
+    log_message "SUCCESS" "User '$username' removed from database"
+    return 0
+}
+
+# Check if user exists in database
+user_exists() {
+    local username="$1"
+
+    # Validate input parameter
+    if [[ -z "$username" ]]; then
+        return 1
+    fi
+
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Check if database exists
+    if [[ ! -f "$users_db" ]]; then
+        return 1
+    fi
+
+    # Search for user (case-insensitive)
+    while IFS=':' read -r db_username db_uuid db_short_id db_created_date db_status || [[ -n "$db_username" ]]; do
+        # Skip comments and empty lines
+        if [[ "$db_username" =~ ^#.*$ ]] || [[ -z "$db_username" ]]; then
+            continue
+        fi
+
+        # Check for match (case-insensitive)
+        if [[ "${db_username,,}" == "${username,,}" ]]; then
+            return 0
+        fi
+    done < "$users_db"
+
+    return 1
+}
+
+# Get user information from database
+get_user_info() {
+    local username="$1"
+
+    # Validate input parameter
+    if [[ -z "$username" ]]; then
+        log_message "ERROR" "Username parameter is required"
+        return 1
+    fi
+
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Check if database exists
+    if [[ ! -f "$users_db" ]]; then
+        log_message "ERROR" "User database not found: $users_db"
+        return 1
+    fi
+
+    # Search for user and return information
+    while IFS=':' read -r db_username db_uuid db_short_id db_created_date db_status || [[ -n "$db_username" ]]; do
+        # Skip comments and empty lines
+        if [[ "$db_username" =~ ^#.*$ ]] || [[ -z "$db_username" ]]; then
+            continue
+        fi
+
+        # Check for match (case-insensitive)
+        if [[ "${db_username,,}" == "${username,,}" ]]; then
+            # Export user information as global variables
+            USER_NAME="$db_username"
+            USER_UUID="$db_uuid"
+            USER_SHORT_ID="$db_short_id"
+            USER_CREATED_DATE="$db_created_date"
+            USER_STATUS="$db_status"
+            return 0
+        fi
+    done < "$users_db"
+
+    log_message "ERROR" "User '$username' not found in database"
+    return 1
+}
+
+#######################################################################################
+# INPUT VALIDATION FUNCTIONS
+#######################################################################################
+
+# Validate username format and constraints
+validate_username() {
+    local username="$1"
+
+    # Check if username is provided
+    if [[ -z "$username" ]]; then
+        log_message "ERROR" "Username cannot be empty"
+        return 1
+    fi
+
+    # Check username length (3-32 characters)
+    local username_length=${#username}
+    if [[ $username_length -lt 3 ]]; then
+        log_message "ERROR" "Username too short: $username_length characters (minimum 3)"
+        return 1
+    fi
+    if [[ $username_length -gt 32 ]]; then
+        log_message "ERROR" "Username too long: $username_length characters (maximum 32)"
+        return 1
+    fi
+
+    # Check username format: alphanumeric, underscore, dash allowed
+    # Must start with alphanumeric character
+    local username_regex='^[a-zA-Z0-9][a-zA-Z0-9_-]{2,31}$'
+    if [[ ! $username =~ $username_regex ]]; then
+        log_message "ERROR" "Invalid username format: '$username'"
+        log_message "ERROR" "Username must:"
+        log_message "ERROR" "  - Be 3-32 characters long"
+        log_message "ERROR" "  - Start with alphanumeric character"
+        log_message "ERROR" "  - Contain only letters, numbers, underscore (_), and dash (-)"
+        return 1
+    fi
+
+    # Check for reserved usernames
+    local reserved_usernames=("admin" "root" "system" "daemon" "nobody" "www" "ftp" "mail" "guest" "test" "user")
+    for reserved in "${reserved_usernames[@]}"; do
+        if [[ "${username,,}" == "$reserved" ]]; then
+            log_message "ERROR" "Username '$username' is reserved and cannot be used"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+# Sanitize user input to prevent injection attacks
+sanitize_input() {
+    local input="$1"
+
+    # Return empty string if input is empty
+    if [[ -z "$input" ]]; then
+        echo ""
+        return 0
+    fi
+
+    # Remove dangerous characters and control characters
+    local sanitized="$input"
+
+    # Remove control characters (ASCII 0-31 and 127)
+    sanitized=$(echo "$sanitized" | tr -d '\000-\037\177')
+
+    # Remove potentially dangerous characters
+    sanitized=$(echo "$sanitized" | tr -d '`$(){}[];<>|&*?~^!')
+
+    # Escape quotes and backslashes
+    sanitized=$(echo "$sanitized" | sed 's/["'"'"'\\]/\\&/g')
+
+    # Trim leading and trailing whitespace
+    sanitized=$(echo "$sanitized" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    echo "$sanitized"
+}
+
+# Check if user limit has been reached
+check_user_limit() {
+    local max_users=10
+    local current_users=0
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Check if database exists
+    if [[ ! -f "$users_db" ]]; then
+        # No database means no users, so under limit
+        return 0
+    fi
+
+    # Count active users (skip comments and empty lines)
+    while IFS=':' read -r db_username db_uuid db_short_id db_created_date db_status || [[ -n "$db_username" ]]; do
+        # Skip comments and empty lines
+        if [[ "$db_username" =~ ^#.*$ ]] || [[ -z "$db_username" ]]; then
+            continue
+        fi
+
+        # Count active users
+        if [[ "$db_status" == "active" ]]; then
+            ((current_users++))
+        fi
+    done < "$users_db"
+
+    log_message "INFO" "Current active users: $current_users/$max_users"
+
+    # Check if at limit
+    if [[ $current_users -ge $max_users ]]; then
+        log_message "ERROR" "Maximum number of users ($max_users) reached"
+        log_message "ERROR" "Please remove an existing user before adding a new one"
+        return 1
+    fi
+
+    return 0
+}
+
+# Count total users in database
+count_users() {
+    local users_db="$PROJECT_ROOT/data/users.db"
+    local total_users=0
+    local active_users=0
+
+    # Check if database exists
+    if [[ ! -f "$users_db" ]]; then
+        echo "0:0"  # total:active
+        return 0
+    fi
+
+    # Count users (skip comments and empty lines)
+    while IFS=':' read -r db_username db_uuid db_short_id db_created_date db_status || [[ -n "$db_username" ]]; do
+        # Skip comments and empty lines
+        if [[ "$db_username" =~ ^#.*$ ]] || [[ -z "$db_username" ]]; then
+            continue
+        fi
+
+        ((total_users++))
+
+        # Count active users
+        if [[ "$db_status" == "active" ]]; then
+            ((active_users++))
+        fi
+    done < "$users_db"
+
+    echo "$total_users:$active_users"
+}
+
+#######################################################################################
+# SERVER CONFIGURATION MANAGEMENT FUNCTIONS
+#######################################################################################
+
+# Create backup of server configuration
+backup_server_config() {
+    log_message "INFO" "Creating server configuration backup..."
+
+    local config_file="$PROJECT_ROOT/config/server.json"
+
+    # Check if server config exists
+    if [[ ! -f "$config_file" ]]; then
+        log_message "ERROR" "Server configuration not found: $config_file"
+        return 1
+    fi
+
+    # Create backup with timestamp
+    local timestamp=$(date '+%Y%m%d_%H%M%S')
+    local backup_file="${config_file}.backup.${timestamp}"
+
+    # Copy configuration file
+    if cp "$config_file" "$backup_file"; then
+        chmod 600 "$backup_file"
+        log_message "SUCCESS" "Configuration backup created: $backup_file"
+        echo "$backup_file"  # Return backup file path
+        return 0
+    else
+        log_message "ERROR" "Failed to create configuration backup"
+        return 1
+    fi
+}
+
+# Validate server configuration JSON syntax and structure
+validate_server_config() {
+    local config_file="$PROJECT_ROOT/config/server.json"
+
+    log_message "INFO" "Validating server configuration..."
+
+    # Check if file exists
+    if [[ ! -f "$config_file" ]]; then
+        log_message "ERROR" "Server configuration not found: $config_file"
+        return 1
+    fi
+
+    # Check JSON syntax
+    if command -v jq >/dev/null 2>&1; then
+        if ! jq empty "$config_file" >/dev/null 2>&1; then
+            log_message "ERROR" "Invalid JSON syntax in server configuration"
+            return 1
+        fi
+    elif command -v python3 >/dev/null 2>&1; then
+        if ! python3 -m json.tool "$config_file" >/dev/null 2>&1; then
+            log_message "ERROR" "Invalid JSON syntax in server configuration"
+            return 1
+        fi
+    else
+        log_message "WARNING" "Cannot validate JSON syntax (jq or python3 not available)"
+    fi
+
+    # Check for required structure using jq if available
+    if command -v jq >/dev/null 2>&1; then
+        # Check if inbounds array exists
+        if ! jq -e '.inbounds' "$config_file" >/dev/null 2>&1; then
+            log_message "ERROR" "Missing 'inbounds' array in configuration"
+            return 1
+        fi
+
+        # Check if first inbound has clients array
+        if ! jq -e '.inbounds[0].settings.clients' "$config_file" >/dev/null 2>&1; then
+            log_message "ERROR" "Missing 'clients' array in first inbound configuration"
+            return 1
+        fi
+
+        # Check if all client UUIDs are valid format
+        local client_count
+        client_count=$(jq -r '.inbounds[0].settings.clients | length' "$config_file")
+
+        for ((i=0; i<client_count; i++)); do
+            local uuid
+            uuid=$(jq -r ".inbounds[0].settings.clients[$i].id" "$config_file")
+
+            # UUID format validation
+            if [[ ! $uuid =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+                log_message "ERROR" "Invalid UUID format in client $i: $uuid"
+                return 1
+            fi
+        done
+    fi
+
+    log_message "SUCCESS" "Server configuration validation passed"
+    return 0
+}
+
+# Add client to server configuration
+add_client_to_server() {
+    local uuid="$1"
+    local short_id="$2"
+
+    # Validate input parameters
+    if [[ -z "$uuid" ]] || [[ -z "$short_id" ]]; then
+        log_message "ERROR" "Missing required parameters for add_client_to_server"
+        return 1
+    fi
+
+    local config_file="$PROJECT_ROOT/config/server.json"
+
+    log_message "INFO" "Adding client to server configuration..."
+    log_message "INFO" "UUID: $uuid"
+    log_message "INFO" "ShortId: $short_id"
+
+    # Check if configuration exists
+    if [[ ! -f "$config_file" ]]; then
+        log_message "ERROR" "Server configuration not found: $config_file"
+        return 1
+    fi
+
+    # Check if jq is available for JSON manipulation
+    if ! command -v jq >/dev/null 2>&1; then
+        log_message "ERROR" "jq is required for JSON manipulation but not found"
+        log_message "INFO" "Install with: sudo apt-get install jq"
+        return 1
+    fi
+
+    # Create new client object
+    local new_client
+    new_client=$(jq -n \
+        --arg id "$uuid" \
+        --arg short_id "$short_id" \
+        '{
+            "id": $id,
+            "flow": "xtls-rprx-vision",
+            "shortId": $short_id
+        }')
+
+    # Add client to configuration
+    local temp_config="${config_file}.tmp"
+
+    if jq ".inbounds[0].settings.clients += [$new_client]" "$config_file" > "$temp_config"; then
+        # Validate the updated configuration
+        if validate_server_config_temp "$temp_config"; then
+            mv "$temp_config" "$config_file"
+            chmod 600 "$config_file"
+            log_message "SUCCESS" "Client added to server configuration"
+            return 0
+        else
+            rm -f "$temp_config"
+            log_message "ERROR" "Generated configuration failed validation"
+            return 1
+        fi
+    else
+        rm -f "$temp_config"
+        log_message "ERROR" "Failed to add client to server configuration"
+        return 1
+    fi
+}
+
+# Remove client from server configuration
+remove_client_from_server() {
+    local uuid="$1"
+
+    # Validate input parameter
+    if [[ -z "$uuid" ]]; then
+        log_message "ERROR" "UUID parameter is required for remove_client_from_server"
+        return 1
+    fi
+
+    local config_file="$PROJECT_ROOT/config/server.json"
+
+    log_message "INFO" "Removing client from server configuration..."
+    log_message "INFO" "UUID: $uuid"
+
+    # Check if configuration exists
+    if [[ ! -f "$config_file" ]]; then
+        log_message "ERROR" "Server configuration not found: $config_file"
+        return 1
+    fi
+
+    # Check if jq is available for JSON manipulation
+    if ! command -v jq >/dev/null 2>&1; then
+        log_message "ERROR" "jq is required for JSON manipulation but not found"
+        log_message "INFO" "Install with: sudo apt-get install jq"
+        return 1
+    fi
+
+    # Check if client exists
+    local client_exists
+    client_exists=$(jq --arg uuid "$uuid" '.inbounds[0].settings.clients | map(select(.id == $uuid)) | length' "$config_file")
+
+    if [[ "$client_exists" == "0" ]]; then
+        log_message "WARNING" "Client with UUID $uuid not found in configuration"
+        return 0
+    fi
+
+    # Remove client from configuration
+    local temp_config="${config_file}.tmp"
+
+    if jq --arg uuid "$uuid" '.inbounds[0].settings.clients |= map(select(.id != $uuid))' "$config_file" > "$temp_config"; then
+        # Validate the updated configuration
+        if validate_server_config_temp "$temp_config"; then
+            mv "$temp_config" "$config_file"
+            chmod 600 "$config_file"
+            log_message "SUCCESS" "Client removed from server configuration"
+            return 0
+        else
+            rm -f "$temp_config"
+            log_message "ERROR" "Generated configuration failed validation"
+            return 1
+        fi
+    else
+        rm -f "$temp_config"
+        log_message "ERROR" "Failed to remove client from server configuration"
+        return 1
+    fi
+}
+
+# Validate temporary server configuration (internal function)
+validate_server_config_temp() {
+    local temp_config="$1"
+
+    # Check if file exists
+    if [[ ! -f "$temp_config" ]]; then
+        return 1
+    fi
+
+    # Check JSON syntax
+    if command -v jq >/dev/null 2>&1; then
+        if ! jq empty "$temp_config" >/dev/null 2>&1; then
+            return 1
+        fi
+    elif command -v python3 >/dev/null 2>&1; then
+        if ! python3 -m json.tool "$temp_config" >/dev/null 2>&1; then
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# Main function to update server configuration
+update_server_config() {
+    local action="$1"
+    local username="$2"
+    local uuid="$3"
+    local short_id="$4"
+
+    log_message "INFO" "Updating server configuration..."
+    log_message "INFO" "Action: $action"
+    log_message "INFO" "Username: $username"
+
+    # Validate action parameter
+    if [[ "$action" != "add" ]] && [[ "$action" != "remove" ]]; then
+        log_message "ERROR" "Invalid action: $action (must be 'add' or 'remove')"
+        return 1
+    fi
+
+    # Create backup before making changes
+    local backup_file
+    backup_file=$(backup_server_config)
+    if [[ $? -ne 0 ]]; then
+        log_message "ERROR" "Failed to create configuration backup"
+        return 1
+    fi
+
+    # Perform the requested action
+    local result=0
+    case "$action" in
+        "add")
+            if [[ -z "$uuid" ]] || [[ -z "$short_id" ]]; then
+                log_message "ERROR" "UUID and shortId are required for add action"
+                result=1
+            else
+                add_client_to_server "$uuid" "$short_id"
+                result=$?
+            fi
+            ;;
+        "remove")
+            if [[ -z "$uuid" ]]; then
+                log_message "ERROR" "UUID is required for remove action"
+                result=1
+            else
+                remove_client_from_server "$uuid"
+                result=$?
+            fi
+            ;;
+    esac
+
+    # Check if operation was successful
+    if [[ $result -eq 0 ]]; then
+        # Validate final configuration
+        if validate_server_config; then
+            log_message "SUCCESS" "Server configuration updated successfully"
+            # Keep backup for safety but don't delete it automatically
+            log_message "INFO" "Configuration backup available: $backup_file"
+            return 0
+        else
+            log_message "ERROR" "Updated configuration failed validation, restoring backup"
+            # Restore from backup
+            cp "$backup_file" "$PROJECT_ROOT/config/server.json"
+            chmod 600 "$PROJECT_ROOT/config/server.json"
+            return 1
+        fi
+    else
+        log_message "ERROR" "Failed to update server configuration, restoring backup"
+        # Restore from backup
+        cp "$backup_file" "$PROJECT_ROOT/config/server.json"
+        chmod 600 "$PROJECT_ROOT/config/server.json"
+        return 1
+    fi
+}
+
+#######################################################################################
+# CLIENT CONFIGURATION GENERATION FUNCTIONS
+#######################################################################################
+
+# Create VLESS URL for easy client import
+create_vless_url() {
+    local uuid="$1"
+    local server_ip="$2"
+    local port="$3"
+    local public_key="$4"
+    local short_id="$5"
+
+    # Validate input parameters
+    if [[ -z "$uuid" ]] || [[ -z "$server_ip" ]] || [[ -z "$port" ]] || [[ -z "$public_key" ]] || [[ -z "$short_id" ]]; then
+        log_message "ERROR" "Missing required parameters for create_vless_url"
+        return 1
+    fi
+
+    # URL encode the public key if necessary
+    local encoded_public_key
+    encoded_public_key=$(echo "$public_key" | sed 's/+/%2B/g' | sed 's/\//%2F/g' | sed 's/=/%3D/g')
+
+    # Create VLESS URL
+    local vless_url="vless://${uuid}@${server_ip}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=speed.cloudflare.com&fp=chrome&pbk=${encoded_public_key}&sid=${short_id}&type=tcp&headerType=none#VLESS_Reality"
+
+    echo "$vless_url"
+}
+
+# Create JSON configuration for advanced clients
+create_client_json() {
+    local uuid="$1"
+    local server_ip="$2"
+    local port="$3"
+    local public_key="$4"
+    local short_id="$5"
+
+    # Validate input parameters
+    if [[ -z "$uuid" ]] || [[ -z "$server_ip" ]] || [[ -z "$port" ]] || [[ -z "$public_key" ]] || [[ -z "$short_id" ]]; then
+        log_message "ERROR" "Missing required parameters for create_client_json"
+        return 1
+    fi
+
+    # Create JSON configuration
+    local client_json
+    client_json=$(jq -n \
+        --arg uuid "$uuid" \
+        --arg server_ip "$server_ip" \
+        --arg port "$port" \
+        --arg public_key "$public_key" \
+        --arg short_id "$short_id" \
+        '{
+            "outbounds": [
+                {
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [
+                            {
+                                "address": $server_ip,
+                                "port": ($port | tonumber),
+                                "users": [
+                                    {
+                                        "id": $uuid,
+                                        "encryption": "none",
+                                        "flow": "xtls-rprx-vision"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverName": "speed.cloudflare.com",
+                            "fingerprint": "chrome",
+                            "publicKey": $public_key,
+                            "shortId": $short_id
+                        }
+                    },
+                    "tag": "proxy"
+                },
+                {
+                    "protocol": "freedom",
+                    "tag": "direct"
+                }
+            ],
+            "routing": {
+                "rules": [
+                    {
+                        "type": "field",
+                        "ip": [
+                            "geoip:private"
+                        ],
+                        "outboundTag": "direct"
+                    }
+                ]
+            }
+        }')
+
+    echo "$client_json"
+}
+
+# Save client configuration files
+save_client_config() {
+    local username="$1"
+    local vless_url="$2"
+    local json_config="$3"
+
+    # Validate input parameters
+    if [[ -z "$username" ]] || [[ -z "$vless_url" ]] || [[ -z "$json_config" ]]; then
+        log_message "ERROR" "Missing required parameters for save_client_config"
+        return 1
+    fi
+
+    local users_config_dir="$PROJECT_ROOT/config/users"
+    local url_file="${users_config_dir}/${username}.url"
+    local json_file="${users_config_dir}/${username}.json"
+
+    log_message "INFO" "Saving client configuration for user: $username"
+
+    # Ensure users config directory exists
+    if [[ ! -d "$users_config_dir" ]]; then
+        mkdir -p "$users_config_dir"
+        chmod 700 "$users_config_dir"
+    fi
+
+    # Save VLESS URL
+    echo "$vless_url" > "$url_file"
+    if [[ $? -eq 0 ]]; then
+        chmod 600 "$url_file"
+        log_message "SUCCESS" "VLESS URL saved: $url_file"
+    else
+        log_message "ERROR" "Failed to save VLESS URL for user: $username"
+        return 1
+    fi
+
+    # Save JSON configuration
+    echo "$json_config" > "$json_file"
+    if [[ $? -eq 0 ]]; then
+        chmod 600 "$json_file"
+        log_message "SUCCESS" "JSON configuration saved: $json_file"
+    else
+        log_message "ERROR" "Failed to save JSON configuration for user: $username"
+        return 1
+    fi
+
+    return 0
+}
+
+# Generate complete client configuration
+generate_client_config() {
+    local username="$1"
+    local uuid="$2"
+    local short_id="$3"
+
+    # Validate input parameters
+    if [[ -z "$username" ]] || [[ -z "$uuid" ]] || [[ -z "$short_id" ]]; then
+        log_message "ERROR" "Missing required parameters for generate_client_config"
+        return 1
+    fi
+
+    log_message "INFO" "Generating client configuration for user: $username"
+
+    # Read environment variables
+    local env_file="$PROJECT_ROOT/.env"
+    if [[ ! -f "$env_file" ]]; then
+        log_message "ERROR" "Environment file not found: $env_file"
+        return 1
+    fi
+
+    source "$env_file"
+
+    # Validate required environment variables
+    if [[ -z "$SERVER_IP" ]] || [[ -z "$XRAY_PORT" ]]; then
+        log_message "ERROR" "Required environment variables not set (SERVER_IP, XRAY_PORT)"
+        return 1
+    fi
+
+    # Read public key
+    local public_key_file="$PROJECT_ROOT/data/keys/public.key"
+    if [[ ! -f "$public_key_file" ]]; then
+        log_message "ERROR" "Public key file not found: $public_key_file"
+        return 1
+    fi
+
+    local public_key
+    public_key=$(cat "$public_key_file")
+    if [[ -z "$public_key" ]]; then
+        log_message "ERROR" "Public key is empty"
+        return 1
+    fi
+
+    # Check if jq is available for JSON generation
+    if ! command -v jq >/dev/null 2>&1; then
+        log_message "ERROR" "jq is required for JSON configuration generation but not found"
+        log_message "INFO" "Install with: sudo apt-get install jq"
+        return 1
+    fi
+
+    # Generate VLESS URL
+    local vless_url
+    vless_url=$(create_vless_url "$uuid" "$SERVER_IP" "$XRAY_PORT" "$public_key" "$short_id")
+    if [[ $? -ne 0 ]] || [[ -z "$vless_url" ]]; then
+        log_message "ERROR" "Failed to generate VLESS URL"
+        return 1
+    fi
+
+    # Generate JSON configuration
+    local json_config
+    json_config=$(create_client_json "$uuid" "$SERVER_IP" "$XRAY_PORT" "$public_key" "$short_id")
+    if [[ $? -ne 0 ]] || [[ -z "$json_config" ]]; then
+        log_message "ERROR" "Failed to generate JSON configuration"
+        return 1
+    fi
+
+    # Save configuration files
+    if save_client_config "$username" "$vless_url" "$json_config"; then
+        log_message "SUCCESS" "Client configuration generated successfully for user: $username"
+
+        # Display configuration details
+        echo
+        color_echo "blue" "Client Configuration Generated:"
+        echo "  👤 Username: $username"
+        echo "  🆔 UUID: $uuid"
+        echo "  🔑 ShortId: $short_id"
+        echo "  🌐 Server: $SERVER_IP:$XRAY_PORT"
+        echo "  📄 VLESS URL: $PROJECT_ROOT/config/users/${username}.url"
+        echo "  📄 JSON Config: $PROJECT_ROOT/config/users/${username}.json"
+        echo
+
+        return 0
+    else
+        log_message "ERROR" "Failed to save client configuration files"
+        return 1
+    fi
+}
+
+#######################################################################################
+# USER MANAGEMENT COMMAND FUNCTIONS
+#######################################################################################
+
+# Add new user to the VPN service
+add_user() {
+    local username="$1"
+
+    # Sanitize and validate username
+    username=$(sanitize_input "$username")
+    if [[ -z "$username" ]]; then
+        log_message "ERROR" "Username cannot be empty"
+        return 1
+    fi
+
+    log_message "INFO" "Starting user addition process for: $username"
+
+    # Validate username format
+    if ! validate_username "$username"; then
+        return 1
+    fi
+
+    # Check if user already exists
+    if user_exists "$username"; then
+        log_message "ERROR" "User '$username' already exists"
+        return 1
+    fi
+
+    # Check user limit
+    if ! check_user_limit; then
+        return 1
+    fi
+
+    # Generate UUID for the new user
+    local uuid
+    uuid=$(generate_uuid)
+    if [[ $? -ne 0 ]] || [[ -z "$uuid" ]]; then
+        log_message "ERROR" "Failed to generate UUID for user: $username"
+        return 1
+    fi
+
+    # Generate shortId for the new user
+    local short_id
+    short_id=$(generate_short_id 8)
+    if [[ $? -ne 0 ]] || [[ -z "$short_id" ]]; then
+        log_message "ERROR" "Failed to generate shortId for user: $username"
+        return 1
+    fi
+
+    log_message "INFO" "Generated credentials for user: $username"
+    log_message "INFO" "UUID: $uuid"
+    log_message "INFO" "ShortId: $short_id"
+
+    # Add user to database
+    if ! add_user_to_database "$username" "$uuid" "$short_id"; then
+        log_message "ERROR" "Failed to add user to database"
+        return 1
+    fi
+
+    # Update server configuration
+    if ! update_server_config "add" "$username" "$uuid" "$short_id"; then
+        log_message "ERROR" "Failed to update server configuration, removing user from database"
+        # Rollback: remove user from database
+        remove_user_from_database "$username"
+        return 1
+    fi
+
+    # Generate client configuration
+    if ! generate_client_config "$username" "$uuid" "$short_id"; then
+        log_message "ERROR" "Failed to generate client configuration, rolling back changes"
+        # Rollback: remove from server config and database
+        update_server_config "remove" "$username" "$uuid" "$short_id"
+        remove_user_from_database "$username"
+        return 1
+    fi
+
+    # Restart Docker container to apply changes
+    log_message "INFO" "Restarting Xray service to apply configuration changes..."
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        local compose_dir="$PROJECT_ROOT"
+        local restart_result=0
+
+        # Use timeout to prevent hanging
+        if timeout 30 docker compose -f "${compose_dir}/docker-compose.yml" restart xray >/dev/null 2>&1; then
+            log_message "SUCCESS" "Xray service restarted successfully"
+        else
+            log_message "WARNING" "Failed to restart Xray service automatically"
+            log_message "INFO" "Please restart manually: cd $PROJECT_ROOT && docker compose restart xray"
+            restart_result=1
+        fi
+
+        # Verify service is running
+        sleep 2
+        if docker compose -f "${compose_dir}/docker-compose.yml" ps xray | grep -q "Up\|running"; then
+            log_message "SUCCESS" "Xray service is running"
+        else
+            log_message "WARNING" "Xray service may not be running properly"
+            log_message "INFO" "Check status: cd $PROJECT_ROOT && docker compose ps"
+        fi
+    else
+        log_message "WARNING" "Docker or Docker Compose not available, manual service restart required"
+    fi
+
+    # Display success message
+    echo
+    color_echo "green" "✅ User '$username' added successfully!"
+    echo
+    color_echo "blue" "Connection Details:"
+    echo "  👤 Username: $username"
+    echo "  🆔 UUID: $uuid"
+    echo "  🔑 ShortId: $short_id"
+    echo "  📄 Configuration files:"
+    echo "     - VLESS URL: $PROJECT_ROOT/config/users/${username}.url"
+    echo "     - JSON Config: $PROJECT_ROOT/config/users/${username}.json"
+    echo
+    color_echo "yellow" "Next Steps:"
+    echo "  1. Share the configuration files with the user"
+    echo "  2. Import the configuration in a VLESS client"
+    echo "  3. Test the connection"
+    echo
+
+    # Display current user count
+    local user_counts
+    user_counts=$(count_users)
+    local total_users=${user_counts%:*}
+    local active_users=${user_counts#*:}
+    echo "📊 User Statistics: $active_users/$total_users active users (10 max)"
+    echo
+
+    return 0
+}
+
+# Remove user from the VPN service
+remove_user() {
+    local username="$1"
+
+    # Sanitize input
+    username=$(sanitize_input "$username")
+    if [[ -z "$username" ]]; then
+        log_message "ERROR" "Username cannot be empty"
+        return 1
+    fi
+
+    log_message "INFO" "Starting user removal process for: $username"
+
+    # Check if user exists
+    if ! user_exists "$username"; then
+        log_message "ERROR" "User '$username' does not exist"
+        return 1
+    fi
+
+    # Get user information
+    if ! get_user_info "$username"; then
+        log_message "ERROR" "Failed to retrieve user information for: $username"
+        return 1
+    fi
+
+    # Store user info for rollback
+    local user_uuid="$USER_UUID"
+    local user_short_id="$USER_SHORT_ID"
+
+    log_message "INFO" "Found user: $USER_NAME"
+    log_message "INFO" "UUID: $user_uuid"
+    log_message "INFO" "ShortId: $user_short_id"
+
+    # Remove from server configuration
+    if ! update_server_config "remove" "$username" "$user_uuid" "$user_short_id"; then
+        log_message "ERROR" "Failed to remove user from server configuration"
+        return 1
+    fi
+
+    # Remove from user database
+    if ! remove_user_from_database "$username"; then
+        log_message "ERROR" "Failed to remove user from database, attempting rollback"
+        # Rollback: re-add to server configuration
+        update_server_config "add" "$username" "$user_uuid" "$user_short_id"
+        return 1
+    fi
+
+    # Remove client configuration files
+    local users_config_dir="$PROJECT_ROOT/config/users"
+    local url_file="${users_config_dir}/${username}.url"
+    local json_file="${users_config_dir}/${username}.json"
+
+    if [[ -f "$url_file" ]]; then
+        rm -f "$url_file"
+        log_message "INFO" "Removed VLESS URL file: $url_file"
+    fi
+
+    if [[ -f "$json_file" ]]; then
+        rm -f "$json_file"
+        log_message "INFO" "Removed JSON configuration file: $json_file"
+    fi
+
+    # Restart Docker container to apply changes
+    log_message "INFO" "Restarting Xray service to apply configuration changes..."
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        local compose_dir="$PROJECT_ROOT"
+
+        # Use timeout to prevent hanging
+        if timeout 30 docker compose -f "${compose_dir}/docker-compose.yml" restart xray >/dev/null 2>&1; then
+            log_message "SUCCESS" "Xray service restarted successfully"
+        else
+            log_message "WARNING" "Failed to restart Xray service automatically"
+            log_message "INFO" "Please restart manually: cd $PROJECT_ROOT && docker compose restart xray"
+        fi
+
+        # Verify service is running
+        sleep 2
+        if docker compose -f "${compose_dir}/docker-compose.yml" ps xray | grep -q "Up\|running"; then
+            log_message "SUCCESS" "Xray service is running"
+        else
+            log_message "WARNING" "Xray service may not be running properly"
+            log_message "INFO" "Check status: cd $PROJECT_ROOT && docker compose ps"
+        fi
+    else
+        log_message "WARNING" "Docker or Docker Compose not available, manual service restart required"
+    fi
+
+    # Display success message
+    echo
+    color_echo "green" "✅ User '$username' removed successfully!"
+    echo
+    color_echo "blue" "Cleanup Summary:"
+    echo "  🗑️  User removed from database"
+    echo "  🗑️  User removed from server configuration"
+    echo "  🗑️  Client configuration files deleted"
+    echo "  🔄 Service restarted"
+    echo
+
+    # Display current user count
+    local user_counts
+    user_counts=$(count_users)
+    local total_users=${user_counts%:*}
+    local active_users=${user_counts#*:}
+    echo "📊 User Statistics: $active_users/$total_users active users (10 max)"
+    echo
+
+    return 0
+}
+
+# List all users in the VPN service
+list_users() {
+    log_message "INFO" "Retrieving user list..."
+
+    local users_db="$PROJECT_ROOT/data/users.db"
+
+    # Check if database exists
+    if [[ ! -f "$users_db" ]]; then
+        echo
+        color_echo "yellow" "📋 User List"
+        echo "════════════════════════════════════════════════════════════"
+        echo "No users found. Database does not exist."
+        echo
+        echo "💡 Add your first user with: $0 add-user USERNAME"
+        echo
+        return 0
+    fi
+
+    # Count users
+    local user_counts
+    user_counts=$(count_users)
+    local total_users=${user_counts%:*}
+    local active_users=${user_counts#*:}
+
+    if [[ $total_users -eq 0 ]]; then
+        echo
+        color_echo "yellow" "📋 User List"
+        echo "════════════════════════════════════════════════════════════"
+        echo "No users found. Database is empty."
+        echo
+        echo "💡 Add your first user with: $0 add-user USERNAME"
+        echo
+        return 0
+    fi
+
+    # Display header
+    echo
+    color_echo "blue" "📋 VLESS+Reality VPN Users"
+    echo "════════════════════════════════════════════════════════════"
+    printf "%-16s %-8s %-10s %-12s %-8s\n" "Username" "UUID" "Status" "Created" "Config"
+    echo "────────────────────────────────────────────────────────────"
+
+    # Display users
+    while IFS=':' read -r db_username db_uuid db_short_id db_created_date db_status || [[ -n "$db_username" ]]; do
+        # Skip comments and empty lines
+        if [[ "$db_username" =~ ^#.*$ ]] || [[ -z "$db_username" ]]; then
+            continue
+        fi
+
+        # Truncate UUID for display
+        local uuid_short="${db_uuid:0:8}..."
+
+        # Check if configuration files exist
+        local config_status="❌"
+        if [[ -f "$PROJECT_ROOT/config/users/${db_username}.url" ]] && [[ -f "$PROJECT_ROOT/config/users/${db_username}.json" ]]; then
+            config_status="✅"
+        fi
+
+        # Color code by status
+        local status_colored
+        case "$db_status" in
+            "active")
+                status_colored="$(color_echo "green" "active")"
+                ;;
+            "inactive")
+                status_colored="$(color_echo "yellow" "inactive")"
+                ;;
+            *)
+                status_colored="$(color_echo "red" "$db_status")"
+                ;;
+        esac
+
+        printf "%-16s %-8s %-10s %-12s %-8s\n" "$db_username" "$uuid_short" "$status_colored" "$db_created_date" "$config_status"
+    done < "$users_db"
+
+    echo "────────────────────────────────────────────────────────────"
+    echo "📊 Total: $total_users users | Active: $active_users | Slots remaining: $((10 - active_users))/10"
+    echo
+
+    # Show usage suggestions
+    color_echo "yellow" "💡 Quick Actions:"
+    echo "  $0 show-user USERNAME     - Show detailed user information"
+    echo "  $0 add-user USERNAME      - Add a new user"
+    echo "  $0 remove-user USERNAME   - Remove an existing user"
+    echo
+
+    return 0
+}
+
+# Show detailed information for a specific user
+show_user() {
+    local username="$1"
+
+    # Sanitize input
+    username=$(sanitize_input "$username")
+    if [[ -z "$username" ]]; then
+        log_message "ERROR" "Username cannot be empty"
+        return 1
+    fi
+
+    log_message "INFO" "Retrieving user information for: $username"
+
+    # Check if user exists
+    if ! user_exists "$username"; then
+        log_message "ERROR" "User '$username' does not exist"
+        echo
+        color_echo "red" "❌ User '$username' not found"
+        echo
+        color_echo "yellow" "💡 List all users with: $0 list-users"
+        echo
+        return 1
+    fi
+
+    # Get user information
+    if ! get_user_info "$username"; then
+        log_message "ERROR" "Failed to retrieve user information"
+        return 1
+    fi
+
+    # Check configuration files
+    local users_config_dir="$PROJECT_ROOT/config/users"
+    local url_file="${users_config_dir}/${username}.url"
+    local json_file="${users_config_dir}/${username}.json"
+    local url_exists=false
+    local json_exists=false
+
+    if [[ -f "$url_file" ]]; then
+        url_exists=true
+    fi
+
+    if [[ -f "$json_file" ]]; then
+        json_exists=true
+    fi
+
+    # Display user information
+    echo
+    color_echo "blue" "👤 User Information: $username"
+    echo "════════════════════════════════════════════════════════════"
+    echo "Username:     $USER_NAME"
+    echo "UUID:         $USER_UUID"
+    echo "ShortId:      $USER_SHORT_ID"
+    echo "Created:      $USER_CREATED_DATE"
+    echo "Status:       $(color_echo "green" "$USER_STATUS")"
+    echo
+
+    # Configuration files section
+    color_echo "blue" "📄 Configuration Files:"
+    echo "────────────────────────────────────────────────────────────"
+    if [[ $url_exists == true ]]; then
+        echo "VLESS URL:    ✅ $url_file"
+    else
+        echo "VLESS URL:    ❌ File not found"
+    fi
+
+    if [[ $json_exists == true ]]; then
+        echo "JSON Config:  ✅ $json_file"
+    else
+        echo "JSON Config:  ❌ File not found"
+    fi
+    echo
+
+    # Show VLESS URL if file exists
+    if [[ $url_exists == true ]]; then
+        color_echo "blue" "🔗 VLESS URL:"
+        echo "────────────────────────────────────────────────────────────"
+        cat "$url_file"
+        echo
+        echo
+
+        # Generate QR code if qrencode is available
+        if command -v qrencode >/dev/null 2>&1; then
+            color_echo "blue" "📱 QR Code:"
+            echo "────────────────────────────────────────────────────────────"
+            qrencode -t ANSI "$(cat "$url_file")"
+            echo
+        else
+            color_echo "yellow" "💡 Install qrencode to display QR code: sudo apt-get install qrencode"
+            echo
+        fi
+    fi
+
+    # Connection details
+    if [[ -f "$PROJECT_ROOT/.env" ]]; then
+        source "$PROJECT_ROOT/.env"
+        color_echo "blue" "🌐 Connection Details:"
+        echo "────────────────────────────────────────────────────────────"
+        echo "Server:       $SERVER_IP:$XRAY_PORT"
+        echo "Protocol:     VLESS"
+        echo "Transport:    Reality (TCP)"
+        echo "SNI:          speed.cloudflare.com"
+        echo "Fingerprint:  chrome"
+        echo
+    fi
+
+    # Show instructions
+    color_echo "yellow" "💡 Instructions:"
+    echo "────────────────────────────────────────────────────────────"
+    echo "1. Copy the VLESS URL or download the JSON configuration"
+    echo "2. Import into a compatible VLESS client (v2rayN, v2rayNG, etc.)"
+    echo "3. Test the connection"
+    echo
+
+    return 0
+}
+
+#######################################################################################
 # HELP AND ARGUMENT PARSING FUNCTIONS
 #######################################################################################
 
@@ -822,17 +2182,33 @@ ${GREEN}$SCRIPT_NAME v$SCRIPT_VERSION${NC}
 VLESS+Reality VPN Service Management Script
 
 ${YELLOW}USAGE:${NC}
-    $0 [COMMAND] [OPTIONS]
+    $0 [COMMAND] [ARGUMENTS]
 
-${YELLOW}COMMANDS:${NC}
+${YELLOW}SYSTEM COMMANDS:${NC}
     install                 Install and configure the service
     help                    Show this help message
 
+${YELLOW}USER MANAGEMENT COMMANDS:${NC}
+    add-user USERNAME       Add a new VPN user
+    remove-user USERNAME    Remove an existing VPN user
+    list-users             List all VPN users
+    show-user USERNAME     Show detailed user information
+
 ${YELLOW}EXAMPLES:${NC}
     $0 install              Run full installation process
+    $0 add-user alice       Add user 'alice' to VPN service
+    $0 remove-user alice    Remove user 'alice' from VPN service
+    $0 list-users           Display all VPN users
+    $0 show-user alice      Show detailed info for user 'alice'
     $0 help                 Display this help
 
-${YELLOW}REQUIREMENTS:${NC}
+${YELLOW}USERNAME REQUIREMENTS:${NC}
+    - Length: 3-32 characters
+    - Start with alphanumeric character
+    - Contains only: letters, numbers, underscore (_), dash (-)
+    - Maximum 10 users allowed
+
+${YELLOW}SYSTEM REQUIREMENTS:${NC}
     - Ubuntu 20.04+ / Debian 11+
     - Architecture: x86_64 / ARM64
     - RAM: minimum 512 MB
@@ -849,6 +2225,13 @@ ${YELLOW}INSTALLATION PROCESS:${NC}
     6. Server configuration creation
     7. Docker Compose configuration creation
 
+${YELLOW}USER WORKFLOW:${NC}
+    1. Install the service: sudo $0 install
+    2. Add users: sudo $0 add-user USERNAME
+    3. Start service: docker compose up -d
+    4. Share client configs from config/users/
+    5. Manage users as needed
+
 For more information, visit: https://github.com/your-repo/vless-manager
 
 EOF
@@ -858,6 +2241,33 @@ EOF
 parse_arguments() {
     case "${1:-}" in
         "install")
+            return 0
+            ;;
+        "add-user")
+            if [[ -z "${2:-}" ]]; then
+                log_message "ERROR" "Username is required for add-user command"
+                echo "Usage: $0 add-user USERNAME"
+                exit 1
+            fi
+            return 0
+            ;;
+        "remove-user")
+            if [[ -z "${2:-}" ]]; then
+                log_message "ERROR" "Username is required for remove-user command"
+                echo "Usage: $0 remove-user USERNAME"
+                exit 1
+            fi
+            return 0
+            ;;
+        "list-users")
+            return 0
+            ;;
+        "show-user")
+            if [[ -z "${2:-}" ]]; then
+                log_message "ERROR" "Username is required for show-user command"
+                echo "Usage: $0 show-user USERNAME"
+                exit 1
+            fi
             return 0
             ;;
         "help"|"-h"|"--help")
@@ -871,7 +2281,15 @@ parse_arguments() {
             ;;
         *)
             log_message "ERROR" "Unknown command: $1"
-            show_help
+            echo
+            color_echo "yellow" "Available commands:"
+            echo "  install                 - Install and configure the service"
+            echo "  add-user USERNAME       - Add a new VPN user"
+            echo "  remove-user USERNAME    - Remove an existing VPN user"
+            echo "  list-users             - List all VPN users"
+            echo "  show-user USERNAME     - Show detailed user information"
+            echo "  help                   - Show help message"
+            echo
             exit 1
             ;;
     esac
@@ -1042,10 +2460,38 @@ main() {
     # Parse command line arguments
     parse_arguments "$@"
 
-    # Execute the install command
+    # Execute the appropriate command
     case "${1:-}" in
         "install")
             install_service
+            ;;
+        "add-user")
+            # Check for root privileges for user management
+            if ! check_root; then
+                exit 1
+            fi
+            add_user "$2"
+            ;;
+        "remove-user")
+            # Check for root privileges for user management
+            if ! check_root; then
+                exit 1
+            fi
+            remove_user "$2"
+            ;;
+        "list-users")
+            # Check for root privileges for user management
+            if ! check_root; then
+                exit 1
+            fi
+            list_users
+            ;;
+        "show-user")
+            # Check for root privileges for user management
+            if ! check_root; then
+                exit 1
+            fi
+            show_user "$2"
             ;;
     esac
 }

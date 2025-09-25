@@ -40,9 +40,9 @@
                 <action>Сформировать итоговый вариант анализа</action>
             </step>
             <step number="6">
-                <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses.xml</action>
+                <action>Сохранить результат анализа в формате xml в каталоге /requests с названием analyses_plan.xml</action>
                 <requests_directory path="requests/">
-                    <file path="analyses.xml"/>
+                    <file path="analyses_plan.xml"/>
                 </requests_directory>
             </step>
             <step number="7">
@@ -52,9 +52,9 @@
         <task number="2">
             <step number="1">
                 <requests_directory path="requests/">
-                    <file path="analyses.xml"/>
+                    <file path="analyses_plan.xml"/>
                 </requests_directory>
-                <action>Обдумать несколько вариантов реализациии на основании /requests/analyses.xml</action>
+                <action>Обдумать несколько вариантов реализациии на основании /requests/analyses_plan.xml</action>
             </step>
             <step number="2">
                 <action>Задать уточняющие вопросы</action>
