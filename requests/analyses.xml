@@ -1,224 +1,145 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <project>
-        <name>VLESS+Reality VPN Service</name>
-        <type>Minimalistic Quick Start</type>
-        <platform>Linux (Debian/Ubuntu)</platform>
-        <architecture>x86_64, ARM64</architecture>
-        <users>up to 10</users>
-        <interface>CLI only</interface>
-    </project>
+  <project>VLESS+Reality VPN Service</project>
+  <stage>Stage 2: Configuration Generation</stage>
+  <date>2025-01-25</date>
 
-    <stage number="1" name="Basic Infrastructure">
-        <description>Implementation of base infrastructure for VLESS+Reality VPN service</description>
+  <requirements>
+    <requirement id="1">
+      <description>Generate X25519 key pairs (privateKey/publicKey)</description>
+      <technical_details>
+        <detail>X25519 is an elliptic curve Diffie-Hellman key exchange mechanism</detail>
+        <detail>Keys are 32 bytes (256 bits) long</detail>
+        <detail>Generated using xray x25519 command</detail>
+        <detail>privateKey stays on server, publicKey shared with clients</detail>
+      </technical_details>
+      <implementation>Use docker run with xray image to execute x25519 command</implementation>
+    </requirement>
 
-        <requirements>
-            <requirement id="R1">
-                <description>Create main management script vless-manager.sh</description>
-                <priority>high</priority>
-                <details>
-                    <item>Bash script with shebang (#!/bin/bash)</item>
-                    <item>Command-line argument parsing</item>
-                    <item>Main menu/dispatcher for various operations</item>
-                    <item>Color-coded output (green for success, red for errors, yellow for warnings)</item>
-                    <item>Proper exit codes and error handling</item>
-                </details>
-            </requirement>
+    <requirement id="2">
+      <description>Generate UUID for users</description>
+      <technical_details>
+        <detail>UUID v4 format required (e.g., 550e8400-e29b-41d4-a716-446655440000)</detail>
+        <detail>Unique identifier for each VLESS user</detail>
+        <detail>Stored in users.db file</detail>
+      </technical_details>
+      <implementation>Use uuidgen command or /proc/sys/kernel/random/uuid</implementation>
+    </requirement>
 
-            <requirement id="R2">
-                <description>System requirements verification</description>
-                <priority>high</priority>
-                <details>
-                    <item>OS check: Ubuntu 20.04+ or Debian 11+</item>
-                    <item>Architecture check: x86_64 or ARM64</item>
-                    <item>RAM check: minimum 512 MB</item>
-                    <item>Disk space check: minimum 1 GB free</item>
-                    <item>Network port check: 443 availability</item>
-                    <item>Permission check: root or sudo access</item>
-                </details>
-            </requirement>
+    <requirement id="3">
+      <description>Generate shortIds for REALITY</description>
+      <technical_details>
+        <detail>Characters: 0-9 and a-f (hexadecimal)</detail>
+        <detail>Length: multiple of 2, maximum 16 characters</detail>
+        <detail>Can include empty shortId</detail>
+        <detail>Used to distinguish different clients</detail>
+      </technical_details>
+      <implementation>Generate random hex strings using /dev/urandom</implementation>
+    </requirement>
 
-            <requirement id="R3">
-                <description>Docker installation function</description>
-                <priority>high</priority>
-                <details>
-                    <item>Check if Docker is already installed</item>
-                    <item>Add Docker GPG key</item>
-                    <item>Configure Docker APT repository</item>
-                    <item>Install docker-ce, docker-ce-cli, containerd.io</item>
-                    <item>Enable and start Docker service</item>
-                    <item>Verify installation with docker run hello-world</item>
-                </details>
-            </requirement>
+    <requirement id="4">
+      <description>Create Xray server configuration</description>
+      <technical_details>
+        <detail>JSON format at config/server.json</detail>
+        <detail>VLESS protocol with REALITY transport</detail>
+        <detail>Minimal logging (warning level)</detail>
+        <detail>Port 443 for VLESS+Reality</detail>
+        <detail>Destination: speed.cloudflare.com:443</detail>
+      </technical_details>
+      <implementation>Generate JSON config with dynamic values from previous steps</implementation>
+    </requirement>
 
-            <requirement id="R4">
-                <description>Docker Compose installation function</description>
-                <priority>high</priority>
-                <details>
-                    <item>Check if Docker Compose is already installed</item>
-                    <item>Install docker-compose-plugin via APT</item>
-                    <item>Verify installation with docker compose version</item>
-                </details>
-            </requirement>
+    <requirement id="5">
+      <description>Create Docker Compose configuration</description>
+      <technical_details>
+        <detail>Image: teddysun/xray:latest</detail>
+        <detail>Port mapping: 443:443</detail>
+        <detail>Volume mounts: config, logs, data</detail>
+        <detail>Restart policy: unless-stopped</detail>
+      </technical_details>
+      <implementation>Generate docker-compose.yml with proper structure</implementation>
+    </requirement>
+  </requirements>
 
-            <requirement id="R5">
-                <description>Directory structure creation</description>
-                <priority>high</priority>
-                <details>
-                    <item>Create config/ directory for server.json</item>
-                    <item>Create config/users/ directory for client configurations</item>
-                    <item>Create data/ directory for user database</item>
-                    <item>Create data/keys/ directory for key storage</item>
-                    <item>Create logs/ directory for xray.log</item>
-                    <item>Set proper permissions (600 for keys, 700 for directories)</item>
-                </details>
-            </requirement>
+  <functions_to_implement>
+    <function name="generate_keys">
+      <purpose>Generate X25519 key pair for REALITY transport</purpose>
+      <inputs>None</inputs>
+      <outputs>privateKey and publicKey stored in data/keys/</outputs>
+      <error_handling>Check Docker availability, handle generation failures</error_handling>
+    </function>
 
-            <requirement id="R6">
-                <description>Environment configuration</description>
-                <priority>medium</priority>
-                <details>
-                    <item>Create .env file for environment variables</item>
-                    <item>Define PROJECT_PATH variable</item>
-                    <item>Define SERVER_IP variable</item>
-                    <item>Define XRAY_PORT variable (default 443)</item>
-                    <item>Define LOG_LEVEL variable (default warning)</item>
-                </details>
-            </requirement>
-        </requirements>
+    <function name="generate_uuid">
+      <purpose>Create UUID v4 for user identification</purpose>
+      <inputs>None</inputs>
+      <outputs>UUID string in standard format</outputs>
+      <error_handling>Fallback to /dev/urandom if uuidgen unavailable</error_handling>
+    </function>
 
-        <technologies>
-            <technology>
-                <name>Bash</name>
-                <version>5.0+</version>
-                <usage>Main scripting language for management script</usage>
-            </technology>
-            <technology>
-                <name>Docker</name>
-                <version>latest stable</version>
-                <usage>Container runtime for Xray service</usage>
-            </technology>
-            <technology>
-                <name>Docker Compose</name>
-                <version>2.0+</version>
-                <usage>Container orchestration and configuration</usage>
-            </technology>
-            <technology>
-                <name>Xray-core</name>
-                <version>latest</version>
-                <usage>VLESS+Reality protocol implementation</usage>
-                <docker_image>teddysun/xray:latest</docker_image>
-            </technology>
-        </technologies>
+    <function name="generate_short_id">
+      <purpose>Generate random hexadecimal shortId</purpose>
+      <inputs>Length (optional, default 8)</inputs>
+      <outputs>Hexadecimal string of specified length</outputs>
+      <error_handling>Validate length is even and <= 16</error_handling>
+    </function>
 
-        <implementation_approach>
-            <principle>Modular and reusable functions</principle>
-            <principle>Idempotent operations (can run multiple times safely)</principle>
-            <principle>Clear error messages and recovery suggestions</principle>
-            <principle>Logging for troubleshooting</principle>
-            <principle>Security best practices (proper permissions, no hardcoded secrets)</principle>
-        </implementation_approach>
+    <function name="create_server_config">
+      <purpose>Generate Xray server JSON configuration</purpose>
+      <inputs>privateKey, shortIds array</inputs>
+      <outputs>config/server.json file</outputs>
+      <error_handling>Validate JSON format, check file permissions</error_handling>
+    </function>
 
-        <functions_to_implement>
-            <function>
-                <name>check_root</name>
-                <description>Verify root or sudo privileges</description>
-            </function>
-            <function>
-                <name>check_os</name>
-                <description>Verify OS compatibility (Ubuntu/Debian)</description>
-            </function>
-            <function>
-                <name>check_architecture</name>
-                <description>Verify system architecture (x86_64/ARM64)</description>
-            </function>
-            <function>
-                <name>check_resources</name>
-                <description>Verify RAM and disk space availability</description>
-            </function>
-            <function>
-                <name>check_port</name>
-                <description>Verify port 443 availability</description>
-            </function>
-            <function>
-                <name>install_docker</name>
-                <description>Install Docker if not present</description>
-            </function>
-            <function>
-                <name>install_docker_compose</name>
-                <description>Install Docker Compose plugin</description>
-            </function>
-            <function>
-                <name>create_directories</name>
-                <description>Create project directory structure</description>
-            </function>
-            <function>
-                <name>create_env_file</name>
-                <description>Generate .env configuration file</description>
-            </function>
-            <function>
-                <name>show_help</name>
-                <description>Display usage information</description>
-            </function>
-            <function>
-                <name>log_message</name>
-                <description>Unified logging function</description>
-            </function>
-            <function>
-                <name>color_echo</name>
-                <description>Colored output function</description>
-            </function>
-        </functions_to_implement>
+    <function name="create_docker_compose">
+      <purpose>Generate Docker Compose configuration</purpose>
+      <inputs>Environment variables from .env</inputs>
+      <outputs>docker-compose.yml file</outputs>
+      <error_handling>Validate YAML format, check port availability</error_handling>
+    </function>
+  </functions_to_implement>
 
-        <commands_to_support>
-            <command>
-                <name>install</name>
-                <description>Run full installation process</description>
-                <actions>
-                    <action>Check system requirements</action>
-                    <action>Install Docker and Docker Compose</action>
-                    <action>Create directory structure</action>
-                    <action>Generate environment configuration</action>
-                </actions>
-            </command>
-        </commands_to_support>
+  <integration_points>
+    <integration>
+      <location>install command in vless-manager.sh</location>
+      <description>Call configuration functions after directory creation</description>
+      <order>After create_directories(), before completion message</order>
+    </integration>
 
-        <testing_requirements>
-            <test>Verify script runs with proper permissions</test>
-            <test>Test on Ubuntu 20.04, 22.04, 24.04</test>
-            <test>Test on Debian 11, 12</test>
-            <test>Test on both x86_64 and ARM64 architectures</test>
-            <test>Test Docker installation on clean system</test>
-            <test>Test idempotency (run install multiple times)</test>
-            <test>Test error handling for insufficient resources</test>
-            <test>Test port conflict detection</test>
-        </testing_requirements>
+    <integration>
+      <location>Environment variables</location>
+      <description>Use existing .env file for configuration values</description>
+      <variables>PROJECT_PATH, SERVER_IP, XRAY_PORT, LOG_LEVEL</variables>
+    </integration>
+  </integration_points>
 
-        <security_considerations>
-            <consideration>All sensitive files must have 600 permissions</consideration>
-            <consideration>Directories containing sensitive data must have 700 permissions</consideration>
-            <consideration>No hardcoded credentials or keys in scripts</consideration>
-            <consideration>Validate all user inputs</consideration>
-            <consideration>Use secure methods for Docker installation (official GPG keys)</consideration>
-        </security_considerations>
+  <security_considerations>
+    <consideration>Store keys with 600 permissions in data/keys/</consideration>
+    <consideration>Config files accessible only by root (600 permissions)</consideration>
+    <consideration>No hardcoded secrets in scripts</consideration>
+    <consideration>Validate all user inputs</consideration>
+    <consideration>Use secure random generation for keys and IDs</consideration>
+  </security_considerations>
 
-        <deliverables>
-            <deliverable>
-                <file>vless-manager.sh</file>
-                <description>Main management script with install command</description>
-            </deliverable>
-            <deliverable>
-                <file>.env.example</file>
-                <description>Example environment configuration</description>
-            </deliverable>
-            <deliverable>
-                <structure>Directory structure created and ready</structure>
-                <description>config/, data/, logs/ directories with proper permissions</description>
-            </deliverable>
-            <deliverable>
-                <service>Docker and Docker Compose installed and running</service>
-                <description>Container runtime ready for Xray deployment</description>
-            </deliverable>
-        </deliverables>
-    </stage>
+  <testing_requirements>
+    <test>Unit test for each generation function</test>
+    <test>Validate JSON configuration format</test>
+    <test>Check file permissions after creation</test>
+    <test>Test error handling for missing dependencies</test>
+    <test>Integration test for full configuration flow</test>
+  </testing_requirements>
+
+  <dependencies>
+    <dependency>Docker with xray image for key generation</dependency>
+    <dependency>uuidgen or /proc/sys/kernel/random/uuid</dependency>
+    <dependency>/dev/urandom for random generation</dependency>
+    <dependency>jq for JSON manipulation (optional)</dependency>
+  </dependencies>
+
+  <success_criteria>
+    <criterion>All configuration files generated correctly</criterion>
+    <criterion>Proper file permissions set</criterion>
+    <criterion>Functions integrated into install workflow</criterion>
+    <criterion>Error handling prevents partial states</criterion>
+    <criterion>All tests passing</criterion>
+  </success_criteria>
 </analysis>
