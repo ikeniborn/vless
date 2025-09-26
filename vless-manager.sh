@@ -661,7 +661,7 @@ generate_short_id() {
 create_server_config() {
     log_message "INFO" "Creating Xray server configuration..."
 
-    local config_file="$PROJECT_ROOT/config/server.json"
+    local config_file="$PROJECT_ROOT/config/config.json"
     local env_file="$PROJECT_ROOT/.env"
     local private_key_file="$PROJECT_ROOT/data/keys/private.key"
 
@@ -917,7 +917,7 @@ start_service() {
   fi
 
   local compose_file="$PROJECT_ROOT/docker-compose.yml"
-  local server_config="$PROJECT_ROOT/config/server.json"
+  local server_config="$PROJECT_ROOT/config/config.json"
   local env_file="$PROJECT_ROOT/.env"
 
   # Check required files
@@ -1069,7 +1069,7 @@ restart_service() {
   fi
 
   local compose_file="$PROJECT_ROOT/docker-compose.yml"
-  local server_config="$PROJECT_ROOT/config/server.json"
+  local server_config="$PROJECT_ROOT/config/config.json"
   local env_file="$PROJECT_ROOT/.env"
 
   # Check required files
@@ -1172,7 +1172,7 @@ check_service_status() {
   fi
 
   local compose_file="$PROJECT_ROOT/docker-compose.yml"
-  local server_config="$PROJECT_ROOT/config/server.json"
+  local server_config="$PROJECT_ROOT/config/config.json"
 
   # Check if configuration files exist
   if [[ ! -f "$server_config" ]]; then
@@ -1756,7 +1756,7 @@ count_users() {
 backup_server_config() {
     log_message "INFO" "Creating server configuration backup..."
 
-    local config_file="$PROJECT_ROOT/config/server.json"
+    local config_file="$PROJECT_ROOT/config/config.json"
 
     # Check if server config exists
     if [[ ! -f "$config_file" ]]; then
@@ -1782,7 +1782,7 @@ backup_server_config() {
 
 # Validate server configuration JSON syntax and structure
 validate_server_config() {
-    local config_file="$PROJECT_ROOT/config/server.json"
+    local config_file="$PROJECT_ROOT/config/config.json"
 
     log_message "INFO" "Validating server configuration..."
 
@@ -1852,7 +1852,7 @@ add_client_to_server() {
         return 1
     fi
 
-    local config_file="$PROJECT_ROOT/config/server.json"
+    local config_file="$PROJECT_ROOT/config/config.json"
 
     log_message "INFO" "Adding client to server configuration..."
     log_message "INFO" "UUID: $uuid"
@@ -1914,7 +1914,7 @@ remove_client_from_server() {
         return 1
     fi
 
-    local config_file="$PROJECT_ROOT/config/server.json"
+    local config_file="$PROJECT_ROOT/config/config.json"
 
     log_message "INFO" "Removing client from server configuration..."
     log_message "INFO" "UUID: $uuid"
@@ -2045,15 +2045,15 @@ update_server_config() {
         else
             log_message "ERROR" "Updated configuration failed validation, restoring backup"
             # Restore from backup
-            cp "$backup_file" "$PROJECT_ROOT/config/server.json"
-            chmod 600 "$PROJECT_ROOT/config/server.json"
+            cp "$backup_file" "$PROJECT_ROOT/config/config.json"
+            chmod 600 "$PROJECT_ROOT/config/config.json"
             return 1
         fi
     else
         log_message "ERROR" "Failed to update server configuration, restoring backup"
         # Restore from backup
-        cp "$backup_file" "$PROJECT_ROOT/config/server.json"
-        chmod 600 "$PROJECT_ROOT/config/server.json"
+        cp "$backup_file" "$PROJECT_ROOT/config/config.json"
+        chmod 600 "$PROJECT_ROOT/config/config.json"
         return 1
     fi
 }
@@ -3019,7 +3019,7 @@ install_service() {
     echo "  🔌 Service Port: 443"
     echo "  📝 Log Level: warning"
     echo "  🔑 Admin UUID: $(grep ADMIN_UUID $PROJECT_ROOT/.env | cut -d'=' -f2 || echo 'Generated')"
-    echo "  📋 Configuration: $PROJECT_ROOT/config/server.json"
+    echo "  📋 Configuration: $PROJECT_ROOT/config/config.json"
     echo "  🐳 Docker Compose: $PROJECT_ROOT/docker-compose.yml"
     echo
 

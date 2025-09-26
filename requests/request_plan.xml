@@ -21,6 +21,26 @@
         </architecture>
     </project>
 
+    <!-- Контекст исполнения -->
+    <context>
+    </context>
+
+    <!-- Требования -->
+    <requirements>
+        <requirement id="1">
+            Запустить установку sudo ./vless-manager.sh install
+        </requirement>
+        <requirement id="2">
+            Проанализировать результаты установки по логам терминала. 
+        </requirement>
+        <requirement id="3">
+            Проверить стутус запуска и наличие ошибок
+        </requirement>
+        <requirement id="4">
+            Исправить
+        </requirement>
+    </requirements>
+
     <!-- Задачи -->
     <tasks>
         <task id="1" name="Анализ требований">
@@ -100,22 +120,5 @@
             </steps>
         </task>
     </tasks>
-
-    <!-- Контекст исполнения -->
-    <context>
-    </context>
-
-    <!-- Требования -->
-    <requirements>
-        <requirement id="1">
-            Изучить текущую реализацию
-        </requirement>
-        <requirement id="2">
-            Определить текущую структуру каталога размешения сервиса
-        </requirement>
-        <requirement id="3">
-            Изменить целевой каталог размещения на /opt/vless c копированием всех конфигураций при установке
-        </requirement>
-    </requirements>
 
 </request>
