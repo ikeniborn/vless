@@ -46,7 +46,7 @@
 - Генерация клиентских конфигураций:
   - vless:// ссылки для быстрого импорта
   - JSON конфигурации для различных клиентов
-  - QR-коды для мобильных устройств
+  - QR-коды 640x640 пикселей для мобильных устройств
 
 ##### 4.1.3 Обслуживание системы
 - Автоматическое обновление Xray-core
@@ -76,13 +76,13 @@
 - **Контейнеризация:** Docker 24.x, Docker Compose 2.x
 - **VPN движок:** Xray-core (последняя версия)
 - **Скрипты:** Bash
-- **Утилиты:** qrencode, jq, curl
+- **Утилиты:** qrencode, jq, curl, openssl
 
 #### 5.3 Структура проекта
 
 ##### Структура Git репозитория:
 ```
-vless-reality/                  # Корневая директория репозитория
+vless/                          # Корневая директория репозитория
 ├── scripts/
 │   ├── install.sh              # Установщик системы
 │   ├── user-manager.sh         # Управление пользователями
@@ -232,14 +232,14 @@ LOGS_DIR="$VLESS_HOME/logs"
    - Проверка системных требований
    - Установка Docker и Docker Compose
    - Интерактивный ввод параметров конфигурации:
-     * SERVER_IP - внешний IP адрес сервера
+     * SERVER_IP - автоопределение внешнего IP с подтверждением/ручным вводом
      * SERVER_NAME - целевой домен для REALITY (по умолчанию speed.cloudflare.com)
-     * SHORT_ID - идентификатор для первого администратора
+     * SHORT_ID - автоматическая генерация уникального идентификатора администратора
      * ADMIN_EMAIL - email администратора (опционально)
    - Валидация введенных данных:
-     * Проверка формата IP адреса
+     * Проверка формата IP адреса (если введен вручную)
      * Проверка доступности целевого домена
-     * Проверка длины SHORT_ID (мин. 2 символа)
+     * Автоматическая генерация SHORT_ID (8 hex символов)
      * Валидация email (если указан)
    - Подтверждение введенных данных перед продолжением
    - Копирование скриптов из репозитория в /opt/vless/scripts/
@@ -252,10 +252,15 @@ LOGS_DIR="$VLESS_HOME/logs"
 
 2. **user-manager.sh** - Интерактивное меню управления
    - Работает с данными в /opt/vless/data/
-   - Добавление пользователя (UUID генерация)
+   - Добавление пользователя:
+     * Автоматическая генерация UUID
+     * Автоматическая генерация уникального Short ID (8 hex символов)
    - Удаление пользователя
    - Показать список пользователей
-   - Экспорт конфигурации пользователя
+   - Экспорт конфигурации пользователя:
+     * vless:// ссылка
+     * JSON конфигурация
+     * QR-код 640x640 пикселей (PNG формат)
    - Автоматическое обновление config.json
 
 3. **update.sh** - Обновление Xray
@@ -309,7 +314,7 @@ LOGS_DIR="$VLESS_HOME/logs"
 ##### Обязательные параметры:
 ```bash
 # Основные настройки сервера
-SERVER_IP=          # Внешний IP адрес сервера (обязательно)
+SERVER_IP=          # Внешний IP адрес сервера (автоопределение с подтверждением)
 SERVER_PORT=443     # Порт для входящих соединений (по умолчанию 443)
 
 # REALITY настройки
@@ -317,7 +322,7 @@ REALITY_DEST=speed.cloudflare.com:443    # Целевой сайт для мас
 REALITY_SERVER_NAME=speed.cloudflare.com # Имя сервера из сертификата
 
 # Администратор
-ADMIN_SHORT_ID=     # Идентификатор администратора (мин. 2 символа)
+ADMIN_SHORT_ID=     # Идентификатор администратора (генерируется автоматически)
 ADMIN_EMAIL=        # Email для уведомлений (опционально)
 
 # Системные настройки
@@ -326,10 +331,10 @@ TZ=UTC              # Временная зона
 ```
 
 ##### Процесс валидации при установке:
-1. **SERVER_IP** - проверка корректности IP формата (IPv4/IPv6)
+1. **SERVER_IP** - автоопределение через curl ifconfig.me, затем подтверждение или ручной ввод
 2. **SERVER_PORT** - проверка диапазона (1-65535) и доступности
 3. **REALITY_DEST** - проверка доступности целевого сайта через curl
-4. **ADMIN_SHORT_ID** - проверка длины (мин. 2, макс. 16 символов), разрешены только hex символы
+4. **ADMIN_SHORT_ID** - автоматическая генерация 8 hex символов через openssl rand -hex 4
 5. **ADMIN_EMAIL** - валидация формата email через regex (если указан)
 
 ##### Интерактивный ввод:
@@ -339,29 +344,30 @@ TZ=UTC              # Временная зона
 VLESS + REALITY Configuration
 ========================================
 
-[1/5] Enter server external IP address:
-> 192.168.1.100
-✓ Valid IP address
+[1/4] Detecting server IP address...
+→ Detected IP: 192.168.1.100
+Is this correct? [Y/n]: Y
+✓ IP address confirmed
 
-[2/5] Enter target domain for REALITY [speed.cloudflare.com]:
+[2/4] Enter target domain for REALITY [speed.cloudflare.com]:
 > (нажатие Enter для значения по умолчанию)
 ✓ Using default: speed.cloudflare.com
 ✓ Domain is accessible
 
-[3/5] Enter admin Short ID (2-16 hex characters):
-> a1b2c3
-✓ Valid Short ID
+[3/4] Generating admin Short ID...
+→ Generated ID: a1b2c3d4
+✓ Admin Short ID created
 
-[4/5] Enter admin email (optional, press Enter to skip):
+[4/4] Enter admin email (optional, press Enter to skip):
 > admin@example.com
 ✓ Valid email format
 
-[5/5] Confirm configuration:
+Confirm configuration:
 ----------------------------------------
 Server IP:        192.168.1.100
 Server Port:      443
 REALITY Target:   speed.cloudflare.com
-Admin Short ID:   a1b2c3
+Admin Short ID:   a1b2c3d4 (автогенерирован)
 Admin Email:      admin@example.com
 ----------------------------------------
 Is this correct? [Y/n]: Y
@@ -389,7 +395,7 @@ Is this correct? [Y/n]: Y
 - [ ] Функции CRUD для пользователей
 - [ ] Генерация UUID
 - [ ] Создание vless:// ссылок
-- [ ] Генерация QR-кодов
+- [ ] Генерация QR-кодов 640x640 пикселей
 - [ ] Система хранения в users.json
 
 #### Этап 3: Автоматизация (2 дня)
