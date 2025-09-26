@@ -876,7 +876,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 172.30.0.0/16
 EOF
 
     # Set proper permissions
