@@ -23,21 +23,13 @@
 
     <!-- Контекст исполнения -->
     <context>
+        <file path="/PRD.md" description="Product Requirements Document"/>
     </context>
 
     <!-- Требования -->
     <requirements>
         <requirement id="1">
-            Запустить установку sudo ./vless-manager.sh install
-        </requirement>
-        <requirement id="2">
-            Проанализировать результаты установки по логам терминала. 
-        </requirement>
-        <requirement id="3">
-            Проверить стутус запуска и наличие ошибок
-        </requirement>
-        <requirement id="4">
-            Исправить
+            Подготовить детальный план задач на основании PRD.md
         </requirement>
     </requirements>
 

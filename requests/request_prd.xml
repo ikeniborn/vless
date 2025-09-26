@@ -85,7 +85,7 @@
             <steps>
                 <step id="2.1">
                     <action>Обдумать несколько вариантов реализации на основании анализа</action>
-                    <input>requests/analyses_prd_plan.xml</input>
+                    <input>requests/analyses_plan.xml</input>
                 </step>
 
                 <step id="2.2">
@@ -106,7 +106,7 @@
                 </step>
 
                 <step id="2.6">
-                    <action>Сформировать итоговый документа на основании итогового варианта</action>
+                    <action>Сформировать документ на основании итогового варианта</action>
                     <output>
                         <format>markdown</format>
                         <path>PRD.md</path>
