@@ -286,28 +286,135 @@ LOGS_DIR="$VLESS_HOME/logs"
 
 #### 6.2 Конфигурация REALITY
 
+##### Серверная конфигурация (config.json):
 ```json
 {
-  "inbounds": [{
-    "port": 443,
-    "protocol": "vless",
-    "settings": {
-      "clients": [],
-      "decryption": "none"
-    },
-    "streamSettings": {
-      "network": "tcp",
-      "security": "reality",
-      "realitySettings": {
-        "dest": "speed.cloudflare.com:443",
-        "serverNames": ["speed.cloudflare.com"],
-        "privateKey": "",
-        "shortIds": [""]
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "{{ UUID }}",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "{{ REALITY_DEST }}",
+          "serverNames": [
+            "{{ REALITY_SERVER_NAME }}"
+          ],
+          "privateKey": "{{ PRIVATE_KEY }}",
+          "shortIds": [
+            "",
+            "{{ SHORT_ID }}"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
       }
     }
-  }]
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ]
 }
 ```
+
+##### Клиентская конфигурация (пример для v2rayNG/Nekobox):
+```json
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": 10808,
+      "listen": "127.0.0.1",
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "{{ SERVER_IP }}",
+            "port": 443,
+            "users": [
+              {
+                "id": "{{ UUID }}",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "serverName": "{{ REALITY_SERVER_NAME }}",
+          "publicKey": "{{ PUBLIC_KEY }}",
+          "shortId": "{{ SHORT_ID }}",
+          "spiderX": ""
+        }
+      }
+    }
+  ]
+}
+```
+
+##### Ключевые параметры:
+- **flow: "xtls-rprx-vision"** - обязательный параметр для REALITY, обеспечивает оптимальную производительность
+- **decryption: "none"** - для VLESS всегда должно быть "none"
+- **sniffing** - включено для определения типа трафика и правильной маршрутизации
+- **fingerprint: "chrome"** - эмуляция TLS отпечатка браузера Chrome (можно также firefox, safari, ios, android)
+- **shortIds** - массив идентификаторов, пустая строка "" означает возможность подключения без shortId
+- **spiderX** - дополнительный параметр безопасности (опционально)
+
+##### Формат vless:// ссылки для клиентов:
+```
+vless://{{ UUID }}@{{ SERVER_IP }}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni={{ REALITY_SERVER_NAME }}&fp=chrome&pbk={{ PUBLIC_KEY }}&sid={{ SHORT_ID }}&type=tcp&headerType=none#VLESS-REALITY
+```
+
+Параметры ссылки:
+- **encryption=none** - без шифрования (обязательно для VLESS)
+- **flow=xtls-rprx-vision** - тип потока данных
+- **security=reality** - использование REALITY
+- **sni** - имя сервера для SNI
+- **fp** - fingerprint браузера
+- **pbk** - публичный ключ сервера (base64)
+- **sid** - short ID пользователя
+- **type=tcp** - тип транспорта
+- **#VLESS-REALITY** - имя конфигурации для отображения в клиенте
 
 #### 6.3 Параметры окружения (.env)
 
