@@ -910,12 +910,53 @@ start_service() {
     return 1
   fi
 
-  # Check Docker Compose availability
-  if ! check_docker_compose_available; then
+  # Check Docker Compose command only (not config file)
+  if ! docker compose version >/dev/null 2>&1; then
+    log_message "ERROR" "Docker Compose plugin is not installed"
     return 1
   fi
 
   local compose_file="$PROJECT_ROOT/docker-compose.yml"
+  local server_config="$PROJECT_ROOT/config/server.json"
+  local env_file="$PROJECT_ROOT/.env"
+
+  # Check required files
+  if [[ ! -f "$env_file" ]]; then
+    log_message "ERROR" "Environment configuration not found: $env_file"
+    echo
+    color_echo "red" "❌ Missing .env file"
+    echo
+    color_echo "yellow" "For fresh installation, run:"
+    echo "  sudo $0 install"
+    echo
+    color_echo "yellow" "For existing installation on remote server:"
+    echo "  1. Copy .env.example to .env:"
+    echo "     cp .env.example .env"
+    echo "  2. Edit .env and set your server IP:"
+    echo "     nano .env"
+    echo "  3. Run installation:"
+    echo "     sudo $0 install"
+    echo
+    return 1
+  fi
+
+  if [[ ! -f "$server_config" ]]; then
+    log_message "ERROR" "Server configuration not found: $server_config"
+    echo
+    color_echo "red" "❌ Missing server configuration"
+    color_echo "yellow" "Run 'sudo $0 install' to create configuration files"
+    echo
+    return 1
+  fi
+
+  if [[ ! -f "$compose_file" ]]; then
+    log_message "ERROR" "Docker Compose configuration not found: $compose_file"
+    echo
+    color_echo "red" "❌ Missing Docker Compose configuration"
+    color_echo "yellow" "Run 'sudo $0 install' to create configuration files"
+    echo
+    return 1
+  fi
 
   # Check if service is already running
   if is_service_running; then
@@ -1021,12 +1062,53 @@ restart_service() {
     return 1
   fi
 
-  # Check Docker Compose availability
-  if ! check_docker_compose_available; then
+  # Check Docker Compose command only (not config file)
+  if ! docker compose version >/dev/null 2>&1; then
+    log_message "ERROR" "Docker Compose plugin is not installed"
     return 1
   fi
 
   local compose_file="$PROJECT_ROOT/docker-compose.yml"
+  local server_config="$PROJECT_ROOT/config/server.json"
+  local env_file="$PROJECT_ROOT/.env"
+
+  # Check required files
+  if [[ ! -f "$env_file" ]]; then
+    log_message "ERROR" "Environment configuration not found: $env_file"
+    echo
+    color_echo "red" "❌ Missing .env file"
+    echo
+    color_echo "yellow" "For fresh installation, run:"
+    echo "  sudo $0 install"
+    echo
+    color_echo "yellow" "For existing installation on remote server:"
+    echo "  1. Copy .env.example to .env:"
+    echo "     cp .env.example .env"
+    echo "  2. Edit .env and set your server IP:"
+    echo "     nano .env"
+    echo "  3. Run installation:"
+    echo "     sudo $0 install"
+    echo
+    return 1
+  fi
+
+  if [[ ! -f "$server_config" ]]; then
+    log_message "ERROR" "Server configuration not found: $server_config"
+    echo
+    color_echo "red" "❌ Missing server configuration"
+    color_echo "yellow" "Run 'sudo $0 install' to create configuration files"
+    echo
+    return 1
+  fi
+
+  if [[ ! -f "$compose_file" ]]; then
+    log_message "ERROR" "Docker Compose configuration not found: $compose_file"
+    echo
+    color_echo "red" "❌ Missing Docker Compose configuration"
+    color_echo "yellow" "Run 'sudo $0 install' to create configuration files"
+    echo
+    return 1
+  fi
 
   # Use docker compose restart for graceful restart
   log_message "INFO" "Executing docker compose restart..."
@@ -1090,6 +1172,17 @@ check_service_status() {
   fi
 
   local compose_file="$PROJECT_ROOT/docker-compose.yml"
+  local server_config="$PROJECT_ROOT/config/server.json"
+
+  # Check if configuration files exist
+  if [[ ! -f "$server_config" ]]; then
+    echo
+    color_echo "red" "❌ Server configuration not found"
+    echo "   File: $server_config"
+    echo "   Run: sudo $0 install"
+    echo
+    return 1
+  fi
 
   # Check if compose file exists
   if [[ ! -f "$compose_file" ]]; then

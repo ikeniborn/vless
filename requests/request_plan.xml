@@ -7,23 +7,20 @@
             <max_length>16000</max_length>
         </thinking_config>
     </metadata>
-    
-    <!-- Контекст исполнения -->
-    <context>
-        <role>
-            Вы - опытный Full-Stack разработчик, специализирующийся на создании скриптов с использованием bash для linux платформ.
-            Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
-        </role>
-        
-        <project>
-            <name>VLESS+Reality VPN</name>
-            <architecture>
-                <program_language>Bash, Python</program_language>
-                <infrastructure>Docker Compose</infrastructure>
-            </architecture>
-        </project>
-    </context>
-    
+
+    <role>
+        Вы - опытный Full-Stack разработчик, специализирующийся на создании скриптов с использованием bash для linux платформ.
+        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+    </role>
+
+    <project>
+        <name>VLESS+Reality VPN</name>
+        <architecture>
+            <program_language>Bash, Python</program_language>
+            <infrastructure>Docker Compose</infrastructure>
+        </architecture>
+    </project>
+
     <!-- Задачи -->
     <tasks>
         <task id="1" name="Анализ требований">
@@ -31,29 +28,29 @@
                 <step id="1.1">
                     <action>Изучить требования (requirements)</action>
                 </step>
-                
+
                 <step id="1.2">
                     <action>Обдумать требования (requirements) шаг за шагом</action>
                     <use_thinking>true</use_thinking>
                 </step>
-                
+
                 <step id="1.3">
                     <action>Запросить актуальную документацию</action>
                 </step>
-                
+
                 <step id="1.4">
                     <action>Обдумать всю полученную информацию на полноту и корректность</action>
                     <use_thinking>true</use_thinking>
                 </step>
-                
+
                 <step id="1.5">
                     <action>Скорректировать результаты анализа по итогам обдумывания</action>
                 </step>
-                
+
                 <step id="1.6">
                     <action>Сформировать итоговый вариант анализа</action>
                 </step>
-                
+
                 <step id="1.7">
                     <action>Сохранить результат анализа в формате XML</action>
                     <output>
@@ -63,36 +60,36 @@
                 </step>
             </steps>
         </task>
-        
+
         <task id="2" name="Разработка плана реализации">
             <dependencies>
                 <depends_on task="1"/>
                 <input_file>requests/analyses_plan.xml</input_file>
             </dependencies>
-            
+
             <steps>
                 <step id="2.1">
                     <action>Обдумать несколько вариантов реализации на основании анализа</action>
                     <input>requests/analyses_plan.xml</input>
                 </step>
-                
+
                 <step id="2.2">
                     <action>Задать уточняющие вопросы</action>
                 </step>
-                
+
                 <step id="2.3">
                     <action>Определить оптимальный вариант реализации</action>
                 </step>
-                
+
                 <step id="2.4">
                     <action>Обдумать итоговый вариант реализации с учетом ответов</action>
                     <use_thinking>true</use_thinking>
                 </step>
-                
+
                 <step id="2.5">
                     <action>Внести изменения в итоговый вариант с учетом анализа и ответов</action>
                 </step>
-                
+
                 <step id="2.6">
                     <action>Сформировать детальный план работ на основании итогового варианта</action>
                     <output>
@@ -104,7 +101,11 @@
         </task>
     </tasks>
 
-        <!-- Требования -->
+    <!-- Контекст исполнения -->
+    <context>
+    </context>
+
+    <!-- Требования -->
     <requirements>
         <requirement id="1">
             Изучить текущую реализацию
@@ -116,5 +117,5 @@
             Изменить целевой каталог размещения на /opt/vless c копированием всех конфигураций при установке
         </requirement>
     </requirements>
-    
+
 </request>
