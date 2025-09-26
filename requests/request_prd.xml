@@ -79,13 +79,13 @@
         <task id="2" name="Разработка плана реализации">
             <dependencies>
                 <depends_on task="1"/>
-                <input_file>requests/analyses_plan.xml</input_file>
+                <input_file>requests/analyses_prd.xml</input_file>
             </dependencies>
 
             <steps>
                 <step id="2.1">
                     <action>Обдумать несколько вариантов реализации на основании анализа</action>
-                    <input>requests/analyses_plan.xml</input>
+                    <input>requests/analyses_prd.xml</input>
                 </step>
 
                 <step id="2.2">

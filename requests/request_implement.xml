@@ -2,12 +2,6 @@
     <!-- Метаданные и настройки по умолчанию -->
     <defaults>
         <thinking mode="interleaved" max_length="16000"/>
-        <directories>
-            <dir name="requests" path="/requests/"/>
-            <dir name="tests" path="/tests/"/>
-            <dir name="docs" path="/docs/"/>
-            <dir name="root" path="/"/>
-        </directories>
     </defaults>
 
     <!-- Определение роли -->
@@ -27,12 +21,13 @@
 
     <!-- Контекст -->
     <context>
+        <file path="/PRD.md" description="Product Requirements Document"/>
         <file path="/PLAN.md" description="План проекта"/>
     </context>
 
     <!-- Требования -->
     <requirements>
-        <requirement id="1">Реализовать задачи из PLAN.md по пункту Этап 6: Тестирование и документация</requirement>
+        <requirement id="1">Реализовать задачи из PLAN.md по пункту ЭТАП 1: Базовая инфраструктура</requirement>
     </requirements>
 
 

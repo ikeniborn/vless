@@ -47,23 +47,19 @@
                 </step>
 
                 <step id="1.3">
-                    <action>Запросить актуальную документацию</action>
-                </step>
-
-                <step id="1.4">
                     <action>Обдумать всю полученную информацию на полноту и корректность</action>
                     <use_thinking>true</use_thinking>
                 </step>
 
-                <step id="1.5">
+                <step id="1.4">
                     <action>Скорректировать результаты анализа по итогам обдумывания</action>
                 </step>
 
-                <step id="1.6">
+                <step id="1.5">
                     <action>Сформировать итоговый вариант анализа</action>
                 </step>
 
-                <step id="1.7">
+                <step id="1.6">
                     <action>Сохранить результат анализа в формате XML</action>
                     <output>
                         <format>xml</format>
