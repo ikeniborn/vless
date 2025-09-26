@@ -68,6 +68,7 @@
 - **CPU:** 1 vCPU
 - **Диск:** 10 GB свободного места
 - **Сеть:** Статический IP адрес, открытый порт 443
+- **Базовая директория:** `/opt/vless/` (расположение всех файлов проекта)
 
 #### 5.2 Технологический стек
 - **Контейнеризация:** Docker 24.x, Docker Compose 2.x
@@ -77,7 +78,7 @@
 
 #### 5.3 Структура проекта
 ```
-vless/
+/opt/vless/
 ├── docker-compose.yml          # Конфигурация Docker Compose
 ├── config/
 │   ├── config.json.template    # Шаблон конфигурации Xray
@@ -101,7 +102,71 @@ vless/
 │   ├── README.md               # Быстрый старт
 │   ├── ADMIN_GUIDE.md          # Руководство администратора
 │   └── TROUBLESHOOTING.md      # Решение проблем
-└── .env.example                # Пример переменных окружения
+└── .env                        # Переменные окружения
+```
+
+#### 5.4 Требования к правам доступа
+
+##### Владелец файлов и директорий:
+- **Пользователь:** root или выделенный системный пользователь (например, vless)
+- **Группа:** docker (для доступа к Docker daemon)
+
+##### Права доступа к директориям:
+```bash
+/opt/vless/                     # 755 (rwxr-xr-x)
+├── config/                     # 750 (rwxr-x---)
+├── scripts/                    # 750 (rwxr-x---)
+│   └── lib/                    # 750 (rwxr-x---)
+├── data/                       # 700 (rwx------)
+│   └── keys/                   # 700 (rwx------)
+├── backups/                    # 700 (rwx------)
+├── logs/                       # 755 (rwxr-xr-x)
+└── docs/                       # 755 (rwxr-xr-x)
+```
+
+##### Права доступа к файлам:
+```bash
+# Конфигурационные файлы
+config/config.json              # 600 (rw-------)
+config/config.json.template     # 644 (rw-r--r--)
+.env                           # 600 (rw-------)
+
+# Скрипты
+scripts/*.sh                    # 750 (rwxr-x---)
+scripts/lib/*.sh               # 640 (rw-r-----)
+
+# Данные и ключи
+data/users.json                # 600 (rw-------)
+data/keys/*                    # 600 (rw-------)
+
+# Документация
+docs/*.md                      # 644 (rw-r--r--)
+
+# Docker файлы
+docker-compose.yml             # 640 (rw-r-----)
+```
+
+##### Требования для Docker:
+- Docker daemon должен работать от root
+- Пользователь, запускающий скрипты, должен быть в группе docker
+- Контейнер xray-server работает с UID 1000 внутри контейнера
+- Монтируемые volumes наследуют права от хост-системы
+
+##### Команды для установки прав:
+```bash
+# Создание структуры и установка прав при инсталляции
+sudo mkdir -p /opt/vless/{config,scripts/lib,data/keys,backups,logs,docs}
+sudo chown -R root:docker /opt/vless
+sudo chmod 755 /opt/vless
+sudo chmod 750 /opt/vless/{config,scripts}
+sudo chmod 700 /opt/vless/{data,data/keys,backups}
+sudo chmod 755 /opt/vless/{logs,docs}
+
+# Установка прав на конфиденциальные файлы
+sudo chmod 600 /opt/vless/config/config.json
+sudo chmod 600 /opt/vless/data/users.json
+sudo chmod 600 /opt/vless/data/keys/*
+sudo chmod 600 /opt/vless/.env
 ```
 
 ### 6. Архитектура решения
@@ -112,7 +177,10 @@ vless/
 - **xray-server:** Основной контейнер с Xray-core
   - Image: teddysun/xray:latest
   - Порт: 443
-  - Volumes: config, logs, data
+  - Volumes:
+    - /opt/vless/config:/etc/xray:ro
+    - /opt/vless/logs:/var/log/xray
+    - /opt/vless/data:/data:ro
 
 ##### Bash скрипты:
 1. **install.sh** - Мастер установки
@@ -207,6 +275,9 @@ vless/
 - Изоляция Docker контейнера
 - Отсутствие открытых портов кроме 443
 - Регулярное обновление Xray-core
+- Монтирование конфигурационных volumes в режиме read-only (:ro)
+- Разделение прав доступа между пользователями и процессами
+- Все конфиденциальные данные в /opt/vless с ограниченным доступом
 
 #### 8.2 Рекомендации по использованию
 - Выбор целевого сайта вне юрисдикции страны
