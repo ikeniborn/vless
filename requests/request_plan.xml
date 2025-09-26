@@ -24,19 +24,6 @@
         </project>
     </context>
     
-    <!-- Требования -->
-    <requirements>
-        <requirement id="1">
-            Изучить актуальную документацию по протоколу VLESS + Reality для организации VPN доступа
-        </requirement>
-        <requirement id="2">
-            Проанализировать и использовать документацию https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality
-        </requirement>
-        <requirement id="3">
-            Тщательно обдумать несколько вариантов реализации сервиса развертывания и управления сервером на базе bash скриптов
-        </requirement>
-    </requirements>
-    
     <!-- Задачи -->
     <tasks>
         <task id="1" name="Анализ требований">
@@ -116,4 +103,18 @@
             </steps>
         </task>
     </tasks>
+
+        <!-- Требования -->
+    <requirements>
+        <requirement id="1">
+            Изучить текущую реализацию
+        </requirement>
+        <requirement id="2">
+            Определить текущую структуру каталога размешения сервиса
+        </requirement>
+        <requirement id="3">
+            Изменить целевой каталог размещения на /opt/vless c копированием всех конфигураций при установке
+        </requirement>
+    </requirements>
+    
 </request>

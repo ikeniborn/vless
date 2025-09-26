@@ -548,7 +548,7 @@ generate_keys() {
     # Generate X25519 key pair using Docker
     log_message "INFO" "Generating key pair with Xray..."
     local key_output
-    key_output=$(docker run --rm teddysun/xray:latest x25519 2>/dev/null)
+    key_output=$(docker run --rm teddysun/xray:latest xray x25519 2>/dev/null)
 
     if [[ $? -ne 0 ]] || [[ -z "$key_output" ]]; then
         log_message "ERROR" "Failed to generate X25519 key pair"
@@ -556,19 +556,20 @@ generate_keys() {
     fi
 
     # Parse private and public keys from output
+    # Note: Xray outputs "PrivateKey:" and "Password:" (which is the public key)
     local private_key
     local public_key
 
-    private_key=$(echo "$key_output" | grep "Private key:" | awk '{print $3}' | tr -d '\r\n')
-    public_key=$(echo "$key_output" | grep "Public key:" | awk '{print $3}' | tr -d '\r\n')
+    private_key=$(echo "$key_output" | grep "PrivateKey:" | awk '{print $2}' | tr -d '\r\n')
+    public_key=$(echo "$key_output" | grep "Password:" | awk '{print $2}' | tr -d '\r\n')
 
     if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
         log_message "ERROR" "Failed to parse generated keys from output"
         return 1
     fi
 
-    # Validate key format (should be base64-like strings)
-    if [[ ! $private_key =~ ^[A-Za-z0-9+/]+=*$ ]] || [[ ! $public_key =~ ^[A-Za-z0-9+/]+=*$ ]]; then
+    # Validate key format (should be base64-like strings without padding)
+    if [[ ! $private_key =~ ^[A-Za-z0-9+/_-]+$ ]] || [[ ! $public_key =~ ^[A-Za-z0-9+/_-]+$ ]]; then
         log_message "ERROR" "Generated keys have invalid format"
         return 1
     fi

@@ -280,8 +280,9 @@ case "$1" in
         ;;
     "run")
         if [[ "$*" =~ "x25519" ]]; then
-            echo "Private key: mock_private_key_1234567890abcdef"
-            echo "Public key: mock_public_key_abcdef1234567890"
+            echo "PrivateKey: mock_private_key_1234567890abcdef"
+            echo "Password: mock_public_key_abcdef1234567890"
+            echo "Hash32: zHJEQH3JhZZJi2YjrpSA0ibr70qceUjIrXQWbzvZtek"
             exit 0
         fi
         exit 0

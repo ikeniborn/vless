@@ -24,6 +24,7 @@ declare -A TEST_SUITES=(
     ["docker_integration"]="Docker Integration Tests"
     ["user_management"]="User Management Tests"
     ["service_functions"]="Service Functions Tests"
+    ["integration"]="End-to-End Integration Tests"
     ["main"]="Main Integration Tests"
 )
 
@@ -35,6 +36,7 @@ declare -A SUITE_RESULTS=(
     ["docker_integration"]="PENDING"
     ["user_management"]="PENDING"
     ["service_functions"]="PENDING"
+    ["integration"]="PENDING"
     ["main"]="PENDING"
 )
 
@@ -449,7 +451,7 @@ run_all_suites() {
     fi
 
     # Run test suites in logical order
-    local execution_order=("requirements" "installation" "structure" "configuration" "docker_integration" "user_management" "main")
+    local execution_order=("requirements" "installation" "structure" "configuration" "docker_integration" "user_management" "service_functions" "integration" "main")
 
     for suite in "${execution_order[@]}"; do
         if [[ -n "$RUN_SPECIFIC_SUITE" && "$RUN_SPECIFIC_SUITE" != "$suite" ]]; then
