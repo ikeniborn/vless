@@ -775,8 +775,8 @@ create_server_config() {
 }
 EOF
 
-    # Set secure permissions
-    chmod 600 "$config_file"
+    # Set secure permissions (644 for Docker container read access)
+    chmod 644 "$config_file"
 
     # Validate JSON syntax
     if command -v python3 >/dev/null 2>&1; then
@@ -1889,7 +1889,7 @@ add_client_to_server() {
         # Validate the updated configuration
         if validate_server_config_temp "$temp_config"; then
             mv "$temp_config" "$config_file"
-            chmod 600 "$config_file"
+            chmod 644 "$config_file"
             log_message "SUCCESS" "Client added to server configuration"
             return 0
         else
@@ -1948,7 +1948,7 @@ remove_client_from_server() {
         # Validate the updated configuration
         if validate_server_config_temp "$temp_config"; then
             mv "$temp_config" "$config_file"
-            chmod 600 "$config_file"
+            chmod 644 "$config_file"
             log_message "SUCCESS" "Client removed from server configuration"
             return 0
         else
@@ -2046,7 +2046,7 @@ update_server_config() {
             log_message "ERROR" "Updated configuration failed validation, restoring backup"
             # Restore from backup
             cp "$backup_file" "$PROJECT_ROOT/config/config.json"
-            chmod 600 "$PROJECT_ROOT/config/config.json"
+            chmod 644 "$PROJECT_ROOT/config/config.json"
             return 1
         fi
     else
