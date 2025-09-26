@@ -59,19 +59,17 @@ Health Status:
 ❌ Container Health: Unhealthy
 ❌ Network: Port 443 not accessible
 
-vless-xray  | A unified platform for anti-censorship.
-vless-xray  | Failed to start: main: failed to load config files: [/etc/xray/config.json] > infra/conf/serial: failed to read config: &{Name:/etc/xray/config.json Format:json} > open /etc/xray/config.json: no such file or directory
-vless-xray  | Xray 25.9.11 (Xray, Penetrates Everything.) Custom (go1.25.0 linux/amd64)
-vless-xray  | A unified platform for anti-censorship.
 vless-xray  | Failed to start: main: failed to load config files: [/etc/xray/config.json] > infra/conf/serial: failed to read config: &{Name:/etc/xray/config.json Format:json} > open /etc/xray/config.json: no such file or directory
 
+Контейнер не стартует
     </context>
 
     <!-- Требования -->
     <requirements>
-        <requirement id="1">Проанализировать ошибку</requirement>
-        <requirement id="1">Определить причину</requirement>
-        <requirement id="1">Исправить ошибку запуска</requirement>
+        <requirement id="1">Проанилизирвоать ошибку</requirement>
+        <requirement id="2">Определить причину</requirement>
+        <requirement id="3">Исправить ошибку запуска</requirement>
+        <requirement id="4">Проаналиировать корректность прав доступа для контейнера</requirement>
     </requirements>
 
     <!-- Задачи с улучшенной структурой -->
