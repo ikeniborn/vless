@@ -2,8 +2,8 @@
 
 set -e
 
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Script directory - resolve symlinks to get real path
+SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 VLESS_HOME="${VLESS_HOME:-/opt/vless}"
 
 # Load libraries

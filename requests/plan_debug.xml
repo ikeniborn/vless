@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+    <overview>
+        <description>План исправления ошибок с путями к библиотекам в скриптах VLESS</description>
+        <priority>HIGH</priority>
+        <estimated_time>10 minutes</estimated_time>
+    </overview>
+
+    <tasks>
+        <task id="1" status="completed">
+            <name>Анализ проблемы</name>
+            <description>Определить корневую причину ошибок "No such file or directory"</description>
+            <actions>
+                <action>Изучить install.sh для понимания структуры установки</action>
+                <action>Проверить как создаются символические ссылки</action>
+                <action>Проанализировать способ определения SCRIPT_DIR в скриптах</action>
+            </actions>
+            <result>Найдена проблема с разрешением символических ссылок</result>
+        </task>
+
+        <task id="2" status="completed">
+            <name>Исправление определения SCRIPT_DIR</name>
+            <description>Обновить метод определения директории скрипта для корректной работы с симлинками</description>
+            <actions>
+                <action>Изменить SCRIPT_DIR на использование readlink -f</action>
+                <action>Применить изменения к user-manager.sh</action>
+                <action>Применить изменения к logs.sh</action>
+                <action>Применить изменения к backup.sh</action>
+                <action>Применить изменения к update.sh</action>
+            </actions>
+            <result>Все 4 скрипта обновлены</result>
+        </task>
+
+        <task id="3" status="completed">
+            <name>Валидация исправлений</name>
+            <description>Проверить корректность внесенных изменений</description>
+            <actions>
+                <action>Проверить синтаксис всех измененных скриптов</action>
+                <action>Убедиться в отсутствии синтаксических ошибок</action>
+            </actions>
+            <result>Синтаксис всех скриптов корректен</result>
+        </task>
+
+        <task id="4" status="completed">
+            <name>Документирование</name>
+            <description>Сохранить результаты анализа и план исправлений</description>
+            <actions>
+                <action>Создать файл analyses_debug.xml с полным анализом</action>
+                <action>Создать файл plan_debug.xml с планом действий</action>
+                <action>Создать файл result_debug.md с итоговым отчетом</action>
+            </actions>
+        </task>
+    </tasks>
+
+    <implementation_details>
+        <change>
+            <file>scripts/user-manager.sh</file>
+            <line>6</line>
+            <old>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &amp;&amp; pwd)"</old>
+            <new>SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"</new>
+        </change>
+
+        <change>
+            <file>scripts/logs.sh</file>
+            <line>6</line>
+            <old>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &amp;&amp; pwd)"</old>
+            <new>SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"</new>
+        </change>
+
+        <change>
+            <file>scripts/backup.sh</file>
+            <line>6</line>
+            <old>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &amp;&amp; pwd)"</old>
+            <new>SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"</new>
+        </change>
+
+        <change>
+            <file>scripts/update.sh</file>
+            <line>6</line>
+            <old>SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &amp;&amp; pwd)"</old>
+            <new>SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"</new>
+        </change>
+    </implementation_details>
+</plan>
