@@ -43,10 +43,14 @@
 
     <!-- Требования -->
     <requirements>
-        <requirement id="1">Проанилизирвоать ошибку</requirement>
-        <requirement id="2">Определить причину</requirement>
-        <requirement id="3">Исправить ошибку запуска</requirement>
-        <requirement id="4">Четко сделовать плану задач (tasks)</requirement>
+        <requirement id="1">Четко сделовать плану задач (tasks)</requirement>
+        <requirement id="2">
+            <file path="/PRD.md" description="Product Requirements Document"/>
+            Учитывать PRD.md Product Requirements Document
+        </requirement>
+        <requirement id="3">Проанилизирвоать ошибку</requirement>
+        <requirement id="4">Определить причину</requirement>
+        <requirement id="5">Исправить ошибку запуска</requirement>
     </requirements>
 
     <!-- Задачи с улучшенной структурой -->
