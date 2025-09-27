@@ -161,7 +161,11 @@ Set automatically by scripts:
 ## Common Issues and Solutions
 
 ### sed Expression Errors
-Fixed in `lib/config.sh:166` - escaped characters reduced to `/` and `&` only
+Fixed in `lib/config.sh:166-167` - simplified escaping to only essential characters:
+- Escape backslash first: `s/\\/\\\\/g`
+- Escape forward slash for sed delimiter: `s/\//\\\//g`
+- Escape ampersand for sed replacement: `s/&/\\&/g`
+- Removed problematic character class that caused "unterminated `s' command" error
 
 ### Docker Compose Version
 Always use `docker-compose` (hyphenated), not `docker compose` (space)

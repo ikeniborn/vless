@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<analysis>
+    <problem>
+        <description>sed error during Xray configuration creation</description>
+        <error_message>sed: -e expression #1, char 19: unterminated `s' command</error_message>
+        <location>scripts/lib/config.sh:166</location>
+    </problem>
+
+    <root_cause>
+        <description>Malformed sed regular expression in apply_template function</description>
+        <details>
+            The character class [[\.*^$()+?{|] contained an unescaped '[' at the beginning,
+            causing sed to interpret it incorrectly and resulting in unterminated command error.
+        </details>
+    </root_cause>
+
+    <solution>
+        <description>Simplified sed escaping to only essential characters</description>
+        <changes>
+            <change>
+                <file>scripts/lib/config.sh</file>
+                <line>166-167</line>
+                <old_code>value=$(echo "$value" | sed 's/\\/\\\\/g; s/[[\.*^$()+?{|]/\\&amp;/g; s/\//\\\//g; s/&amp;/\\&amp;/g')</old_code>
+                <new_code>value=$(echo "$value" | sed 's/\\/\\\\/g; s/\//\\\//g; s/&amp;/\\&amp;/g')</new_code>
+            </change>
+        </changes>
+        <rationale>
+            Only three characters need escaping for our use case with | delimiter:
+            1. Backslash (\) - must be escaped first
+            2. Forward slash (/) - for compatibility if delimiter changes
+            3. Ampersand (&amp;) - special in sed replacement string
+        </rationale>
+    </solution>
+
+    <testing>
+        <test_case>
+            <input>REALITY_DEST=speed.cloudflare.com:443</input>
+            <expected>speed.cloudflare.com:443</expected>
+            <result>PASSED</result>
+        </test_case>
+        <syntax_check>
+            <result>All scripts pass bash -n syntax validation</result>
+        </syntax_check>
+    </testing>
+
+    <status>RESOLVED</status>
+</analysis>
