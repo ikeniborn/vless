@@ -22,12 +22,15 @@
     <!-- Контекст -->
     <context>
         <file path="/PRD.md" description="Product Requirements Document"/>
-        <file path="/PLAN.md" description="План проекта"/>
+        <!-- <file path="/PLAN.md" description="План проекта"/> -->
     </context>
 
     <!-- Требования -->
     <requirements>
-        <requirement id="1">Реализовать задачи из PLAN.md по пункту ЭТАП 3: Скрипты обслуживания</requirement>
+        <requirement id="1"> Символические ссылки в /usr/local/bin/ - install.sh не создает симлинки для быстрого доступа к скриптам </requirement>
+        <requirement id="2"> Проверка работоспособности после установки - install.sh не проверяет, что сервис успешно запустился </requirement>
+        <requirement id="3"> ADMIN_GUIDE.md - отсутствует руководство администратора в docs/ </requirement>
+        <requirement id="4"> TROUBLESHOOTING.md - отсутствует документ по решению проблем в docs/ </requirement>
     </requirements>
 
 

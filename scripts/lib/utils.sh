@@ -126,7 +126,7 @@ wait_for_service() {
     local service_name=$1
     local max_attempts=${2:-30}
     local attempt=0
-    
+
     echo -n "Waiting for $service_name to be ready"
     while [ $attempt -lt $max_attempts ]; do
         if docker ps | grep -q "$service_name"; then
@@ -139,6 +139,85 @@ wait_for_service() {
     done
     echo ""
     return 1
+}
+
+# Comprehensive health check for Xray service
+check_xray_health() {
+    local container_name=${1:-"xray-server"}
+    local max_wait=${2:-30}
+
+    print_step "Performing comprehensive health check..."
+
+    # Step 1: Check if container exists and is running
+    print_info "Checking container status..."
+    local container_status=$(docker ps -a --filter "name=$container_name" --format "{{.Status}}" | head -1)
+
+    if [ -z "$container_status" ]; then
+        print_error "Container $container_name not found"
+        return 1
+    fi
+
+    if ! echo "$container_status" | grep -q "Up"; then
+        print_error "Container is not running. Status: $container_status"
+        print_info "Try: docker-compose logs $container_name"
+        return 1
+    fi
+
+    # Check if container is restarting
+    if echo "$container_status" | grep -q "Restarting"; then
+        print_error "Container is in restarting loop"
+        print_info "Check logs: docker-compose logs --tail 50 $container_name"
+        return 1
+    fi
+
+    print_success "Container is running"
+
+    # Step 2: Check for critical errors in logs
+    print_info "Checking logs for errors..."
+    local error_count=$(docker logs "$container_name" 2>&1 | tail -50 | grep -ciE "error|fatal|panic|failed" || true)
+
+    if [ "$error_count" -gt 0 ]; then
+        print_warning "Found $error_count potential errors in recent logs"
+        local recent_errors=$(docker logs "$container_name" 2>&1 | tail -10 | grep -iE "error|fatal|panic|failed" || true)
+        if [ -n "$recent_errors" ]; then
+            print_warning "Recent errors:"
+            echo "$recent_errors" | head -3
+        fi
+    else
+        print_success "No critical errors in logs"
+    fi
+
+    # Step 3: Check if port is listening
+    print_info "Checking port availability..."
+    local port=${SERVER_PORT:-443}
+
+    if netstat -tuln | grep -q ":$port "; then
+        print_success "Port $port is listening"
+    else
+        print_error "Port $port is not listening"
+        print_info "Check firewall rules and Docker port mapping"
+        return 1
+    fi
+
+    # Step 4: Validate Xray configuration (optional)
+    print_info "Validating Xray configuration..."
+    local config_test=$(docker exec "$container_name" xray test -c /etc/xray/config.json 2>&1 || true)
+
+    if echo "$config_test" | grep -q "Configuration OK"; then
+        print_success "Xray configuration is valid"
+    elif [ -n "$config_test" ]; then
+        print_warning "Configuration test output: $config_test"
+    fi
+
+    # Step 5: Check container resource usage
+    print_info "Checking resource usage..."
+    local stats=$(docker stats --no-stream --format "CPU: {{.CPUPerc}} | Memory: {{.MemUsage}}" "$container_name" 2>/dev/null || true)
+    if [ -n "$stats" ]; then
+        print_info "Resource usage: $stats"
+    fi
+
+    print_success "Health check completed successfully"
+    return 0
 }
 
 # Check system requirements

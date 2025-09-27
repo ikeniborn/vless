@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VLESS+Reality VPN service using Xray-core in Docker with bash-based CLI management system. The project is designed for personal use (up to 50 users) with focus on simplicity and automation.
 
+## Product Requirements Document
+
+Всегда следовать PRD.md при реализии и исправлении
+
 ## Architecture
 
 ### Two-Part Structure

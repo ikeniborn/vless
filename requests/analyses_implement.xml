@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<analysis>
+    <project>VLESS+Reality VPN</project>
+    <date>2025-09-27</date>
+
+    <requirements_status>
+        <requirement id="1" status="completed">
+            <description>Символические ссылки в /usr/local/bin/</description>
+            <current_state>
+                УЖЕ РЕАЛИЗОВАНО в install.sh, функция create_symlinks() (строки 353-368)
+                Создаются симлинки:
+                - /usr/local/bin/vless-users → user-manager.sh
+                - /usr/local/bin/vless-logs → logs.sh
+                - /usr/local/bin/vless-backup → backup.sh
+                - /usr/local/bin/vless-update → update.sh
+            </current_state>
+            <action_needed>Нет действий, уже выполнено</action_needed>
+        </requirement>
+
+        <requirement id="2" status="partial">
+            <description>Проверка работоспособности после установки</description>
+            <current_state>
+                ЧАСТИЧНО РЕАЛИЗОВАНО:
+                - Есть функция wait_for_service() которая проверяет только запуск Docker контейнера
+                - Проверяется наличие контейнера в docker ps
+                - НЕ проверяется реальная работоспособность Xray сервиса
+                - НЕ проверяется доступность порта 443
+                - НЕ проверяется корректность конфигурации Xray
+            </current_state>
+            <action_needed>
+                Улучшить проверку работоспособности:
+                1. Проверить что контейнер не в состоянии restarting
+                2. Проверить логи на отсутствие критических ошибок
+                3. Проверить что порт 443 слушается
+                4. Опционально: проверить config.json через xray test
+            </action_needed>
+        </requirement>
+
+        <requirement id="3" status="not_started">
+            <description>ADMIN_GUIDE.md - руководство администратора</description>
+            <current_state>
+                ОТСУТСТВУЕТ:
+                - Директория docs/ пуста
+                - Нет руководства по администрированию
+            </current_state>
+            <action_needed>
+                Создать docs/ADMIN_GUIDE.md с разделами:
+                - Управление пользователями (добавление, удаление, экспорт)
+                - Мониторинг и логи
+                - Резервное копирование и восстановление
+                - Обновление системы
+                - Управление сервисом (старт, стоп, рестарт)
+                - Настройка автоматических задач
+                - Безопасность и лучшие практики
+            </action_needed>
+        </requirement>
+
+        <requirement id="4" status="not_started">
+            <description>TROUBLESHOOTING.md - решение проблем</description>
+            <current_state>
+                ОТСУТСТВУЕТ:
+                - Директория docs/ пуста
+                - Нет документации по решению проблем
+            </current_state>
+            <action_needed>
+                Создать docs/TROUBLESHOOTING.md с разделами:
+                - Частые ошибки при установке
+                - Проблемы с Docker
+                - Ошибки подключения клиентов
+                - Проблемы с сетью и портами
+                - Ошибки конфигурации
+                - Проблемы с производительностью
+                - Диагностика и отладка
+                - Восстановление после сбоев
+            </action_needed>
+        </requirement>
+    </requirements_status>
+
+    <technical_details>
+        <files_to_modify>
+            <file path="/scripts/lib/utils.sh">
+                Добавить функцию check_service_health() для полной проверки работоспособности
+            </file>
+            <file path="/scripts/install.sh">
+                Улучшить функцию start_service() для использования новой проверки
+            </file>
+        </files_to_modify>
+
+        <files_to_create>
+            <file path="/docs/ADMIN_GUIDE.md">
+                Полное руководство администратора на русском языке
+            </file>
+            <file path="/docs/TROUBLESHOOTING.md">
+                Документ по решению проблем на русском языке
+            </file>
+        </files_to_create>
+    </technical_details>
+
+    <priority>
+        <high>
+            - Создание документации (критично для использования)
+        </high>
+        <medium>
+            - Улучшение проверки работоспособности
+        </medium>
+        <low>
+            - Символические ссылки (уже выполнено)
+        </low>
+    </priority>
+
+    <estimated_effort>
+        <task name="Улучшение проверки работоспособности" time="30 минут"/>
+        <task name="Создание ADMIN_GUIDE.md" time="45 минут"/>
+        <task name="Создание TROUBLESHOOTING.md" time="45 минут"/>
+        <task name="Тестирование" time="20 минут"/>
+        <total>2 часа 20 минут</total>
+    </estimated_effort>
+</analysis>

@@ -334,18 +334,33 @@ EOF
 
 start_service() {
     print_header "Starting Service"
-    
+
     cd "$VLESS_HOME"
-    
+
     print_step "Starting Xray container..."
     docker-compose up -d
-    
+
     # Wait for service to be ready
     if wait_for_service "xray-server" 30; then
-        print_success "Xray service started successfully"
+        print_success "Xray container started"
+
+        # Perform comprehensive health check
+        sleep 2  # Give service a moment to initialize
+        if check_xray_health "xray-server"; then
+            print_success "Xray service is fully operational"
+        else
+            print_error "Xray service health check failed"
+            print_info "Troubleshooting steps:"
+            print_info "1. Check logs: docker-compose -f $VLESS_HOME/docker-compose.yml logs --tail 50"
+            print_info "2. Check configuration: docker exec xray-server xray test -c /etc/xray/config.json"
+            print_info "3. Restart service: cd $VLESS_HOME && docker-compose restart"
+            print_info "4. Check port 443: netstat -tuln | grep :443"
+            exit 1
+        fi
     else
-        print_error "Failed to start Xray service"
-        print_info "Check logs with: docker-compose -f $VLESS_HOME/docker-compose.yml logs"
+        print_error "Failed to start Xray container"
+        print_info "Check Docker status: systemctl status docker"
+        print_info "Check logs: docker-compose -f $VLESS_HOME/docker-compose.yml logs"
         exit 1
     fi
 }

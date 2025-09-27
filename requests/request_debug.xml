@@ -16,29 +16,26 @@
         <architecture>
             <program_language>Bash, Python</program_language>
             <infrastructure>Docker Compose</infrastructure>
-            <product_requirements_document>
-                <file path="/PRD.md" description="Product Requirements Document"/>
-            </product_requirements_document>
         </architecture>
     </project>
 
     <!-- Контекст -->
     <context>
         <description>
-            sudo bash scripts/install.sh
+            ПРи выполнении команд ошибки 
+            root@11154:/home/ikeniborn# vless-users
+            /usr/local/bin/vless-users: line 10: /usr/local/bin/lib/colors.sh: No such file or directory
+            root@11154:/home/ikeniborn# vless-logs
+            /usr/local/bin/vless-logs: line 10: /usr/local/bin/lib/colors.sh: No such file or directory
+            root@11154:/home/ikeniborn# vless-backup
+            /usr/local/bin/vless-backup: line 11: /usr/local/bin/lib/colors.sh: No such file or directory
         </description>
     </context>
 
     <!-- Требования -->
     <requirements>
-        <requirement id="1">Четко сделовать плану задач (tasks)</requirement>
-        <requirement id="2">
-            <file path="/PRD.md" description="Product Requirements Document"/>
-            Учитывать PRD.md Product Requirements Document
-        </requirement>
-        <requirement id="3">ЗАпуситить установку</requirement>
-        <requirement id="4">Проанализировать ошибки</requirement>
-        <requirement id="5">Исправить ошибки если будут выявлены</requirement>
+        <requirement id="1">Проанализировать ошибки</requirement>
+        <requirement id="2">Исправить ошибки</requirement>
     </requirements>
 
     <!-- Задачи с улучшенной структурой -->
