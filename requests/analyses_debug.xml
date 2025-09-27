@@ -1,52 +1,73 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <project>VLESS + REALITY VPN Service</project>
-    <issue>
-        <description>Ошибка при создании конфигурации Xray во время установки</description>
-        <error_message>sed: -e expression #1, char 19: unterminated `s' command</error_message>
-        <stage>Creating Xray configuration</stage>
-    </issue>
+  <timestamp>2025-01-27</timestamp>
 
-    <root_cause>
-        <location>
-            <file>/scripts/lib/config.sh</file>
-            <line>166</line>
-            <function>apply_template</function>
-        </location>
-        <problem>
-            Синтаксическая ошибка в регулярном выражении sed для экранирования специальных символов.
-            Неправильный код: sed 's/[[\/.*^$()+?{|]/\\&/g'
-            Проблема: Несбалансированные квадратные скобки в символьном классе регулярного выражения.
-        </problem>
-    </root_cause>
+  <problem>
+    <description>Ошибка sed при создании конфигурации Xray во время установки</description>
+    <error_message>sed: -e expression #1, char 19: unterminated `s' command</error_message>
+    <location>
+      <file>scripts/install.sh</file>
+      <line>305-313</line>
+      <function>create_configuration</function>
+    </location>
+  </problem>
 
-    <solution>
-        <description>Исправление регулярного выражения для корректного экранирования специальных символов</description>
-        <change>
-            <from>value=$(echo "$value" | sed 's/[[\/.*^$()+?{|]/\\&/g')</from>
-            <to>value=$(echo "$value" | sed 's/[\/&]/\\&/g')</to>
-        </change>
-        <rationale>
-            Упрощение регулярного выражения до экранирования только критически важных символов для sed:
-            - "/" - разделитель в команде s///
-            - "&" - специальный символ в sed, означающий "найденное совпадение"
-        </rationale>
-    </solution>
+  <root_cause>
+    <description>Недостаточное экранирование специальных символов в функции apply_template</description>
+    <details>
+      <item>Функция apply_template использует sed для замены плейсхолдеров в шаблонах</item>
+      <item>В строке 166 lib/config.sh экранировались только символы / и &amp;</item>
+      <item>X25519 ключи содержат base64 строки со слешами, которые ломали sed команду</item>
+      <item>Другие специальные символы (backslash, regex метасимволы) также не экранировались</item>
+    </details>
+  </root_cause>
 
-    <impact>
-        <positive>
-            - Устраняет ошибку установки
-            - Позволяет корректно создавать конфигурацию Xray
-            - Обеспечивает правильную подстановку значений в шаблонах
-        </positive>
-        <negative>Нет негативного влияния</negative>
-    </impact>
+  <solution>
+    <file>scripts/lib/config.sh</file>
+    <changes>
+      <change line="166">
+        <old>value=$(echo "$value" | sed 's/[\/&amp;]/\\&amp;/g')</old>
+        <new>value=$(echo "$value" | sed 's/\\/\\\\/g; s/[[\.*^$()+?{|]/\\&amp;/g; s/\//\\\//g; s/&amp;/\\&amp;/g')</new>
+      </change>
+      <change line="169">
+        <old>sed -i "s/{{${key}}}/${value}/g" "$output_file"</old>
+        <new>sed -i "s|{{${key}}}|${value}|g" "$output_file"</new>
+      </change>
+    </changes>
+    <explanation>
+      <item>Теперь экранируются все специальные символы sed в правильном порядке</item>
+      <item>Сначала экранируется backslash, затем regex метасимволы, затем слеш и амперсанд</item>
+      <item>Использован | как разделитель в sed команде вместо / для дополнительной безопасности</item>
+    </explanation>
+  </solution>
 
-    <testing>
-        <test_performed>
-            - Проверка экранирования строк с специальными символами
-            - Тестирование функции apply_template с реальными параметрами
-            - Все тесты пройдены успешно
-        </test_performed>
-    </testing>
+  <testing>
+    <test_file>test_apply_template.sh</test_file>
+    <test_cases>
+      <case id="1" status="PASS">Простые значения без специальных символов</case>
+      <case id="2" status="PASS">Значения со слешами (пути, URL)</case>
+      <case id="3" status="PASS">Значения с backslash</case>
+      <case id="4" status="PASS">Значения с амперсандами</case>
+      <case id="5" status="PASS">Реальные X25519 ключи в base64 формате</case>
+      <case id="6" status="PASS">Значения с regex метасимволами</case>
+    </test_cases>
+  </testing>
+
+  <affected_components>
+    <component>scripts/install.sh - установочный скрипт</component>
+    <component>scripts/lib/config.sh - функция apply_template</component>
+    <component>templates/config.json.tpl - шаблон конфигурации Xray</component>
+  </affected_components>
+
+  <recommendations>
+    <recommendation priority="high">
+      Применить исправление на сервере перед повторной установкой
+    </recommendation>
+    <recommendation priority="medium">
+      Добавить test_apply_template.sh в CI/CD пайплайн для регрессионного тестирования
+    </recommendation>
+    <recommendation priority="low">
+      Рассмотреть альтернативу sed (например, envsubst или jq) для обработки шаблонов
+    </recommendation>
+  </recommendations>
 </analysis>

@@ -161,13 +161,13 @@ apply_template() {
     while [ $# -gt 0 ]; do
         local key="${1%%=*}"
         local value="${1#*=}"
-        
-        # Escape special characters for sed
-        value=$(echo "$value" | sed 's/[\/&]/\\&/g')
-        
-        # Replace in file
-        sed -i "s/{{${key}}}/${value}/g" "$output_file"
-        
+
+        # Escape special characters for sed - need to escape backslash first, then other chars
+        value=$(echo "$value" | sed 's/\\/\\\\/g; s/[[\.*^$()+?{|]/\\&/g; s/\//\\\//g; s/&/\\&/g')
+
+        # Replace in file using | as delimiter to avoid conflicts with /
+        sed -i "s|{{${key}}}|${value}|g" "$output_file"
+
         shift
     done
     
