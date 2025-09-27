@@ -1,87 +1,41 @@
+# Working directory (should not be in repository)
+/opt/vless/
+
 # Environment files
 .env
 *.env.local
 *.env.production
-*.env.development
-
-# User data and sensitive files
-data/users.db
-data/keys/
-config/users/
-config/
-*.key
-*.pem
-*.crt
-
-# Logs
-logs/
-*.log
-*.log.*
-xray.log
 
 # Backup files
-*.backup
 *.bak
-*.old
-*.tmp
-*~
-
-# Docker volumes
-docker-volumes/
-volumes/
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.swn
-.*.swp
-.*.swo
-.*.swn
-*.sublime-project
-*.sublime-workspace
-
-# Test artifacts
-test-results/
-coverage/
-*.coverage
-.pytest_cache/
-__pycache__/
-*.pyc
+*.backup
+*.tar.gz
 
 # Temporary files
-tmp/
-temp/
-.tmp/
-.temp/
+*.tmp
+*.temp
+*~
+.*.swp
+.*.swo
 
-# Build artifacts
-build/
-dist/
-*.tar.gz
-*.zip
+# OS files
+.DS_Store
+Thumbs.db
 
-# System files
-*.pid
-*.seed
-*.pid.lock
+# IDE files
+.idea/
+.vscode/
+*.iml
 
-# Docker artifacts (local builds)
-.dockerignore.local
+# Log files
+*.log
+logs/
+
+# User data
+users.json
+*.key
+*.pem
+qr_codes/
+
+# Docker
 docker-compose.override.yml
-
-# Request results (temporary)
-requests/result.md
-requests/analyses.xml
-requests/plan.xml
