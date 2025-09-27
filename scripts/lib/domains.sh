@@ -26,20 +26,21 @@ TRUSTED_DOMAINS=(
 # Function to select REALITY domain
 select_reality_domain() {
     local selected_domain=""
-    
-    print_header "Select Target Domain for REALITY"
-    echo "Choose a domain to masquerade as:"
-    echo ""
-    echo "  0) Enter custom domain"
-    
+
+    # Display to stderr to not interfere with return value
+    print_header "Select Target Domain for REALITY" >&2
+    echo "Choose a domain to masquerade as:" >&2
+    echo "" >&2
+    echo "  0) Enter custom domain" >&2
+
     for i in "${!TRUSTED_DOMAINS[@]}"; do
-        printf "  %2d) %s\n" $((i+1)) "${TRUSTED_DOMAINS[$i]}"
+        printf "  %2d) %s\n" $((i+1)) "${TRUSTED_DOMAINS[$i]}" >&2
     done
-    
-    echo ""
+
+    echo "" >&2
     while true; do
         read -p "Select option [0-${#TRUSTED_DOMAINS[@]}]: " choice
-        
+
         if [[ "$choice" =~ ^[0-9]+$ ]]; then
             if [ "$choice" -eq 0 ]; then
                 read -p "Enter custom domain (format: domain.com:443): " selected_domain

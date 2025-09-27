@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   xray-server:
     image: teddysun/xray:latest
@@ -27,4 +25,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 172.30.0.0/16
