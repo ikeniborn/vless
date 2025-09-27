@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+    <tasks>
+        <task id="1" status="completed">
+            <name>Анализ ошибки генерации ключей</name>
+            <steps>
+                <step>Изучить лог ошибки</step>
+                <step>Найти функцию generate_keys() в install.sh</step>
+                <step>Проверить формат вывода команды xray x25519</step>
+                <step>Определить несоответствие парсинга</step>
+            </steps>
+            <result>Найдена причина - некорректный парсинг вывода</result>
+        </task>
+
+        <task id="2" status="completed">
+            <name>Исправление скрипта установки</name>
+            <steps>
+                <step>Обновить функцию generate_keys()</step>
+                <step>Использовать правильные имена полей (PrivateKey, Password)</step>
+                <step>Генерировать оба ключа одной командой</step>
+                <step>Добавить отладочный вывод при ошибках</step>
+            </steps>
+            <result>Функция исправлена в файле scripts/install.sh</result>
+        </task>
+
+        <task id="3" status="completed">
+            <name>Тестирование исправления</name>
+            <steps>
+                <step>Создать тестовый скрипт test_keys.sh</step>
+                <step>Проверить генерацию ключей</step>
+                <step>Убедиться в корректном парсинге</step>
+            </steps>
+            <result>Тест пройден успешно, ключи генерируются корректно</result>
+        </task>
+    </tasks>
+
+    <summary>
+        <fixed>true</fixed>
+        <description>Ошибка генерации X25519 ключей исправлена путем корректировки парсинга вывода команды xray x25519</description>
+    </summary>
+</plan>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<analysis>
+    <problem>
+        <description>Ошибка генерации X25519 ключей при установке VLESS+Reality VPN на удаленном сервере</description>
+        <error_message>Failed to generate private key</error_message>
+        <location>scripts/install.sh:234</location>
+    </problem>
+
+    <root_cause>
+        <summary>Некорректный парсинг вывода команды xray x25519</summary>
+        <details>
+            <item>Скрипт ожидал формат "Private key:" с пробелом, но xray выводит "PrivateKey:" без пробела</item>
+            <item>Скрипт пытался генерировать публичный ключ отдельной командой, но это не нужно</item>
+            <item>Поле "Password:" в выводе xray x25519 на самом деле является публичным ключом</item>
+            <item>Команда xray x25519 генерирует оба ключа за один вызов</item>
+        </details>
+    </root_cause>
+
+    <actual_output_format>
+        <command>docker run --rm teddysun/xray:latest xray x25519</command>
+        <format>
+            <line>PrivateKey: &lt;base64_private_key&gt;</line>
+            <line>Password: &lt;base64_public_key&gt;</line>
+            <line>Hash32: &lt;base64_hash&gt;</line>
+        </format>
+    </actual_output_format>
+
+    <solution>
+        <description>Исправить функцию generate_keys() для корректного парсинга вывода</description>
+        <changes>
+            <change>Генерировать оба ключа одной командой xray x25519</change>
+            <change>Парсить PrivateKey: вместо "Private key:"</change>
+            <change>Использовать поле Password: как публичный ключ</change>
+            <change>Удалить попытку отдельной генерации публичного ключа</change>
+            <change>Добавить вывод отладочной информации при ошибке</change>
+        </changes>
+    </solution>
+
+    <testing>
+        <test_script>test_keys.sh</test_script>
+        <result>SUCCESS - оба ключа извлекаются корректно</result>
+    </testing>
+
+    <files_modified>
+        <file>scripts/install.sh</file>
+    </files_modified>
+</analysis>

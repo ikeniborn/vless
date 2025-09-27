@@ -67,11 +67,11 @@
 
             <step id="1.7" type="save">
                 <action>Сохранить результат анализа</action>
-                <output dir_ref="requests" file="analyses.xml" format="xml"/>
+                <output dir_ref="requests" file="analyses_implement.xml" format="xml"/>
             </step>
 
             <success_criteria>
-                <criterion>Файл analyses.xml создан и содержит полный анализ</criterion>
+                <criterion>Файл analyses_implement.xml создан и содержит полный анализ</criterion>
             </success_criteria>
         </task>
 
@@ -80,7 +80,7 @@
 
             <step id="2.1" type="planning">
                 <action>Сформировать план задач с помощью субагента</action>
-                <input dir_ref="requests" file="analyses.xml"/>
+                <input dir_ref="requests" file="analyses_implement.xml"/>
             </step>
 
             <step id="2.2" type="thinking">
@@ -90,7 +90,7 @@
 
             <step id="2.3" type="save">
                 <action>Сохранить итоговый план</action>
-                <output dir_ref="requests" file="plan.xml" format="xml"/>
+                <output dir_ref="requests" file="plan_implement.xml" format="xml"/>
             </step>
 
             <success_criteria>
@@ -103,7 +103,7 @@
 
             <step id="3.1" type="execution">
                 <action>Выполнить план задач шаг за шагом с помощью субагентов</action>
-                <input dir_ref="requests" file="plan.xml"/>
+                <input dir_ref="requests" file="plan_implement.xml"/>
             </step>
 
             <step id="3.2" type="validation">

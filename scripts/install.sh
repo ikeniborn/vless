@@ -219,36 +219,44 @@ copy_files() {
 
 generate_keys() {
     print_header "Generating X25519 Keys"
-    
+
     # Pull Docker image first
     print_step "Pulling Xray Docker image..."
     docker pull teddysun/xray:latest
-    
+
     # Generate keys using Docker
     print_step "Generating X25519 key pair..."
-    
-    # Generate private key
-    PRIVATE_KEY=$(docker run --rm teddysun/xray:latest xray x25519 | grep "Private key:" | awk '{print $3}')
-    
+
+    # Generate both keys in one command
+    # xray x25519 outputs: PrivateKey, Password (which is PublicKey), and Hash32
+    local key_output=$(docker run --rm teddysun/xray:latest xray x25519)
+
+    # Extract private key (PrivateKey: field)
+    PRIVATE_KEY=$(echo "$key_output" | grep "PrivateKey:" | awk '{print $2}')
+
     if [ -z "$PRIVATE_KEY" ]; then
         print_error "Failed to generate private key"
+        print_info "Debug output: $key_output"
         exit 1
     fi
-    
-    # Generate public key from private key
-    PUBLIC_KEY=$(echo "$PRIVATE_KEY" | docker run --rm -i teddysun/xray:latest xray x25519 -i /dev/stdin | grep "Public key:" | awk '{print $3}')
-    
+
+    # Extract public key (Password: field is actually the public key)
+    PUBLIC_KEY=$(echo "$key_output" | grep "Password:" | awk '{print $2}')
+
     if [ -z "$PUBLIC_KEY" ]; then
         print_error "Failed to generate public key"
+        print_info "Debug output: $key_output"
         exit 1
     fi
-    
+
     # Save keys
     echo "$PRIVATE_KEY" > "$VLESS_HOME/data/keys/private.key"
     echo "$PUBLIC_KEY" > "$VLESS_HOME/data/keys/public.key"
     chmod 600 "$VLESS_HOME/data/keys/"*.key
-    
+
     print_success "Keys generated successfully"
+    print_info "Private key saved to: $VLESS_HOME/data/keys/private.key"
+    print_info "Public key saved to: $VLESS_HOME/data/keys/public.key"
 }
 
 create_configuration() {
