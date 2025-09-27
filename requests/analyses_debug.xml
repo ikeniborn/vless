@@ -1,47 +1,52 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <problem>
-        <description>Ошибка генерации X25519 ключей при установке VLESS+Reality VPN на удаленном сервере</description>
-        <error_message>Failed to generate private key</error_message>
-        <location>scripts/install.sh:234</location>
-    </problem>
+    <project>VLESS + REALITY VPN Service</project>
+    <issue>
+        <description>Ошибка при создании конфигурации Xray во время установки</description>
+        <error_message>sed: -e expression #1, char 19: unterminated `s' command</error_message>
+        <stage>Creating Xray configuration</stage>
+    </issue>
 
     <root_cause>
-        <summary>Некорректный парсинг вывода команды xray x25519</summary>
-        <details>
-            <item>Скрипт ожидал формат "Private key:" с пробелом, но xray выводит "PrivateKey:" без пробела</item>
-            <item>Скрипт пытался генерировать публичный ключ отдельной командой, но это не нужно</item>
-            <item>Поле "Password:" в выводе xray x25519 на самом деле является публичным ключом</item>
-            <item>Команда xray x25519 генерирует оба ключа за один вызов</item>
-        </details>
+        <location>
+            <file>/scripts/lib/config.sh</file>
+            <line>166</line>
+            <function>apply_template</function>
+        </location>
+        <problem>
+            Синтаксическая ошибка в регулярном выражении sed для экранирования специальных символов.
+            Неправильный код: sed 's/[[\/.*^$()+?{|]/\\&/g'
+            Проблема: Несбалансированные квадратные скобки в символьном классе регулярного выражения.
+        </problem>
     </root_cause>
 
-    <actual_output_format>
-        <command>docker run --rm teddysun/xray:latest xray x25519</command>
-        <format>
-            <line>PrivateKey: &lt;base64_private_key&gt;</line>
-            <line>Password: &lt;base64_public_key&gt;</line>
-            <line>Hash32: &lt;base64_hash&gt;</line>
-        </format>
-    </actual_output_format>
-
     <solution>
-        <description>Исправить функцию generate_keys() для корректного парсинга вывода</description>
-        <changes>
-            <change>Генерировать оба ключа одной командой xray x25519</change>
-            <change>Парсить PrivateKey: вместо "Private key:"</change>
-            <change>Использовать поле Password: как публичный ключ</change>
-            <change>Удалить попытку отдельной генерации публичного ключа</change>
-            <change>Добавить вывод отладочной информации при ошибке</change>
-        </changes>
+        <description>Исправление регулярного выражения для корректного экранирования специальных символов</description>
+        <change>
+            <from>value=$(echo "$value" | sed 's/[[\/.*^$()+?{|]/\\&/g')</from>
+            <to>value=$(echo "$value" | sed 's/[\/&]/\\&/g')</to>
+        </change>
+        <rationale>
+            Упрощение регулярного выражения до экранирования только критически важных символов для sed:
+            - "/" - разделитель в команде s///
+            - "&" - специальный символ в sed, означающий "найденное совпадение"
+        </rationale>
     </solution>
 
-    <testing>
-        <test_script>test_keys.sh</test_script>
-        <result>SUCCESS - оба ключа извлекаются корректно</result>
-    </testing>
+    <impact>
+        <positive>
+            - Устраняет ошибку установки
+            - Позволяет корректно создавать конфигурацию Xray
+            - Обеспечивает правильную подстановку значений в шаблонах
+        </positive>
+        <negative>Нет негативного влияния</negative>
+    </impact>
 
-    <files_modified>
-        <file>scripts/install.sh</file>
-    </files_modified>
+    <testing>
+        <test_performed>
+            - Проверка экранирования строк с специальными символами
+            - Тестирование функции apply_template с реальными параметрами
+            - Все тесты пройдены успешно
+        </test_performed>
+    </testing>
 </analysis>

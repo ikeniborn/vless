@@ -163,7 +163,7 @@ apply_template() {
         local value="${1#*=}"
         
         # Escape special characters for sed
-        value=$(echo "$value" | sed 's/[[\/.*^$()+?{|]/\\&/g')
+        value=$(echo "$value" | sed 's/[\/&]/\\&/g')
         
         # Replace in file
         sed -i "s/{{${key}}}/${value}/g" "$output_file"

@@ -116,7 +116,7 @@
 
             <step id="3.4" type="save">
                 <action>Сохранить результаты плана</action>
-                <output dir_ref="requests" file="result.md" format="markdown"/>
+                <output dir_ref="requests" file="result_implement.md" format="markdown"/>
             </step>
 
             <success_criteria>
