@@ -162,9 +162,9 @@ apply_template() {
         local key="${1%%=*}"
         local value="${1#*=}"
 
-        # Escape special characters for sed - simpler approach
-        # First escape backslash, then forward slash and ampersand for sed delimiter
-        value=$(echo "$value" | sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g')
+        # Escape special characters for sed - step by step approach
+        # First escape backslash, then forward slash, then ampersand
+        value=$(echo "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g')
 
         # Replace in file using | as delimiter to avoid conflicts with /
         sed -i "s|{{${key}}}|${value}|g" "$output_file"

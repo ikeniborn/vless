@@ -161,11 +161,10 @@ Set automatically by scripts:
 ## Common Issues and Solutions
 
 ### sed Expression Errors
-Fixed in `lib/config.sh:166-167` - simplified escaping to only essential characters:
-- Escape backslash first: `s/\\/\\\\/g`
-- Escape forward slash for sed delimiter: `s/\//\\\//g`
-- Escape ampersand for sed replacement: `s/&/\\&/g`
-- Removed problematic character class that caused "unterminated `s' command" error
+Fixed in `lib/config.sh:167` - split complex sed command into pipeline:
+- Changed from: `sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g'` (caused "unterminated `s' command" error)
+- Changed to: `sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g'`
+- Each sed command now runs separately in pipeline, avoiding parsing issues with semicolons
 
 ### Docker Compose Version
 Always use `docker-compose` (hyphenated), not `docker compose` (space)
