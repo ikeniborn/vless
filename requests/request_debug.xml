@@ -24,20 +24,8 @@
 
     <!-- Контекст -->
     <context>
-        <log>
-            ========================================
-                Creating Configuration
-            ========================================
-
-            → Creating environment file...
-            ✓ .env file created
-            → Creating Docker Compose configuration...
-            ✓ Docker Compose configuration created
-            → Creating Xray configuration...
-            sed: -e expression #1, char 19: unterminated `s' command
-        </log>
         <description>
-            На этапе устанвоки на удаленном сервере возника ошибка создания конфиграции
+            sudo bash scripts/install.sh
         </description>
     </context>
 
@@ -48,9 +36,9 @@
             <file path="/PRD.md" description="Product Requirements Document"/>
             Учитывать PRD.md Product Requirements Document
         </requirement>
-        <requirement id="3">Проанилизирвоать ошибку</requirement>
-        <requirement id="4">Определить причину</requirement>
-        <requirement id="5">Исправить ошибку запуска</requirement>
+        <requirement id="3">ЗАпуситить установку</requirement>
+        <requirement id="4">Проанализировать ошибки</requirement>
+        <requirement id="5">Исправить ошибки если будут выявлены</requirement>
     </requirements>
 
     <!-- Задачи с улучшенной структурой -->
