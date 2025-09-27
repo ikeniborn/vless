@@ -21,14 +21,14 @@
         </architecture>
     </project>
 
-    <!-- Контекст исполнения -->
-    <context>
-        <file path="/PRD.md" description="Product Requirements Document"/>
-    </context>
-
     <!-- Требования -->
     <requirements>
-        <requirement id="1">
+        <requirement id="1">Четко сделовать плану задач (tasks)</requirement>
+        <requirement id="2">
+            <file path="/PRD.md" description="Product Requirements Document"/>
+            Учитывать PRD.md Product Requirements Document
+        </requirement>
+        <requirement id="3">
             Подготовить детальный план задач на основании PRD.md
         </requirement>
     </requirements>

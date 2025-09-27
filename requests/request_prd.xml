@@ -28,10 +28,11 @@
 
     <!-- Требования -->
     <requirements>
-        <requirement id="1">
+        <requirement id="1">Четко сделовать плану задач (tasks)</requirement>
+        <requirement id="2">
             Изучить актуальные решения организации ВПН сервсиса с исползованием протокоа VLESS + REALITY
         </requirement>
-        <requirement id="2">
+        <requirement id="3">
             Подготовить RPD (Product Requirements Document) в формате markdown. Сохранить в PRD.md
         </requirement>
     </requirements>
