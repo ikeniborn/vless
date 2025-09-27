@@ -1,47 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
-    <problem>
-        <description>sed error during Xray configuration creation</description>
+    <issue>
+        <description>Ошибка sed при создании конфигурации Xray во время установки</description>
         <error_message>sed: -e expression #1, char 19: unterminated `s' command</error_message>
-        <location>scripts/lib/config.sh:166</location>
-    </problem>
+        <location>scripts/lib/config.sh:167</location>
+    </issue>
 
     <root_cause>
-        <description>Malformed sed regular expression in apply_template function</description>
-        <details>
-            The character class [[\.*^$()+?{|] contained an unescaped '[' at the beginning,
-            causing sed to interpret it incorrectly and resulting in unterminated command error.
-        </details>
+        <description>
+            В функции apply_template использовалась сложная sed команда с несколькими заменами,
+            разделенными точкой с запятой внутри одной строки. Это вызывало проблемы с парсингом
+            на некоторых системах из-за особенностей экранирования обратных слэшей.
+        </description>
+        <problematic_code><![CDATA[
+value=$(echo "$value" | sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g')
+        ]]></problematic_code>
     </root_cause>
 
     <solution>
-        <description>Simplified sed escaping to only essential characters</description>
-        <changes>
-            <change>
-                <file>scripts/lib/config.sh</file>
-                <line>166-167</line>
-                <old_code>value=$(echo "$value" | sed 's/\\/\\\\/g; s/[[\.*^$()+?{|]/\\&amp;/g; s/\//\\\//g; s/&amp;/\\&amp;/g')</old_code>
-                <new_code>value=$(echo "$value" | sed 's/\\/\\\\/g; s/\//\\\//g; s/&amp;/\\&amp;/g')</new_code>
-            </change>
-        </changes>
-        <rationale>
-            Only three characters need escaping for our use case with | delimiter:
-            1. Backslash (\) - must be escaped first
-            2. Forward slash (/) - for compatibility if delimiter changes
-            3. Ampersand (&amp;) - special in sed replacement string
-        </rationale>
+        <description>
+            Разделение сложной sed команды на три отдельные команды в пайпе,
+            что устраняет проблемы с парсингом и делает код более читаемым.
+        </description>
+        <fixed_code><![CDATA[
+value=$(echo "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g')
+        ]]></fixed_code>
     </solution>
 
     <testing>
-        <test_case>
-            <input>REALITY_DEST=speed.cloudflare.com:443</input>
-            <expected>speed.cloudflare.com:443</expected>
-            <result>PASSED</result>
-        </test_case>
-        <syntax_check>
-            <result>All scripts pass bash -n syntax validation</result>
-        </syntax_check>
+        <test name="syntax_validation">
+            <status>PASSED</status>
+            <description>Все bash скрипты прошли проверку синтаксиса</description>
+        </test>
+        <test name="template_application">
+            <status>PASSED</status>
+            <description>Функция apply_template успешно применяет шаблоны</description>
+        </test>
+        <test name="special_characters">
+            <status>PASSED</status>
+            <description>Корректная обработка специальных символов (/, \, &)</description>
+        </test>
     </testing>
 
-    <status>RESOLVED</status>
+    <impact>
+        <severity>HIGH</severity>
+        <affected_component>Installation Process</affected_component>
+        <description>
+            Ошибка блокировала процесс установки на этапе создания конфигурации,
+            делая невозможным развертывание VPN сервиса.
+        </description>
+    </impact>
 </analysis>
