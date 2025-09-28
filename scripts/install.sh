@@ -486,8 +486,18 @@ main() {
     create_configuration
     start_service
     create_symlinks
+
+    # Fix permissions after installation
+    print_header "Setting Permissions"
+    if [ -f "$VLESS_HOME/scripts/fix-permissions.sh" ]; then
+        print_step "Running fix-permissions.sh..."
+        bash "$VLESS_HOME/scripts/fix-permissions.sh"
+    else
+        print_warning "fix-permissions.sh not found, skipping permissions fix"
+    fi
+
     show_connection_info
-    
+
     print_success "Installation completed successfully!"
 }
 

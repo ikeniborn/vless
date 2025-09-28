@@ -49,6 +49,9 @@ show_users() {
 }
 
 add_user() {
+    # Check root for write operations
+    check_root
+
     print_header "Add New User"
     
     # Get username
@@ -100,6 +103,9 @@ add_user() {
 }
 
 remove_user() {
+    # Check root for write operations
+    check_root
+
     print_header "Remove User"
     
     # Show users
@@ -410,8 +416,8 @@ main_menu() {
     done
 }
 
-# Check if running as root
-check_root
+# Check if running as root (only for operations that need it)
+# Will check individually in functions that modify data
 
 # Check if VLESS is installed
 if [ ! -d "$VLESS_HOME" ]; then

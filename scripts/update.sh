@@ -129,6 +129,12 @@ perform_update() {
         print_success "Old images cleaned up"
     fi
 
+    # Fix permissions after update
+    if [ -f "$VLESS_HOME/scripts/fix-permissions.sh" ]; then
+        print_step "Fixing file permissions..."
+        bash "$VLESS_HOME/scripts/fix-permissions.sh"
+    fi
+
     print_success "Update completed successfully!"
     return 0
 }

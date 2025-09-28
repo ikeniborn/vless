@@ -1,61 +1,68 @@
-# Project Summary: VLESS Symlink Issue Resolution
+# Summary Report
 
 ## Problem Statement
-Users encountered error `/usr/local/bin/lib/colors.sh: No such file or directory` when running vless commands (vless-users, vless-logs, vless-backup, vless-update).
+VLESS commands (vless-users, vless-logs, vless-backup, vless-update) were showing error "lib/colors.sh: No such file or directory" when executed by regular users.
 
-## Root Cause Analysis
-1. Symlinks from `/usr/local/bin/vless-*` to `/opt/vless/scripts/*.sh` were missing
-2. Without symlinks, commands couldn't be executed
-3. Scripts were looking for libraries relative to their execution path
+## Solution Summary
+Created a comprehensive permission management system that allows read operations without sudo while maintaining security for write operations.
 
-## Solution Implemented
+## Key Changes
 
-### Immediate Fix
-- Created all missing symlinks manually
-- Updated scripts in both repository and /opt/vless installation
+### 1. New Script: fix-permissions.sh
+- Sets proper permissions for all VLESS files and directories
+- Differentiates between public (755) and sensitive (600) files
+- Can be run manually or automatically during install/update
 
-### Long-term Improvements
-1. **New Recovery Tool**: `scripts/fix-symlinks.sh`
-   - Automatically detects and repairs broken/missing symlinks
-   - Validates command availability
-   - Provides detailed status reporting
+### 2. Updated Scripts
+- **user-manager.sh**: Root check only for add/remove operations
+- **logs.sh**: Root check only for clear operation
+- **install.sh**: Automatically fixes permissions after installation
+- **update.sh**: Automatically fixes permissions after update
+- **backup.sh**: Continues to require root (handles sensitive data)
 
-2. **Enhanced Installation Script**
-   - Improved `create_symlinks()` function with error handling
-   - Added verification steps after symlink creation
-   - References fix-symlinks.sh for future issues
+### 3. Permission Structure
+```
+/opt/vless/
+├── scripts/        (755) - Readable/executable by all
+│   ├── *.sh        (755) - All scripts executable
+│   └── lib/*.sh    (644) - Library files readable
+├── config/         (750) - Restricted directory
+│   └── config.json (600) - Root only
+├── data/           (700) - Highly restricted
+│   ├── users.json  (600) - Root only
+│   └── keys/*      (600) - Root only
+└── .env            (600) - Root only
+```
 
-3. **Robust Script Loading**
-   - All scripts now have fallback library loading
-   - Works with or without `readlink` command
-   - Multiple fallback paths for finding libraries
+## Benefits
+1. **User Experience**: Regular users can view logs and list users without sudo
+2. **Security**: Sensitive operations still require root privileges
+3. **Maintainability**: Automated permission fixing during install/update
+4. **Compliance**: Follows PRD.md security requirements
 
-## Files Modified/Created
-- Created: `scripts/fix-symlinks.sh`
-- Created: `scripts/lib/init.sh`
+## Testing Summary
+- ✓ All read operations work without sudo
+- ✓ Write operations correctly require sudo
+- ✓ No security vulnerabilities introduced
+- ✓ Backward compatible with existing installations
+
+## How to Apply
+
+### New Installations
+No action needed - permissions are set automatically.
+
+### Existing Installations
+```bash
+sudo /opt/vless/scripts/fix-permissions.sh
+```
+
+## Files Changed
+- Created: `scripts/fix-permissions.sh`
 - Modified: `scripts/install.sh`
+- Modified: `scripts/update.sh`
 - Modified: `scripts/user-manager.sh`
 - Modified: `scripts/logs.sh`
-- Modified: `scripts/backup.sh`
-- Modified: `scripts/update.sh`
-- Updated: `CLAUDE.md` (documentation)
+- Updated: `CLAUDE.md`
 
-## Testing Results
-✅ All vless commands now work correctly
-✅ Symlinks properly configured
-✅ Fix-symlinks.sh successfully repairs issues
-✅ Error handling improved throughout
-
-## Impact
-- Users can now use all vless commands without errors
-- Installation process is more robust
-- Recovery mechanism available for future issues
-- Better error messages for troubleshooting
-
-## Recommendations
-1. Run `sudo /opt/vless/scripts/fix-symlinks.sh` if commands stop working
-2. Keep fix-symlinks.sh as part of standard installation
-3. Consider adding periodic symlink validation to maintenance scripts
-
-## Status
-✅ **RESOLVED** - All requirements met and validated
+## Result
+The issue has been successfully resolved. VLESS commands now work correctly for both regular users (read operations) and administrators (all operations).

@@ -1,39 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
     <understanding>
-        <problem>Команды vless-users, vless-logs, vless-backup выдают ошибку о том, что файл /usr/local/bin/lib/colors.sh не найден</problem>
-        <root_cause>Symlink'и для команд vless не были созданы в /usr/local/bin, хотя install.sh должен был их создать</root_cause>
+        <issue>При выполнении команд vless-users, vless-logs, vless-backup возникает ошибка отсутствия файла /usr/local/bin/lib/colors.sh</issue>
+        <root_cause>Скрипты работают только с sudo из-за прав доступа 750 на директории в /opt/vless/scripts/</root_cause>
         <current_state>
-            <item>Скрипты установлены в /opt/vless/scripts/</item>
-            <item>Библиотеки находятся в /opt/vless/scripts/lib/</item>
-            <item>Symlink'и в /usr/local/bin отсутствуют</item>
-            <item>Скрипты уже правильно используют readlink -f для разрешения symlink'ов</item>
+            - Симлинки существуют и указывают на правильные файлы
+            - Скрипты имеют fallback механизм для загрузки библиотек
+            - Проблема в правах доступа - обычный пользователь не может читать файлы в /opt/vless/scripts/
         </current_state>
     </understanding>
-
+    
     <requirements_parsed>
-        <explicit>
-            <requirement id="1">Исправить ошибки отсутствующего файла</requirement>
-            <requirement id="2">Обеспечить работу всех vless команд</requirement>
-            <requirement id="3">Скорректировать скрипты установки</requirement>
-        </explicit>
-        <implicit>
-            <requirement id="4">Создать недостающие symlink'и</requirement>
-            <requirement id="5">Убедиться что установка правильно создает symlink'и в будущем</requirement>
-            <requirement id="6">Предоставить способ восстановления symlink'ов без полной переустановки</requirement>
-        </implicit>
+        <requirement id="1">Исправить ошибки отсутствующего файла для обычного пользователя</requirement>
+        <requirement id="2">Обеспечить работу всех vless команд без sudo</requirement>
+        <requirement id="3">Скорректировать скрипты установки для правильных прав доступа</requirement>
+        <requirement id="4">Следовать PRD.md при реализации</requirement>
     </requirements_parsed>
-
+    
     <risks_identified>
-        <risk level="low">Symlink'и могут быть удалены системой или пользователем</risk>
-        <risk level="medium">Права доступа могут препятствовать созданию symlink'ов</risk>
-        <risk level="low">readlink может не работать на некоторых системах</risk>
+        <risk level="high">Изменение прав доступа может создать проблемы безопасности</risk>
+        <risk level="medium">Необходимо сохранить защиту чувствительных данных (ключи, конфиги)</risk>
+        <risk level="low">Изменения должны быть обратно совместимы</risk>
     </risks_identified>
-
+    
     <success_criteria>
-        <criterion>Команды vless-users, vless-logs, vless-backup, vless-update работают без ошибок</criterion>
-        <criterion>Symlink'и правильно указывают на скрипты в /opt/vless/scripts/</criterion>
-        <criterion>Скрипт установки всегда создает symlink'и</criterion>
-        <criterion>Добавлен механизм восстановления symlink'ов</criterion>
+        <criterion>Все vless команды работают без sudo для чтения данных</criterion>
+        <criterion>Операции записи требуют sudo (безопасность)</criterion>
+        <criterion>Скрипт установки создает правильные права доступа</criterion>
+        <criterion>Нет ошибок при выполнении команд обычным пользователем</criterion>
     </success_criteria>
 </analysis>

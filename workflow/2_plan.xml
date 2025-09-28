@@ -1,63 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plan>
     <tasks>
-        <task id="1" description="Создать недостающие symlink'и для существующей установки">
-            <subtasks>
-                <subtask>Создать symlink для vless-users</subtask>
-                <subtask>Создать symlink для vless-logs</subtask>
-                <subtask>Создать symlink для vless-backup</subtask>
-                <subtask>Создать symlink для vless-update</subtask>
-            </subtasks>
-            <validation>Проверить наличие всех symlink'ов с ls -la /usr/local/bin/vless-*</validation>
-        </task>
-
-        <task id="2" description="Создать скрипт восстановления symlink'ов">
-            <subtasks>
-                <subtask>Создать scripts/fix-symlinks.sh</subtask>
-                <subtask>Добавить функцию создания symlink'ов</subtask>
-                <subtask>Добавить проверку существующих symlink'ов</subtask>
-            </subtasks>
-            <validation>Запустить скрипт и проверить создание symlink'ов</validation>
-        </task>
-
-        <task id="3" description="Улучшить скрипт установки для проверки symlink'ов">
-            <subtasks>
-                <subtask>Добавить проверку создания symlink'ов после установки</subtask>
-                <subtask>Добавить обработку ошибок при создании symlink'ов</subtask>
-            </subtasks>
-            <validation>Проверить логику создания symlink'ов в install.sh</validation>
-        </task>
-
-        <task id="4" description="Обновить функции для более надежного определения пути">
-            <subtasks>
-                <subtask>Добавить fallback механизм если readlink не работает</subtask>
-                <subtask>Добавить проверку наличия библиотек перед загрузкой</subtask>
-            </subtasks>
-            <validation>Проверить работу скриптов с различными методами вызова</validation>
-        </task>
-
-        <task id="5" description="Тестирование всех команд">
-            <subtasks>
-                <subtask>Запустить vless-users</subtask>
-                <subtask>Запустить vless-logs</subtask>
-                <subtask>Запустить vless-backup</subtask>
-                <subtask>Запустить vless-update</subtask>
-            </subtasks>
-            <validation>Все команды работают без ошибок</validation>
-        </task>
+        <task id="1" description="Проверка PRD.md для требований по правам" validation="PRD.md прочитан и требования поняты"/>
+        <task id="2" description="Создание скрипта fix-permissions.sh" validation="Скрипт создан и устанавливает правильные права"/>
+        <task id="3" description="Обновление install.sh для правильных прав" validation="install.sh вызывает fix-permissions.sh"/>
+        <task id="4" description="Обновление update.sh для правильных прав" validation="update.sh вызывает fix-permissions.sh"/>
+        <task id="5" description="Тестирование всех vless команд" validation="Команды работают без sudo для чтения"/>
+        <task id="6" description="Обновление CLAUDE.md" validation="Документация обновлена"/>
     </tasks>
-
+    
     <execution_order>
-        <step order="1">task_id="1" - Немедленное исправление для текущей установки</step>
-        <step order="2">task_id="2" - Создание инструмента для восстановления</step>
-        <step order="3">task_id="3" - Улучшение процесса установки</step>
-        <step order="4">task_id="4" - Повышение надежности</step>
-        <step order="5">task_id="5" - Финальное тестирование</step>
+        <step number="1" task_id="1" reason="Нужно понять требования из PRD"/>
+        <step number="2" task_id="2" reason="Создать скрипт для исправления прав"/>
+        <step number="3" task_id="3" reason="Обновить установщик"/>
+        <step number="4" task_id="4" reason="Обновить скрипт обновления"/>
+        <step number="5" task_id="5" reason="Проверить работу"/>
+        <step number="6" task_id="6" reason="Документировать изменения"/>
     </execution_order>
-
+    
     <dependencies>
-        <dependency>task_2 зависит от task_1 (нужен работающий механизм)</dependency>
-        <dependency>task_3 может выполняться параллельно с task_2</dependency>
-        <dependency>task_5 зависит от выполнения всех предыдущих задач</dependency>
+        <dependency task="3" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
+        <dependency task="4" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
+        <dependency task="5" depends_on="3,4" reason="Нужны обновленные скрипты"/>
+        <dependency task="6" depends_on="5" reason="После проверки"/>
     </dependencies>
+    
+    <solution_approach>
+        Проблема в том, что /opt/vless/scripts/ имеет ограниченные права доступа (750).
+        Решение: создать скрипт fix-permissions.sh, который установит 755 для
+        публичных скриптов, но сохранит 600 для чувствительных данных.
+    </solution_approach>
 </plan>

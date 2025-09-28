@@ -25,7 +25,7 @@ else
 fi
 
 # Check root
-check_root
+# Root not needed for reading logs
 
 # Check if VLESS is installed
 if [ ! -d "$VLESS_HOME" ]; then
@@ -98,10 +98,13 @@ export_logs() {
 }
 
 clear_logs() {
+    # Check root for write operations
+    check_root
+
     print_header "Clear Logs"
-    
+
     print_warning "This will clear all Docker logs for the Xray container"
-    
+
     if ! confirm_action "Are you sure you want to clear logs?" "n"; then
         print_info "Operation cancelled"
         return 0

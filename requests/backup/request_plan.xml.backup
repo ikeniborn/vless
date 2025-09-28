@@ -1,175 +1,112 @@
 <request>
-    <!-- Глобальная конфигурация размышлений -->
-    <thinking_config>
-        <mode>interleaved</mode>
-        <max_length>16000</max_length>
-        <strategy>
-            <before_analysis>true</before_analysis>
-            <after_research>true</after_research>
-            <before_implementation>true</before_implementation>
-        </strategy>
-    </thinking_config>
-    
+    <!-- Метаданные -->
     <metadata>
-        <project_name>VLESS+Reality VPN</project_name>
         <version>1.0</version>
-        <date>2025-01-14</date>
+        <thinking_config>
+            <mode>interleaved</mode>
+            <max_length>16000</max_length>
+        </thinking_config>
     </metadata>
-    
-    <executor>
-        <role>Full-Stack Developer</role>
-        <expertise>
-            <skill>Bash scripting</skill>
-            <skill>Docker/Docker Compose</skill>
-            <skill>Python</skill>
-            <skill>Linux administration</skill>
-            <skill>VPN protocols</skill>
-        </expertise>
-    </executor>
-    
+
+    <role>
+        Вы - опытный Full-Stack разработчик, специализирующийся на создании скриптов с использованием bash для linux платформ.
+        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+    </role>
+
     <project>
-        <description>Разработка системы развертывания и управления VLESS+Reality VPN сервером</description>
-        <stack>
-            <language>Bash</language>
-            <language>Python</language>
+        <name>VLESS+Reality VPN</name>
+        <architecture>
+            <program_language>Bash, Python</program_language>
             <infrastructure>Docker Compose</infrastructure>
-            <protocol>VLESS+Reality</protocol>
-        </stack>
+        </architecture>
     </project>
-    
+
+    <!-- Требования -->
     <requirements>
-        <requirement id="R1" priority="high">
-            <description>Изучить актуальную документацию по протоколу VLESS+Reality для организации VPN доступа</description>
-            <thinking_trigger>true</thinking_trigger>
+        <requirement id="1">Четко сделовать плану задач (tasks)</requirement>
+        <requirement id="2">
+            <file path="/PRD.md" description="Product Requirements Document"/>
+            Учитывать PRD.md Product Requirements Document
         </requirement>
-        <requirement id="R2" priority="high">
-            <description>Проанализировать и использовать документацию https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality</description>
-            <source>https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality</source>
-        </requirement>
-        <requirement id="R3" priority="medium">
-            <description>Тщательно обдумать несколько вариантов реализации сервиса развертывания и управления сервером на базе bash скриптов</description>
-            <thinking_points>
-                <point>Архитектура решения</point>
-                <point>Безопасность</point>
-                <point>Масштабируемость</point>
-                <point>Простота использования</point>
-            </thinking_points>
+        <requirement id="3">
+            Подготовить детальный план задач на основании PRD.md
         </requirement>
     </requirements>
-    
-    <workflow>
-        <phase name="analysis" id="P1">
+
+    <!-- Задачи -->
+    <tasks>
+        <task id="1" name="Анализ требований">
             <steps>
-                <step id="S1.1" type="study">
-                    <action>Изучить требования проекта</action>
-                    <output>Понимание целей и ограничений</output>
+                <step id="1.1">
+                    <action>Изучить требования (requirements)</action>
                 </step>
-                
-                <step id="S1.2" type="thinking">
-                    <action>Обдумать требования шаг за шагом</action>
-                    <thinking_checklist>
-                        <item>Технические ограничения</item>
-                        <item>Безопасность протокола</item>
-                        <item>Совместимость с существующими решениями</item>
-                    </thinking_checklist>
+
+                <step id="1.2">
+                    <action>Обдумать требования (requirements) шаг за шагом</action>
+                    <use_thinking>true</use_thinking>
                 </step>
-                
-                <step id="S1.3" type="research">
-                    <action>Запросить и изучить актуальную документацию</action>
-                    <sources>
-                        <source type="official">XTLS/Xray documentation</source>
-                        <source type="community">GitHub repositories</source>
-                        <source type="tutorial">DeepWiki guides</source>
-                    </sources>
+
+                <step id="1.3">
+                    <action>Обдумать всю полученную информацию на полноту и корректность</action>
+                    <use_thinking>true</use_thinking>
                 </step>
-                
-                <step id="S1.4" type="validation">
-                    <action>Проверить полноту и корректность информации</action>
-                    <criteria>
-                        <criterion>Актуальность версий</criterion>
-                        <criterion>Полнота покрытия функционала</criterion>
-                        <criterion>Наличие примеров конфигурации</criterion>
-                    </criteria>
+
+                <step id="1.4">
+                    <action>Скорректировать результаты анализа по итогам обдумывания</action>
                 </step>
-                
-                <step id="S1.5" type="documentation">
-                    <action>Сформировать результат анализа</action>
+
+                <step id="1.5">
+                    <action>Сформировать итоговый вариант анализа</action>
+                </step>
+
+                <step id="1.6">
+                    <action>Сохранить результат анализа в формате XML</action>
                     <output>
-                        <file>requests/analysis_plan.xml</file>
-                        <format>XML</format>
+                        <format>xml</format>
+                        <path>requests/analyses_plan.xml</path>
                     </output>
                 </step>
             </steps>
-        </phase>
-        
-        <phase name="design" id="P2">
+        </task>
+
+        <task id="2" name="Разработка плана реализации">
             <dependencies>
-                <dependency>P1</dependency>
+                <depends_on task="1"/>
+                <input_file>requests/analyses_plan.xml</input_file>
             </dependencies>
+
             <steps>
-                <step id="S2.1" type="planning">
-                    <action>Разработать варианты реализации на основе анализа</action>
-                    <input>requests/analysis_plan.xml</input>
-                    <options>
-                        <option>Монолитный bash-скрипт</option>
-                        <option>Модульная система с Docker Compose</option>
-                        <option>Гибридное решение Bash+Python</option>
-                    </options>
+                <step id="2.1">
+                    <action>Обдумать несколько вариантов реализации на основании анализа</action>
+                    <input>requests/analyses_plan.xml</input>
                 </step>
-                
-                <step id="S2.2" type="interaction">
+
+                <step id="2.2">
                     <action>Задать уточняющие вопросы</action>
-                    <questions>
-                        <question>Предполагаемое количество пользователей?</question>
-                        <question>Требования к мониторингу?</question>
-                        <question>Необходимость веб-интерфейса?</question>
-                    </questions>
                 </step>
-                
-                <step id="S2.3" type="decision">
+
+                <step id="2.3">
                     <action>Определить оптимальный вариант реализации</action>
-                    <criteria>
-                        <criterion weight="high">Простота развертывания</criterion>
-                        <criterion weight="high">Безопасность</criterion>
-                        <criterion weight="medium">Производительность</criterion>
-                        <criterion weight="low">Размер решения</criterion>
-                    </criteria>
                 </step>
-                
-                <step id="S2.4" type="thinking">
-                    <action>Финальное обдумывание варианта реализации</action>
-                    <focus>
-                        <item>Edge cases</item>
-                        <item>Потенциальные проблемы</item>
-                        <item>Пути оптимизации</item>
-                    </focus>
+
+                <step id="2.4">
+                    <action>Обдумать итоговый вариант реализации с учетом ответов</action>
+                    <use_thinking>true</use_thinking>
                 </step>
-                
-                <step id="S2.5" type="documentation">
-                    <action>Создать детальный план работ</action>
+
+                <step id="2.5">
+                    <action>Внести изменения в итоговый вариант с учетом анализа и ответов</action>
+                </step>
+
+                <step id="2.6">
+                    <action>Сформировать детальный план работ на основании итогового варианта</action>
                     <output>
-                        <file>PLAN.md</file>
-                        <format>Markdown</format>
-                        <sections>
-                            <section>Архитектура решения</section>
-                            <section>Этапы реализации</section>
-                            <section>Тестирование</section>
-                            <section>Развертывание</section>
-                        </sections>
+                        <format>markdown</format>
+                        <path>PLAN.md</path>
                     </output>
                 </step>
             </steps>
-        </phase>
-    </workflow>
-    
-    <artifacts>
-        <artifact>
-            <path>requests/analysis_plan.xml</path>
-            <description>Результат анализа требований</description>
-        </artifact>
-        <artifact>
-            <path>PLAN.md</path>
-            <description>Детальный план реализации</description>
-        </artifact>
-    </artifacts>
+        </task>
+    </tasks>
+
 </request>

@@ -175,9 +175,11 @@ Requires Docker running and teddysun/xray image accessible
 ### Port 443 Conflicts
 Check with `netstat -tlnp | grep 443` before installation
 
-### Symlink Issues (Fixed)
-If vless commands show "lib/colors.sh: No such file or directory":
-- Run: `sudo /opt/vless/scripts/fix-symlinks.sh`
-- This repairs all command symlinks
-- Scripts now include fallback library loading mechanisms
-- All scripts have been updated with robust path detection
+### Permission Issues (Fixed)
+If vless commands show "lib/colors.sh: No such file or directory" or "Permission denied":
+- Run: `sudo /opt/vless/scripts/fix-permissions.sh`
+- This sets proper permissions for read-only operations without sudo
+- Read operations (list users, view logs) work without sudo
+- Write operations (add/remove users, clear logs) require sudo
+- Scripts include fallback library loading mechanisms
+- All scripts have been updated with selective root requirements

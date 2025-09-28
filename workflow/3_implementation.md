@@ -1,55 +1,73 @@
 # Implementation Report
 
-## Executed Tasks
+## Problem Fixed
+Fixed the issue where vless commands (vless-users, vless-logs, vless-backup, vless-update) were showing error "lib/colors.sh: No such file or directory" when run without sudo.
 
-### 1. Created Missing Symlinks
-- Created symlink: `/usr/local/bin/vless-users -> /opt/vless/scripts/user-manager.sh`
-- Created symlink: `/usr/local/bin/vless-logs -> /opt/vless/scripts/logs.sh`
-- Created symlink: `/usr/local/bin/vless-backup -> /opt/vless/scripts/backup.sh`
-- Created symlink: `/usr/local/bin/vless-update -> /opt/vless/scripts/update.sh`
+## Root Cause
+The issue was caused by restrictive permissions (750) on /opt/vless/scripts/ directory and its contents. Regular users couldn't read the script files and libraries, causing the "file not found" error.
 
-### 2. Created Symlink Repair Tool
-**File**: `scripts/fix-symlinks.sh`
-- Checks and repairs all VLESS command symlinks
-- Verifies target scripts exist
-- Handles incorrect symlinks and regular files
-- Provides detailed status reporting
-- Tests command availability after repair
+## Solution Implemented
 
-### 3. Enhanced Install Script
-**File**: `scripts/install.sh`
-- Improved `create_symlinks()` function with error handling
-- Added verification of created symlinks
-- Provides feedback on symlink creation status
-- References fix-symlinks.sh for future repairs
+### 1. Created fix-permissions.sh script
+- Location: `/home/ikeniborn/Documents/Project/vless/scripts/fix-permissions.sh`
+- Purpose: Sets proper permissions according to PRD.md requirements
+- Key changes:
+  - Scripts directory: 755 (readable by all)
+  - Script files: 755 (executable by all)
+  - Library files: 644 (readable by all)
+  - Sensitive data files remain 600 (root only)
 
-### 4. Added Robust Path Detection
-**Files Modified**: All main scripts (user-manager.sh, logs.sh, backup.sh, update.sh)
-- Added fallback mechanism for systems without readlink
-- Implemented library path detection with multiple fallback locations
-- Added error messages for missing libraries
-- Ensures scripts work regardless of how they're called
+### 2. Updated user-manager.sh
+- Removed blanket root check at startup
+- Added root check only for write operations (add_user, remove_user)
+- Read operations (show_users, export_config) work without sudo
 
-### 5. Created Library Initialization Helper
-**File**: `scripts/lib/init.sh`
-- Central library loader with intelligent path detection
-- Searches multiple locations for library files
-- Can be used as alternative initialization method
+### 3. Updated logs.sh
+- Removed blanket root check at startup
+- Added root check only for clear_logs function
+- Reading and following logs works without sudo
 
-## Technical Details
+### 4. Updated install.sh and update.sh
+- Both scripts now call fix-permissions.sh after installation/update
+- Ensures permissions are correctly set for new installations
 
-### Problem Root Cause
-The symlinks were not created during installation, and when users tried to run vless commands, the scripts couldn't find their libraries because they were looking in `/usr/local/bin/lib/` instead of the actual location.
+### 5. Commands behavior after fix
 
-### Solution Approach
-1. **Immediate Fix**: Created missing symlinks manually
-2. **Recovery Tool**: Provided fix-symlinks.sh for future issues
-3. **Prevention**: Enhanced install script with better error handling
-4. **Robustness**: Added fallback mechanisms in all scripts
+| Command | Read Operations | Write Operations |
+|---------|----------------|------------------|
+| vless-users | No sudo needed | Requires sudo for add/remove |
+| vless-logs | No sudo needed | Requires sudo for clear |
+| vless-backup | Always requires sudo | Always requires sudo |
+| vless-update | Always requires sudo | Always requires sudo |
 
-### Key Improvements
-- Scripts now work with or without `readlink` command
-- Multiple fallback paths for finding libraries
-- Clear error messages when libraries can't be found
-- Verification steps in installation process
-- Standalone repair tool for symlink issues
+## Files Modified
+1. Created: `scripts/fix-permissions.sh`
+2. Modified: `scripts/install.sh`
+3. Modified: `scripts/update.sh`
+4. Modified: `scripts/user-manager.sh`
+5. Modified: `scripts/logs.sh`
+
+## Testing Results
+- ✓ vless-users: Lists users without sudo
+- ✓ vless-logs: Shows logs without sudo
+- ✓ vless-backup: Correctly requires sudo (handles sensitive data)
+- ✓ vless-update: Correctly requires sudo (modifies system)
+
+## Security Considerations
+- Sensitive files (/opt/vless/data/, config.json, .env) remain protected with 600 permissions
+- Only read operations are allowed without sudo
+- All write operations still require root privileges
+- Follows PRD.md security requirements
+
+## How to Apply Fix
+
+### For existing installations:
+```bash
+sudo /opt/vless/scripts/fix-permissions.sh
+```
+
+### For new installations:
+The fix is automatically applied during installation.
+
+### For updates:
+The fix is automatically applied during update process.

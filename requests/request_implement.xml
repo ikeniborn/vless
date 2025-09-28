@@ -1,196 +1,269 @@
 <request>
-    <!-- Метаданные и настройки по умолчанию -->
-    <defaults>
-        <thinking mode="interleaved" max_length="16000"/>
-    </defaults>
+    <!-- КОНФИГУРАЦИЯ ВЫПОЛНЕНИЯ -->
+    <execution_config>
+        <mode>strict_sequential</mode>
+        <thinking enabled="true" mode="interleaved" max_length="16000"/>
+        <validation>checkpoint_based</validation>
+        <error_handling>stop_on_failure</error_handling>
+    </execution_config>
 
-    <!-- Определение роли -->
-    <role>
-        Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
-        Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
-    </role>
+    <!-- ВНЕШНИЕ ПАРАМЕТРЫ (подставляются отдельно) -->
+    <external_inputs>
+        <role>
+            Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
+            Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+        </role>
+        <context>
+            PLAN.md
+        </context>
+        <requirements>
+            - ВЫполнить задачи из пункта
+        </requirements>
+        <constraints>
+            - Использовать bash
+            - Совместимость с Docker окружением
+            - Всегда следовать PRD.md при реализии и исправлении
+        </constraints>
+    </external_inputs>
 
-    <!-- Информация о проекте -->
-    <project>
-        <name>VLESS+Reality VPN</name>
-        <architecture>
-            <program_language>Bash, Python</program_language>
-            <infrastructure>Docker Compose</infrastructure>
-        </architecture>
-    </project>
+    <!-- УНИВЕРСАЛЬНЫЙ WORKFLOW -->
+    <workflow version="2.0">
+        
+        <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
+        <directives>
+            <directive priority="CRITICAL">
+                ВЫПОЛНЯЙТЕ фазы СТРОГО ПОСЛЕДОВАТЕЛЬНО по значению атрибута 'order'
+            </directive>
+            <directive priority="HIGH">
+                НЕ переходите к следующей фазе пока не выполнен checkpoint текущей
+            </directive>
+            <directive priority="HIGH">
+                Используйте <thinking> перед каждой фазой для планирования действий
+            </directive>
+        </directives>
 
-    <!-- Контекст -->
-    <context>
-        <file path="/PRD.md" description="Product Requirements Document"/>
-        <!-- <file path="/PLAN.md" description="План проекта"/> -->
-    </context>
+        <!-- ФАЗА 1: ПОНИМАНИЕ -->
+        <phase order="1" id="understanding" mandatory="true">
+            <objective>Полное понимание задачи и контекста</objective>
+            
+            <actions>
+                <action seq="1">Изучить все входные данные из <external_inputs></action>
+                <action seq="2">Выявить явные и неявные требования</action>
+                <action seq="3">Определить потенциальные проблемы и риски</action>
+                <action seq="4">Сформулировать понимание задачи</action>
+            </actions>
+            
+            <thinking_prompt>
+                Проанализируйте:
+                - Что именно требуется сделать?
+                - Какие есть ограничения?
+                - Какие могут быть подводные камни?
+                - Что является критичным для успеха?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/1_analysis.xml" format="structured">
+                    <understanding/>
+                    <requirements_parsed/>
+                    <risks_identified/>
+                    <success_criteria/>
+                </file>
+            </output>
+            
+            <checkpoint>
+                ✓ Файл analysis.xml создан
+                ✓ Все требования идентифицированы
+                ✓ Критерии успеха определены
+            </checkpoint>
+        </phase>
 
-    <!-- Требования -->
-    <requirements>
-        <requirement id="1"> Символические ссылки в /usr/local/bin/ - install.sh не создает симлинки для быстрого доступа к скриптам </requirement>
-        <requirement id="2"> Проверка работоспособности после установки - install.sh не проверяет, что сервис успешно запустился </requirement>
-        <requirement id="3"> ADMIN_GUIDE.md - отсутствует руководство администратора в docs/ </requirement>
-        <requirement id="4"> TROUBLESHOOTING.md - отсутствует документ по решению проблем в docs/ </requirement>
-    </requirements>
+        <!-- ФАЗА 2: ПЛАНИРОВАНИЕ -->
+        <phase order="2" id="planning" mandatory="true">
+            <dependency>phase[order=1].checkpoint.passed</dependency>
+            <objective>Создание детального плана выполнения</objective>
+            
+            <actions>
+                <action seq="1">Загрузить результаты анализа</action>
+                <action seq="2">Декомпозировать задачу на подзадачи</action>
+                <action seq="3">Определить последовательность выполнения</action>
+                <action seq="4">Назначить проверки для каждой подзадачи</action>
+            </actions>
+            
+            <thinking_prompt>
+                Спланируйте:
+                - Какие конкретные шаги нужны?
+                - В каком порядке их выполнять?
+                - Что может пойти не так на каждом шаге?
+                - Как проверить корректность выполнения?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/2_plan.xml" format="structured">
+                    <tasks>
+                        <task id="" description="" validation=""/>
+                    </tasks>
+                    <execution_order/>
+                    <dependencies/>
+                </file>
+            </output>
+            
+            <checkpoint>
+                ✓ План создан и структурирован
+                ✓ Все задачи имеют критерии проверки
+                ✓ Зависимости определены
+            </checkpoint>
+        </phase>
 
+        <!-- ФАЗА 3: ИСПОЛНЕНИЕ -->
+        <phase order="3" id="execution" mandatory="true">
+            <dependency>phase[order=2].checkpoint.passed</dependency>
+            <objective>Выполнение запланированных задач</objective>
+            
+            <actions>
+                <action seq="1">Загрузить план выполнения</action>
+                <action seq="2">FOR EACH task IN plan.tasks:
+                    - Выполнить задачу
+                    - Провести валидацию
+                    - Документировать результат
+                </action>
+                <action seq="3">Собрать все результаты</action>
+            </actions>
+            
+            <thinking_prompt>
+                Для каждой задачи:
+                - Как именно её реализовать?
+                - Соответствует ли результат требованиям?
+                - Нужны ли корректировки?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/3_implementation.md" format="markdown">
+                    Документация всех выполненных изменений
+                </file>
+                <artifacts>
+                    Созданные/измененные файлы согласно плану
+                </artifacts>
+            </output>
+            
+            <checkpoint>
+                ✓ Все задачи из плана выполнены
+                ✓ Результаты задокументированы
+                ✓ Файлы созданы/обновлены
+            </checkpoint>
+        </phase>
 
-    <!-- Задачи с улучшенной структурой -->
-    <tasks>
-        <task id="1" name="Анализ требований" depends_on="">
-            <description>Изучение контекста и требований проекта</description>
+        <!-- ФАЗА 4: ВАЛИДАЦИЯ -->
+        <phase order="4" id="validation" mandatory="true">
+            <dependency>phase[order=3].checkpoint.passed</dependency>
+            <objective>Проверка корректности выполнения</objective>
+            
+            <actions>
+                <action seq="1">Проверить соответствие требованиям</action>
+                <action seq="2">Выполнить тестирование (если применимо)</action>
+                <action seq="3">Валидировать все созданные артефакты</action>
+                <action seq="4">Убедиться в решении исходной проблемы</action>
+            </actions>
+            
+            <thinking_prompt>
+                Проверьте:
+                - Решена ли исходная проблема?
+                - Все ли требования выполнены?
+                - Работает ли решение корректно?
+                - Есть ли побочные эффекты?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/4_validation.md" format="markdown">
+                    Результаты всех проверок
+                </file>
+                <tests_if_applicable path="tests/"/>
+            </output>
+            
+            <checkpoint>
+                ✓ Все требования выполнены
+                ✓ Тесты пройдены (если есть)
+                ✓ Решение работает корректно
+            </checkpoint>
+        </phase>
 
-            <step id="1.1" type="analysis">
-                <actions>
-                    <action>Изучить контекст(context)</action>
-                    <action>Изучить требования(requirements)</action>
-                </actions>
-            </step>
+        <!-- ФАЗА 5: ДОКУМЕНТИРОВАНИЕ -->
+        <phase order="5" id="documentation" mandatory="true">
+            <dependency>phase[order=4].checkpoint.passed</dependency>
+            <objective>Финальное документирование</objective>
+            
+            <actions>
+                <action seq="1">Обновить основную документацию</action>
+                <action seq="2">Создать/обновить README если нужно</action>
+                <action seq="3">Обновить память проекта (CLAUDE.md)</action>
+                <action seq="4">Подготовить summary выполненной работы</action>
+            </actions>
+            
+            <output>
+                <documentation>
+                    Обновленные файлы документации
+                </documentation>
+                <file path="workflow/5_summary.md" format="markdown">
+                    Итоговый отчет о выполненной работе
+                </file>
+            </output>
+            
+            <checkpoint>
+                ✓ Документация обновлена
+                ✓ Изменения описаны
+                ✓ Summary создан
+            </checkpoint>
+        </phase>
 
-            <step id="1.2" type="thinking">
-                <description>Обдумать требования шаг за шагом</description>
-                <use_defaults>thinking</use_defaults>
-            </step>
+        <!-- ФАЗА 6: ФИНАЛИЗАЦИЯ -->
+        <phase order="6" id="finalization" optional="true">
+            <dependency>phase[order=5].checkpoint.passed</dependency>
+            <objective>Завершающие действия</objective>
+            
+            <actions>
+                <action seq="1">Выполнить git commit если требуется</action>
+                <action seq="2">Очистить временные файлы</action>
+                <action seq="3">Вывести финальный статус</action>
+            </actions>
+            
+            <checkpoint>
+                ✓ Все изменения сохранены
+                ✓ Работа завершена успешно
+            </checkpoint>
+        </phase>
 
-            <step id="1.3" type="research">
-                <action>Запросить актуальную документацию</action>
-            </step>
+    </workflow>
 
-            <step id="1.4" type="thinking">
-                <description>Обдумать всю полученную информацию на полноту и корректность</description>
-                <use_defaults>thinking</use_defaults>
-            </step>
+    <!-- ОБРАБОТКА ОШИБОК -->
+    <error_handling>
+        <on_checkpoint_failure>
+            <action>STOP</action>
+            <message>❌ Checkpoint не пройден. Исправьте проблему перед продолжением.</message>
+            <instruction>Используйте <thinking> для анализа причины сбоя</instruction>
+        </on_checkpoint_failure>
+        
+        <on_dependency_not_met>
+            <action>STOP</action>
+            <message>⚠️ Зависимость не удовлетворена. Завершите предыдущую фазу.</message>
+        </on_dependency_not_met>
+    </error_handling>
 
-            <step id="1.5" type="refinement">
-                <action>Скорректировать результаты анализа по итогам размышлений</action>
-            </step>
-
-            <step id="1.6" type="finalization">
-                <action>Сформировать итоговый вариант анализа</action>
-            </step>
-
-            <step id="1.7" type="save">
-                <action>Сохранить результат анализа</action>
-                <output dir_ref="requests" file="analyses_implement.xml" format="xml"/>
-            </step>
-
-            <success_criteria>
-                <criterion>Файл analyses_implement.xml создан и содержит полный анализ</criterion>
-            </success_criteria>
-        </task>
-
-        <task id="2" name="Планирование" depends_on="1">
-            <description>Формирование плана задач на основе анализа</description>
-
-            <step id="2.1" type="planning">
-                <action>Сформировать план задач с помощью субагента</action>
-                <input dir_ref="requests" file="analyses_implement.xml"/>
-            </step>
-
-            <step id="2.2" type="thinking">
-                <description>Обдумать план задач на корректность, эффективность, полноту</description>
-                <use_defaults>thinking</use_defaults>
-            </step>
-
-            <step id="2.3" type="save">
-                <action>Сохранить итоговый план</action>
-                <output dir_ref="requests" file="plan_implement.xml" format="xml"/>
-            </step>
-
-            <success_criteria>
-                <criterion>План задач создан и валидирован</criterion>
-            </success_criteria>
-        </task>
-
-        <task id="3" name="Выполнение плана" depends_on="2">
-            <description>Реализация запланированных задач</description>
-
-            <step id="3.1" type="execution">
-                <action>Выполнить план задач шаг за шагом с помощью субагентов</action>
-                <input dir_ref="requests" file="plan_implement.xml"/>
-            </step>
-
-            <step id="3.2" type="validation">
-                <action>Проверить, что план выполнен полностью</action>
-            </step>
-
-            <step id="3.3" type="correction">
-                <action>Выполнить пропущенные задачи</action>
-            </step>
-
-            <step id="3.4" type="save">
-                <action>Сохранить результаты плана</action>
-                <output dir_ref="requests" file="result_implement.md" format="markdown"/>
-            </step>
-
-            <success_criteria>
-                <criterion>Все задачи плана выполнены</criterion>
-                <criterion>Результаты задокументированы</criterion>
-            </success_criteria>
-        </task>
-
-        <task id="4" name="Тестирование" depends_on="3">
-            <description>Создание и выполнение тестов</description>
-
-            <step id="4.1" type="development">
-                <action>Реализовать тесты на новый или измененный функционал</action>
-                <output dir_ref="tests"/>
-            </step>
-
-            <step id="4.2" type="testing">
-                <action>Выполнить тестирование</action>
-            </step>
-
-            <success_criteria>
-                <criterion>Все тесты пройдены успешно</criterion>
-            </success_criteria>
-        </task>
-
-        <task id="5" name="Документирование" depends_on="4">
-            <description>Обновление документации проекта</description>
-
-            <step id="5.1" type="documentation">
-                <action>Обновить документацию</action>
-                <outputs>
-                    <output dir_ref="docs"/>
-                    <output dir_ref="root" file="README.md"/>
-                </outputs>
-            </step>
-
-            <step id="5.2" type="memory_update">
-                <action>Обновить память проекта</action>
-                <output dir_ref="root" file="CLAUDE.md"/>
-                <constraints>
-                    <constraint>Размер CLAUDE.md не должен превышать 40000 токенов</constraint>
-                    <constraint>Хранить только актуальную информацию по проекту</constraint>
-                </constraints>
-                <best_practices>
-                    <practice>Be specific: "Use 2-space indentation" is better than "Format code properly"</practice>
-                    <practice>Use structure to organize: Format each individual memory as a bullet point and group related memories under descriptive markdown headings</practice>
-                    <practice>Review periodically: Update memories as your project evolves to ensure Claude is always using the most up to date information and context</practice>
-                </best_practices>
-            </step>
-
-            <step id="5.3" type="vcs">
-                <action>Сделать коммит и пуш</action>
-            </step>
-        </task>
-
-        <task id="6" name="Обновление плана" depends_on="5">
-            <description>Отметка выполненных задач</description>
-
-            <step id="6.1" type="update">
-                <action>Отметить выполненные задачи в PLAN.md</action>
-                <output dir_ref="root" file="PLAN.md"/>
-            </step>
-        </task>
-
-        <task id="7" name="Финализация" depends_on="6">
-            <description>Завершение итерации разработки</description>
-
-            <step id="7.1" type="vcs">
-                <action>Сделать финальный коммит и пуш</action>
-            </step>
-        </task>
-    </tasks>
+    <!-- ПРАВИЛА СЛЕДОВАНИЯ -->
+    <execution_rules>
+        <rule id="1" enforcement="STRICT">
+            Фазы выполняются ТОЛЬКО в порядке возрастания атрибута 'order'
+        </rule>
+        <rule id="2" enforcement="STRICT">
+            Переход к следующей фазе ТОЛЬКО после прохождения всех checkpoint'ов текущей
+        </rule>
+        <rule id="3" enforcement="STRICT">
+            При любой ошибке - ОСТАНОВКА и запрос действий пользователя
+        </rule>
+        <rule id="4" enforcement="REQUIRED">
+            Каждая фаза начинается с <thinking> блока для планирования
+        </rule>
+        <rule id="5" enforcement="REQUIRED">
+            Все выходные файлы создаются в указанных путях
+        </rule>
+    </execution_rules>
 
 </request>
