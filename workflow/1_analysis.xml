@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<analysis>
+    <understanding>
+        <problem>Команды vless-users, vless-logs, vless-backup выдают ошибку о том, что файл /usr/local/bin/lib/colors.sh не найден</problem>
+        <root_cause>Symlink'и для команд vless не были созданы в /usr/local/bin, хотя install.sh должен был их создать</root_cause>
+        <current_state>
+            <item>Скрипты установлены в /opt/vless/scripts/</item>
+            <item>Библиотеки находятся в /opt/vless/scripts/lib/</item>
+            <item>Symlink'и в /usr/local/bin отсутствуют</item>
+            <item>Скрипты уже правильно используют readlink -f для разрешения symlink'ов</item>
+        </current_state>
+    </understanding>
+
+    <requirements_parsed>
+        <explicit>
+            <requirement id="1">Исправить ошибки отсутствующего файла</requirement>
+            <requirement id="2">Обеспечить работу всех vless команд</requirement>
+            <requirement id="3">Скорректировать скрипты установки</requirement>
+        </explicit>
+        <implicit>
+            <requirement id="4">Создать недостающие symlink'и</requirement>
+            <requirement id="5">Убедиться что установка правильно создает symlink'и в будущем</requirement>
+            <requirement id="6">Предоставить способ восстановления symlink'ов без полной переустановки</requirement>
+        </implicit>
+    </requirements_parsed>
+
+    <risks_identified>
+        <risk level="low">Symlink'и могут быть удалены системой или пользователем</risk>
+        <risk level="medium">Права доступа могут препятствовать созданию symlink'ов</risk>
+        <risk level="low">readlink может не работать на некоторых системах</risk>
+    </risks_identified>
+
+    <success_criteria>
+        <criterion>Команды vless-users, vless-logs, vless-backup, vless-update работают без ошибок</criterion>
+        <criterion>Symlink'и правильно указывают на скрипты в /opt/vless/scripts/</criterion>
+        <criterion>Скрипт установки всегда создает symlink'и</criterion>
+        <criterion>Добавлен механизм восстановления symlink'ов</criterion>
+    </success_criteria>
+</analysis>

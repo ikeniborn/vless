@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+    <tasks>
+        <task id="1" description="Создать недостающие symlink'и для существующей установки">
+            <subtasks>
+                <subtask>Создать symlink для vless-users</subtask>
+                <subtask>Создать symlink для vless-logs</subtask>
+                <subtask>Создать symlink для vless-backup</subtask>
+                <subtask>Создать symlink для vless-update</subtask>
+            </subtasks>
+            <validation>Проверить наличие всех symlink'ов с ls -la /usr/local/bin/vless-*</validation>
+        </task>
+
+        <task id="2" description="Создать скрипт восстановления symlink'ов">
+            <subtasks>
+                <subtask>Создать scripts/fix-symlinks.sh</subtask>
+                <subtask>Добавить функцию создания symlink'ов</subtask>
+                <subtask>Добавить проверку существующих symlink'ов</subtask>
+            </subtasks>
+            <validation>Запустить скрипт и проверить создание symlink'ов</validation>
+        </task>
+
+        <task id="3" description="Улучшить скрипт установки для проверки symlink'ов">
+            <subtasks>
+                <subtask>Добавить проверку создания symlink'ов после установки</subtask>
+                <subtask>Добавить обработку ошибок при создании symlink'ов</subtask>
+            </subtasks>
+            <validation>Проверить логику создания symlink'ов в install.sh</validation>
+        </task>
+
+        <task id="4" description="Обновить функции для более надежного определения пути">
+            <subtasks>
+                <subtask>Добавить fallback механизм если readlink не работает</subtask>
+                <subtask>Добавить проверку наличия библиотек перед загрузкой</subtask>
+            </subtasks>
+            <validation>Проверить работу скриптов с различными методами вызова</validation>
+        </task>
+
+        <task id="5" description="Тестирование всех команд">
+            <subtasks>
+                <subtask>Запустить vless-users</subtask>
+                <subtask>Запустить vless-logs</subtask>
+                <subtask>Запустить vless-backup</subtask>
+                <subtask>Запустить vless-update</subtask>
+            </subtasks>
+            <validation>Все команды работают без ошибок</validation>
+        </task>
+    </tasks>
+
+    <execution_order>
+        <step order="1">task_id="1" - Немедленное исправление для текущей установки</step>
+        <step order="2">task_id="2" - Создание инструмента для восстановления</step>
+        <step order="3">task_id="3" - Улучшение процесса установки</step>
+        <step order="4">task_id="4" - Повышение надежности</step>
+        <step order="5">task_id="5" - Финальное тестирование</step>
+    </execution_order>
+
+    <dependencies>
+        <dependency>task_2 зависит от task_1 (нужен работающий механизм)</dependency>
+        <dependency>task_3 может выполняться параллельно с task_2</dependency>
+        <dependency>task_5 зависит от выполнения всех предыдущих задач</dependency>
+    </dependencies>
+</plan>
