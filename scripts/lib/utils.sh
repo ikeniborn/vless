@@ -260,3 +260,56 @@ check_system_requirements() {
     
     return $errors
 }
+
+# Cleanup existing Docker network if it exists
+cleanup_existing_network() {
+    local network_name="${1:-vless-reality_vless-network}"
+
+    print_step "Checking for existing Docker network..."
+
+    if docker network ls | grep -q "$network_name"; then
+        print_warning "Found existing network: $network_name"
+
+        # Check for running containers using this network
+        local containers=$(docker ps -q --filter network="$network_name" 2>/dev/null)
+        if [ -n "$containers" ]; then
+            print_info "Stopping containers using the network..."
+            docker stop $containers 2>/dev/null || true
+            print_success "Containers stopped"
+        fi
+
+        # Remove the network
+        print_info "Removing existing network..."
+        if docker network rm "$network_name" 2>/dev/null; then
+            print_success "Network removed successfully"
+        else
+            print_warning "Could not remove network, it may be in use"
+        fi
+    else
+        print_info "No existing network found"
+    fi
+}
+
+# Check for Docker network conflicts
+check_docker_networks() {
+    print_step "Checking Docker network configuration..."
+
+    local network_count=$(docker network ls --format '{{.Name}}' | wc -l)
+
+    if [ "$network_count" -gt 10 ]; then
+        print_warning "Found $network_count Docker networks on this system"
+        print_info "Consider cleaning up unused networks with: docker network prune"
+    fi
+
+    # List networks using 172.x.x.x ranges
+    local overlapping_nets=$(docker network inspect $(docker network ls -q) 2>/dev/null | \
+        jq -r '.[] | select(.IPAM.Config[0].Subnet | startswith("172.")) | .Name' | \
+        grep -v "^bridge$" || true)
+
+    if [ -n "$overlapping_nets" ]; then
+        print_info "Networks using 172.x.x.x ranges:"
+        echo "$overlapping_nets" | while read net; do
+            echo "  - $net"
+        done
+    fi
+}

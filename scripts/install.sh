@@ -337,6 +337,12 @@ start_service() {
 
     cd "$VLESS_HOME"
 
+    # Check for network conflicts
+    check_docker_networks
+
+    # Clean up any existing network to avoid conflicts
+    cleanup_existing_network "vless-reality_vless-network"
+
     print_step "Starting Xray container..."
     docker-compose up -d
 
