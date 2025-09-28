@@ -1,73 +1,40 @@
-# Implementation Report
+# Implementation Summary
 
-## Problem Fixed
-Fixed the issue where vless commands (vless-users, vless-logs, vless-backup, vless-update) were showing error "lib/colors.sh: No such file or directory" when run without sudo.
+## Changes Made
 
-## Root Cause
-The issue was caused by restrictive permissions (750) on /opt/vless/scripts/ directory and its contents. Regular users couldn't read the script files and libraries, causing the "file not found" error.
+### 1. Modified `scripts/lib/utils.sh`
 
-## Solution Implemented
+**Function:** `check_system_requirements()`
+**Lines:** 244-259
 
-### 1. Created fix-permissions.sh script
-- Location: `/home/ikeniborn/Documents/Project/vless/scripts/fix-permissions.sh`
-- Purpose: Sets proper permissions according to PRD.md requirements
-- Key changes:
-  - Scripts directory: 755 (readable by all)
-  - Script files: 755 (executable by all)
-  - Library files: 644 (readable by all)
-  - Sensitive data files remain 600 (root only)
+#### Changes:
+1. Changed `print_error` to `print_warning` for disk space notification
+2. Modified message from "required" to "recommended" to indicate it's not mandatory
+3. Added informative messages about potential issues with low disk space:
+   - Docker container storage
+   - Log file accumulation
+   - Backup creation
+4. Added user confirmation prompt using `confirm_action` function
+5. Only increment error counter if user chooses to cancel installation
+6. Added fallback value `${free_space:-0}` to handle empty variable case
 
-### 2. Updated user-manager.sh
-- Removed blanket root check at startup
-- Added root check only for write operations (add_user, remove_user)
-- Read operations (show_users, export_config) work without sudo
+#### Behavior:
+- **Before:** Installation automatically stopped with error if disk space < 5GB
+- **After:** Installation shows warning and asks user for confirmation to continue
 
-### 3. Updated logs.sh
-- Removed blanket root check at startup
-- Added root check only for clear_logs function
-- Reading and following logs works without sudo
-
-### 4. Updated install.sh and update.sh
-- Both scripts now call fix-permissions.sh after installation/update
-- Ensures permissions are correctly set for new installations
-
-### 5. Commands behavior after fix
-
-| Command | Read Operations | Write Operations |
-|---------|----------------|------------------|
-| vless-users | No sudo needed | Requires sudo for add/remove |
-| vless-logs | No sudo needed | Requires sudo for clear |
-| vless-backup | Always requires sudo | Always requires sudo |
-| vless-update | Always requires sudo | Always requires sudo |
+#### User Flow:
+1. If disk space < 5GB, user sees warning message
+2. User is informed about potential issues
+3. User is prompted: "Do you want to continue despite low disk space? [y/N]:"
+4. If user answers 'n' or Enter (default): Installation is cancelled
+5. If user answers 'y': Installation continues with warning acknowledged
 
 ## Files Modified
-1. Created: `scripts/fix-permissions.sh`
-2. Modified: `scripts/install.sh`
-3. Modified: `scripts/update.sh`
-4. Modified: `scripts/user-manager.sh`
-5. Modified: `scripts/logs.sh`
+- `/home/ikeniborn/Documents/Project/vless/scripts/lib/utils.sh`
 
-## Testing Results
-- ✓ vless-users: Lists users without sudo
-- ✓ vless-logs: Shows logs without sudo
-- ✓ vless-backup: Correctly requires sudo (handles sensitive data)
-- ✓ vless-update: Correctly requires sudo (modifies system)
-
-## Security Considerations
-- Sensitive files (/opt/vless/data/, config.json, .env) remain protected with 600 permissions
-- Only read operations are allowed without sudo
-- All write operations still require root privileges
-- Follows PRD.md security requirements
-
-## How to Apply Fix
-
-### For existing installations:
-```bash
-sudo /opt/vless/scripts/fix-permissions.sh
-```
-
-### For new installations:
-The fix is automatically applied during installation.
-
-### For updates:
-The fix is automatically applied during update process.
+## Testing Recommendations
+1. Test installation with < 5GB available in /opt
+2. Test installation with > 5GB available in /opt
+3. Test user response 'y' to continue
+4. Test user response 'n' to cancel
+5. Test default response (Enter key)

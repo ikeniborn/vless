@@ -1,33 +1,96 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plan>
     <tasks>
-        <task id="1" description="Проверка PRD.md для требований по правам" validation="PRD.md прочитан и требования поняты"/>
-        <task id="2" description="Создание скрипта fix-permissions.sh" validation="Скрипт создан и устанавливает правильные права"/>
-        <task id="3" description="Обновление install.sh для правильных прав" validation="install.sh вызывает fix-permissions.sh"/>
-        <task id="4" description="Обновление update.sh для правильных прав" validation="update.sh вызывает fix-permissions.sh"/>
-        <task id="5" description="Тестирование всех vless команд" validation="Команды работают без sudo для чтения"/>
-        <task id="6" description="Обновление CLAUDE.md" validation="Документация обновлена"/>
+        <task id="1" priority="HIGH">
+            <description>Модифицировать функцию check_system_requirements в lib/utils.sh</description>
+            <location>scripts/lib/utils.sh:224-252</location>
+            <changes>
+                <change>Изменить print_error на print_warning для проверки дискового пространства (строка 247)</change>
+                <change>Не увеличивать счетчик errors при недостатке места (строка 248)</change>
+                <change>Добавить информативное сообщение о последствиях недостатка места</change>
+                <change>Опционально: добавить запрос подтверждения продолжения установки</change>
+            </changes>
+            <validation>
+                - Функция не возвращает ошибку при недостатке места
+                - Выводится предупреждение вместо ошибки
+                - Проверка RAM остается неизменной
+            </validation>
+        </task>
+
+        <task id="2" priority="MEDIUM">
+            <description>Добавить дополнительную проверку с подтверждением пользователя</description>
+            <location>scripts/lib/utils.sh:246-249</location>
+            <changes>
+                <change>После вывода предупреждения запросить подтверждение продолжения</change>
+                <change>Использовать функцию confirm_action для запроса</change>
+            </changes>
+            <validation>
+                - При отказе пользователя установка прерывается
+                - При согласии установка продолжается
+            </validation>
+        </task>
+
+        <task id="3" priority="LOW">
+            <description>Проверить и обновить PRD.md при необходимости</description>
+            <location>PRD.md</location>
+            <changes>
+                <change>Проверить соответствие изменений требованиям PRD</change>
+                <change>Обновить документацию если требуется</change>
+            </changes>
+            <validation>
+                - Изменения соответствуют PRD
+            </validation>
+        </task>
     </tasks>
-    
+
     <execution_order>
-        <step number="1" task_id="1" reason="Нужно понять требования из PRD"/>
-        <step number="2" task_id="2" reason="Создать скрипт для исправления прав"/>
-        <step number="3" task_id="3" reason="Обновить установщик"/>
-        <step number="4" task_id="4" reason="Обновить скрипт обновления"/>
-        <step number="5" task_id="5" reason="Проверить работу"/>
-        <step number="6" task_id="6" reason="Документировать изменения"/>
+        <step order="1" task_id="1">Модифицировать check_system_requirements</step>
+        <step order="2" task_id="2">Добавить подтверждение пользователя</step>
+        <step order="3" task_id="3">Проверить PRD.md</step>
     </execution_order>
-    
+
     <dependencies>
-        <dependency task="3" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
-        <dependency task="4" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
-        <dependency task="5" depends_on="3,4" reason="Нужны обновленные скрипты"/>
-        <dependency task="6" depends_on="5" reason="После проверки"/>
+        <dependency>
+            <task_id>2</task_id>
+            <depends_on>1</depends_on>
+            <reason>Подтверждение добавляется после основной модификации</reason>
+        </dependency>
+        <dependency>
+            <task_id>3</task_id>
+            <depends_on>1,2</depends_on>
+            <reason>Документация проверяется после всех изменений</reason>
+        </dependency>
     </dependencies>
-    
-    <solution_approach>
-        Проблема в том, что /opt/vless/scripts/ имеет ограниченные права доступа (750).
-        Решение: создать скрипт fix-permissions.sh, который установит 755 для
-        публичных скриптов, но сохранит 600 для чувствительных данных.
-    </solution_approach>
+
+    <implementation_details>
+        <detail>
+            <aspect>Изменение проверки дискового пространства</aspect>
+            <current_code><![CDATA[
+    # Check disk space (minimum 5GB in /opt)
+    local free_space=$(df -BG /opt 2>/dev/null | awk 'NR==2{print int($4)}')
+    if [ -z "$free_space" ] || [ $free_space -lt 5 ]; then
+        print_error "Insufficient disk space. Minimum 5GB required in /opt"
+        ((errors++))
+    fi
+            ]]></current_code>
+            <new_code><![CDATA[
+    # Check disk space (minimum 5GB in /opt)
+    local free_space=$(df -BG /opt 2>/dev/null | awk 'NR==2{print int($4)}')
+    if [ -z "$free_space" ] || [ $free_space -lt 5 ]; then
+        print_warning "Insufficient disk space. Minimum 5GB recommended in /opt (found: ${free_space}GB)"
+        print_info "Installation can continue, but you may experience issues with:"
+        print_info "  - Docker container storage"
+        print_info "  - Log file accumulation"
+        print_info "  - Backup creation"
+
+        if ! confirm_action "Do you want to continue despite low disk space?" "n"; then
+            print_error "Installation cancelled by user due to low disk space"
+            ((errors++))
+        else
+            print_info "Continuing installation with low disk space warning"
+        fi
+    fi
+            ]]></new_code>
+        </detail>
+    </implementation_details>
 </plan>

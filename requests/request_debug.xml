@@ -14,13 +14,16 @@
             Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
         <context>
-            При выполнении команд vless-users, vless-logs, vless-backup
-            возникает ошибка: /usr/local/bin/lib/colors.sh: No such file or directory
+            При установке возникает исключение по месту.
+            ========================================
+                VLESS + REALITY VPN Installer v1.0
+            ========================================
+
+            ℹ Checking system requirements...
+            ✗ Insufficient disk space. Minimum 5GB required in /opt
         </context>
         <requirements>
-            - Исправить ошибки отсутствующего файла
-            - Обеспечить работу всех vless команд
-            - Скорректирвоать скрпиты устанановки
+            - Исправьть отмену установки на уведомление
         </requirements>
         <constraints>
             - Использовать bash

@@ -244,8 +244,18 @@ check_system_requirements() {
     # Check disk space (minimum 5GB in /opt)
     local free_space=$(df -BG /opt 2>/dev/null | awk 'NR==2{print int($4)}')
     if [ -z "$free_space" ] || [ $free_space -lt 5 ]; then
-        print_error "Insufficient disk space. Minimum 5GB required in /opt"
-        ((errors++))
+        print_warning "Insufficient disk space. Minimum 5GB recommended in /opt (found: ${free_space:-0}GB)"
+        print_info "Installation can continue, but you may experience issues with:"
+        print_info "  - Docker container storage"
+        print_info "  - Log file accumulation"
+        print_info "  - Backup creation"
+
+        if ! confirm_action "Do you want to continue despite low disk space?" "n"; then
+            print_error "Installation cancelled by user due to low disk space"
+            ((errors++))
+        else
+            print_info "Continuing installation with low disk space warning"
+        fi
     fi
     
     return $errors

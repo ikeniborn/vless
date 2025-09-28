@@ -1,32 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
     <understanding>
-        <issue>При выполнении команд vless-users, vless-logs, vless-backup возникает ошибка отсутствия файла /usr/local/bin/lib/colors.sh</issue>
-        <root_cause>Скрипты работают только с sudo из-за прав доступа 750 на директории в /opt/vless/scripts/</root_cause>
-        <current_state>
-            - Симлинки существуют и указывают на правильные файлы
-            - Скрипты имеют fallback механизм для загрузки библиотек
-            - Проблема в правах доступа - обычный пользователь не может читать файлы в /opt/vless/scripts/
-        </current_state>
+        <problem>При установке VLESS VPN происходит проверка системных требований, включая проверку доступного дискового пространства. Если места недостаточно (менее 5GB в /opt), установка полностью прерывается с ошибкой.</problem>
+        <current_behavior>
+            - Функция check_system_requirements() в lib/utils.sh проверяет свободное место
+            - При недостатке места выводится print_error и увеличивается счетчик ошибок
+            - Функция возвращает количество ошибок
+            - Если ошибки есть, установка прерывается
+        </current_behavior>
+        <required_behavior>
+            - Проверка места должна выводить предупреждение, а не ошибку
+            - Установка должна продолжаться даже при недостатке места
+            - Пользователь должен быть уведомлен о потенциальных проблемах
+        </required_behavior>
     </understanding>
-    
+
     <requirements_parsed>
-        <requirement id="1">Исправить ошибки отсутствующего файла для обычного пользователя</requirement>
-        <requirement id="2">Обеспечить работу всех vless команд без sudo</requirement>
-        <requirement id="3">Скорректировать скрипты установки для правильных прав доступа</requirement>
-        <requirement id="4">Следовать PRD.md при реализации</requirement>
+        <requirement id="1" priority="HIGH">
+            <description>Изменить поведение при недостатке дискового пространства с отмены установки на уведомление</description>
+            <location>scripts/lib/utils.sh:246-249</location>
+        </requirement>
+        <requirement id="2" priority="MEDIUM">
+            <description>Сохранить проверку RAM как есть (она не должна изменяться)</description>
+            <location>scripts/lib/utils.sh:238-242</location>
+        </requirement>
+        <requirement id="3" priority="HIGH">
+            <description>Обеспечить совместимость с Docker окружением</description>
+        </requirement>
+        <requirement id="4" priority="HIGH">
+            <description>Следовать PRD.md при реализации</description>
+        </requirement>
     </requirements_parsed>
-    
+
     <risks_identified>
-        <risk level="high">Изменение прав доступа может создать проблемы безопасности</risk>
-        <risk level="medium">Необходимо сохранить защиту чувствительных данных (ключи, конфиги)</risk>
-        <risk level="low">Изменения должны быть обратно совместимы</risk>
+        <risk severity="LOW">
+            <description>При недостатке места Docker контейнеры могут не запуститься</description>
+            <mitigation>Вывод ясного предупреждения о возможных последствиях</mitigation>
+        </risk>
+        <risk severity="LOW">
+            <description>Логи могут заполнить оставшееся место</description>
+            <mitigation>Предупредить пользователя о необходимости мониторинга места</mitigation>
+        </risk>
     </risks_identified>
-    
+
     <success_criteria>
-        <criterion>Все vless команды работают без sudo для чтения данных</criterion>
-        <criterion>Операции записи требуют sudo (безопасность)</criterion>
-        <criterion>Скрипт установки создает правильные права доступа</criterion>
-        <criterion>Нет ошибок при выполнении команд обычным пользователем</criterion>
+        <criterion id="1">Проверка дискового пространства выводит предупреждение вместо ошибки</criterion>
+        <criterion id="2">Функция check_system_requirements не возвращает ошибку при недостатке места</criterion>
+        <criterion id="3">Установка продолжается даже при недостатке места</criterion>
+        <criterion id="4">Пользователь четко информирован о потенциальных проблемах</criterion>
+        <criterion id="5">Проверка RAM остается без изменений</criterion>
     </success_criteria>
 </analysis>
