@@ -2,95 +2,73 @@
 <plan>
     <tasks>
         <task id="1" priority="HIGH">
-            <description>Модифицировать функцию check_system_requirements в lib/utils.sh</description>
-            <location>scripts/lib/utils.sh:224-252</location>
+            <description>Fix jq command in utils.sh line 306 for Docker network check</description>
+            <location>scripts/lib/utils.sh:306</location>
             <changes>
-                <change>Изменить print_error на print_warning для проверки дискового пространства (строка 247)</change>
-                <change>Не увеличивать счетчик errors при недостатке места (строка 248)</change>
-                <change>Добавить информативное сообщение о последствиях недостатка места</change>
-                <change>Опционально: добавить запрос подтверждения продолжения установки</change>
+                <change>Add null/type checking to prevent startswith() error on non-string values</change>
+                <change>Ensure .IPAM.Config[0].Subnet is a string before applying startswith()</change>
             </changes>
             <validation>
-                - Функция не возвращает ошибку при недостатке места
-                - Выводится предупреждение вместо ошибки
-                - Проверка RAM остается неизменной
+                - No jq errors when checking Docker networks
+                - Proper handling of networks without subnet configuration
             </validation>
         </task>
 
-        <task id="2" priority="MEDIUM">
-            <description>Добавить дополнительную проверку с подтверждением пользователя</description>
-            <location>scripts/lib/utils.sh:246-249</location>
+        <task id="2" priority="HIGH">
+            <description>Fix xray config validation in utils.sh line 204</description>
+            <location>scripts/lib/utils.sh:204-210</location>
             <changes>
-                <change>После вывода предупреждения запросить подтверждение продолжения</change>
-                <change>Использовать функцию confirm_action для запроса</change>
+                <change>Replace incorrect 'xray test' command with proper validation method</change>
+                <change>Use 'xray run -test' or JSON validation as alternative</change>
             </changes>
             <validation>
-                - При отказе пользователя установка прерывается
-                - При согласии установка продолжается
+                - No "unknown command" error
+                - Config validation works or gracefully skips
             </validation>
         </task>
 
-        <task id="3" priority="LOW">
-            <description>Проверить и обновить PRD.md при необходимости</description>
-            <location>PRD.md</location>
+        <task id="3" priority="MEDIUM">
+            <description>Update install.sh troubleshooting command</description>
+            <location>scripts/install.sh:361</location>
             <changes>
-                <change>Проверить соответствие изменений требованиям PRD</change>
-                <change>Обновить документацию если требуется</change>
+                <change>Update troubleshooting command to match utils.sh fix</change>
             </changes>
             <validation>
-                - Изменения соответствуют PRD
+                - Troubleshooting command is correct
+            </validation>
+        </task>
+
+        <task id="4" priority="HIGH">
+            <description>Test all fixes</description>
+            <location>N/A</location>
+            <changes>
+                <change>Run start script to verify no errors</change>
+                <change>Ensure service functions correctly</change>
+            </changes>
+            <validation>
+                - Clean startup without jq or xray errors
+                - Service runs successfully
             </validation>
         </task>
     </tasks>
 
     <execution_order>
-        <step order="1" task_id="1">Модифицировать check_system_requirements</step>
-        <step order="2" task_id="2">Добавить подтверждение пользователя</step>
-        <step order="3" task_id="3">Проверить PRD.md</step>
+        <step order="1" task_id="1">Fix jq command for Docker network check</step>
+        <step order="2" task_id="2">Fix xray config validation command</step>
+        <step order="3" task_id="3">Update troubleshooting documentation</step>
+        <step order="4" task_id="4">Test all fixes</step>
     </execution_order>
 
     <dependencies>
         <dependency>
-            <task_id>2</task_id>
-            <depends_on>1</depends_on>
-            <reason>Подтверждение добавляется после основной модификации</reason>
+            <task_id>3</task_id>
+            <depends_on>2</depends_on>
+            <reason>Troubleshooting command depends on xray validation fix</reason>
         </dependency>
         <dependency>
-            <task_id>3</task_id>
-            <depends_on>1,2</depends_on>
-            <reason>Документация проверяется после всех изменений</reason>
+            <task_id>4</task_id>
+            <depends_on>1,2,3</depends_on>
+            <reason>Testing requires all fixes to be implemented</reason>
         </dependency>
     </dependencies>
-
-    <implementation_details>
-        <detail>
-            <aspect>Изменение проверки дискового пространства</aspect>
-            <current_code><![CDATA[
-    # Check disk space (minimum 5GB in /opt)
-    local free_space=$(df -BG /opt 2>/dev/null | awk 'NR==2{print int($4)}')
-    if [ -z "$free_space" ] || [ $free_space -lt 5 ]; then
-        print_error "Insufficient disk space. Minimum 5GB required in /opt"
-        ((errors++))
-    fi
-            ]]></current_code>
-            <new_code><![CDATA[
-    # Check disk space (minimum 5GB in /opt)
-    local free_space=$(df -BG /opt 2>/dev/null | awk 'NR==2{print int($4)}')
-    if [ -z "$free_space" ] || [ $free_space -lt 5 ]; then
-        print_warning "Insufficient disk space. Minimum 5GB recommended in /opt (found: ${free_space}GB)"
-        print_info "Installation can continue, but you may experience issues with:"
-        print_info "  - Docker container storage"
-        print_info "  - Log file accumulation"
-        print_info "  - Backup creation"
-
-        if ! confirm_action "Do you want to continue despite low disk space?" "n"; then
-            print_error "Installation cancelled by user due to low disk space"
-            ((errors++))
-        else
-            print_info "Continuing installation with low disk space warning"
-        fi
-    fi
-            ]]></new_code>
-        </detail>
-    </implementation_details>
 </plan>

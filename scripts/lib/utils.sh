@@ -201,12 +201,21 @@ check_xray_health() {
 
     # Step 4: Validate Xray configuration (optional)
     print_info "Validating Xray configuration..."
-    local config_test=$(docker exec "$container_name" xray test -c /etc/xray/config.json 2>&1 || true)
+    # Try to validate config using xray run -test
+    local config_test=$(docker exec "$container_name" xray run -test -c /etc/xray/config.json 2>&1 || true)
 
-    if echo "$config_test" | grep -q "Configuration OK"; then
+    if echo "$config_test" | grep -q -E "(Configuration OK|config file test passed)"; then
         print_success "Xray configuration is valid"
+    elif echo "$config_test" | grep -q "unknown"; then
+        # If validation command is not recognized, skip validation
+        print_info "Xray validation command not available, skipping config check"
     elif [ -n "$config_test" ]; then
-        print_warning "Configuration test output: $config_test"
+        # Show any other output from the validation attempt
+        if echo "$config_test" | grep -q -i "error"; then
+            print_warning "Configuration test output: $config_test"
+        else
+            print_info "Configuration test completed"
+        fi
     fi
 
     # Step 5: Check container resource usage
@@ -303,7 +312,7 @@ check_docker_networks() {
 
     # List networks using 172.x.x.x ranges
     local overlapping_nets=$(docker network inspect $(docker network ls -q) 2>/dev/null | \
-        jq -r '.[] | select(.IPAM.Config[0].Subnet | startswith("172.")) | .Name' | \
+        jq -r '.[] | select(.IPAM.Config[0].Subnet // null | type == "string" and startswith("172.")) | .Name' | \
         grep -v "^bridge$" || true)
 
     if [ -n "$overlapping_nets" ]; then

@@ -358,7 +358,7 @@ start_service() {
             print_error "Xray service health check failed"
             print_info "Troubleshooting steps:"
             print_info "1. Check logs: docker-compose -f $VLESS_HOME/docker-compose.yml logs --tail 50"
-            print_info "2. Check configuration: docker exec xray-server xray test -c /etc/xray/config.json"
+            print_info "2. Check configuration: docker exec xray-server xray run -test -c /etc/xray/config.json"
             print_info "3. Restart service: cd $VLESS_HOME && docker-compose restart"
             print_info "4. Check port 443: netstat -tuln | grep :443"
             exit 1

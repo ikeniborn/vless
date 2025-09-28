@@ -14,21 +14,13 @@
             Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
         <context>
-            После установки и на этапе запуска ошибка
-            ========================================
-                Starting Service
-            ========================================
-
-            → Starting Xray container...
-            [+] Running 1/0
-            ✘ Network vless-reality_vless-network  Er...                                       0.0s 
-            failed to create network vless-reality_vless-network: Error response from daemon: invalid pool request: Pool overlaps with other one on this address space
+            После устанвоки не функцилнаьыны симлинки для пользователя root 
 
         </context>
         <requirements>
-            - Проанализировать ошибку
-            - Определить варианты решения
-            - ИСправить устанвоочные скрпиты и конфигруации для решения проблемы
+            - Проанализировать причину отсутсвия симлинков
+            - Продумать решение с симлинками
+            - Реализоваь функципонал симлинков на этаапе устанвоки или переустанвоки
         </requirements>
         <constraints>
             - Использовать bash

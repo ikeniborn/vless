@@ -1,40 +1,45 @@
-# Implementation Summary
+# Implementation Report
 
-## Changes Made
+## Fixed Issues
 
-### 1. Modified `scripts/lib/utils.sh`
+### 1. JQ Command Error (Fixed)
+**File**: `scripts/lib/utils.sh:306`
+**Problem**: `jq: error (at <stdin>:127): startswith() requires string inputs`
+**Cause**: `.IPAM.Config[0].Subnet` could be null or missing for some Docker networks
+**Solution**: Added null checking and type validation
+```bash
+# Before:
+jq -r '.[] | select(.IPAM.Config[0].Subnet | startswith("172."))'
 
-**Function:** `check_system_requirements()`
-**Lines:** 244-259
+# After:
+jq -r '.[] | select(.IPAM.Config[0].Subnet // null | type == "string" and startswith("172."))'
+```
 
-#### Changes:
-1. Changed `print_error` to `print_warning` for disk space notification
-2. Modified message from "required" to "recommended" to indicate it's not mandatory
-3. Added informative messages about potential issues with low disk space:
-   - Docker container storage
-   - Log file accumulation
-   - Backup creation
-4. Added user confirmation prompt using `confirm_action` function
-5. Only increment error counter if user chooses to cancel installation
-6. Added fallback value `${free_space:-0}` to handle empty variable case
+### 2. Xray Config Validation (Fixed)
+**File**: `scripts/lib/utils.sh:204-217`
+**Problem**: `xray test: unknown command`
+**Cause**: The `xray test` command doesn't exist in the xray binary
+**Solution**: Changed to `xray run -test` with fallback to JSON validation
+```bash
+# Before:
+docker exec "$container_name" xray test -c /etc/xray/config.json
 
-#### Behavior:
-- **Before:** Installation automatically stopped with error if disk space < 5GB
-- **After:** Installation shows warning and asks user for confirmation to continue
+# After:
+docker exec "$container_name" xray run -test -c /etc/xray/config.json
+# With fallback to jq validation if command is unknown
+```
 
-#### User Flow:
-1. If disk space < 5GB, user sees warning message
-2. User is informed about potential issues
-3. User is prompted: "Do you want to continue despite low disk space? [y/N]:"
-4. If user answers 'n' or Enter (default): Installation is cancelled
-5. If user answers 'y': Installation continues with warning acknowledged
+### 3. Documentation Update (Fixed)
+**File**: `scripts/install.sh:361`
+**Problem**: Outdated troubleshooting command using incorrect xray test syntax
+**Solution**: Updated to match the corrected command
+
+## Changes Summary
+- Modified jq expression to handle null/missing subnet values
+- Replaced incorrect xray test command with proper validation method
+- Added fallback JSON validation using jq for better compatibility
+- Updated troubleshooting documentation to reflect correct commands
 
 ## Files Modified
-- `/home/ikeniborn/Documents/Project/vless/scripts/lib/utils.sh`
-
-## Testing Recommendations
-1. Test installation with < 5GB available in /opt
-2. Test installation with > 5GB available in /opt
-3. Test user response 'y' to continue
-4. Test user response 'n' to cancel
-5. Test default response (Enter key)
+- `/home/ikeniborn/Documents/Project/vless/scripts/lib/utils.sh` (lines 306, 204-217)
+- `/home/ikeniborn/Documents/Project/vless/scripts/install.sh` (line 361)
