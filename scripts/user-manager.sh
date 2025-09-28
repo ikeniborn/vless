@@ -2,14 +2,29 @@
 
 set -e
 
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Script directory - resolve symlinks to get real path
+if command -v readlink >/dev/null 2>&1; then
+    SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 VLESS_HOME="${VLESS_HOME:-/opt/vless}"
 
-# Load libraries
-source "$SCRIPT_DIR/lib/colors.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
-source "$SCRIPT_DIR/lib/config.sh"
+# Load libraries with fallback
+if [ -f "$SCRIPT_DIR/lib/colors.sh" ]; then
+    source "$SCRIPT_DIR/lib/colors.sh"
+    source "$SCRIPT_DIR/lib/utils.sh"
+    source "$SCRIPT_DIR/lib/config.sh"
+elif [ -f "/opt/vless/scripts/lib/colors.sh" ]; then
+    source "/opt/vless/scripts/lib/colors.sh"
+    source "/opt/vless/scripts/lib/utils.sh"
+    source "/opt/vless/scripts/lib/config.sh"
+else
+    echo "Error: Cannot find required library files" >&2
+    echo "Please ensure VLESS is properly installed" >&2
+    exit 1
+fi
 
 # User management functions
 show_users() {
@@ -34,6 +49,9 @@ show_users() {
 }
 
 add_user() {
+    # Check root for write operations
+    check_root
+
     print_header "Add New User"
     
     # Get username
@@ -85,6 +103,9 @@ add_user() {
 }
 
 remove_user() {
+    # Check root for write operations
+    check_root
+
     print_header "Remove User"
     
     # Show users
@@ -395,8 +416,8 @@ main_menu() {
     done
 }
 
-# Check if running as root
-check_root
+# Check if running as root (only for operations that need it)
+# Will check individually in functions that modify data
 
 # Check if VLESS is installed
 if [ ! -d "$VLESS_HOME" ]; then

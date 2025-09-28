@@ -334,37 +334,107 @@ EOF
 
 start_service() {
     print_header "Starting Service"
-    
+
     cd "$VLESS_HOME"
-    
+
     print_step "Starting Xray container..."
     docker-compose up -d
-    
+
     # Wait for service to be ready
     if wait_for_service "xray-server" 30; then
-        print_success "Xray service started successfully"
+        print_success "Xray container started"
+
+        # Perform comprehensive health check
+        sleep 2  # Give service a moment to initialize
+        if check_xray_health "xray-server"; then
+            print_success "Xray service is fully operational"
+        else
+            print_error "Xray service health check failed"
+            print_info "Troubleshooting steps:"
+            print_info "1. Check logs: docker-compose -f $VLESS_HOME/docker-compose.yml logs --tail 50"
+            print_info "2. Check configuration: docker exec xray-server xray test -c /etc/xray/config.json"
+            print_info "3. Restart service: cd $VLESS_HOME && docker-compose restart"
+            print_info "4. Check port 443: netstat -tuln | grep :443"
+            exit 1
+        fi
     else
-        print_error "Failed to start Xray service"
-        print_info "Check logs with: docker-compose -f $VLESS_HOME/docker-compose.yml logs"
+        print_error "Failed to start Xray container"
+        print_info "Check Docker status: systemctl status docker"
+        print_info "Check logs: docker-compose -f $VLESS_HOME/docker-compose.yml logs"
         exit 1
     fi
 }
 
 create_symlinks() {
     print_header "Creating Command Shortcuts"
-    
+
+    local SYMLINKS_CREATED=0
+    local SYMLINKS_FAILED=0
+
+    # Define commands and their script files
+    declare -A COMMANDS=(
+        ["vless-users"]="user-manager.sh"
+        ["vless-logs"]="logs.sh"
+        ["vless-backup"]="backup.sh"
+        ["vless-update"]="update.sh"
+    )
+
     # Create symlinks for easy access
-    ln -sf "$VLESS_HOME/scripts/user-manager.sh" "/usr/local/bin/vless-users"
-    ln -sf "$VLESS_HOME/scripts/logs.sh" "/usr/local/bin/vless-logs"
-    ln -sf "$VLESS_HOME/scripts/backup.sh" "/usr/local/bin/vless-backup"
-    ln -sf "$VLESS_HOME/scripts/update.sh" "/usr/local/bin/vless-update"
-    
-    print_success "Command shortcuts created"
-    print_info "Available commands:"
-    print_info "  vless-users   - Manage users"
-    print_info "  vless-logs    - View logs"
-    print_info "  vless-backup  - Create backup"
-    print_info "  vless-update  - Update Xray"
+    for CMD in "${!COMMANDS[@]}"; do
+        SCRIPT="${COMMANDS[$CMD]}"
+        SYMLINK="/usr/local/bin/$CMD"
+        TARGET="$VLESS_HOME/scripts/$SCRIPT"
+
+        # Check if target exists
+        if [ ! -f "$TARGET" ]; then
+            print_error "Script not found: $TARGET"
+            ((SYMLINKS_FAILED++))
+            continue
+        fi
+
+        # Remove existing file/symlink if present
+        if [ -e "$SYMLINK" ] || [ -L "$SYMLINK" ]; then
+            rm -f "$SYMLINK" 2>/dev/null || {
+                print_error "Failed to remove existing $CMD"
+                ((SYMLINKS_FAILED++))
+                continue
+            }
+        fi
+
+        # Create new symlink
+        if ln -sf "$TARGET" "$SYMLINK" 2>/dev/null; then
+            print_success "Created symlink: $CMD"
+            ((SYMLINKS_CREATED++))
+        else
+            print_error "Failed to create symlink: $CMD"
+            ((SYMLINKS_FAILED++))
+        fi
+    done
+
+    # Verify symlinks
+    print_step "Verifying symlinks..."
+    local ALL_OK=true
+    for CMD in "${!COMMANDS[@]}"; do
+        if [ -L "/usr/local/bin/$CMD" ] && [ -e "/usr/local/bin/$CMD" ]; then
+            print_success "$CMD is ready"
+        else
+            print_error "$CMD symlink is broken or missing"
+            ALL_OK=false
+        fi
+    done
+
+    echo
+    if [ $SYMLINKS_FAILED -eq 0 ] && [ "$ALL_OK" = true ]; then
+        print_success "All command shortcuts created successfully"
+        print_info "Available commands:"
+        print_info "  vless-users   - Manage users"
+        print_info "  vless-logs    - View logs"
+        print_info "  vless-backup  - Create backup"
+        print_info "  vless-update  - Update Xray"
+    else
+        print_warning "Some symlinks could not be created"
+        print_info "You can run $VLESS_HOME/scripts/fix-symlinks.sh to repair them"
+    fi
 }
 
 show_connection_info() {
@@ -416,8 +486,18 @@ main() {
     create_configuration
     start_service
     create_symlinks
+
+    # Fix permissions after installation
+    print_header "Setting Permissions"
+    if [ -f "$VLESS_HOME/scripts/fix-permissions.sh" ]; then
+        print_step "Running fix-permissions.sh..."
+        bash "$VLESS_HOME/scripts/fix-permissions.sh"
+    else
+        print_warning "fix-permissions.sh not found, skipping permissions fix"
+    fi
+
     show_connection_info
-    
+
     print_success "Installation completed successfully!"
 }
 

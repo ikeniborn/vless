@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plan>
+    <tasks>
+        <task id="1" description="Проверка PRD.md для требований по правам" validation="PRD.md прочитан и требования поняты"/>
+        <task id="2" description="Создание скрипта fix-permissions.sh" validation="Скрипт создан и устанавливает правильные права"/>
+        <task id="3" description="Обновление install.sh для правильных прав" validation="install.sh вызывает fix-permissions.sh"/>
+        <task id="4" description="Обновление update.sh для правильных прав" validation="update.sh вызывает fix-permissions.sh"/>
+        <task id="5" description="Тестирование всех vless команд" validation="Команды работают без sudo для чтения"/>
+        <task id="6" description="Обновление CLAUDE.md" validation="Документация обновлена"/>
+    </tasks>
+    
+    <execution_order>
+        <step number="1" task_id="1" reason="Нужно понять требования из PRD"/>
+        <step number="2" task_id="2" reason="Создать скрипт для исправления прав"/>
+        <step number="3" task_id="3" reason="Обновить установщик"/>
+        <step number="4" task_id="4" reason="Обновить скрипт обновления"/>
+        <step number="5" task_id="5" reason="Проверить работу"/>
+        <step number="6" task_id="6" reason="Документировать изменения"/>
+    </execution_order>
+    
+    <dependencies>
+        <dependency task="3" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
+        <dependency task="4" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
+        <dependency task="5" depends_on="3,4" reason="Нужны обновленные скрипты"/>
+        <dependency task="6" depends_on="5" reason="После проверки"/>
+    </dependencies>
+    
+    <solution_approach>
+        Проблема в том, что /opt/vless/scripts/ имеет ограниченные права доступа (750).
+        Решение: создать скрипт fix-permissions.sh, который установит 755 для
+        публичных скриптов, но сохранит 600 для чувствительных данных.
+    </solution_approach>
+</plan>

@@ -2,13 +2,27 @@
 
 set -e
 
-# Script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Script directory - resolve symlinks to get real path
+if command -v readlink >/dev/null 2>&1; then
+    SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 VLESS_HOME="${VLESS_HOME:-/opt/vless}"
 
-# Load libraries
-source "$SCRIPT_DIR/lib/colors.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
+# Load libraries with fallback
+if [ -f "$SCRIPT_DIR/lib/colors.sh" ]; then
+    source "$SCRIPT_DIR/lib/colors.sh"
+    source "$SCRIPT_DIR/lib/utils.sh"
+elif [ -f "/opt/vless/scripts/lib/colors.sh" ]; then
+    source "/opt/vless/scripts/lib/colors.sh"
+    source "/opt/vless/scripts/lib/utils.sh"
+else
+    echo "Error: Cannot find required library files" >&2
+    echo "Please ensure VLESS is properly installed" >&2
+    exit 1
+fi
 
 # Check root
 check_root
@@ -113,6 +127,12 @@ perform_update() {
     print_step "Cleaning up old images..."
     if docker image prune -f > /dev/null 2>&1; then
         print_success "Old images cleaned up"
+    fi
+
+    # Fix permissions after update
+    if [ -f "$VLESS_HOME/scripts/fix-permissions.sh" ]; then
+        print_step "Fixing file permissions..."
+        bash "$VLESS_HOME/scripts/fix-permissions.sh"
     fi
 
     print_success "Update completed successfully!"
