@@ -6,10 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VLESS+Reality VPN service using Xray-core in Docker with bash-based CLI management system. The project is designed for personal use (up to 50 users) with focus on simplicity and automation.
 
-## Product Requirements Document
-
-Всегда следовать PRD.md при реализии и исправлении
-
 ## Architecture
 
 ### Two-Part Structure
@@ -178,3 +174,10 @@ Requires Docker running and teddysun/xray image accessible
 
 ### Port 443 Conflicts
 Check with `netstat -tlnp | grep 443` before installation
+
+### Symlink Issues (Fixed)
+If vless commands show "lib/colors.sh: No such file or directory":
+- Run: `sudo /opt/vless/scripts/fix-symlinks.sh`
+- This repairs all command symlinks
+- Scripts now include fallback library loading mechanisms
+- All scripts have been updated with robust path detection

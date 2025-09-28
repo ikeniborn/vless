@@ -367,19 +367,74 @@ start_service() {
 
 create_symlinks() {
     print_header "Creating Command Shortcuts"
-    
+
+    local SYMLINKS_CREATED=0
+    local SYMLINKS_FAILED=0
+
+    # Define commands and their script files
+    declare -A COMMANDS=(
+        ["vless-users"]="user-manager.sh"
+        ["vless-logs"]="logs.sh"
+        ["vless-backup"]="backup.sh"
+        ["vless-update"]="update.sh"
+    )
+
     # Create symlinks for easy access
-    ln -sf "$VLESS_HOME/scripts/user-manager.sh" "/usr/local/bin/vless-users"
-    ln -sf "$VLESS_HOME/scripts/logs.sh" "/usr/local/bin/vless-logs"
-    ln -sf "$VLESS_HOME/scripts/backup.sh" "/usr/local/bin/vless-backup"
-    ln -sf "$VLESS_HOME/scripts/update.sh" "/usr/local/bin/vless-update"
-    
-    print_success "Command shortcuts created"
-    print_info "Available commands:"
-    print_info "  vless-users   - Manage users"
-    print_info "  vless-logs    - View logs"
-    print_info "  vless-backup  - Create backup"
-    print_info "  vless-update  - Update Xray"
+    for CMD in "${!COMMANDS[@]}"; do
+        SCRIPT="${COMMANDS[$CMD]}"
+        SYMLINK="/usr/local/bin/$CMD"
+        TARGET="$VLESS_HOME/scripts/$SCRIPT"
+
+        # Check if target exists
+        if [ ! -f "$TARGET" ]; then
+            print_error "Script not found: $TARGET"
+            ((SYMLINKS_FAILED++))
+            continue
+        fi
+
+        # Remove existing file/symlink if present
+        if [ -e "$SYMLINK" ] || [ -L "$SYMLINK" ]; then
+            rm -f "$SYMLINK" 2>/dev/null || {
+                print_error "Failed to remove existing $CMD"
+                ((SYMLINKS_FAILED++))
+                continue
+            }
+        fi
+
+        # Create new symlink
+        if ln -sf "$TARGET" "$SYMLINK" 2>/dev/null; then
+            print_success "Created symlink: $CMD"
+            ((SYMLINKS_CREATED++))
+        else
+            print_error "Failed to create symlink: $CMD"
+            ((SYMLINKS_FAILED++))
+        fi
+    done
+
+    # Verify symlinks
+    print_step "Verifying symlinks..."
+    local ALL_OK=true
+    for CMD in "${!COMMANDS[@]}"; do
+        if [ -L "/usr/local/bin/$CMD" ] && [ -e "/usr/local/bin/$CMD" ]; then
+            print_success "$CMD is ready"
+        else
+            print_error "$CMD symlink is broken or missing"
+            ALL_OK=false
+        fi
+    done
+
+    echo
+    if [ $SYMLINKS_FAILED -eq 0 ] && [ "$ALL_OK" = true ]; then
+        print_success "All command shortcuts created successfully"
+        print_info "Available commands:"
+        print_info "  vless-users   - Manage users"
+        print_info "  vless-logs    - View logs"
+        print_info "  vless-backup  - Create backup"
+        print_info "  vless-update  - Update Xray"
+    else
+        print_warning "Some symlinks could not be created"
+        print_info "You can run $VLESS_HOME/scripts/fix-symlinks.sh to repair them"
+    fi
 }
 
 show_connection_info() {

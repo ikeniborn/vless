@@ -3,13 +3,28 @@
 set -e
 
 # Script directory - resolve symlinks to get real path
-SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+if command -v readlink >/dev/null 2>&1; then
+    SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 VLESS_HOME="${VLESS_HOME:-/opt/vless}"
 
-# Load libraries
-source "$SCRIPT_DIR/lib/colors.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
-source "$SCRIPT_DIR/lib/config.sh"
+# Load libraries with fallback
+if [ -f "$SCRIPT_DIR/lib/colors.sh" ]; then
+    source "$SCRIPT_DIR/lib/colors.sh"
+    source "$SCRIPT_DIR/lib/utils.sh"
+    source "$SCRIPT_DIR/lib/config.sh"
+elif [ -f "/opt/vless/scripts/lib/colors.sh" ]; then
+    source "/opt/vless/scripts/lib/colors.sh"
+    source "/opt/vless/scripts/lib/utils.sh"
+    source "/opt/vless/scripts/lib/config.sh"
+else
+    echo "Error: Cannot find required library files" >&2
+    echo "Please ensure VLESS is properly installed" >&2
+    exit 1
+fi
 
 # User management functions
 show_users() {
