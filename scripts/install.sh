@@ -303,6 +303,18 @@ EOF
     
     # Create Xray config
     print_step "Creating Xray configuration..."
+
+    # Debug: Show values before template processing
+    if [ "${DEBUG_INSTALL:-0}" = "1" ]; then
+        echo "DEBUG: Template values:" >&2
+        echo "  ADMIN_UUID='$ADMIN_UUID'" >&2
+        echo "  REALITY_DEST='$REALITY_DEST'" >&2
+        echo "  REALITY_SERVER_NAME='$REALITY_SERVER_NAME'" >&2
+        echo "  PRIVATE_KEY='$PRIVATE_KEY'" >&2
+        echo "  ADMIN_SHORT_ID='$ADMIN_SHORT_ID'" >&2
+        echo "  PRIVATE_KEY length: $(echo -n "$PRIVATE_KEY" | wc -c)" >&2
+    fi
+
     apply_template \
         "$VLESS_HOME/templates/config.json.tpl" \
         "$VLESS_HOME/config/config.json" \
