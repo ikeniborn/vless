@@ -1,43 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
     <understanding>
-        <issue>User reports that symlinks are not functional for root user after installation</issue>
-        <investigation>
-            <finding>Symlinks exist correctly in /usr/local/bin/</finding>
-            <finding>Symlinks point to correct scripts in /opt/vless/scripts/</finding>
-            <finding>/usr/local/bin is in root's PATH</finding>
-            <finding>Commands work with sudo (tested vless-users)</finding>
-        </investigation>
-        <root_cause>The issue appears to be resolved or may have been a temporary PATH issue</root_cause>
+        <problem>
+            The sed command in apply_template function is throwing "unterminated `s' command" error
+            during Xray configuration creation in the install.sh script.
+        </problem>
+        <root_cause>
+            Complex sed expressions with semicolons can cause parsing issues in some environments.
+            The error occurs at character 78 in the sed expression.
+        </root_cause>
+        <current_state>
+            The fix appears to be already implemented in lib/config.sh:167, where the sed command
+            is split into separate piped commands to avoid parsing issues.
+        </current_state>
     </understanding>
 
     <requirements_parsed>
-        <requirement id="1">Analyze why symlinks might not work for root user</requirement>
-        <requirement id="2">Design robust symlink creation solution</requirement>
-        <requirement id="3">Implement symlink functionality during installation/reinstallation</requirement>
-        <requirement id="4">Ensure compatibility with bash and Docker environment</requirement>
-        <requirement id="5">Follow PRD.md specifications</requirement>
+        <requirement id="1" priority="critical">
+            Fix the sed error that occurs during "Creating Xray configuration" step
+        </requirement>
+        <requirement id="2" priority="high">
+            Ensure the fix works in remote server environments
+        </requirement>
+        <requirement id="3" priority="medium">
+            Maintain compatibility with Docker environment
+        </requirement>
+        <requirement id="4" priority="medium">
+            Follow PRD.md guidelines for implementation
+        </requirement>
     </requirements_parsed>
 
     <risks_identified>
-        <risk level="LOW">Symlinks might break if /opt/vless is moved or deleted</risk>
-        <risk level="MEDIUM">Different shell environments might have different PATH configurations</risk>
-        <risk level="LOW">Symlinks created during installation might not persist across system updates</risk>
-        <risk level="MEDIUM">Root user might use different shell profile than regular users</risk>
+        <risk level="medium">
+            The fix might be in the repository but not on the remote server
+        </risk>
+        <risk level="low">
+            Different sed implementations might behave differently
+        </risk>
+        <risk level="low">
+            Special characters in template values might still cause issues
+        </risk>
     </risks_identified>
 
     <success_criteria>
-        <criterion>Symlinks work immediately after installation for root user</criterion>
-        <criterion>Symlinks persist across terminal sessions</criterion>
-        <criterion>Commands are accessible via sudo without full path</criterion>
-        <criterion>Fix-symlinks.sh can repair broken symlinks</criterion>
-        <criterion>Installation process validates symlink functionality</criterion>
+        <criterion>sed command executes without errors</criterion>
+        <criterion>Template substitution works correctly</criterion>
+        <criterion>Xray configuration is created successfully</criterion>
+        <criterion>Installation completes without interruption</criterion>
     </success_criteria>
-
-    <additional_findings>
-        <finding>The create_symlinks() function in install.sh already handles symlink creation properly</finding>
-        <finding>fix-symlinks.sh exists and can repair broken symlinks</finding>
-        <finding>Installation script already runs fix-permissions.sh at the end</finding>
-        <finding>The symlinks are created with ln -sf which forces creation</finding>
-    </additional_findings>
 </analysis>

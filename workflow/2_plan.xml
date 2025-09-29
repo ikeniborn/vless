@@ -1,63 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plan>
     <tasks>
-        <task id="1" description="Enhance install.sh symlink creation with robust PATH checking" validation="Symlinks created and verified in multiple PATH locations">
-            <subtasks>
-                <subtask>Add PATH validation before symlink creation</subtask>
-                <subtask>Check if /usr/local/bin is in PATH for root</subtask>
-                <subtask>Add fallback to /usr/bin if /usr/local/bin not in PATH</subtask>
-                <subtask>Verify each symlink after creation</subtask>
-            </subtasks>
+        <task id="1" description="Verify fix is already in repository" validation="Check git history and current code">
+            <status>COMPLETED</status>
+            <result>Fix already applied in commit 36c6399</result>
         </task>
-
-        <task id="2" description="Improve fix-symlinks.sh with comprehensive repair capabilities" validation="Script can detect and fix all symlink issues">
-            <subtasks>
-                <subtask>Add PATH checking for root user</subtask>
-                <subtask>Detect broken symlinks more reliably</subtask>
-                <subtask>Add option to create symlinks in alternative locations</subtask>
-                <subtask>Test command availability in different shells</subtask>
-            </subtasks>
+        <task id="2" description="Test apply_template with normal values" validation="Function executes without errors">
+            <status>COMPLETED</status>
+            <result>Successful execution with standard config values</result>
         </task>
-
-        <task id="3" description="Create reinstall.sh script for clean reinstallation" validation="Script successfully reinstalls with working symlinks">
-            <subtasks>
-                <subtask>Backup existing configuration</subtask>
-                <subtask>Clean old symlinks</subtask>
-                <subtask>Reinstall with enhanced symlink creation</subtask>
-                <subtask>Restore configuration</subtask>
-                <subtask>Verify all commands work</subtask>
-            </subtasks>
+        <task id="3" description="Test apply_template with special characters" validation="Special chars handled correctly">
+            <status>COMPLETED</status>
+            <result>Special characters properly escaped</result>
         </task>
-
-        <task id="4" description="Add symlink validation function to lib/utils.sh" validation="Function accurately validates symlink functionality">
-            <subtasks>
-                <subtask>Create validate_symlink() function</subtask>
-                <subtask>Add test_command_availability() function</subtask>
-                <subtask>Integrate with installation process</subtask>
-            </subtasks>
+        <task id="4" description="Create automated test script" validation="Test script runs successfully">
+            <status>PENDING</status>
         </task>
-
-        <task id="5" description="Enhance installation completion checks" validation="Installation verifies all commands work for root">
-            <subtasks>
-                <subtask>Test each command with 'which' for root user</subtask>
-                <subtask>Display PATH information during installation</subtask>
-                <subtask>Add troubleshooting hints if commands not found</subtask>
-            </subtasks>
+        <task id="5" description="Update documentation" validation="Documentation reflects the fix">
+            <status>PENDING</status>
         </task>
     </tasks>
 
     <execution_order>
-        <step order="1" task_id="4">Add validation functions to lib/utils.sh</step>
-        <step order="2" task_id="1">Enhance install.sh with robust symlink creation</step>
-        <step order="3" task_id="2">Improve fix-symlinks.sh</step>
-        <step order="4" task_id="3">Create reinstall.sh script</step>
-        <step order="5" task_id="5">Add installation completion checks</step>
+        <step>1. Verify existing fix</step>
+        <step>2. Test with normal values</step>
+        <step>3. Test with edge cases</step>
+        <step>4. Create validation script</step>
+        <step>5. Document solution</step>
     </execution_order>
 
     <dependencies>
-        <dependency task="1" depends_on="4">Install.sh needs validation functions</dependency>
-        <dependency task="2" depends_on="4">Fix-symlinks.sh needs validation functions</dependency>
-        <dependency task="3" depends_on="1,2">Reinstall.sh uses enhanced install and fix scripts</dependency>
-        <dependency task="5" depends_on="1">Completion checks need enhanced installation</dependency>
+        <dependency>Task 2 depends on Task 1</dependency>
+        <dependency>Task 3 depends on Task 2</dependency>
+        <dependency>Task 4 depends on Task 3</dependency>
+        <dependency>Task 5 depends on all tasks</dependency>
     </dependencies>
+
+    <notes>
+        <note>The fix has already been implemented and committed</note>
+        <note>The issue on the remote server might be due to old code</note>
+        <note>Need to ensure remote server has the latest code</note>
+    </notes>
 </plan>
