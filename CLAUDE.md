@@ -52,11 +52,17 @@ All scripts source dependencies in this order:
 - `add_user_to_config()` - Updates config.json with new user
 - `restart_xray_service()` - Safe restart with docker-compose
 
-### Key Functions in lib/utils.sh (Symlink Management)
+### Key Functions in lib/utils.sh
+#### Symlink Management
 - `validate_symlink()` - Validates symlink existence, target, and executability
 - `test_command_availability()` - Tests if command is available in PATH for root/current user
 - `ensure_in_path()` - Ensures directory is added to PATH in shell rc files
 - `create_robust_symlink()` - Creates symlinks with comprehensive validation
+
+#### Firewall Management (Added for host network mode)
+- `check_ufw_status()` - Checks if UFW is installed and active
+- `ensure_ufw_rule()` - Adds UFW allow rule for specified port if not exists
+- `configure_firewall_for_vless()` - Main function to configure firewall for VLESS service
 
 ## Critical Implementation Details
 
@@ -162,9 +168,17 @@ Set automatically by scripts:
 - Container runs with UID 1000
 - Config mounted read-only
 - No privileged mode required
-- Network mode: host (for port 443)
+- Network mode: host (bypasses Docker NAT issues, binds directly to port 443)
 
 ## Common Issues and Solutions
+
+### Network Mode (Host vs Bridge)
+**Issue:** Docker bridge network may fail to route traffic on some servers
+**Solution:** Using `network_mode: host` in docker-compose.yml
+- Container binds directly to host port 443
+- Bypasses Docker NAT translation issues
+- Better performance and real client IPs visible
+- UFW firewall rules automatically configured during installation
 
 ### sed Expression Errors
 Fixed in `lib/config.sh:167` - split complex sed command into pipeline:

@@ -14,22 +14,20 @@
             Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
         <context>
-            После запуска установки на удаленном сервере sudo bash scripts/install.sh
-            Ошибка sed
-            ========================================
-                Creating Configuration
-            ========================================
+            После запуска сервиса на другом севрере выявлены проблемы 
+            Причина проблемы:
 
-            → Creating environment file...
-            ✓ .env file created
-            → Creating Docker Compose configuration...
-            ✓ Docker Compose configuration created
-            → Creating Xray configuration...
-            sed: -e expression #1, char 78: unterminated `s' command
+            Изначальная проблема была в том, что Docker bridge сеть не могла корректно маршрутизировать трафик наружу. Это типичная проблема в некоторых конфигурациях, особенно
+            когда:
+            - На сервере есть сложные iptables правила
+            - Используются специфические настройки сети
+            - Docker daemon имеет проблемы с NAT
 
         </context>
         <requirements>
-            - Исправить ошибку sed
+            - Изменить шаблон докера с использованием network_mode: host
+            - скорректировать все скрпиты устанвоки опирающиеся на использзование другого типа сети для докера
+            - добавить проверку првил ufw и добавление правила для корректнйо работы сервиса
         </requirements>
         <constraints>
             - Использовать bash

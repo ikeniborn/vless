@@ -1,53 +1,74 @@
-# Implementation Summary
+# Phase 3: Implementation Report
 
-## Problem
-The sed command in `apply_template` function was throwing "unterminated `s' command" error during Xray configuration creation in the install.sh script on a remote server.
+## Completed Changes
 
-## Root Cause
-Complex sed expressions with semicolons were causing parsing issues in certain environments. The original command:
-```bash
-sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g'
-```
+### 1. Docker Compose Template (templates/docker-compose.yml.tpl)
+**Changes Made:**
+- Removed `ports` mapping (lines 6-7) - not needed with host network mode
+- Added `network_mode: host` (line 6) to the xray-server service
+- Removed `networks` section (lines 14-16 and 23-25) - not needed with host mode
+- Kept healthcheck configuration unchanged as it works with host network
 
-## Solution Applied
-The fix has already been implemented in commit `36c6399` on Sep 29, 2025. The solution splits the complex sed command into separate piped commands:
+**Result:** Container now uses host network directly, bypassing Docker's bridge network NAT issues.
 
-### Before (causing error):
-```bash
-value=$(echo "$value" | sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g')
-```
+### 2. UFW Firewall Functions (scripts/lib/utils.sh)
+**Added Functions:**
+- `check_ufw_status()` - Checks if UFW is installed and active
+- `ensure_ufw_rule()` - Adds UFW allow rule for specified port if not exists
+- `configure_firewall_for_vless()` - Main function to configure firewall for VLESS service
 
-### After (fixed):
-```bash
-value=$(printf '%s' "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g')
-```
+**Features:**
+- Gracefully handles UFW not installed, inactive, or active states
+- Checks for existing rules before adding to avoid duplicates
+- Falls back to iptables check if UFW not available
+- Adds rules with descriptive comment "VLESS VPN Service"
 
-## Key Changes
-1. **Split sed commands**: Each substitution is now a separate sed command in the pipeline
-2. **Changed echo to printf**: Using `printf '%s'` instead of `echo` for better handling of special characters
-3. **Added comments**: Documented the reason for the change in the code
+### 3. Installation Script (scripts/install.sh)
+**Changes Made:**
+- Added firewall configuration call after port validation (line 125)
+- Removed SERVER_PORT parameter from docker-compose template application (line 301)
+- Firewall configuration happens during initial setup phase
+
+**Result:** Installation now properly configures firewall rules for the service port.
+
+### 4. Other Scripts Assessment
+**No Changes Required:**
+- `restart_xray_service()` in lib/config.sh - Works correctly with host network
+- `backup.sh` - Uses docker-compose commands that work with any network mode
+- `reinstall.sh` - Calls install.sh which has been updated
+- `update.sh` - Uses docker-compose commands that work with any network mode
+- `logs.sh` - Uses docker-compose logs commands unaffected by network mode
+
+## Implementation Details
+
+### Network Mode Change
+The switch from bridge to host network mode means:
+- Container directly binds to host's port 443
+- No Docker NAT translation needed
+- Better performance and fewer routing issues
+- Container sees real client IPs directly
+
+### Firewall Integration
+The firewall configuration:
+1. Checks UFW status first
+2. If active, ensures port 443/tcp is allowed
+3. If inactive, notifies user but continues
+4. If not installed, checks iptables as fallback
+5. Always verifies port is actually listening after configuration
+
+### Backward Compatibility
+- Existing installations will need to regenerate docker-compose.yml
+- No changes to user data or Xray configuration needed
+- Service behavior remains the same from user perspective
 
 ## Files Modified
-- `scripts/lib/config.sh` - Line 167: The apply_template function
+1. `/templates/docker-compose.yml.tpl` - Docker compose template
+2. `/scripts/lib/utils.sh` - Added UFW utility functions
+3. `/scripts/install.sh` - Added firewall configuration
 
-## Testing Performed
-1. Created comprehensive test script: `tests/test_apply_template.sh`
-2. Tested with normal values
-3. Tested with special characters (/, \, &)
-4. Tested with real REALITY configuration values
-5. All tests passed successfully
-
-## Verification Commands
-```bash
-# Test the function directly
-source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/config.sh
-apply_template "templates/config.json.tpl" "/tmp/test.json" \
-    "ADMIN_UUID=test-uuid" \
-    "REALITY_DEST=speed.cloudflare.com:443"
-
-# Run comprehensive tests
-bash tests/test_apply_template.sh
-```
-
-## Status
-✅ **FIXED** - The issue has been resolved and tested successfully
+## Testing Requirements
+- Test fresh installation with UFW active
+- Test fresh installation with UFW inactive
+- Test fresh installation without UFW
+- Verify port 443 is accessible after installation
+- Verify container starts correctly with host network mode

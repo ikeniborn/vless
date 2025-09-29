@@ -1,51 +1,60 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
     <understanding>
-        <problem>
-            The sed command in apply_template function is throwing "unterminated `s' command" error
-            during Xray configuration creation in the install.sh script.
-        </problem>
-        <root_cause>
-            Complex sed expressions with semicolons can cause parsing issues in some environments.
-            The error occurs at character 78 in the sed expression.
-        </root_cause>
-        <current_state>
-            The fix appears to be already implemented in lib/config.sh:167, where the sed command
-            is split into separate piped commands to avoid parsing issues.
-        </current_state>
+        <problem>Docker bridge network cannot properly route traffic due to complex iptables rules, specific network settings, or Docker daemon NAT issues on certain server configurations</problem>
+        <solution>Switch from Docker bridge network to host network mode to bypass Docker networking stack and use host's network directly</solution>
+        <scope>
+            <item>Modify docker-compose.yml template to use network_mode: host</item>
+            <item>Update all installation scripts that depend on bridge network configuration</item>
+            <item>Add UFW firewall rules check and configuration for port 443</item>
+            <item>Ensure compatibility with existing VLESS+Reality service</item>
+        </scope>
     </understanding>
 
     <requirements_parsed>
-        <requirement id="1" priority="critical">
-            Fix the sed error that occurs during "Creating Xray configuration" step
+        <requirement id="1" type="critical">
+            <description>Change Docker template to use network_mode: host</description>
+            <files_affected>templates/docker-compose.yml.tpl</files_affected>
         </requirement>
-        <requirement id="2" priority="high">
-            Ensure the fix works in remote server environments
+        <requirement id="2" type="critical">
+            <description>Update all installation scripts that rely on Docker bridge network</description>
+            <files_affected>scripts/install.sh, scripts/lib/config.sh</files_affected>
         </requirement>
-        <requirement id="3" priority="medium">
-            Maintain compatibility with Docker environment
+        <requirement id="3" type="critical">
+            <description>Add UFW firewall checks and rule addition</description>
+            <files_affected>scripts/install.sh, scripts/lib/utils.sh</files_affected>
         </requirement>
-        <requirement id="4" priority="medium">
-            Follow PRD.md guidelines for implementation
+        <requirement id="4" type="constraint">
+            <description>Use bash for all scripts</description>
+        </requirement>
+        <requirement id="5" type="constraint">
+            <description>Maintain Docker environment compatibility</description>
+        </requirement>
+        <requirement id="6" type="constraint">
+            <description>Follow PRD.md guidelines</description>
         </requirement>
     </requirements_parsed>
 
     <risks_identified>
         <risk level="medium">
-            The fix might be in the repository but not on the remote server
+            <description>Port 443 conflict when using host network mode</description>
+            <mitigation>Add port availability check before installation</mitigation>
         </risk>
         <risk level="low">
-            Different sed implementations might behave differently
+            <description>Container isolation reduced in host network mode</description>
+            <mitigation>Document security implications, service runs on dedicated VPN server</mitigation>
         </risk>
-        <risk level="low">
-            Special characters in template values might still cause issues
+        <risk level="medium">
+            <description>UFW rules may block legitimate traffic</description>
+            <mitigation>Check existing rules before adding new ones, provide clear messages</mitigation>
         </risk>
     </risks_identified>
 
     <success_criteria>
-        <criterion>sed command executes without errors</criterion>
-        <criterion>Template substitution works correctly</criterion>
-        <criterion>Xray configuration is created successfully</criterion>
-        <criterion>Installation completes without interruption</criterion>
+        <criterion>Docker container runs with network_mode: host</criterion>
+        <criterion>Service accessible on port 443 from external networks</criterion>
+        <criterion>UFW firewall rules properly configured</criterion>
+        <criterion>Installation script handles network mode changes</criterion>
+        <criterion>No regression in existing functionality</criterion>
     </success_criteria>
 </analysis>

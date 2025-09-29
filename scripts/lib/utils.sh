@@ -425,3 +425,112 @@ check_docker_networks() {
         done
     fi
 }
+
+# Check UFW firewall status
+check_ufw_status() {
+    if ! command_exists "ufw"; then
+        print_info "UFW firewall is not installed"
+        return 2
+    fi
+
+    local ufw_status=$(ufw status 2>/dev/null | head -1)
+
+    if echo "$ufw_status" | grep -q "inactive"; then
+        print_info "UFW firewall is inactive"
+        return 1
+    elif echo "$ufw_status" | grep -q "active"; then
+        print_success "UFW firewall is active"
+        return 0
+    else
+        print_warning "Could not determine UFW status"
+        return 2
+    fi
+}
+
+# Ensure UFW rule exists for a port
+ensure_ufw_rule() {
+    local port="${1:-443}"
+    local protocol="${2:-tcp}"
+    local comment="${3:-VLESS VPN Service}"
+
+    if ! command_exists "ufw"; then
+        print_info "UFW is not installed, skipping firewall configuration"
+        return 0
+    fi
+
+    # Check if UFW is active
+    if ! ufw status 2>/dev/null | head -1 | grep -q "active"; then
+        print_info "UFW is not active, skipping rule configuration"
+        return 0
+    fi
+
+    print_step "Checking UFW rules for port $port/$protocol..."
+
+    # Check if rule already exists
+    if ufw status numbered | grep -q "$port/$protocol"; then
+        print_success "UFW rule for port $port/$protocol already exists"
+        return 0
+    fi
+
+    # Add the rule
+    print_step "Adding UFW rule for port $port/$protocol..."
+    if ufw allow "$port/$protocol" comment "$comment" 2>/dev/null; then
+        print_success "UFW rule added for port $port/$protocol"
+
+        # Reload UFW to apply changes
+        ufw reload 2>/dev/null || true
+        return 0
+    else
+        print_error "Failed to add UFW rule for port $port/$protocol"
+        print_info "You may need to manually run: sudo ufw allow $port/$protocol"
+        return 1
+    fi
+}
+
+# Check and configure firewall for VLESS service
+configure_firewall_for_vless() {
+    local port="${1:-443}"
+
+    print_step "Configuring firewall for VLESS service..."
+
+    # Check UFW status
+    local ufw_result
+    check_ufw_status
+    ufw_result=$?
+
+    if [ $ufw_result -eq 0 ]; then
+        # UFW is active, ensure rule exists
+        ensure_ufw_rule "$port" "tcp" "VLESS VPN Service"
+
+        # Also check for IPv6 if enabled
+        if ufw status | grep -q "Status: active"; then
+            print_info "Firewall configuration complete"
+        fi
+    elif [ $ufw_result -eq 1 ]; then
+        # UFW is inactive
+        print_info "UFW is installed but not active"
+        print_info "Consider activating it with: sudo ufw enable"
+    else
+        # UFW not installed
+        print_info "No UFW firewall detected, checking iptables..."
+
+        # Basic iptables check
+        if command_exists "iptables"; then
+            if iptables -L INPUT -n | grep -q "dpt:$port"; then
+                print_success "Port $port appears to be allowed in iptables"
+            else
+                print_warning "Port $port may not be allowed in iptables"
+                print_info "You may need to add iptables rules manually"
+            fi
+        fi
+    fi
+
+    # Check if port is actually accessible
+    if netstat -tuln | grep -q ":$port "; then
+        print_success "Port $port is listening on the system"
+    else
+        print_info "Port $port is not yet listening (service may not be started)"
+    fi
+
+    return 0
+}

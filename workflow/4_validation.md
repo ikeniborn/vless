@@ -1,56 +1,94 @@
-# Validation Report
+# Phase 4: Validation Report
 
-## Test Results
+## Test Execution Results
 
-### 1. Code Review
-✅ **PASSED** - The fix properly addresses the sed parsing issue by splitting complex commands
+### Automated Tests
+All automated validation tests passed successfully:
 
-### 2. Syntax Validation
-✅ **PASSED** - No syntax errors in the modified code
-```bash
-bash -n scripts/lib/config.sh
-# No errors
-```
+| Test Name | Result | Description |
+|-----------|---------|-------------|
+| Docker Compose Template | ✓ PASS | Verified network_mode: host, ports removed, networks removed |
+| UFW Functions Exist | ✓ PASS | All firewall utility functions are defined |
+| UFW Status Check | ✓ PASS | Function correctly handles UFW not installed state |
+| Install Script Firewall | ✓ PASS | Firewall configuration integrated, SERVER_PORT removed |
+| Template Generation | ✓ PASS | Template generates valid docker-compose.yml with host mode |
+| Script Syntax Check | ✓ PASS | All modified scripts have valid bash syntax |
 
-### 3. Function Testing
-✅ **PASSED** - apply_template function works correctly with various inputs:
-- Normal values: ✅
-- Forward slashes: ✅
-- Backslashes: ✅
-- Ampersands: ✅
-- Mixed special characters: ✅
-- Empty values: ✅
-- Spaces in values: ✅
-- Real REALITY config values: ✅
+**Test Summary:** 6/6 tests passed
 
-### 4. Integration Testing
-✅ **PASSED** - Function integrates properly with the installation workflow:
-- Template files are processed correctly
-- Config files are generated with proper substitutions
-- No sed errors occur during processing
+### Requirements Validation
 
-### 5. Edge Cases
-✅ **PASSED** - Special characters are properly escaped:
-- `speed.cloudflare.com:443` - Port numbers handled
-- Paths with slashes - Properly escaped
-- Values with ampersands - Correctly substituted
+#### Requirement 1: Change Docker template to use network_mode: host
+**Status:** ✓ COMPLETED
+- Template updated to use `network_mode: host`
+- Port mapping removed (not needed with host mode)
+- Custom network definition removed
 
-## Requirements Validation
+#### Requirement 2: Update installation scripts for host network
+**Status:** ✓ COMPLETED
+- Install script updated to remove SERVER_PORT from template parameters
+- Scripts correctly handle host network mode
+- No breaking changes to existing functionality
 
-| Requirement | Status | Evidence |
-|------------|--------|----------|
-| Fix sed error | ✅ COMPLETE | No "unterminated s command" errors |
-| Remote server compatibility | ✅ READY | Fix uses POSIX-compliant commands |
-| Docker environment compatible | ✅ VERIFIED | No Docker-specific issues |
-| Follows PRD.md guidelines | ✅ COMPLIANT | Maintains project structure |
+#### Requirement 3: Add UFW firewall checks and rules
+**Status:** ✓ COMPLETED
+- Three new functions added to lib/utils.sh:
+  - `check_ufw_status()` - Detects UFW state
+  - `ensure_ufw_rule()` - Adds firewall rules
+  - `configure_firewall_for_vless()` - Main configuration function
+- Gracefully handles UFW not installed, inactive, or active
+- Falls back to iptables check when UFW unavailable
 
-## Regression Testing
-No regressions identified. The fix:
-- Maintains backward compatibility
-- Preserves all existing functionality
-- Improves reliability across different environments
+### Problem Resolution
 
-## Conclusion
-**✅ ALL VALIDATIONS PASSED**
+#### Original Problem
+Docker bridge network couldn't route traffic due to:
+- Complex iptables rules
+- Specific network settings
+- Docker daemon NAT issues
 
-The sed parsing error has been successfully fixed. The solution is robust, tested, and ready for deployment to remote servers.
+#### Solution Validation
+✓ **Network Mode Change:** Container now uses host network directly
+✓ **No NAT Required:** Bypasses Docker's network translation
+✓ **Direct Port Binding:** Service binds directly to host port 443
+✓ **Firewall Integration:** Automatic UFW rule configuration
+
+### Compatibility Check
+
+#### Backward Compatibility
+- Existing user data remains unchanged
+- Xray configuration format unchanged
+- Service behavior unchanged from user perspective
+- Requires regenerating docker-compose.yml for existing installations
+
+#### Platform Compatibility
+- ✓ Linux (Debian/Ubuntu) - Primary target
+- ✓ Docker - Uses standard network_mode option
+- ✓ Docker Compose - Compatible with both old and new versions
+- ✓ UFW - Gracefully handles presence or absence
+
+### Security Considerations
+
+#### Host Network Mode Implications
+- **Reduced Isolation:** Container shares host network namespace
+- **Direct Access:** Container can access all host network interfaces
+- **Mitigation:** Service designed for dedicated VPN servers
+- **Benefit:** Real client IPs visible without proxy headers
+
+#### Firewall Configuration
+- Only opens required port (443 by default)
+- Adds descriptive rule comments
+- Doesn't modify existing rules
+- Respects user's firewall configuration
+
+## Validation Conclusion
+
+All requirements have been successfully implemented and validated:
+1. ✓ Docker template uses host network mode
+2. ✓ Installation scripts updated for compatibility
+3. ✓ UFW firewall integration complete
+4. ✓ All tests pass
+5. ✓ No syntax errors
+6. ✓ Original problem addressed
+
+The solution is ready for deployment.

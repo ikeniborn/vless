@@ -120,6 +120,9 @@ collect_parameters() {
         print_error "Invalid port number"
         exit 1
     fi
+
+    # Configure firewall for the port
+    configure_firewall_for_vless "$SERVER_PORT"
     
     # Step 3: REALITY Domain
     print_step "[3/4] REALITY domain selection"
@@ -295,7 +298,6 @@ EOF
     apply_template \
         "$VLESS_HOME/templates/docker-compose.yml.tpl" \
         "$VLESS_HOME/docker-compose.yml" \
-        "SERVER_PORT=$SERVER_PORT" \
         "RESTART_POLICY=unless-stopped" \
         "TZ=UTC"
     chmod 640 "$VLESS_HOME/docker-compose.yml"
