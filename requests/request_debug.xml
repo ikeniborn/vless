@@ -14,12 +14,22 @@
             Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
         <context>
-            После устанвоки не функцилнаьыны симлинки для пользователя root 
+            После запуска установки на удаленном сервере sudo bash scripts/install.sh
+            Ошибка sed
+            ========================================
+                Creating Configuration
+            ========================================
+
+            → Creating environment file...
+            ✓ .env file created
+            → Creating Docker Compose configuration...
+            ✓ Docker Compose configuration created
+            → Creating Xray configuration...
+            sed: -e expression #1, char 78: unterminated `s' command
+
         </context>
         <requirements>
-            - Проанализировать причину отсутсвия симлинков
-            - Продумать решение с симлинками
-            - Реализоваь функципонал симлинков на этаапе устанвоки или переустанвоки
+            - Исправить ошибку sed
         </requirements>
         <constraints>
             - Использовать bash
