@@ -39,3 +39,6 @@ qr_codes/
 
 # Docker
 docker-compose.override.yml
+
+# Catalog
+workflow/
