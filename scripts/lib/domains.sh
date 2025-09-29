@@ -48,17 +48,17 @@ select_reality_domain() {
                     echo "$selected_domain"
                     return 0
                 else
-                    print_error "Invalid domain format or domain is not accessible"
+                    print_error "Invalid domain format or domain is not accessible" >&2
                 fi
             elif [ "$choice" -ge 1 ] && [ "$choice" -le ${#TRUSTED_DOMAINS[@]} ]; then
                 selected_domain="${TRUSTED_DOMAINS[$((choice-1))]}"
                 echo "$selected_domain"
                 return 0
             else
-                print_error "Invalid selection. Please choose a number between 0 and ${#TRUSTED_DOMAINS[@]}"
+                print_error "Invalid selection. Please choose a number between 0 and ${#TRUSTED_DOMAINS[@]}" >&2
             fi
         else
-            print_error "Please enter a valid number"
+            print_error "Please enter a valid number" >&2
         fi
     done
 }
@@ -77,14 +77,15 @@ validate_domain() {
     local port="${domain##*:}"
     
     # Check if domain is accessible
-    print_step "Checking domain accessibility: $host:$port"
-    
+    # Output messages to stderr to avoid contaminating return values
+    print_step "Checking domain accessibility: $host:$port" >&2
+
     # Try to connect with timeout
     if timeout 5 bash -c "echo > /dev/tcp/$host/$port" 2>/dev/null; then
-        print_success "Domain is accessible"
+        print_success "Domain is accessible" >&2
         return 0
     else
-        print_error "Domain is not accessible"
+        print_error "Domain is not accessible" >&2
         return 1
     fi
 }
