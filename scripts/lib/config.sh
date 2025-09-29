@@ -164,7 +164,8 @@ apply_template() {
 
         # Escape special characters for sed - using separate sed commands
         # This avoids complex escaping issues with semicolons in a single sed expression
-        value=$(printf '%s' "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g')
+        # Also escape pipe character since we use it as delimiter
+        value=$(printf '%s' "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g' | sed 's/|/\\|/g')
 
         # Replace in file using | as delimiter to avoid conflicts with /
         sed -i "s|{{${key}}}|${value}|g" "$output_file"

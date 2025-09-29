@@ -94,6 +94,19 @@ else
     ((TESTS_FAILED++))
 fi
 
+# Test 9: Values with pipe characters
+run_test "pipe characters" "pass" \
+    'apply_template "$TEST_TEMPLATE" "/tmp/test9.txt" "DOMAIN=example.com|port:443" "PATH=/api|v1" "UUID=123|456|789" "KEY=key|with|pipes"'
+
+# Verify test 9 output contains pipe characters
+if grep -q "example.com|port:443" "/tmp/test9.txt" 2>/dev/null; then
+    echo "  └─ Verification: Pipe character handling ✓"
+    ((TESTS_PASSED++))
+else
+    echo "  └─ Verification: Pipe character handling ❌"
+    ((TESTS_FAILED++))
+fi
+
 # Clean up test files
 rm -f /tmp/test*.txt "$TEST_TEMPLATE"
 
