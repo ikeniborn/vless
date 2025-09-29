@@ -1,32 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <analysis>
     <understanding>
-        <issue>При выполнении команд vless-users, vless-logs, vless-backup возникает ошибка отсутствия файла /usr/local/bin/lib/colors.sh</issue>
-        <root_cause>Скрипты работают только с sudo из-за прав доступа 750 на директории в /opt/vless/scripts/</root_cause>
+        <problem>
+            The sed command in apply_template function is throwing "unterminated `s' command" error
+            during Xray configuration creation in the install.sh script.
+        </problem>
+        <root_cause>
+            Complex sed expressions with semicolons can cause parsing issues in some environments.
+            The error occurs at character 78 in the sed expression.
+        </root_cause>
         <current_state>
-            - Симлинки существуют и указывают на правильные файлы
-            - Скрипты имеют fallback механизм для загрузки библиотек
-            - Проблема в правах доступа - обычный пользователь не может читать файлы в /opt/vless/scripts/
+            The fix appears to be already implemented in lib/config.sh:167, where the sed command
+            is split into separate piped commands to avoid parsing issues.
         </current_state>
     </understanding>
-    
+
     <requirements_parsed>
-        <requirement id="1">Исправить ошибки отсутствующего файла для обычного пользователя</requirement>
-        <requirement id="2">Обеспечить работу всех vless команд без sudo</requirement>
-        <requirement id="3">Скорректировать скрипты установки для правильных прав доступа</requirement>
-        <requirement id="4">Следовать PRD.md при реализации</requirement>
+        <requirement id="1" priority="critical">
+            Fix the sed error that occurs during "Creating Xray configuration" step
+        </requirement>
+        <requirement id="2" priority="high">
+            Ensure the fix works in remote server environments
+        </requirement>
+        <requirement id="3" priority="medium">
+            Maintain compatibility with Docker environment
+        </requirement>
+        <requirement id="4" priority="medium">
+            Follow PRD.md guidelines for implementation
+        </requirement>
     </requirements_parsed>
-    
+
     <risks_identified>
-        <risk level="high">Изменение прав доступа может создать проблемы безопасности</risk>
-        <risk level="medium">Необходимо сохранить защиту чувствительных данных (ключи, конфиги)</risk>
-        <risk level="low">Изменения должны быть обратно совместимы</risk>
+        <risk level="medium">
+            The fix might be in the repository but not on the remote server
+        </risk>
+        <risk level="low">
+            Different sed implementations might behave differently
+        </risk>
+        <risk level="low">
+            Special characters in template values might still cause issues
+        </risk>
     </risks_identified>
-    
+
     <success_criteria>
-        <criterion>Все vless команды работают без sudo для чтения данных</criterion>
-        <criterion>Операции записи требуют sudo (безопасность)</criterion>
-        <criterion>Скрипт установки создает правильные права доступа</criterion>
-        <criterion>Нет ошибок при выполнении команд обычным пользователем</criterion>
+        <criterion>sed command executes without errors</criterion>
+        <criterion>Template substitution works correctly</criterion>
+        <criterion>Xray configuration is created successfully</criterion>
+        <criterion>Installation completes without interruption</criterion>
     </success_criteria>
 </analysis>

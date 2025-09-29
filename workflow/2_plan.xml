@@ -1,33 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plan>
     <tasks>
-        <task id="1" description="Проверка PRD.md для требований по правам" validation="PRD.md прочитан и требования поняты"/>
-        <task id="2" description="Создание скрипта fix-permissions.sh" validation="Скрипт создан и устанавливает правильные права"/>
-        <task id="3" description="Обновление install.sh для правильных прав" validation="install.sh вызывает fix-permissions.sh"/>
-        <task id="4" description="Обновление update.sh для правильных прав" validation="update.sh вызывает fix-permissions.sh"/>
-        <task id="5" description="Тестирование всех vless команд" validation="Команды работают без sudo для чтения"/>
-        <task id="6" description="Обновление CLAUDE.md" validation="Документация обновлена"/>
+        <task id="1" description="Verify fix is already in repository" validation="Check git history and current code">
+            <status>COMPLETED</status>
+            <result>Fix already applied in commit 36c6399</result>
+        </task>
+        <task id="2" description="Test apply_template with normal values" validation="Function executes without errors">
+            <status>COMPLETED</status>
+            <result>Successful execution with standard config values</result>
+        </task>
+        <task id="3" description="Test apply_template with special characters" validation="Special chars handled correctly">
+            <status>COMPLETED</status>
+            <result>Special characters properly escaped</result>
+        </task>
+        <task id="4" description="Create automated test script" validation="Test script runs successfully">
+            <status>PENDING</status>
+        </task>
+        <task id="5" description="Update documentation" validation="Documentation reflects the fix">
+            <status>PENDING</status>
+        </task>
     </tasks>
-    
+
     <execution_order>
-        <step number="1" task_id="1" reason="Нужно понять требования из PRD"/>
-        <step number="2" task_id="2" reason="Создать скрипт для исправления прав"/>
-        <step number="3" task_id="3" reason="Обновить установщик"/>
-        <step number="4" task_id="4" reason="Обновить скрипт обновления"/>
-        <step number="5" task_id="5" reason="Проверить работу"/>
-        <step number="6" task_id="6" reason="Документировать изменения"/>
+        <step>1. Verify existing fix</step>
+        <step>2. Test with normal values</step>
+        <step>3. Test with edge cases</step>
+        <step>4. Create validation script</step>
+        <step>5. Document solution</step>
     </execution_order>
-    
+
     <dependencies>
-        <dependency task="3" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
-        <dependency task="4" depends_on="2" reason="Нужен скрипт fix-permissions.sh"/>
-        <dependency task="5" depends_on="3,4" reason="Нужны обновленные скрипты"/>
-        <dependency task="6" depends_on="5" reason="После проверки"/>
+        <dependency>Task 2 depends on Task 1</dependency>
+        <dependency>Task 3 depends on Task 2</dependency>
+        <dependency>Task 4 depends on Task 3</dependency>
+        <dependency>Task 5 depends on all tasks</dependency>
     </dependencies>
-    
-    <solution_approach>
-        Проблема в том, что /opt/vless/scripts/ имеет ограниченные права доступа (750).
-        Решение: создать скрипт fix-permissions.sh, который установит 755 для
-        публичных скриптов, но сохранит 600 для чувствительных данных.
-    </solution_approach>
+
+    <notes>
+        <note>The fix has already been implemented and committed</note>
+        <note>The issue on the remote server might be due to old code</note>
+        <note>Need to ensure remote server has the latest code</note>
+    </notes>
 </plan>

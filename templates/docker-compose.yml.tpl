@@ -23,6 +23,3 @@ services:
 networks:
   vless-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.30.0.0/16

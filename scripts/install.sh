@@ -303,6 +303,18 @@ EOF
     
     # Create Xray config
     print_step "Creating Xray configuration..."
+
+    # Debug: Show values before template processing
+    if [ "${DEBUG_INSTALL:-0}" = "1" ]; then
+        echo "DEBUG: Template values:" >&2
+        echo "  ADMIN_UUID='$ADMIN_UUID'" >&2
+        echo "  REALITY_DEST='$REALITY_DEST'" >&2
+        echo "  REALITY_SERVER_NAME='$REALITY_SERVER_NAME'" >&2
+        echo "  PRIVATE_KEY='$PRIVATE_KEY'" >&2
+        echo "  ADMIN_SHORT_ID='$ADMIN_SHORT_ID'" >&2
+        echo "  PRIVATE_KEY length: $(echo -n "$PRIVATE_KEY" | wc -c)" >&2
+    fi
+
     apply_template \
         "$VLESS_HOME/templates/config.json.tpl" \
         "$VLESS_HOME/config/config.json" \
@@ -337,6 +349,12 @@ start_service() {
 
     cd "$VLESS_HOME"
 
+    # Check for network conflicts
+    check_docker_networks
+
+    # Clean up any existing network to avoid conflicts
+    cleanup_existing_network "vless-reality_vless-network"
+
     print_step "Starting Xray container..."
     docker-compose up -d
 
@@ -352,7 +370,7 @@ start_service() {
             print_error "Xray service health check failed"
             print_info "Troubleshooting steps:"
             print_info "1. Check logs: docker-compose -f $VLESS_HOME/docker-compose.yml logs --tail 50"
-            print_info "2. Check configuration: docker exec xray-server xray test -c /etc/xray/config.json"
+            print_info "2. Check configuration: docker exec xray-server xray run -test -c /etc/xray/config.json"
             print_info "3. Restart service: cd $VLESS_HOME && docker-compose restart"
             print_info "4. Check port 443: netstat -tuln | grep :443"
             exit 1
@@ -371,6 +389,17 @@ create_symlinks() {
     local SYMLINKS_CREATED=0
     local SYMLINKS_FAILED=0
 
+    # Check if /usr/local/bin is in PATH for root
+    print_step "Checking PATH configuration..."
+    local root_path=$(sudo -i sh -c 'echo $PATH')
+    if ! echo "$root_path" | grep -q "/usr/local/bin"; then
+        print_warning "/usr/local/bin not in root's PATH"
+        print_info "Adding /usr/local/bin to root's PATH..."
+        ensure_in_path "/usr/local/bin" "/root/.bashrc"
+    else
+        print_success "/usr/local/bin is in root's PATH"
+    fi
+
     # Define commands and their script files
     declare -A COMMANDS=(
         ["vless-users"]="user-manager.sh"
@@ -379,10 +408,18 @@ create_symlinks() {
         ["vless-update"]="update.sh"
     )
 
+    # Determine best location for symlinks
+    local SYMLINK_DIR="/usr/local/bin"
+    if [ ! -d "$SYMLINK_DIR" ]; then
+        print_warning "/usr/local/bin does not exist, creating it..."
+        mkdir -p "$SYMLINK_DIR"
+        chmod 755 "$SYMLINK_DIR"
+    fi
+
     # Create symlinks for easy access
     for CMD in "${!COMMANDS[@]}"; do
         SCRIPT="${COMMANDS[$CMD]}"
-        SYMLINK="/usr/local/bin/$CMD"
+        SYMLINK="$SYMLINK_DIR/$CMD"
         TARGET="$VLESS_HOME/scripts/$SCRIPT"
 
         # Check if target exists
@@ -392,17 +429,8 @@ create_symlinks() {
             continue
         fi
 
-        # Remove existing file/symlink if present
-        if [ -e "$SYMLINK" ] || [ -L "$SYMLINK" ]; then
-            rm -f "$SYMLINK" 2>/dev/null || {
-                print_error "Failed to remove existing $CMD"
-                ((SYMLINKS_FAILED++))
-                continue
-            }
-        fi
-
-        # Create new symlink
-        if ln -sf "$TARGET" "$SYMLINK" 2>/dev/null; then
+        # Use robust symlink creation function
+        if create_robust_symlink "$TARGET" "$SYMLINK"; then
             print_success "Created symlink: $CMD"
             ((SYMLINKS_CREATED++))
         else
@@ -411,30 +439,82 @@ create_symlinks() {
         fi
     done
 
-    # Verify symlinks
-    print_step "Verifying symlinks..."
+    # Verify symlinks work for root user
+    print_step "Verifying symlinks for root user..."
     local ALL_OK=true
     for CMD in "${!COMMANDS[@]}"; do
-        if [ -L "/usr/local/bin/$CMD" ] && [ -e "/usr/local/bin/$CMD" ]; then
-            print_success "$CMD is ready"
-        else
-            print_error "$CMD symlink is broken or missing"
-            ALL_OK=false
-        fi
+        SYMLINK="$SYMLINK_DIR/$CMD"
+        TARGET="$VLESS_HOME/scripts/${COMMANDS[$CMD]}"
+
+        # Check symlink validity
+        local validation_result
+        validate_symlink "$SYMLINK" "$TARGET"
+        validation_result=$?
+
+        case $validation_result in
+            0)
+                # Test if command is available in root's PATH
+                if test_command_availability "$CMD" true; then
+                    print_success "$CMD is available for root user"
+                else
+                    print_warning "$CMD exists but not in root's PATH"
+                    ALL_OK=false
+                fi
+                ;;
+            1)
+                print_error "$CMD: Not a symlink"
+                ALL_OK=false
+                ;;
+            2)
+                print_error "$CMD: Points to wrong target"
+                ALL_OK=false
+                ;;
+            3)
+                print_error "$CMD: Target not executable"
+                ALL_OK=false
+                ;;
+            *)
+                print_error "$CMD: Unknown validation error"
+                ALL_OK=false
+                ;;
+        esac
+    done
+
+    # Also create direct executable wrapper scripts as fallback
+    print_step "Creating fallback wrapper scripts..."
+    for CMD in "${!COMMANDS[@]}"; do
+        WRAPPER="/usr/bin/$CMD"
+        TARGET="$VLESS_HOME/scripts/${COMMANDS[$CMD]}"
+
+        # Create wrapper script
+        cat > "$WRAPPER" << EOF
+#!/bin/bash
+exec "$TARGET" "\$@"
+EOF
+        chmod 755 "$WRAPPER"
+        print_info "Created fallback wrapper: $WRAPPER"
     done
 
     echo
     if [ $SYMLINKS_FAILED -eq 0 ] && [ "$ALL_OK" = true ]; then
         print_success "All command shortcuts created successfully"
+        print_info "Commands are available in two locations:"
+        print_info "  Primary:  /usr/local/bin/vless-*"
+        print_info "  Fallback: /usr/bin/vless-*"
+        echo
         print_info "Available commands:"
         print_info "  vless-users   - Manage users"
         print_info "  vless-logs    - View logs"
         print_info "  vless-backup  - Create backup"
         print_info "  vless-update  - Update Xray"
     else
-        print_warning "Some symlinks could not be created"
-        print_info "You can run $VLESS_HOME/scripts/fix-symlinks.sh to repair them"
+        print_warning "Some symlinks could not be created or validated"
+        print_info "Fallback wrappers created in /usr/bin/"
+        print_info "You can run $VLESS_HOME/scripts/fix-symlinks.sh to repair symlinks"
     fi
+
+    # Export PATH for current session
+    export PATH="$PATH:/usr/local/bin"
 }
 
 show_connection_info() {

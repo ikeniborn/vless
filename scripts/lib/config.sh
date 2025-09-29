@@ -148,30 +148,37 @@ apply_template() {
     local template_file=$1
     local output_file=$2
     shift 2
-    
+
     if [ ! -f "$template_file" ]; then
         print_error "Template file not found: $template_file"
         return 1
     fi
-    
-    # Copy template to output
-    cp "$template_file" "$output_file"
-    
-    # Apply substitutions
+
+    # Read the template file content
+    local content="$(cat "$template_file")"
+
+    # Apply substitutions using bash string replacement (no sed/perl needed)
     while [ $# -gt 0 ]; do
         local key="${1%%=*}"
         local value="${1#*=}"
 
-        # Escape special characters for sed - step by step approach
-        # First escape backslash, then forward slash, then ampersand
-        value=$(echo "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g')
+        # Debug: Show what we're processing
+        if [ "${DEBUG_APPLY_TEMPLATE:-0}" = "1" ]; then
+            echo "DEBUG: Processing key='$key' value='$value'" >&2
+            echo "DEBUG: Value length: $(echo -n "$value" | wc -c)" >&2
+        fi
 
-        # Replace in file using | as delimiter to avoid conflicts with /
-        sed -i "s|{{${key}}}|${value}|g" "$output_file"
+        # Replace all occurrences of {{key}} with value
+        # Using bash parameter expansion - completely safe for special characters
+        local pattern="{{${key}}}"
+        content="${content//"$pattern"/"$value"}"
 
         shift
     done
-    
+
+    # Write the processed content to output file
+    echo "$content" > "$output_file"
+
     return 0
 }
 

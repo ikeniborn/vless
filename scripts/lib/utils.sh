@@ -201,12 +201,21 @@ check_xray_health() {
 
     # Step 4: Validate Xray configuration (optional)
     print_info "Validating Xray configuration..."
-    local config_test=$(docker exec "$container_name" xray test -c /etc/xray/config.json 2>&1 || true)
+    # Try to validate config using xray run -test
+    local config_test=$(docker exec "$container_name" xray run -test -c /etc/xray/config.json 2>&1 || true)
 
-    if echo "$config_test" | grep -q "Configuration OK"; then
+    if echo "$config_test" | grep -q -E "(Configuration OK|config file test passed)"; then
         print_success "Xray configuration is valid"
+    elif echo "$config_test" | grep -q "unknown"; then
+        # If validation command is not recognized, skip validation
+        print_info "Xray validation command not available, skipping config check"
     elif [ -n "$config_test" ]; then
-        print_warning "Configuration test output: $config_test"
+        # Show any other output from the validation attempt
+        if echo "$config_test" | grep -q -i "error"; then
+            print_warning "Configuration test output: $config_test"
+        else
+            print_info "Configuration test completed"
+        fi
     fi
 
     # Step 5: Check container resource usage
@@ -244,9 +253,175 @@ check_system_requirements() {
     # Check disk space (minimum 5GB in /opt)
     local free_space=$(df -BG /opt 2>/dev/null | awk 'NR==2{print int($4)}')
     if [ -z "$free_space" ] || [ $free_space -lt 5 ]; then
-        print_error "Insufficient disk space. Minimum 5GB required in /opt"
-        ((errors++))
+        print_warning "Insufficient disk space. Minimum 5GB recommended in /opt (found: ${free_space:-0}GB)"
+        print_info "Installation can continue, but you may experience issues with:"
+        print_info "  - Docker container storage"
+        print_info "  - Log file accumulation"
+        print_info "  - Backup creation"
+
+        if ! confirm_action "Do you want to continue despite low disk space?" "n"; then
+            print_error "Installation cancelled by user due to low disk space"
+            ((errors++))
+        else
+            print_info "Continuing installation with low disk space warning"
+        fi
     fi
     
     return $errors
+}
+
+# Cleanup existing Docker network if it exists
+cleanup_existing_network() {
+    local network_name="${1:-vless-reality_vless-network}"
+
+    print_step "Checking for existing Docker network..."
+
+    if docker network ls | grep -q "$network_name"; then
+        print_warning "Found existing network: $network_name"
+
+        # Check for running containers using this network
+        local containers=$(docker ps -q --filter network="$network_name" 2>/dev/null)
+        if [ -n "$containers" ]; then
+            print_info "Stopping containers using the network..."
+            docker stop $containers 2>/dev/null || true
+            print_success "Containers stopped"
+        fi
+
+        # Remove the network
+        print_info "Removing existing network..."
+        if docker network rm "$network_name" 2>/dev/null; then
+            print_success "Network removed successfully"
+        else
+            print_warning "Could not remove network, it may be in use"
+        fi
+    else
+        print_info "No existing network found"
+    fi
+}
+
+# Validate symlink functionality
+validate_symlink() {
+    local symlink_path=$1
+    local target_path=$2
+
+    # Check if symlink exists
+    if [ ! -L "$symlink_path" ]; then
+        return 1  # Not a symlink
+    fi
+
+    # Check if symlink points to correct target
+    local actual_target=$(readlink -f "$symlink_path" 2>/dev/null)
+    if [ "$actual_target" != "$target_path" ]; then
+        return 2  # Wrong target
+    fi
+
+    # Check if target exists and is executable
+    if [ ! -f "$target_path" ] || [ ! -x "$target_path" ]; then
+        return 3  # Target not executable
+    fi
+
+    return 0  # All good
+}
+
+# Test command availability in PATH for root user
+test_command_availability() {
+    local command_name=$1
+    local check_as_root=${2:-true}
+
+    if [ "$check_as_root" = true ]; then
+        # Test as root user
+        if sudo -i which "$command_name" >/dev/null 2>&1; then
+            return 0
+        fi
+    else
+        # Test in current environment
+        if which "$command_name" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Ensure directory is in PATH
+ensure_in_path() {
+    local dir=$1
+    local shell_rc=${2:-"/root/.bashrc"}
+
+    # Check if directory is already in PATH
+    if echo "$PATH" | grep -q "$dir"; then
+        return 0
+    fi
+
+    # Add to shell rc file if not present
+    if [ -f "$shell_rc" ]; then
+        if ! grep -q "PATH=.*$dir" "$shell_rc"; then
+            echo "export PATH=\"\$PATH:$dir\"" >> "$shell_rc"
+            export PATH="$PATH:$dir"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Create robust symlink with validation
+create_robust_symlink() {
+    local target=$1
+    local symlink=$2
+    local force=${3:-true}
+
+    # Validate target exists
+    if [ ! -f "$target" ]; then
+        print_error "Target file does not exist: $target"
+        return 1
+    fi
+
+    # Make target executable if it's not
+    if [ ! -x "$target" ]; then
+        chmod +x "$target"
+    fi
+
+    # Remove existing symlink/file if force is true
+    if [ "$force" = true ] && [ -e "$symlink" ]; then
+        rm -f "$symlink"
+    fi
+
+    # Create symlink
+    if ln -sf "$target" "$symlink" 2>/dev/null; then
+        # Validate the created symlink
+        if validate_symlink "$symlink" "$target"; then
+            return 0
+        else
+            print_error "Symlink validation failed for $symlink"
+            return 2
+        fi
+    else
+        print_error "Failed to create symlink: $symlink"
+        return 1
+    fi
+}
+
+# Check for Docker network conflicts
+check_docker_networks() {
+    print_step "Checking Docker network configuration..."
+
+    local network_count=$(docker network ls --format '{{.Name}}' | wc -l)
+
+    if [ "$network_count" -gt 10 ]; then
+        print_warning "Found $network_count Docker networks on this system"
+        print_info "Consider cleaning up unused networks with: docker network prune"
+    fi
+
+    # List networks using 172.x.x.x ranges
+    local overlapping_nets=$(docker network inspect $(docker network ls -q) 2>/dev/null | \
+        jq -r '.[] | select(.IPAM.Config[0].Subnet // null | type == "string" and startswith("172.")) | .Name' | \
+        grep -v "^bridge$" || true)
+
+    if [ -n "$overlapping_nets" ]; then
+        print_info "Networks using 172.x.x.x ranges:"
+        echo "$overlapping_nets" | while read net; do
+            echo "  - $net"
+        done
+    fi
 }

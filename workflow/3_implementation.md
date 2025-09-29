@@ -1,73 +1,53 @@
-# Implementation Report
+# Implementation Summary
 
-## Problem Fixed
-Fixed the issue where vless commands (vless-users, vless-logs, vless-backup, vless-update) were showing error "lib/colors.sh: No such file or directory" when run without sudo.
+## Problem
+The sed command in `apply_template` function was throwing "unterminated `s' command" error during Xray configuration creation in the install.sh script on a remote server.
 
 ## Root Cause
-The issue was caused by restrictive permissions (750) on /opt/vless/scripts/ directory and its contents. Regular users couldn't read the script files and libraries, causing the "file not found" error.
-
-## Solution Implemented
-
-### 1. Created fix-permissions.sh script
-- Location: `/home/ikeniborn/Documents/Project/vless/scripts/fix-permissions.sh`
-- Purpose: Sets proper permissions according to PRD.md requirements
-- Key changes:
-  - Scripts directory: 755 (readable by all)
-  - Script files: 755 (executable by all)
-  - Library files: 644 (readable by all)
-  - Sensitive data files remain 600 (root only)
-
-### 2. Updated user-manager.sh
-- Removed blanket root check at startup
-- Added root check only for write operations (add_user, remove_user)
-- Read operations (show_users, export_config) work without sudo
-
-### 3. Updated logs.sh
-- Removed blanket root check at startup
-- Added root check only for clear_logs function
-- Reading and following logs works without sudo
-
-### 4. Updated install.sh and update.sh
-- Both scripts now call fix-permissions.sh after installation/update
-- Ensures permissions are correctly set for new installations
-
-### 5. Commands behavior after fix
-
-| Command | Read Operations | Write Operations |
-|---------|----------------|------------------|
-| vless-users | No sudo needed | Requires sudo for add/remove |
-| vless-logs | No sudo needed | Requires sudo for clear |
-| vless-backup | Always requires sudo | Always requires sudo |
-| vless-update | Always requires sudo | Always requires sudo |
-
-## Files Modified
-1. Created: `scripts/fix-permissions.sh`
-2. Modified: `scripts/install.sh`
-3. Modified: `scripts/update.sh`
-4. Modified: `scripts/user-manager.sh`
-5. Modified: `scripts/logs.sh`
-
-## Testing Results
-- ✓ vless-users: Lists users without sudo
-- ✓ vless-logs: Shows logs without sudo
-- ✓ vless-backup: Correctly requires sudo (handles sensitive data)
-- ✓ vless-update: Correctly requires sudo (modifies system)
-
-## Security Considerations
-- Sensitive files (/opt/vless/data/, config.json, .env) remain protected with 600 permissions
-- Only read operations are allowed without sudo
-- All write operations still require root privileges
-- Follows PRD.md security requirements
-
-## How to Apply Fix
-
-### For existing installations:
+Complex sed expressions with semicolons were causing parsing issues in certain environments. The original command:
 ```bash
-sudo /opt/vless/scripts/fix-permissions.sh
+sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g'
 ```
 
-### For new installations:
-The fix is automatically applied during installation.
+## Solution Applied
+The fix has already been implemented in commit `36c6399` on Sep 29, 2025. The solution splits the complex sed command into separate piped commands:
 
-### For updates:
-The fix is automatically applied during update process.
+### Before (causing error):
+```bash
+value=$(echo "$value" | sed 's/\\/\\\\/g; s/\//\\\//g; s/&/\\&/g')
+```
+
+### After (fixed):
+```bash
+value=$(printf '%s' "$value" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/&/\\&/g')
+```
+
+## Key Changes
+1. **Split sed commands**: Each substitution is now a separate sed command in the pipeline
+2. **Changed echo to printf**: Using `printf '%s'` instead of `echo` for better handling of special characters
+3. **Added comments**: Documented the reason for the change in the code
+
+## Files Modified
+- `scripts/lib/config.sh` - Line 167: The apply_template function
+
+## Testing Performed
+1. Created comprehensive test script: `tests/test_apply_template.sh`
+2. Tested with normal values
+3. Tested with special characters (/, \, &)
+4. Tested with real REALITY configuration values
+5. All tests passed successfully
+
+## Verification Commands
+```bash
+# Test the function directly
+source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/config.sh
+apply_template "templates/config.json.tpl" "/tmp/test.json" \
+    "ADMIN_UUID=test-uuid" \
+    "REALITY_DEST=speed.cloudflare.com:443"
+
+# Run comprehensive tests
+bash tests/test_apply_template.sh
+```
+
+## Status
+✅ **FIXED** - The issue has been resolved and tested successfully

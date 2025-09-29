@@ -29,6 +29,34 @@ if [ ! -d "$VLESS_HOME/scripts" ]; then
     exit 1
 fi
 
+# Check PATH configuration
+print_step "Checking PATH configuration for root user..."
+ROOT_PATH=$(sudo -i sh -c 'echo $PATH')
+print_info "Root user PATH: $ROOT_PATH"
+
+if ! echo "$ROOT_PATH" | grep -q "/usr/local/bin"; then
+    print_warning "/usr/local/bin is not in root's PATH"
+    print_step "Adding /usr/local/bin to root's PATH..."
+
+    # Add to root's .bashrc
+    if [ -f "/root/.bashrc" ]; then
+        if ! grep -q "PATH=.*\/usr\/local\/bin" "/root/.bashrc"; then
+            echo 'export PATH="$PATH:/usr/local/bin"' >> "/root/.bashrc"
+            print_success "Added /usr/local/bin to /root/.bashrc"
+        fi
+    fi
+
+    # Add to /etc/profile for system-wide effect
+    if [ -f "/etc/profile" ]; then
+        if ! grep -q "PATH=.*\/usr\/local\/bin" "/etc/profile"; then
+            echo 'export PATH="$PATH:/usr/local/bin"' >> "/etc/profile"
+            print_success "Added /usr/local/bin to /etc/profile"
+        fi
+    fi
+else
+    print_success "/usr/local/bin is already in root's PATH"
+fi
+
 print_step "Checking and repairing VLESS command symlinks..."
 
 # Define commands and their script files
@@ -41,7 +69,15 @@ declare -A COMMANDS=(
 
 # Track repair status
 REPAIRS_MADE=0
+WRAPPERS_CREATED=0
 ALL_OK=true
+
+# Ensure directories exist
+if [ ! -d "/usr/local/bin" ]; then
+    print_info "Creating /usr/local/bin directory..."
+    mkdir -p "/usr/local/bin"
+    chmod 755 "/usr/local/bin"
+fi
 
 # Check and repair each symlink
 for CMD in "${!COMMANDS[@]}"; do
@@ -56,36 +92,44 @@ for CMD in "${!COMMANDS[@]}"; do
         continue
     fi
 
-    # Check if symlink exists and is correct
-    if [ -L "$SYMLINK" ]; then
-        # Symlink exists, check if it points to the correct target
-        CURRENT_TARGET=$(readlink -f "$SYMLINK" 2>/dev/null || echo "")
-        if [ "$CURRENT_TARGET" = "$TARGET" ]; then
+    # Make sure target is executable
+    if [ ! -x "$TARGET" ]; then
+        chmod +x "$TARGET"
+        print_info "Made $TARGET executable"
+    fi
+
+    # Use robust symlink creation
+    print_step "Processing $CMD..."
+
+    # Try to create/repair symlink
+    if create_robust_symlink "$TARGET" "$SYMLINK"; then
+        # Validate the symlink
+        validation_result=$(validate_symlink "$SYMLINK" "$TARGET" 2>&1 || echo $?)
+
+        if [ -z "$validation_result" ] || [ "$validation_result" = "0" ]; then
             print_success "$CMD symlink is correct"
         else
-            print_warning "$CMD symlink points to wrong target"
-            print_step "Fixing $CMD symlink..."
-            rm -f "$SYMLINK"
-            ln -sf "$TARGET" "$SYMLINK"
-            print_success "$CMD symlink repaired"
+            print_warning "$CMD symlink created but validation returned: $validation_result"
             ((REPAIRS_MADE++))
         fi
-    elif [ -f "$SYMLINK" ]; then
-        # Regular file exists instead of symlink
-        print_warning "$CMD exists as regular file, not symlink"
-        print_step "Converting to symlink..."
-        rm -f "$SYMLINK"
-        ln -sf "$TARGET" "$SYMLINK"
-        print_success "$CMD converted to symlink"
-        ((REPAIRS_MADE++))
     else
-        # Symlink doesn't exist
-        print_warning "$CMD symlink missing"
-        print_step "Creating $CMD symlink..."
-        ln -sf "$TARGET" "$SYMLINK"
-        print_success "$CMD symlink created"
-        ((REPAIRS_MADE++))
+        print_error "Failed to create symlink for $CMD"
+        ALL_OK=false
     fi
+
+    # Create fallback wrapper in /usr/bin
+    WRAPPER="/usr/bin/$CMD"
+    print_step "Creating fallback wrapper for $CMD..."
+
+    cat > "$WRAPPER" << EOF
+#!/bin/bash
+# Fallback wrapper for $CMD
+exec "$TARGET" "\$@"
+EOF
+
+    chmod 755 "$WRAPPER"
+    print_info "Created fallback wrapper: $WRAPPER"
+    ((WRAPPERS_CREATED++))
 done
 
 echo
@@ -97,32 +141,76 @@ else
     print_success "Repaired $REPAIRS_MADE symlink(s)"
 fi
 
-if [ "$ALL_OK" = false ]; then
-    print_warning "Some scripts were missing. Please check your installation."
-    exit 1
+if [ $WRAPPERS_CREATED -gt 0 ]; then
+    print_success "Created $WRAPPERS_CREATED fallback wrapper(s)"
 fi
 
-# Test commands
-print_header "Testing Commands"
+if [ "$ALL_OK" = false ]; then
+    print_warning "Some scripts were missing. Please check your installation."
+fi
 
+# Test commands availability
+print_header "Testing Commands Availability"
+
+print_step "Testing in current shell..."
 for CMD in "${!COMMANDS[@]}"; do
     if command -v "$CMD" >/dev/null 2>&1; then
-        print_success "$CMD is available"
+        print_success "$CMD is available in current shell"
     else
-        print_error "$CMD is not available in PATH"
+        print_warning "$CMD is not available in current shell PATH"
+    fi
+done
+
+print_step "Testing for root user (sudo -i)..."
+for CMD in "${!COMMANDS[@]}"; do
+    if sudo -i which "$CMD" >/dev/null 2>&1; then
+        print_success "$CMD is available for root user"
+    elif [ -f "/usr/bin/$CMD" ]; then
+        print_info "$CMD available via fallback: /usr/bin/$CMD"
+    else
+        print_error "$CMD is not available for root user"
         ALL_OK=false
     fi
 done
 
+print_step "Testing direct execution..."
+for CMD in "${!COMMANDS[@]}"; do
+    # Test primary symlink
+    if [ -x "/usr/local/bin/$CMD" ]; then
+        print_success "Primary: /usr/local/bin/$CMD is executable"
+    else
+        print_warning "Primary: /usr/local/bin/$CMD not executable"
+    fi
+
+    # Test fallback wrapper
+    if [ -x "/usr/bin/$CMD" ]; then
+        print_success "Fallback: /usr/bin/$CMD is executable"
+    else
+        print_warning "Fallback: /usr/bin/$CMD not executable"
+    fi
+done
+
+echo
+
 if [ "$ALL_OK" = true ]; then
-    echo
     print_success "All VLESS commands are ready to use!"
+    print_info ""
+    print_info "Commands are available in multiple ways:"
+    print_info "  1. Direct: sudo vless-users"
+    print_info "  2. Root shell: sudo -i → vless-users"
+    print_info "  3. Full path: /usr/local/bin/vless-users"
+    print_info "  4. Fallback: /usr/bin/vless-users"
+    print_info ""
     print_info "Available commands:"
     for CMD in "${!COMMANDS[@]}"; do
         echo "  - $CMD"
     done | sort
 else
-    echo
-    print_error "Some commands are not available. Please check your PATH."
-    exit 1
+    print_warning "Some commands may not be available in all contexts"
+    print_info ""
+    print_info "Troubleshooting steps:"
+    print_info "  1. Restart your shell or run: source /etc/profile"
+    print_info "  2. For root user: sudo -i → source ~/.bashrc"
+    print_info "  3. Use full paths: /usr/local/bin/vless-* or /usr/bin/vless-*"
+    print_info "  4. Check permissions: ls -la /opt/vless/scripts/"
 fi

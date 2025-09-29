@@ -14,13 +14,22 @@
             Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
         <context>
-            При выполнении команд vless-users, vless-logs, vless-backup
-            возникает ошибка: /usr/local/bin/lib/colors.sh: No such file or directory
+            После запуска установки на удаленном сервере sudo bash scripts/install.sh
+            Ошибка sed
+            ========================================
+                Creating Configuration
+            ========================================
+
+            → Creating environment file...
+            ✓ .env file created
+            → Creating Docker Compose configuration...
+            ✓ Docker Compose configuration created
+            → Creating Xray configuration...
+            sed: -e expression #1, char 78: unterminated `s' command
+
         </context>
         <requirements>
-            - Исправить ошибки отсутствующего файла
-            - Обеспечить работу всех vless команд
-            - Скорректирвоать скрпиты устанановки
+            - Исправить ошибку sed
         </requirements>
         <constraints>
             - Использовать bash
@@ -223,7 +232,7 @@
             <objective>Завершающие действия</objective>
             
             <actions>
-                <action seq="1">Выполнить git commit если требуется</action>
+                <action seq="1">Выполнить git commit</action>
                 <action seq="2">Очистить временные файлы</action>
                 <action seq="3">Вывести финальный статус</action>
             </actions>
