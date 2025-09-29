@@ -299,6 +299,109 @@ cleanup_existing_network() {
     fi
 }
 
+# Validate symlink functionality
+validate_symlink() {
+    local symlink_path=$1
+    local target_path=$2
+
+    # Check if symlink exists
+    if [ ! -L "$symlink_path" ]; then
+        return 1  # Not a symlink
+    fi
+
+    # Check if symlink points to correct target
+    local actual_target=$(readlink -f "$symlink_path" 2>/dev/null)
+    if [ "$actual_target" != "$target_path" ]; then
+        return 2  # Wrong target
+    fi
+
+    # Check if target exists and is executable
+    if [ ! -f "$target_path" ] || [ ! -x "$target_path" ]; then
+        return 3  # Target not executable
+    fi
+
+    return 0  # All good
+}
+
+# Test command availability in PATH for root user
+test_command_availability() {
+    local command_name=$1
+    local check_as_root=${2:-true}
+
+    if [ "$check_as_root" = true ]; then
+        # Test as root user
+        if sudo -i which "$command_name" >/dev/null 2>&1; then
+            return 0
+        fi
+    else
+        # Test in current environment
+        if which "$command_name" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Ensure directory is in PATH
+ensure_in_path() {
+    local dir=$1
+    local shell_rc=${2:-"/root/.bashrc"}
+
+    # Check if directory is already in PATH
+    if echo "$PATH" | grep -q "$dir"; then
+        return 0
+    fi
+
+    # Add to shell rc file if not present
+    if [ -f "$shell_rc" ]; then
+        if ! grep -q "PATH=.*$dir" "$shell_rc"; then
+            echo "export PATH=\"\$PATH:$dir\"" >> "$shell_rc"
+            export PATH="$PATH:$dir"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Create robust symlink with validation
+create_robust_symlink() {
+    local target=$1
+    local symlink=$2
+    local force=${3:-true}
+
+    # Validate target exists
+    if [ ! -f "$target" ]; then
+        print_error "Target file does not exist: $target"
+        return 1
+    fi
+
+    # Make target executable if it's not
+    if [ ! -x "$target" ]; then
+        chmod +x "$target"
+    fi
+
+    # Remove existing symlink/file if force is true
+    if [ "$force" = true ] && [ -e "$symlink" ]; then
+        rm -f "$symlink"
+    fi
+
+    # Create symlink
+    if ln -sf "$target" "$symlink" 2>/dev/null; then
+        # Validate the created symlink
+        if validate_symlink "$symlink" "$target"; then
+            return 0
+        else
+            print_error "Symlink validation failed for $symlink"
+            return 2
+        fi
+    else
+        print_error "Failed to create symlink: $symlink"
+        return 1
+    fi
+}
+
 # Check for Docker network conflicts
 check_docker_networks() {
     print_step "Checking Docker network configuration..."

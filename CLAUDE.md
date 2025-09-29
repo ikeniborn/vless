@@ -52,6 +52,12 @@ All scripts source dependencies in this order:
 - `add_user_to_config()` - Updates config.json with new user
 - `restart_xray_service()` - Safe restart with docker-compose
 
+### Key Functions in lib/utils.sh (Symlink Management)
+- `validate_symlink()` - Validates symlink existence, target, and executability
+- `test_command_availability()` - Tests if command is available in PATH for root/current user
+- `ensure_in_path()` - Ensures directory is added to PATH in shell rc files
+- `create_robust_symlink()` - Creates symlinks with comprehensive validation
+
 ## Critical Implementation Details
 
 ### Template Processing
@@ -183,3 +189,13 @@ If vless commands show "lib/colors.sh: No such file or directory" or "Permission
 - Write operations (add/remove users, clear logs) require sudo
 - Scripts include fallback library loading mechanisms
 - All scripts have been updated with selective root requirements
+
+### Symlink Issues (Enhanced)
+If vless commands are not found or symlinks don't work for root:
+- Run: `sudo /opt/vless/scripts/fix-symlinks.sh` to repair symlinks
+- Or run: `sudo /home/ikeniborn/Documents/Project/vless/scripts/reinstall.sh` for clean reinstall
+- Commands are available in two locations:
+  - Primary: `/usr/local/bin/vless-*` (symlinks)
+  - Fallback: `/usr/bin/vless-*` (wrapper scripts)
+- Installation automatically adds `/usr/local/bin` to root's PATH
+- If commands still not found after fix: `source /etc/profile` or restart shell

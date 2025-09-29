@@ -1,74 +1,63 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plan>
     <tasks>
-        <task id="1" priority="HIGH">
-            <description>Fix jq command in utils.sh line 306 for Docker network check</description>
-            <location>scripts/lib/utils.sh:306</location>
-            <changes>
-                <change>Add null/type checking to prevent startswith() error on non-string values</change>
-                <change>Ensure .IPAM.Config[0].Subnet is a string before applying startswith()</change>
-            </changes>
-            <validation>
-                - No jq errors when checking Docker networks
-                - Proper handling of networks without subnet configuration
-            </validation>
+        <task id="1" description="Enhance install.sh symlink creation with robust PATH checking" validation="Symlinks created and verified in multiple PATH locations">
+            <subtasks>
+                <subtask>Add PATH validation before symlink creation</subtask>
+                <subtask>Check if /usr/local/bin is in PATH for root</subtask>
+                <subtask>Add fallback to /usr/bin if /usr/local/bin not in PATH</subtask>
+                <subtask>Verify each symlink after creation</subtask>
+            </subtasks>
         </task>
 
-        <task id="2" priority="HIGH">
-            <description>Fix xray config validation in utils.sh line 204</description>
-            <location>scripts/lib/utils.sh:204-210</location>
-            <changes>
-                <change>Replace incorrect 'xray test' command with proper validation method</change>
-                <change>Use 'xray run -test' or JSON validation as alternative</change>
-            </changes>
-            <validation>
-                - No "unknown command" error
-                - Config validation works or gracefully skips
-            </validation>
+        <task id="2" description="Improve fix-symlinks.sh with comprehensive repair capabilities" validation="Script can detect and fix all symlink issues">
+            <subtasks>
+                <subtask>Add PATH checking for root user</subtask>
+                <subtask>Detect broken symlinks more reliably</subtask>
+                <subtask>Add option to create symlinks in alternative locations</subtask>
+                <subtask>Test command availability in different shells</subtask>
+            </subtasks>
         </task>
 
-        <task id="3" priority="MEDIUM">
-            <description>Update install.sh troubleshooting command</description>
-            <location>scripts/install.sh:361</location>
-            <changes>
-                <change>Update troubleshooting command to match utils.sh fix</change>
-            </changes>
-            <validation>
-                - Troubleshooting command is correct
-            </validation>
+        <task id="3" description="Create reinstall.sh script for clean reinstallation" validation="Script successfully reinstalls with working symlinks">
+            <subtasks>
+                <subtask>Backup existing configuration</subtask>
+                <subtask>Clean old symlinks</subtask>
+                <subtask>Reinstall with enhanced symlink creation</subtask>
+                <subtask>Restore configuration</subtask>
+                <subtask>Verify all commands work</subtask>
+            </subtasks>
         </task>
 
-        <task id="4" priority="HIGH">
-            <description>Test all fixes</description>
-            <location>N/A</location>
-            <changes>
-                <change>Run start script to verify no errors</change>
-                <change>Ensure service functions correctly</change>
-            </changes>
-            <validation>
-                - Clean startup without jq or xray errors
-                - Service runs successfully
-            </validation>
+        <task id="4" description="Add symlink validation function to lib/utils.sh" validation="Function accurately validates symlink functionality">
+            <subtasks>
+                <subtask>Create validate_symlink() function</subtask>
+                <subtask>Add test_command_availability() function</subtask>
+                <subtask>Integrate with installation process</subtask>
+            </subtasks>
+        </task>
+
+        <task id="5" description="Enhance installation completion checks" validation="Installation verifies all commands work for root">
+            <subtasks>
+                <subtask>Test each command with 'which' for root user</subtask>
+                <subtask>Display PATH information during installation</subtask>
+                <subtask>Add troubleshooting hints if commands not found</subtask>
+            </subtasks>
         </task>
     </tasks>
 
     <execution_order>
-        <step order="1" task_id="1">Fix jq command for Docker network check</step>
-        <step order="2" task_id="2">Fix xray config validation command</step>
-        <step order="3" task_id="3">Update troubleshooting documentation</step>
-        <step order="4" task_id="4">Test all fixes</step>
+        <step order="1" task_id="4">Add validation functions to lib/utils.sh</step>
+        <step order="2" task_id="1">Enhance install.sh with robust symlink creation</step>
+        <step order="3" task_id="2">Improve fix-symlinks.sh</step>
+        <step order="4" task_id="3">Create reinstall.sh script</step>
+        <step order="5" task_id="5">Add installation completion checks</step>
     </execution_order>
 
     <dependencies>
-        <dependency>
-            <task_id>3</task_id>
-            <depends_on>2</depends_on>
-            <reason>Troubleshooting command depends on xray validation fix</reason>
-        </dependency>
-        <dependency>
-            <task_id>4</task_id>
-            <depends_on>1,2,3</depends_on>
-            <reason>Testing requires all fixes to be implemented</reason>
-        </dependency>
+        <dependency task="1" depends_on="4">Install.sh needs validation functions</dependency>
+        <dependency task="2" depends_on="4">Fix-symlinks.sh needs validation functions</dependency>
+        <dependency task="3" depends_on="1,2">Reinstall.sh uses enhanced install and fix scripts</dependency>
+        <dependency task="5" depends_on="1">Completion checks need enhanced installation</dependency>
     </dependencies>
 </plan>
