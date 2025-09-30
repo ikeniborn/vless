@@ -17,6 +17,7 @@ VLESS+Reality VPN service using Xray-core in Docker with bash-based CLI manageme
 - **REALITY Protocol**: Traffic obfuscation using TLS masquerading
 - **X25519 Cryptography**: Key generation and management for REALITY
 - **Interactive CLI Menus**: All management scripts have both menu and direct command modes
+- **DNS Configuration**: Customizable DNS servers during installation (Google, Cloudflare, Quad9, or custom)
 
 ## Common Development Commands
 
@@ -73,6 +74,17 @@ The `apply_template` function uses sed to replace {{VARIABLE}} placeholders. Spe
 - **UUID**: `uuidgen` command (standard Linux utility)
 - **Short ID**: `openssl rand -hex 4` (8 hex characters)
 - Both are auto-generated, never user-provided
+
+### DNS Configuration (Added 2025-09-29)
+During installation, users can select DNS servers:
+- **Google DNS**: 8.8.8.8, 8.8.4.4
+- **Cloudflare DNS**: 1.1.1.1, 1.0.0.1
+- **Quad9 DNS**: 9.9.9.9, 149.112.112.112
+- **System Default**: Uses system-configured DNS (no custom configuration)
+- **Custom DNS**: User-specified primary and optional secondary servers
+
+DNS configuration is stored in `.env` file and applied to Xray config when custom DNS is selected.
+Template selection is automatic: `config_with_dns.json.tpl` for custom DNS, original template for system default.
 
 ### User Data Structure
 Users stored in `/opt/vless/data/users.json`:
