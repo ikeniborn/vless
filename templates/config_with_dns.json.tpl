@@ -174,15 +174,6 @@
       },
       {
         "type": "field",
-        "comment": "Блокировка Windows telemetry и шпионского ПО",
-        "domain": [
-          "geosite:win-spy",
-          "geosite:win-update"
-        ],
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
         "comment": "Default routing - весь остальной трафик разрешён",
         "network": "tcp,udp",
         "outboundTag": "direct"

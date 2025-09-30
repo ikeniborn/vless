@@ -219,13 +219,63 @@ configure_ufw_for_docker() {
 
         # Check if NAT rules already exist
         if grep -q "# NAT table rules for Docker" "$before_rules"; then
-            print_success "NAT rules already exist in before.rules"
+            # NAT rules marker found, but check if our specific subnet is there
+            if grep -q "$docker_subnet" "$before_rules"; then
+                print_success "NAT rules for $docker_subnet already exist in before.rules"
+            else
+                print_warning "NAT rules marker found, but subnet $docker_subnet is missing"
+                print_info "This may indicate rules for a different subnet"
+
+                # Backup before.rules
+                print_step "Creating backup of before.rules..."
+                cp "$before_rules" "${before_rules}.backup.$(date +%Y%m%d-%H%M%S)"
+
+                # Add NAT rules for current subnet
+                local external_interface=$(ip route | grep default | awk '{print $5}' | head -1)
+
+                if [ -z "$external_interface" ]; then
+                    print_error "Could not determine external network interface"
+                    return 1
+                fi
+
+                print_info "Using external interface: $external_interface"
+
+                cat > /tmp/ufw_nat_rules << EOF
+# NAT table rules for Docker VLESS bridge network
+*nat
+:POSTROUTING ACCEPT [0:0]
+
+# Forward traffic from Docker subnet to external interface
+-A POSTROUTING -s $docker_subnet -o $external_interface -j MASQUERADE
+
+COMMIT
+# End of NAT table rules
+
+EOF
+                # Insert NAT rules before existing rules
+                cat /tmp/ufw_nat_rules "$before_rules" > /tmp/before.rules.new
+                mv /tmp/before.rules.new "$before_rules"
+                rm -f /tmp/ufw_nat_rules
+
+                print_success "NAT rules for $docker_subnet added to UFW before.rules"
+            fi
         else
+            # No NAT rules exist, add them
+            print_info "NAT rules not found, adding them now..."
+
             # Backup before.rules
+            print_step "Creating backup of before.rules..."
             cp "$before_rules" "${before_rules}.backup.$(date +%Y%m%d-%H%M%S)"
 
             # Add NAT rules at the beginning of the file
             local external_interface=$(ip route | grep default | awk '{print $5}' | head -1)
+
+            if [ -z "$external_interface" ]; then
+                print_error "Could not determine external network interface"
+                return 1
+            fi
+
+            print_info "Using external interface: $external_interface"
 
             cat > /tmp/ufw_nat_rules << EOF
 # NAT table rules for Docker VLESS bridge network
@@ -246,6 +296,19 @@ EOF
 
             print_success "NAT rules added to UFW before.rules"
         fi
+
+        # Verify NAT rules were added correctly
+        print_step "Verifying NAT rules in before.rules..."
+        if grep -q "$docker_subnet" "$before_rules"; then
+            print_success "Verified: NAT rules for $docker_subnet are present"
+        else
+            print_error "Verification failed: NAT rules for $docker_subnet NOT found"
+            print_info "Check $before_rules manually"
+            return 1
+        fi
+    else
+        print_error "UFW before.rules file not found: $before_rules"
+        return 1
     fi
 
     # 4. Reload UFW to apply changes
@@ -253,7 +316,21 @@ EOF
     if ufw reload 2>/dev/null; then
         print_success "UFW reloaded successfully"
     else
-        print_warning "Failed to reload UFW, changes may not be applied"
+        print_error "Failed to reload UFW"
+        return 1
+    fi
+
+    # 5. Verify NAT rules are active in iptables after reload
+    print_step "Verifying NAT rules in iptables after reload..."
+    sleep 1  # Give UFW a moment to apply rules
+
+    local subnet_pattern=$(echo "$docker_subnet" | sed 's/\./\\./g')
+    if iptables -t nat -L POSTROUTING -n 2>/dev/null | grep -q "MASQUERADE.*${subnet_pattern}"; then
+        print_success "Verified: NAT MASQUERADE rules are active in iptables"
+    else
+        print_warning "NAT rules not found in iptables after UFW reload"
+        print_info "This may cause VPN clients to have no internet access"
+        print_info "Try manually: sudo iptables -t nat -A POSTROUTING -s $docker_subnet -o \$(ip route | grep default | awk '{print \$5}') -j MASQUERADE"
     fi
 
     return 0

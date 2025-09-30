@@ -320,6 +320,67 @@ docker-compose -f docker-compose.fake.yml down
 docker-compose -f docker-compose.fake.yml up -d
 ```
 
+### REALITY Invalid Connection - No Internet Access (CRITICAL)
+**Issue:** Client shows "Connected" but cannot access internet, logs show "REALITY: processed invalid connection"
+**Root Cause:** X25519 key pair mismatch between server (privateKey) and client (publicKey)
+**Solution:**
+1. Generate new X25519 keys: `docker run --rm teddysun/xray:24.11.30 xray x25519`
+2. Update privateKey in `/opt/vless/config/config.json`
+3. Update PRIVATE_KEY and PUBLIC_KEY in `/opt/vless/.env`
+4. Restart: `cd /opt/vless && docker-compose restart`
+5. Update all client configurations with new PUBLIC_KEY
+
+**Diagnosis:**
+```bash
+# Check for invalid connection errors
+sudo tail -100 /opt/vless/logs/error.log | grep "invalid connection"
+
+# Verify key correspondence
+docker exec xray-server cat /etc/xray/config.json | jq -r '.inbounds[0].streamSettings.realitySettings.privateKey'
+docker run --rm teddysun/xray:24.11.30 xray x25519 -i <PRIVATE_KEY_FROM_ABOVE>
+# Compare output with PUBLIC_KEY in .env
+```
+
+**Prevention:**
+- Use `scripts/security/rotate-keys.sh` for safe key rotation
+- Always backup before changing keys
+- Validate key pairs after generation
+
+**See also:**
+- TROUBLESHOOTING.md: Section "REALITY: processed invalid connection"
+- PRD.md: Section 13.1 "Известные проблемы"
+
+### Xray Version Compatibility
+**Issue:** Version mismatch between server and client causes connection failures
+**Fixed Version:** teddysun/xray:24.11.30 (pinned in docker-compose.yml.tpl)
+**Previously Used:** teddysun/xray:latest (caused compatibility issues)
+
+**Why version 24.11.30:**
+- Compatible with most iOS clients (v2rayTun, Shadowrocket)
+- Stable REALITY protocol implementation
+- No breaking changes in cryptographic handshake
+
+**If upgrading Xray:**
+- Test with one client before mass deployment
+- Check release notes for breaking changes
+- Update both server and client versions together
+- Monitor logs for "processed invalid connection" errors
+
+### Geosite Rules Incompatibility
+**Issue:** Xray 24.11.30 doesn't include win-spy/win-update geosite categories
+**Error:** "failed to load geosite: WIN-SPY" or "failed to load geosite: WIN-UPDATE"
+**Solution:** These rules have been removed from templates (config.json.tpl, config_with_dns.json.tpl)
+
+**Compatible geosite rules:**
+- ✅ `geosite:category-ads-all` - Ad blocking (works)
+- ✅ `geosite:cn` - Chinese domains (works)
+- ✅ `geosite:geolocation-!cn` - Non-Chinese domains (works)
+- ❌ `geosite:win-spy` - Windows telemetry (not available in 24.11.30)
+- ❌ `geosite:win-update` - Windows Update (not available in 24.11.30)
+
+**Migration:**
+If manually upgrading from older configs, remove win-spy/win-update rules from routing section.
+
 ### Permission Issues (Fixed)
 If vless commands show "lib/colors.sh: No such file or directory" or "Permission denied":
 - Run: `sudo /opt/vless/scripts/fix-permissions.sh`

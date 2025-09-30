@@ -1,6 +1,6 @@
 services:
   xray-server:
-    image: teddysun/xray:latest
+    image: teddysun/xray:24.11.30
     container_name: xray-server
     restart: {{RESTART_POLICY}}
     ports:
