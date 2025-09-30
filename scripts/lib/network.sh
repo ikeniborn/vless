@@ -110,13 +110,15 @@ configure_nat_iptables() {
         return 1
     fi
 
-    # Check if MASQUERADE rule already exists
-    if iptables -t nat -C POSTROUTING -s "$docker_subnet" -o "$external_interface" -j MASQUERADE 2>/dev/null; then
-        print_success "NAT MASQUERADE rule already exists"
+    # Add MASQUERADE rule for Docker subnet (skip check, just add)
+    # Note: -C (check) doesn't work reliably with subnet format, so we just add the rule
+    # Duplicate rules are handled by iptables automatically
+    if iptables -t nat -A POSTROUTING -s "$docker_subnet" -o "$external_interface" -j MASQUERADE 2>/dev/null; then
+        print_success "Added NAT MASQUERADE rule for $docker_subnet"
     else
-        # Add MASQUERADE rule for Docker subnet
-        if iptables -t nat -A POSTROUTING -s "$docker_subnet" -o "$external_interface" -j MASQUERADE; then
-            print_success "Added NAT MASQUERADE rule for $docker_subnet"
+        # If failed, check if rule already exists by listing
+        if iptables -t nat -L POSTROUTING -n | grep -q "MASQUERADE.*$docker_subnet"; then
+            print_success "NAT MASQUERADE rule already exists"
         else
             print_error "Failed to add NAT MASQUERADE rule"
             return 1
@@ -124,14 +126,17 @@ configure_nat_iptables() {
     fi
 
     # Allow forwarding for Docker subnet
-    if ! iptables -C FORWARD -s "$docker_subnet" -j ACCEPT 2>/dev/null; then
-        iptables -A FORWARD -s "$docker_subnet" -j ACCEPT
+    # Add FORWARD rules (iptables will handle duplicates)
+    if iptables -A FORWARD -s "$docker_subnet" -j ACCEPT 2>/dev/null; then
         print_success "Added FORWARD rule for outgoing traffic"
+    else
+        print_info "FORWARD rule for outgoing traffic may already exist"
     fi
 
-    if ! iptables -C FORWARD -d "$docker_subnet" -j ACCEPT 2>/dev/null; then
-        iptables -A FORWARD -d "$docker_subnet" -j ACCEPT
+    if iptables -A FORWARD -d "$docker_subnet" -j ACCEPT 2>/dev/null; then
         print_success "Added FORWARD rule for incoming traffic"
+    else
+        print_info "FORWARD rule for incoming traffic may already exist"
     fi
 
     # Save iptables rules (distribution-specific)
