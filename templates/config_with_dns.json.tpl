@@ -4,6 +4,39 @@
     "access": "/var/log/xray/access.log",
     "error": "/var/log/xray/error.log"
   },
+  "dns": {
+    "servers": [
+      {
+        "address": "{{DNS_PRIMARY}}",
+        "port": 53,
+        "domains": [
+          "geosite:geolocation-!cn"
+        ],
+        "expectIPs": [
+          "geoip:!cn"
+        ]
+      }{{DNS_SECONDARY_SERVER_OBJECT}},
+      {
+        "address": "114.114.114.114",
+        "port": 53,
+        "domains": [
+          "geosite:cn"
+        ],
+        "expectIPs": [
+          "geoip:cn"
+        ],
+        "skipFallback": true
+      }
+    ],
+    "hosts": {
+      "domain:googleapis.cn": "googleapis.com",
+      "domain:gstatic.cn": "gstatic.com"
+    },
+    "queryStrategy": "UseIPv4",
+    "disableCache": false,
+    "disableFallback": true,
+    "tag": "dns_inbound"
+  },
   "api": {
     "tag": "api",
     "services": [
@@ -92,7 +125,9 @@
     {
       "protocol": "freedom",
       "tag": "direct",
-      "settings": {}
+      "settings": {
+        "domainStrategy": "UseIP"
+      }
     },
     {
       "protocol": "blackhole",

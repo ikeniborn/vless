@@ -286,6 +286,111 @@ cd /opt/vless
 docker-compose restart
 ```
 
+### ⚠️ КРИТИЧЕСКАЯ ПРОБЛЕМА: "REALITY: processed invalid connection" - нет доступа к интернету
+
+**Симптомы:**
+- Клиент показывает статус "Connected", но сайты не открываются
+- Нет доступа к интернету через VPN
+- В логах сервера постоянные сообщения: `REALITY: processed invalid connection`
+- Access log (`/opt/vless/logs/access.log`) пустой - нет успешных подключений
+- Несколько попыток подключения в секунду, все отклоняются
+
+**Root Cause:**
+Несоответствие или повреждение X25519 ключей (privateKey на сервере / publicKey на клиенте). REALITY protocol требует **точного соответствия** cryptographic key pair для успешного handshake.
+
+**Подробная диагностика:**
+```bash
+# Шаг 1: Проверить логи на ошибки REALITY
+sudo tail -100 /opt/vless/logs/error.log | grep "invalid connection"
+# Если видите множество таких сообщений - проблема подтверждается
+
+# Шаг 2: Проверить privateKey в серверной конфигурации
+docker exec xray-server cat /etc/xray/config.json | jq -r '.inbounds[0].streamSettings.realitySettings.privateKey'
+
+# Шаг 3: Вычислить правильный publicKey из privateKey
+# Замените <PRIVATE_KEY> на значение из шага 2
+docker run --rm teddysun/xray:24.11.30 xray x25519 -i <PRIVATE_KEY>
+# Output покажет: Public key: xxxxx
+
+# Шаг 4: Сравнить с publicKey в .env файле
+sudo cat /opt/vless/.env | grep PUBLIC_KEY
+# Если значения НЕ совпадают - это и есть проблема!
+
+# Шаг 5: Проверить версию Xray (должна быть 24.11.30)
+docker exec xray-server xray version
+```
+
+**Решение (полная регенерация ключей):**
+
+```bash
+# 1. Создать backup текущей конфигурации
+sudo cp /opt/vless/config/config.json /opt/vless/config/config.json.backup
+sudo cp /opt/vless/.env /opt/vless/.env.backup
+
+# 2. Сгенерировать новую пару X25519 ключей
+docker run --rm teddysun/xray:24.11.30 xray x25519
+# Сохраните вывод:
+#   Private key: 4EqEF6MPw_Ca4LPZK3ZWriS39E4ghsbdrKo4JjHGiEY
+#   Public key: UDawd840JWbO-4zi3izCT7FEBhMooT8nLTqeJM0CBD8
+
+# 3. Обновить privateKey в config.json
+NEW_PRIVATE="4EqEF6MPw_Ca4LPZK3ZWriS39E4ghsbdrKo4JjHGiEY"  # Замените на ваш
+sudo jq ".inbounds[0].streamSettings.realitySettings.privateKey = \"$NEW_PRIVATE\"" \
+  /opt/vless/config/config.json > /tmp/config_new.json
+sudo mv /tmp/config_new.json /opt/vless/config/config.json
+sudo chmod 600 /opt/vless/config/config.json
+
+# 4. Обновить ключи в .env файле
+NEW_PUBLIC="UDawd840JWbO-4zi3izCT7FEBhMooT8nLTqeJM0CBD8"  # Замените на ваш
+sudo sed -i "s/^PRIVATE_KEY=.*/PRIVATE_KEY=$NEW_PRIVATE/" /opt/vless/.env
+sudo sed -i "s/^PUBLIC_KEY=.*/PUBLIC_KEY=$NEW_PUBLIC/" /opt/vless/.env
+
+# 5. Перезапустить сервер
+cd /opt/vless && sudo docker-compose restart xray-server
+
+# 6. Проверить что контейнер запустился успешно
+sleep 5 && docker ps --filter "name=xray-server" --format "{{.Status}}"
+docker logs xray-server --tail 10
+
+# 7. Очистить error log для чистого теста
+sudo truncate -s 0 /opt/vless/logs/error.log
+```
+
+**Обновление клиентских конфигураций:**
+
+После регенерации ключей **ОБЯЗАТЕЛЬНО** обновите конфигурацию на ВСЕХ клиентах с новым `PUBLIC_KEY`:
+
+```
+vless://UUID@SERVER_IP:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=NEW_PUBLIC_KEY&sid=SHORTID&type=tcp#VLESS-admin
+```
+
+**Важно:** Параметр `pbk=` должен содержать НОВЫЙ публичный ключ!
+
+**Превентивные меры:**
+- ✅ Использовать скрипт `scripts/security/rotate-keys.sh` для безопасной ротации
+- ✅ Автоматический backup перед любыми изменениями ключей
+- ✅ Хранить резервные копии в `/opt/vless/backups/`
+- ✅ Тестировать новые ключи перед массовой раздачей клиентам
+- ✅ Валидация ключей после генерации (проверка соответствия)
+
+**Дополнительные проверки после решения:**
+```bash
+# Подключиться с клиента и проверить логи
+sudo tail -f /opt/vless/logs/error.log
+# Не должно быть "processed invalid connection"
+
+# Проверить access log на успешные соединения
+sudo tail -f /opt/vless/logs/access.log
+# Должны появиться записи о подключениях
+
+# Проверить connectivity
+# Клиент должен открывать сайты без проблем
+```
+
+**См. также:**
+- PRD.md: Раздел 13.1 "Известные проблемы"
+- Документация Xray REALITY: https://xtls.github.io/config/transport.html#realitysettings
+
 ### Медленная скорость подключения
 
 **Причины:**
@@ -369,6 +474,122 @@ EOF
 # Или использовать systemd-resolved
 sudo systemctl restart systemd-resolved
 ```
+
+### Нет доступа к интернету через VPN (клиент подключен, но трафик не проходит)
+
+**Симптомы:**
+- Клиент успешно подключается к серверу
+- VPN соединение активно
+- Но нет доступа к интернету (сайты не открываются)
+- iOS Shadowrocket или другие клиенты показывают "Connected" статус
+
+**Root Cause:**
+UFW firewall блокирует forwarding трафика из Docker subnet из-за отсутствия NAT правил в `/etc/ufw/before.rules`. Хотя IP forwarding включен и iptables NAT правила существуют, UFW управляет своими правилами отдельно.
+
+**Диагностика:**
+```bash
+# 1. Проверить IP forwarding (должно быть = 1)
+sysctl net.ipv4.ip_forward
+
+# 2. Проверить NAT правила в iptables
+sudo iptables -t nat -L POSTROUTING -n -v | grep 172.19
+
+# 3. Проверить NAT правила в UFW before.rules
+grep "NAT table rules" /etc/ufw/before.rules
+grep "172.19.0.0/16" /etc/ufw/before.rules
+
+# 4. Проверить DEFAULT_FORWARD_POLICY
+grep DEFAULT_FORWARD_POLICY /etc/default/ufw
+
+# 5. Использовать скрипт автоматической проверки
+sudo /opt/vless/scripts/verify-network.sh
+# или из репозитория:
+sudo bash scripts/verify-network.sh
+```
+
+**Решение (автоматическое):**
+```bash
+# Вариант 1: Использовать функцию из библиотеки
+cd /opt/vless
+sudo bash -c 'source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/network.sh && configure_ufw_for_docker "172.19.0.0/16" "443"'
+
+# Вариант 2: Переконфигурировать всю сеть
+cd /opt/vless
+source .env
+sudo bash -c "source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/network.sh && configure_network_for_vless \"$DOCKER_SUBNET\" \"$SERVER_PORT\""
+```
+
+**Решение (ручное):**
+```bash
+# 1. Создать backup
+sudo cp /etc/ufw/before.rules /etc/ufw/before.rules.backup.$(date +%Y%m%d-%H%M%S)
+
+# 2. Определить внешний интерфейс
+EXTERNAL_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+echo "External interface: $EXTERNAL_IFACE"
+
+# 3. Определить Docker subnet (из .env файла)
+DOCKER_SUBNET=$(grep DOCKER_SUBNET /opt/vless/.env | cut -d'=' -f2)
+echo "Docker subnet: $DOCKER_SUBNET"
+
+# 4. Добавить NAT правила в начало /etc/ufw/before.rules
+sudo bash -c "cat > /tmp/ufw_nat_rules << EOF
+# NAT table rules for Docker VLESS bridge network
+*nat
+:POSTROUTING ACCEPT [0:0]
+
+# Forward traffic from Docker subnet to external interface
+-A POSTROUTING -s $DOCKER_SUBNET -o $EXTERNAL_IFACE -j MASQUERADE
+
+COMMIT
+# End of NAT table rules
+
+EOF
+cat /tmp/ufw_nat_rules /etc/ufw/before.rules > /tmp/before.rules.new
+mv /tmp/before.rules.new /etc/ufw/before.rules
+rm -f /tmp/ufw_nat_rules"
+
+# 5. Убедиться что DEFAULT_FORWARD_POLICY = ACCEPT
+sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+
+# 6. Перезагрузить UFW
+sudo ufw reload
+
+# 7. Проверить что правила применены
+sudo iptables -t nat -L POSTROUTING -n -v | grep $DOCKER_SUBNET
+```
+
+**Верификация после исправления:**
+```bash
+# 1. Проверить NAT правила в before.rules
+grep "172.19.0.0/16" /etc/ufw/before.rules
+
+# 2. Проверить активные NAT правила в iptables
+sudo iptables -t nat -L POSTROUTING -n -v | grep 172.19
+
+# 3. Проверить логи xray-server
+sudo docker-compose -f /opt/vless/docker-compose.yml logs -f xray-server
+
+# 4. Запустить полную проверку конфигурации
+sudo /opt/vless/scripts/verify-network.sh
+```
+
+**Превентивные меры:**
+- Скрипт `verify-network.sh` добавлен для проверки конфигурации
+- Функция `configure_ufw_for_docker()` обновлена с дополнительными проверками
+- При установке теперь автоматически проверяется корректность добавления NAT правил
+
+**Rollback процедура:**
+```bash
+# Если что-то пошло не так, восстановить из backup
+sudo cp /etc/ufw/before.rules.backup.* /etc/ufw/before.rules
+sudo ufw reload
+```
+
+**См. также:**
+- Раздел "Docker Network Configuration" в PRD.md (строка 108-110)
+- Функция `configure_ufw_for_docker()` в `scripts/lib/network.sh`
+- Скрипт проверки: `scripts/verify-network.sh`
 
 ## Ошибки конфигурации
 

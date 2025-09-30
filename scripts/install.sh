@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/lib/colors.sh"
 source "$SCRIPT_DIR/lib/utils.sh"
 source "$SCRIPT_DIR/lib/domains.sh"
 source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/lib/network.sh"
 
 # Configuration variables
 VLESS_HOME="/opt/vless"
@@ -23,6 +24,10 @@ ADMIN_EMAIL=""
 ADMIN_UUID=""
 PRIVATE_KEY=""
 PUBLIC_KEY=""
+DNS_PRIMARY=""
+DNS_SECONDARY=""
+DOCKER_SUBNET=""
+DOCKER_GATEWAY=""
 
 # Installation functions
 install_dependencies() {
@@ -66,11 +71,90 @@ install_dependencies() {
     fi
 }
 
+select_dns_servers() {
+    print_step "DNS Server Configuration"
+
+    # DNS provider options
+    local dns_options=(
+        "Google DNS (8.8.8.8, 8.8.4.4)"
+        "Cloudflare DNS (1.1.1.1, 1.0.0.1)"
+        "Quad9 DNS (9.9.9.9, 149.112.112.112)"
+        "System Default (Use system DNS)"
+        "Custom DNS Servers"
+    )
+
+    print_info "Select DNS servers for the VPN service:"
+    echo
+
+    local PS3="Choose DNS option [1-5]: "
+    local choice
+
+    select opt in "${dns_options[@]}"; do
+        case $REPLY in
+            1)
+                DNS_PRIMARY="8.8.8.8"
+                DNS_SECONDARY="8.8.4.4"
+                print_success "Using Google DNS"
+                break
+                ;;
+            2)
+                DNS_PRIMARY="1.1.1.1"
+                DNS_SECONDARY="1.0.0.1"
+                print_success "Using Cloudflare DNS"
+                break
+                ;;
+            3)
+                DNS_PRIMARY="9.9.9.9"
+                DNS_SECONDARY="149.112.112.112"
+                print_success "Using Quad9 DNS"
+                break
+                ;;
+            4)
+                # Leave DNS variables empty for system default
+                DNS_PRIMARY=""
+                DNS_SECONDARY=""
+                print_success "Using system default DNS"
+                break
+                ;;
+            5)
+                # Custom DNS input
+                while true; do
+                    read -p "Enter primary DNS server IP: " DNS_PRIMARY
+                    if [ -z "$DNS_PRIMARY" ] || validate_ip "$DNS_PRIMARY"; then
+                        break
+                    else
+                        print_error "Invalid IP address format"
+                    fi
+                done
+
+                while true; do
+                    read -p "Enter secondary DNS server IP (optional, press Enter to skip): " DNS_SECONDARY
+                    if [ -z "$DNS_SECONDARY" ] || validate_ip "$DNS_SECONDARY"; then
+                        break
+                    else
+                        print_error "Invalid IP address format"
+                    fi
+                done
+
+                if [ -n "$DNS_PRIMARY" ]; then
+                    print_success "Custom DNS servers configured"
+                else
+                    print_success "Using system default DNS"
+                fi
+                break
+                ;;
+            *)
+                print_error "Invalid option. Please choose 1-5"
+                ;;
+        esac
+    done
+}
+
 collect_parameters() {
     print_header "Configuration Setup"
-    
+
     # Step 1: Server IP
-    print_step "[1/4] Detecting server IP address..."
+    print_step "[1/5] Detecting server IP address..."
     local detected_ip=$(get_external_ip)
     
     if [ -n "$detected_ip" ]; then
@@ -103,7 +187,7 @@ collect_parameters() {
     fi
     
     # Step 2: Server Port
-    print_step "[2/4] Server port configuration"
+    print_step "[2/5] Server port configuration"
     read -p "Enter server port [443]: " input_port
     SERVER_PORT="${input_port:-443}"
     
@@ -120,15 +204,36 @@ collect_parameters() {
         print_error "Invalid port number"
         exit 1
     fi
+
+    # Configure firewall for the port
+    configure_firewall_for_vless "$SERVER_PORT"
     
     # Step 3: REALITY Domain
-    print_step "[3/4] REALITY domain selection"
-    REALITY_DEST=$(select_reality_domain)
-    REALITY_SERVER_NAME=$(get_domain_name "$REALITY_DEST")
-    print_success "Selected domain: $REALITY_DEST"
-    
-    # Step 4: Admin configuration
-    print_step "[4/4] Administrator setup"
+    print_step "[3/5] REALITY domain selection"
+
+    # Select domain with verification loop
+    while true; do
+        REALITY_DEST=$(select_reality_domain)
+        REALITY_SERVER_NAME=$(get_domain_name "$REALITY_DEST")
+        print_success "Selected domain: $REALITY_DEST"
+        echo ""
+
+        # Verify the selected domain
+        if verify_reality_domain "$REALITY_DEST"; then
+            break  # Verification passed, continue installation
+        else
+            echo ""
+            print_warning "Please select a different domain"
+            echo ""
+        fi
+    done
+
+    # Step 4: DNS Configuration
+    print_step "[4/5] DNS server configuration"
+    select_dns_servers
+
+    # Step 5: Admin configuration
+    print_step "[5/5] Administrator setup"
     
     print_info "Generating admin UUID..."
     ADMIN_UUID=$(generate_uuid)
@@ -151,12 +256,20 @@ collect_parameters() {
 
 confirm_configuration() {
     print_header "Configuration Summary"
-    
+
     echo "----------------------------------------"
     echo "Server IP:        $SERVER_IP"
     echo "Server Port:      $SERVER_PORT"
     echo "REALITY Target:   $REALITY_DEST"
     echo "REALITY SNI:      $REALITY_SERVER_NAME"
+    if [ -n "$DNS_PRIMARY" ]; then
+        echo "Primary DNS:      $DNS_PRIMARY"
+        if [ -n "$DNS_SECONDARY" ]; then
+            echo "Secondary DNS:    $DNS_SECONDARY"
+        fi
+    else
+        echo "DNS Servers:      System Default"
+    fi
     echo "Admin UUID:       $ADMIN_UUID"
     echo "Admin Short ID:   $ADMIN_SHORT_ID"
     if [ -n "$ADMIN_EMAIL" ]; then
@@ -261,8 +374,22 @@ generate_keys() {
 
 create_configuration() {
     print_header "Creating Configuration"
-    
-    # Create .env file
+
+    # Step 1: Find available Docker subnet
+    print_step "Detecting available Docker subnet..."
+    local subnet_info=$(find_available_docker_subnet)
+    if [ -z "$subnet_info" ]; then
+        print_error "Failed to find available Docker subnet"
+        exit 1
+    fi
+
+    DOCKER_SUBNET=$(echo "$subnet_info" | cut -d':' -f1)
+    DOCKER_GATEWAY=$(echo "$subnet_info" | cut -d':' -f2)
+
+    print_success "Docker subnet: $DOCKER_SUBNET"
+    print_success "Docker gateway: $DOCKER_GATEWAY"
+
+    # Step 2: Create .env file
     print_step "Creating environment file..."
     cat > "$VLESS_HOME/.env" << EOF
 # Server Configuration
@@ -273,6 +400,10 @@ SERVER_PORT=$SERVER_PORT
 REALITY_DEST=$REALITY_DEST
 REALITY_SERVER_NAME=$REALITY_SERVER_NAME
 
+# DNS Configuration
+DNS_PRIMARY=$DNS_PRIMARY
+DNS_SECONDARY=$DNS_SECONDARY
+
 # Administrator
 ADMIN_UUID=$ADMIN_UUID
 ADMIN_SHORT_ID=$ADMIN_SHORT_ID
@@ -282,6 +413,10 @@ ADMIN_EMAIL=$ADMIN_EMAIL
 PRIVATE_KEY=$PRIVATE_KEY
 PUBLIC_KEY=$PUBLIC_KEY
 
+# Docker Network Configuration
+DOCKER_SUBNET=$DOCKER_SUBNET
+DOCKER_GATEWAY=$DOCKER_GATEWAY
+
 # System Settings
 COMPOSE_PROJECT_NAME=vless-reality
 TZ=UTC
@@ -289,13 +424,15 @@ RESTART_POLICY=unless-stopped
 EOF
     chmod 600 "$VLESS_HOME/.env"
     print_success ".env file created"
-    
-    # Create docker-compose.yml
+
+    # Step 3: Create docker-compose.yml
     print_step "Creating Docker Compose configuration..."
     apply_template \
         "$VLESS_HOME/templates/docker-compose.yml.tpl" \
         "$VLESS_HOME/docker-compose.yml" \
         "SERVER_PORT=$SERVER_PORT" \
+        "DOCKER_SUBNET=$DOCKER_SUBNET" \
+        "DOCKER_GATEWAY=$DOCKER_GATEWAY" \
         "RESTART_POLICY=unless-stopped" \
         "TZ=UTC"
     chmod 640 "$VLESS_HOME/docker-compose.yml"
@@ -312,17 +449,54 @@ EOF
         echo "  REALITY_SERVER_NAME='$REALITY_SERVER_NAME'" >&2
         echo "  PRIVATE_KEY='$PRIVATE_KEY'" >&2
         echo "  ADMIN_SHORT_ID='$ADMIN_SHORT_ID'" >&2
+        echo "  DNS_PRIMARY='$DNS_PRIMARY'" >&2
+        echo "  DNS_SECONDARY='$DNS_SECONDARY'" >&2
         echo "  PRIVATE_KEY length: $(echo -n "$PRIVATE_KEY" | wc -c)" >&2
     fi
 
+    # Choose template based on DNS configuration
+    local template_file="$VLESS_HOME/templates/config.json.tpl"
+    local dns_secondary_formatted=""
+
+    if [ -n "$DNS_PRIMARY" ]; then
+        # Use template with DNS if DNS servers are configured
+        if [ -f "$VLESS_HOME/templates/config_with_dns.json.tpl" ]; then
+            template_file="$VLESS_HOME/templates/config_with_dns.json.tpl"
+            print_info "Using configuration template with DNS servers"
+
+            # Format secondary DNS server object if provided
+            local dns_secondary_server_object=""
+            if [ -n "$DNS_SECONDARY" ]; then
+                dns_secondary_formatted=",
+      \"$DNS_SECONDARY\""
+                dns_secondary_server_object=",
+      {
+        \"address\": \"$DNS_SECONDARY\",
+        \"port\": 53,
+        \"domains\": [
+          \"geosite:geolocation-!cn\"
+        ],
+        \"expectIPs\": [
+          \"geoip:!cn\"
+        ]
+      }"
+            fi
+        fi
+    else
+        print_info "Using configuration template without custom DNS"
+    fi
+
     apply_template \
-        "$VLESS_HOME/templates/config.json.tpl" \
+        "$template_file" \
         "$VLESS_HOME/config/config.json" \
         "ADMIN_UUID=$ADMIN_UUID" \
         "REALITY_DEST=$REALITY_DEST" \
         "REALITY_SERVER_NAME=$REALITY_SERVER_NAME" \
         "PRIVATE_KEY=$PRIVATE_KEY" \
-        "ADMIN_SHORT_ID=$ADMIN_SHORT_ID"
+        "ADMIN_SHORT_ID=$ADMIN_SHORT_ID" \
+        "DNS_PRIMARY=$DNS_PRIMARY" \
+        "DNS_SECONDARY_FORMATTED=$dns_secondary_formatted" \
+        "DNS_SECONDARY_SERVER_OBJECT=$dns_secondary_server_object"
     chmod 600 "$VLESS_HOME/config/config.json"
     print_success "Xray configuration created"
     
@@ -349,18 +523,54 @@ start_service() {
 
     cd "$VLESS_HOME"
 
+    # Configure network settings for VPN functionality
+    print_header "Configuring Network for VPN"
+    if ! configure_network_for_vless "$DOCKER_SUBNET" "$SERVER_PORT"; then
+        print_error "Failed to configure network settings"
+        print_info "You may need to configure NAT and IP forwarding manually"
+        if ! confirm_action "Continue anyway?" "n"; then
+            exit 1
+        fi
+    fi
+
     # Check for network conflicts
     check_docker_networks
 
     # Clean up any existing network to avoid conflicts
     cleanup_existing_network "vless-reality_vless-network"
 
+    # Additional safety: ensure no orphan containers exist
+    print_step "Checking for orphan containers..."
+    docker-compose down --remove-orphans 2>/dev/null || true
+    sleep 1
+
     print_step "Starting Xray container..."
-    docker-compose up -d
+    docker-compose up -d --remove-orphans
 
     # Wait for service to be ready
     if wait_for_service "xray-server" 30; then
         print_success "Xray container started"
+
+        # Ask about fake site setup
+        echo ""
+        print_header "Optional: Fake Site Setup"
+        print_info "Would you like to setup a fake website for REALITY fallback?"
+        print_info "This provides an additional layer of obfuscation."
+        echo ""
+        read -p "Setup fake site? [y/N]: " setup_fake
+
+        if [[ "$setup_fake" =~ ^[Yy]$ ]]; then
+            echo ""
+            if [ -x "$VLESS_HOME/scripts/setup-fake-site.sh" ]; then
+                "$VLESS_HOME/scripts/setup-fake-site.sh" --auto
+            else
+                print_warning "setup-fake-site.sh not found or not executable"
+            fi
+        else
+            print_info "Skipping fake site setup"
+            print_info "You can setup it later with: $VLESS_HOME/scripts/setup-fake-site.sh"
+        fi
+        echo ""
 
         # Perform comprehensive health check
         sleep 2  # Give service a moment to initialize

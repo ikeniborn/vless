@@ -1,267 +1,787 @@
-<request>
+<request version="3.0">
+    
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!-- КОНФИГУРАЦИЯ ВЫПОЛНЕНИЯ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <execution_config>
-        <mode>strict_sequential</mode>
-        <thinking enabled="true" mode="interleaved" max_length="16000"/>
+        <language>ru</language>
+        <mode>flexible_sequential</mode>
+        <!-- flexible_sequential: фазы выполняются последовательно, 
+             но возможен возврат к предыдущим при необходимости -->
+        
+        <thinking>
+            <enabled>true</enabled>
+            <strategy>adaptive</strategy>
+            <!-- adaptive: используй thinking для анализа архитектуры,
+                 декомпозиции задач и определения зависимостей -->
+            <max_length>16000</max_length>
+        </thinking>
+        
         <validation>checkpoint_based</validation>
-        <error_handling>stop_on_failure</error_handling>
+        <!-- Проверка выполнения на ключевых этапах -->
+        
+        <error_handling>clarify_and_continue</error_handling>
+        <!-- При проблемах: объяснить, предложить решение, продолжить -->
     </execution_config>
 
-    <!-- ВНЕШНИЕ ПАРАМЕТРЫ (подставляются отдельно) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ВНЕШНИЕ ПАРАМЕТРЫ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <external_inputs>
+        
+        <!-- Роль и экспертиза -->
         <role>
-            Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
-            Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
+            <title>Full-Stack разработчик и архитектор решений</title>
+            <expertise>
+                - Bash scripting для Linux платформ
+                - Docker и Docker Compose
+                - Python разработка
+                - Декомпозиция сложных задач
+                - Проектирование архитектуры
+                - Управление зависимостями
+                - Тестирование и отладка
+            </expertise>
         </role>
+
+        <!-- Контекст выполнения -->
         <context>
-            PRD.md Product Requirements Document
+            <description>
+                Создание детального плана реализации улучшений безопасности VLESS
+            </description>
+            <source_files>
+                <file path="/home/ikeniborn/Documents/Project/vless/VLESS_SECURITY_IMPROVEMENTS.md" 
+                      type="requirements_source" 
+                      status="должен существовать"
+                      description="Документ с требованиями к улучшениям безопасности"/>
+                <file path="PRD.md" 
+                      type="product_requirements" 
+                      status="reference"
+                      description="Product Requirements Document - основа для планирования"/>
+            </source_files>
+            <target_output>
+                <file path="PLAN.md" 
+                      type="structured_plan" 
+                      action="create"/>
+            </target_output>
+            <environment>
+                <platform>Linux</platform>
+                <containerization>Docker</containerization>
+                <scripting>Bash</scripting>
+            </environment>
         </context>
+
+        <!-- Требования к выполнению -->
         <requirements>
-            - Подготовить детальный план задач на основании PRD.md
+            <primary>
+                Подготовить детальный, структурированный и реализуемый план задач 
+                на основании VLESS_SECURITY_IMPROVEMENTS.md с учетом PRD.md
+            </primary>
+            
+            <plan_structure>
+                - Декомпозиция на конкретные выполнимые задачи
+                - Определение приоритетов и зависимостей
+                - Критерии приемки для каждой задачи
+                - Оценка сложности и рисков
+                - Последовательность реализации
+            </plan_structure>
+            
+            <quality_criteria>
+                - Каждая задача атомарна и измерима
+                - Зависимости четко определены
+                - Приоритеты обоснованы
+                - План реализуем в указанной среде
+                - Все требования из источника покрыты
+                - Соответствие PRD.md обеспечено
+            </quality_criteria>
         </requirements>
+
+        <!-- Ограничения -->
         <constraints>
-            - Четко следовать Product Requirements Document
+            <technical>
+                - Использовать только Bash для скриптов
+                - Обеспечить совместимость с Docker окружением
+                - Учитывать ограничения Linux платформы
+            </technical>
+            
+            <architectural>
+                - Всегда следовать архитектуре из PRD.md
+                - Не нарушать существующую функциональность
+                - Обеспечить обратную совместимость где возможно
+            </architectural>
+            
+            <operational>
+                - Минимизировать downtime при внедрении
+                - Обеспечить откатываемость изменений
+                - Предусмотреть тестирование каждого этапа
+            </operational>
         </constraints>
+
     </external_inputs>
 
-    <!-- УНИВЕРСАЛЬНЫЙ WORKFLOW -->
-    <workflow version="2.0">
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <directives>
         
-        <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
-        <directives>
-            <directive priority="CRITICAL">
-                ВЫПОЛНЯЙТЕ фазы СТРОГО ПОСЛЕДОВАТЕЛЬНО по значению атрибута 'order'
-            </directive>
-            <directive priority="HIGH">
-                НЕ переходите к следующей фазе пока не выполнен checkpoint текущей
-            </directive>
-            <directive priority="HIGH">
-                Используйте <thinking> перед каждой фазой для планирования действий
-            </directive>
-        </directives>
+        <directive id="SEQ-01" priority="CRITICAL">
+            <rule>Выполняй фазы последовательно по атрибуту 'order'</rule>
+            <flexibility>Возврат к предыдущей фазе разрешен при обнаружении проблем</flexibility>
+        </directive>
 
-        <!-- ФАЗА 1: ПОНИМАНИЕ -->
-        <phase order="1" id="understanding" mandatory="true">
-            <objective>Полное понимание задачи и контекста</objective>
-            
-            <actions>
-                <action seq="1">Изучить все входные данные из <external_inputs></action>
-                <action seq="2">Выявить явные и неявные требования</action>
-                <action seq="3">Определить потенциальные проблемы и риски</action>
-                <action seq="4">Сформулировать понимание задачи</action>
-            </actions>
-            
-            <thinking_prompt>
-                Проанализируйте:
-                - Что именно требуется сделать?
-                - Какие есть ограничения?
-                - Какие могут быть подводные камни?
-                - Что является критичным для успеха?
-            </thinking_prompt>
-            
-            <output>
-                <file path="workflow/1_analysis.xml" format="structured">
-                    <understanding/>
-                    <requirements_parsed/>
-                    <risks_identified/>
-                    <success_criteria/>
-                </file>
-            </output>
-            
-            <checkpoint>
-                ✓ Файл analysis.xml создан
-                ✓ Все требования идентифицированы
-                ✓ Критерии успеха определены
-            </checkpoint>
-        </phase>
+        <directive id="CHK-01" priority="HIGH">
+            <rule>Не переходи к следующей фазе без выполнения checkpoint текущей</rule>
+            <exception>Если checkpoint блокирует прогресс - объясни проблему и предложи решение</exception>
+        </directive>
 
-        <!-- ФАЗА 2: ПЛАНИРОВАНИЕ -->
-        <phase order="2" id="planning" mandatory="true">
-            <dependency>phase[order=1].checkpoint.passed</dependency>
-            <objective>Создание детального плана выполнения</objective>
-            
-            <actions>
-                <action seq="1">Загрузить результаты анализа</action>
-                <action seq="2">Декомпозировать задачу на подзадачи</action>
-                <action seq="3">Определить последовательность выполнения</action>
-                <action seq="4">Назначить проверки для каждой подзадачи</action>
-            </actions>
-            
-            <thinking_prompt>
-                Спланируйте:
-                - Какие конкретные шаги нужны?
-                - В каком порядке их выполнять?
-                - Что может пойти не так на каждом шаге?
-                - Как проверить корректность выполнения?
-            </thinking_prompt>
-            
-            <output>
-                <file path="workflow/2_plan.xml" format="structured">
-                    <tasks>
-                        <task id="" description="" validation=""/>
-                    </tasks>
-                    <execution_order/>
-                    <dependencies/>
-                </file>
-            </output>
-            
-            <checkpoint>
-                ✓ План создан и структурирован
-                ✓ Все задачи имеют критерии проверки
-                ✓ Зависимости определены
-            </checkpoint>
-        </phase>
+        <directive id="THK-01" priority="HIGH">
+            <rule>Используй &lt;thinking&gt; для архитектурных решений и декомпозиции</rule>
+            <when>
+                - Анализ зависимостей между задачами
+                - Выбор последовательности реализации
+                - Оценка рисков и сложности
+                - Декомпозиция сложных требований
+                - Разрешение конфликтов приоритетов
+            </when>
+            <when_not>
+                - Простое перечисление задач
+                - Форматирование плана
+                - Копирование требований
+            </when_not>
+        </directive>
 
-        <!-- ФАЗА 3: ИСПОЛНЕНИЕ -->
-        <phase order="3" id="execution" mandatory="true">
-            <dependency>phase[order=2].checkpoint.passed</dependency>
-            <objective>Выполнение запланированных задач</objective>
+        <directive id="DEC-01" priority="CRITICAL">
+            <rule>Декомпозируй задачи до уровня конкретных действий</rule>
+            <criteria>
+                - Задача выполнима за 1-4 часа работы
+                - Результат измерим и проверяем
+                - Зависимости явно определены
+                - Критерии приемки однозначны
+            </criteria>
+        </directive>
+
+        <directive id="PRI-01" priority="HIGH">
+            <rule>Определяй приоритеты на основе критичности и зависимостей</rule>
+            <approach>
+                - CRITICAL: блокирует другие задачи, критично для безопасности
+                - HIGH: важно для функциональности, имеет зависимые задачи
+                - MEDIUM: улучшения, оптимизации
+                - LOW: nice-to-have, может быть отложено
+            </approach>
+        </directive>
+
+        <directive id="PRD-01" priority="CRITICAL">
+            <rule>Всегда сверяйся с PRD.md при планировании</rule>
+            <verification>
+                - Соответствие архитектуре
+                - Непротиворечие требованиям
+                - Совместимость с существующим функционалом
+            </verification>
+        </directive>
+
+        <directive id="OUT-01" priority="HIGH">
+            <rule>Создай структурированный план готовый к реализации</rule>
+            <preferred_format>
+                - Markdown с четкой иерархией
+                - Таблицы для задач с метаданными
+                - Диаграммы зависимостей если нужно
+                - Готовые чеклисты для проверки
+            </preferred_format>
+        </directive>
+
+        <directive id="ERR-01" priority="CRITICAL">
+            <rule>При неполноте информации - запроси недостающие данные</rule>
+            <behavior>
+                1. Четко опиши что отсутствует
+                2. Объясни как это влияет на планирование
+                3. Предложи варианты или запроси у пользователя
+                4. Не строй план на предположениях
+            </behavior>
+        </directive>
+
+        <directive id="COM-01" priority="MEDIUM">
+            <rule>Поддерживай конструктивный диалог с пользователем</rule>
+            <approach>
+                - Объясняй логику приоритизации
+                - Предлагай альтернативные подходы
+                - Запрашивай уточнения при неясностях
+                - Избегай избыточной формальности
+            </approach>
+        </directive>
+
+    </directives>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- РАБОЧИЙ ПРОЦЕСС -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <workflow>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <!-- ФАЗА 1: АНАЛИЗ И ПОНИМАНИЕ -->
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <phase order="1" id="analysis" mandatory="true">
             
+            <objective>
+                Глубокое понимание требований, контекста и архитектурных ограничений
+            </objective>
+
             <actions>
-                <action seq="1">Загрузить план выполнения</action>
-                <action seq="2">FOR EACH task IN plan.tasks:
-                    - Выполнить задачу
-                    - Провести валидацию
-                    - Документировать результат
+                <action priority="critical">
+                    Изучить VLESS_SECURITY_IMPROVEMENTS.md: все требования, улучшения, изменения
                 </action>
-                <action seq="3">Собрать все результаты</action>
+                <action priority="critical">
+                    Проанализировать PRD.md: архитектура, существующий функционал, ограничения
+                </action>
+                <action priority="high">
+                    Сопоставить требования с текущей архитектурой из PRD
+                </action>
+                <action priority="high">
+                    Выявить потенциальные конфликты и зависимости
+                </action>
+                <action priority="medium">
+                    Идентифицировать риски и сложности реализации
+                </action>
+                <action priority="medium">
+                    Определить scope работ и границы изменений
+                </action>
             </actions>
-            
+
             <thinking_prompt>
-                Для каждой задачи:
-                - Как именно её реализовать?
-                - Соответствует ли результат требованиям?
-                - Нужны ли корректировки?
+                Используй thinking для:
+                - Анализа архитектурной совместимости требований с PRD
+                - Выявления скрытых зависимостей и конфликтов
+                - Оценки общей сложности и потенциальных рисков
+                
+                Проанализируй:
+                - Какие компоненты системы будут затронуты?
+                - Есть ли противоречия между требованиями и PRD?
+                - Какие технические ограничения нужно учесть?
+                - Какие зависимости критичны для последовательности реализации?
+                - Где находятся основные риски?
             </thinking_prompt>
-            
-            <output>
-                <file path="workflow/3_implementation.md" format="markdown">
-                    Документация всех выполненных изменений
-                </file>
-                <artifacts>
-                    Созданные/измененные файлы согласно плану
-                </artifacts>
-            </output>
-            
+
+            <deliverables>
+                <item type="requirements_map">
+                    Структурированный список всех требований с привязкой к PRD
+                </item>
+                <item type="architecture_impact">
+                    Анализ влияния на существующую архитектуру
+                </item>
+                <item type="risks_and_dependencies">
+                    Карта рисков и зависимостей между компонентами
+                </item>
+                <item type="scope_definition">
+                    Четкие границы изменений и вне scope
+                </item>
+            </deliverables>
+
             <checkpoint>
-                ✓ Все задачи из плана выполнены
-                ✓ Результаты задокументированы
-                ✓ Файлы созданы/обновлены
+                ✓ Все требования из VLESS_SECURITY_IMPROVEMENTS проанализированы
+                ✓ PRD изучен, архитектура понята
+                ✓ Конфликты и противоречия выявлены
+                ✓ Зависимости и риски идентифицированы
+                ✓ Scope работ определен
+                ✓ Готовность к декомпозиции подтверждена
             </checkpoint>
+
         </phase>
 
-        <!-- ФАЗА 4: ВАЛИДАЦИЯ -->
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <!-- ФАЗА 2: ДЕКОМПОЗИЦИЯ И ПЛАНИРОВАНИЕ -->
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <phase order="2" id="decomposition" mandatory="true">
+            
+            <dependency>phase[order=1].checkpoint.passed</dependency>
+            
+            <objective>
+                Декомпозиция требований на атомарные задачи с приоритетами и зависимостями
+            </objective>
+
+            <actions>
+                <action priority="critical">
+                    Разбить каждое требование на конкретные технические задачи
+                </action>
+                <action priority="critical">
+                    Определить зависимости между задачами (блокирующие/неблокирующие)
+                </action>
+                <action priority="high">
+                    Назначить приоритеты на основе критичности и зависимостей
+                </action>
+                <action priority="high">
+                    Сформулировать критерии приемки для каждой задачи
+                </action>
+                <action priority="medium">
+                    Оценить сложность и трудозатраты (rough estimate)
+                </action>
+                <action priority="medium">
+                    Определить последовательность реализации (roadmap)
+                </action>
+                <action priority="low">
+                    Выделить задачи, которые можно выполнять параллельно
+                </action>
+            </actions>
+
+            <task_decomposition_rules>
+                <rule>Одна задача = одна измеримая цель</rule>
+                <rule>Задача выполнима за 1-4 часа работы</rule>
+                <rule>Результат задачи проверяем и тестируем</rule>
+                <rule>Зависимости явно указаны</rule>
+                <rule>Критерии приемки однозначны и проверяемы</rule>
+            </task_decomposition_rules>
+
+            <thinking_prompt>
+                Используй thinking для:
+                - Определения оптимальной последовательности задач
+                - Разрешения конфликтов приоритетов
+                - Оценки критического пути реализации
+                - Декомпозиции особо сложных требований
+                
+                Спланируй:
+                - Какая последовательность минимизирует риски?
+                - Какие задачи критичны и блокируют другие?
+                - Где возможна параллельная работа?
+                - Как обеспечить тестируемость на каждом шаге?
+            </thinking_prompt>
+
+            <deliverables>
+                <item type="task_list" format="structured">
+                    Полный список задач с метаданными:
+                    - ID задачи
+                    - Описание (что делать)
+                    - Приоритет (CRITICAL/HIGH/MEDIUM/LOW)
+                    - Зависимости (от каких задач зависит)
+                    - Оценка сложности (S/M/L/XL)
+                    - Критерии приемки
+                    - Тип работы (script/config/doc/test)
+                </item>
+                <item type="execution_sequence">
+                    Последовательность выполнения задач (roadmap)
+                </item>
+                <item type="dependencies_graph" optional="true">
+                    Визуальное представление зависимостей (если сложное)
+                </item>
+            </deliverables>
+
+            <checkpoint>
+                ✓ Все требования декомпозированы на задачи
+                ✓ Каждая задача имеет приоритет и критерии приемки
+                ✓ Зависимости между задачами определены
+                ✓ Последовательность реализации спланирована
+                ✓ Оценки сложности проставлены
+                ✓ План готов к структурированию
+            </checkpoint>
+
+        </phase>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <!-- ФАЗА 3: СТРУКТУРИРОВАНИЕ И ДОКУМЕНТИРОВАНИЕ ПЛАНА -->
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <phase order="3" id="documentation" mandatory="true">
+            
+            <dependency>phase[order=2].checkpoint.passed</dependency>
+            
+            <objective>
+                Создание структурированного, читаемого и готового к реализации плана
+            </objective>
+
+            <actions>
+                <action priority="critical">
+                    Создать финальный документ PLAN.md со всеми задачами
+                </action>
+                <action priority="high">
+                    Организовать задачи по логическим группам/фазам
+                </action>
+                <action priority="high">
+                    Добавить вводную часть: цели, scope, подход
+                </action>
+                <action priority="medium">
+                    Включить чеклисты для проверки выполнения
+                </action>
+                <action priority="medium">
+                    Добавить секцию с рисками и mitigation strategies
+                </action>
+                <action priority="low">
+                    Предоставить рекомендации по порядку внедрения
+                </action>
+            </actions>
+
+            <document_structure>
+                <section order="1">
+                    # Executive Summary
+                    - Цели плана
+                    - Scope работ
+                    - Ключевые риски
+                    - Timeline (rough estimate)
+                </section>
+                
+                <section order="2">
+                    # Архитектурный обзор
+                    - Затрагиваемые компоненты
+                    - Связь с PRD
+                    - Технические ограничения
+                </section>
+                
+                <section order="3">
+                    # Детальный план задач
+                    - Группировка по фазам/модулям
+                    - Таблицы с задачами и метаданными
+                    - Зависимости и последовательность
+                </section>
+                
+                <section order="4">
+                    # Критерии приемки и тестирование
+                    - Общие критерии успеха
+                    - Чеклисты проверки
+                    - Подходы к тестированию
+                </section>
+                
+                <section order="5">
+                    # Риски и митигация
+                    - Идентифицированные риски
+                    - Стратегии снижения рисков
+                    - Contingency plans
+                </section>
+                
+                <section order="6" optional="true">
+                    # Рекомендации по внедрению
+                    - Порядок развертывания
+                    - Стратегия rollback
+                    - Monitoring и validation
+                </section>
+            </document_structure>
+
+            <quality_guidelines>
+                <readability>
+                    - Четкие заголовки и структура
+                    - Таблицы для табличных данных
+                    - Списки для перечислений
+                    - Минимум технического жаргона где возможно
+                </readability>
+                
+                <completeness>
+                    - Все задачи покрыты
+                    - Все зависимости указаны
+                    - Критерии приемки для каждой задачи
+                    - Риски идентифицированы
+                </completeness>
+                
+                <actionability>
+                    - План готов к немедленной реализации
+                    - Задачи конкретны и измеримы
+                    - Последовательность понятна
+                    - Чеклисты готовы к использованию
+                </actionability>
+            </quality_guidelines>
+
+            <deliverables>
+                <item type="artifact" format="markdown">
+                    PLAN.md - полный структурированный план реализации
+                </item>
+            </deliverables>
+
+            <checkpoint>
+                ✓ Документ PLAN.md создан
+                ✓ Все задачи включены с полными метаданными
+                ✓ Структура логична и читаема
+                ✓ План готов к использованию командой
+                ✓ Качество соответствует guidelines
+            </checkpoint>
+
+        </phase>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <!-- ФАЗА 4: ВАЛИДАЦИЯ И ФИНАЛИЗАЦИЯ -->
+        <!-- ───────────────────────────────────────────────────────────── -->
         <phase order="4" id="validation" mandatory="true">
+            
             <dependency>phase[order=3].checkpoint.passed</dependency>
-            <objective>Проверка корректности выполнения</objective>
             
-            <actions>
-                <action seq="1">Проверить соответствие требованиям</action>
-                <action seq="2">Выполнить тестирование (если применимо)</action>
-                <action seq="3">Валидировать все созданные артефакты</action>
-                <action seq="4">Убедиться в решении исходной проблемы</action>
-            </actions>
-            
-            <thinking_prompt>
-                Проверьте:
-                - Решена ли исходная проблема?
-                - Все ли требования выполнены?
-                - Работает ли решение корректно?
-                - Есть ли побочные эффекты?
-            </thinking_prompt>
-            
-            <output>
-                <file path="workflow/4_validation.md" format="markdown">
-                    Результаты всех проверок
-                </file>
-                <tests_if_applicable path="tests/"/>
-            </output>
-            
-            <checkpoint>
-                ✓ Все требования выполнены
-                ✓ Тесты пройдены (если есть)
-                ✓ Решение работает корректно
-            </checkpoint>
-        </phase>
+            <objective>
+                Финальная проверка полноты, корректности и реализуемости плана
+            </objective>
 
-        <!-- ФАЗА 5: ДОКУМЕНТИРОВАНИЕ -->
-        <phase order="5" id="documentation" mandatory="true">
-            <dependency>phase[order=4].checkpoint.passed</dependency>
-            <objective>Финальное документирование</objective>
-            
-            <actions>
-                <action seq="1">Обновить основную документацию</action>
-                <action seq="2">Создать/обновить README если нужно</action>
-                <action seq="3">Обновить память проекта (CLAUDE.md)</action>
-                <action seq="4">Подготовить summary выполненной работы</action>
-            </actions>
-            
-            <output>
-                <documentation>
-                    Обновленные файлы документации
-                </documentation>
-                <file path="workflow/5_summary.md" format="markdown">
-                    Итоговый отчет о выполненной работе
-                </file>
-            </output>
-            
-            <checkpoint>
-                ✓ Документация обновлена
-                ✓ Изменения описаны
-                ✓ Summary создан
-            </checkpoint>
-        </phase>
+            <validation_checks>
+                <check type="requirements_coverage">
+                    Все ли требования из VLESS_SECURITY_IMPROVEMENTS покрыты задачами?
+                </check>
+                <check type="prd_compliance">
+                    Соответствует ли план архитектуре и ограничениям из PRD.md?
+                </check>
+                <check type="dependencies_integrity">
+                    Все ли зависимости корректны и реализуемы?
+                </check>
+                <check type="priorities_logic">
+                    Логична ли приоритизация с учетом критичности и зависимостей?
+                </check>
+                <check type="acceptance_criteria">
+                    Все ли задачи имеют четкие и проверяемые критерии приемки?
+                </check>
+                <check type="constraints_compliance">
+                    Учтены ли технические ограничения (Bash, Docker, Linux)?
+                </check>
+                <check type="actionability">
+                    Можно ли начать реализацию немедленно на основе этого плана?
+                </check>
+            </validation_checks>
 
-        <!-- ФАЗА 6: ФИНАЛИЗАЦИЯ -->
-        <phase order="6" id="finalization" optional="true">
-            <dependency>phase[order=5].checkpoint.passed</dependency>
-            <objective>Завершающие действия</objective>
-            
             <actions>
-                <action seq="1">Выполнить git commit если требуется</action>
-                <action seq="2">Очистить временные файлы</action>
-                <action seq="3">Вывести финальный статус</action>
+                <action priority="critical">
+                    Провести все validation_checks
+                </action>
+                <action priority="high">
+                    Подготовить summary плана с ключевыми метриками
+                </action>
+                <action priority="medium">
+                    При обнаружении проблем - исправить или вернуться к Фазе 2/3
+                </action>
+                <action priority="low">
+                    Добавить quick start guide для команды
+                </action>
             </actions>
-            
+
+            <deliverables>
+                <item type="validation_report">
+                    Результаты всех проверок с подтверждением качества
+                </item>
+                <item type="plan_summary">
+                    Executive summary с ключевыми метриками:
+                    - Общее количество задач
+                    - Распределение по приоритетам
+                    - Количество зависимостей
+                    - Rough timeline estimate
+                    - Критические риски
+                </item>
+                <item type="quick_start" optional="true">
+                    Краткая инструкция: с чего начать реализацию
+                </item>
+            </deliverables>
+
             <checkpoint>
-                ✓ Все изменения сохранены
-                ✓ Работа завершена успешно
+                ✓ Все validation_checks пройдены успешно
+                ✓ План полон и корректен
+                ✓ Summary подготовлен
+                ✓ Качество подтверждено
+                ✓ План готов к передаче в работу
             </checkpoint>
+
         </phase>
 
     </workflow>
 
-    <!-- ОБРАБОТКА ОШИБОК -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ОБРАБОТКА ОШИБОК И ИСКЛЮЧЕНИЙ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <error_handling>
-        <on_checkpoint_failure>
-            <action>STOP</action>
-            <message>❌ Checkpoint не пройден. Исправьте проблему перед продолжением.</message>
-            <instruction>Используйте <thinking> для анализа причины сбоя</instruction>
-        </on_checkpoint_failure>
-        
-        <on_dependency_not_met>
-            <action>STOP</action>
-            <message>⚠️ Зависимость не удовлетворена. Завершите предыдущую фазу.</message>
-        </on_dependency_not_met>
+
+        <scenario type="missing_source_files">
+            <detection>VLESS_SECURITY_IMPROVEMENTS.md или PRD.md недоступны</detection>
+            <response>
+                1. Сообщить какой именно файл отсутствует
+                2. Объяснить критичность файла для планирования
+                3. Запросить содержимое или альтернативный путь
+                4. НЕ продолжать планирование без критичных файлов
+            </response>
+        </scenario>
+
+        <scenario type="incomplete_requirements">
+            <detection>Требования неполны, неясны или противоречивы</detection>
+            <response>
+                1. Использовать &lt;thinking&gt; для анализа проблем
+                2. Сформулировать конкретные вопросы
+                3. Указать какие аспекты требуют уточнения
+                4. Запросить дополнительную информацию
+                5. Предложить варианты интерпретации с обоснованием
+            </response>
+        </scenario>
+
+        <scenario type="prd_conflicts">
+            <detection>Требования конфликтуют с архитектурой из PRD.md</detection>
+            <response>
+                1. Использовать &lt;thinking&gt; для анализа конфликта
+                2. Четко описать суть противоречия
+                3. Оценить влияние на архитектуру
+                4. Предложить варианты разрешения:
+                   - Адаптация требований
+                   - Изменение архитектуры (с обоснованием)
+                   - Компромиссное решение
+                5. Получить решение от пользователя
+            </response>
+        </scenario>
+
+        <scenario type="circular_dependencies">
+            <detection>Обнаружены циклические зависимости между задачами</detection>
+            <response>
+                1. Использовать &lt;thinking&gt; для анализа цикла
+                2. Визуализировать проблемную цепочку зависимостей
+                3. Предложить способы разрыва цикла:
+                   - Переформулирование задач
+                   - Изменение последовательности
+                   - Разделение задачи на части
+                4. Получить подтверждение подхода
+            </response>
+        </scenario>
+
+        <scenario type="technical_impossibility">
+            <detection>Требование нереализуемо в рамках технических ограничений</detection>
+            <response>
+                1. Четко объяснить техническое ограничение
+                2. Привести обоснование невозможности
+                3. Предложить альтернативные подходы
+                4. Запросить корректировку требований или ограничений
+            </response>
+        </scenario>
+
+        <scenario type="excessive_complexity">
+            <detection>Задача слишком сложна для декомпозиции</detection>
+            <response>
+                1. Использовать &lt;thinking&gt; для глубокого анализа
+                2. Попробовать разные подходы к декомпозиции
+                3. Если не удается - запросить помощь в декомпозиции
+                4. Предложить разбиение по альтернативным критериям
+            </response>
+        </scenario>
+
     </error_handling>
 
-    <!-- ПРАВИЛА СЛЕДОВАНИЯ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ПРАВИЛА ВЫПОЛНЕНИЯ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <execution_rules>
-        <rule id="1" enforcement="STRICT">
-            Фазы выполняются ТОЛЬКО в порядке возрастания атрибута 'order'
+
+        <rule id="R01" enforcement="STRICT">
+            <description>
+                Фазы выполняются последовательно по атрибуту 'order'
+            </description>
+            <flexibility>
+                Разрешен возврат к предыдущим фазам при обнаружении проблем
+            </flexibility>
         </rule>
-        <rule id="2" enforcement="STRICT">
-            Переход к следующей фазе ТОЛЬКО после прохождения всех checkpoint'ов текущей
+
+        <rule id="R02" enforcement="STRICT">
+            <description>
+                Переход к следующей фазе только после прохождения checkpoint
+            </description>
+            <exception>
+                При блокирующих проблемах - остановка и запрос помощи
+            </exception>
         </rule>
-        <rule id="3" enforcement="STRICT">
-            При любой ошибке - ОСТАНОВКА и запрос действий пользователя
+
+        <rule id="R03" enforcement="CRITICAL">
+            <description>
+                Всегда работай в рамках параметров из &lt;external_inputs&gt;
+            </description>
+            <emphasis>
+                PRD.md - это source of truth для архитектуры. Любые отклонения должны быть явно обоснованы.
+            </emphasis>
         </rule>
-        <rule id="4" enforcement="REQUIRED">
-            Каждая фаза начинается с <thinking> блока для планирования
+
+        <rule id="R04" enforcement="CRITICAL">
+            <description>
+                Каждая задача должна быть атомарной и измеримой
+            </description>
+            <verification>
+                - Можно ли выполнить за 1-4 часа?
+                - Есть ли четкие критерии приемки?
+                - Проверяем ли результат?
+            </verification>
         </rule>
-        <rule id="5" enforcement="REQUIRED">
-            Все выходные файлы создаются в указанных путях
+
+        <rule id="R05" enforcement="REQUIRED">
+            <description>
+                Используй thinking для архитектурных решений и декомпозиции
+            </description>
+            <guidance>
+                Thinking для: анализа зависимостей, выбора последовательности, разрешения конфликтов
+                НЕ для: простого перечисления, форматирования, копирования
+            </guidance>
         </rule>
+
+        <rule id="R06" enforcement="REQUIRED">
+            <description>
+                Приоритеты основаны на критичности и блокирующих зависимостях
+            </description>
+            <priority_logic>
+                CRITICAL → блокирует другие задачи или критично для безопасности
+                HIGH → важно для функциональности или имеет зависимые задачи
+                MEDIUM → улучшения и оптимизации
+                LOW → nice-to-have, может быть отложено
+            </priority_logic>
+        </rule>
+
+        <rule id="R07" enforcement="REQUIRED">
+            <description>
+                План должен быть готов к немедленной реализации
+            </description>
+            <readiness_criteria>
+                - Задачи конкретны и понятны
+                - Зависимости явно определены
+                - Критерии приемки проверяемы
+                - Последовательность логична
+                - Нет неопределенностей, требующих уточнения
+            </readiness_criteria>
+        </rule>
+
+        <rule id="R08" enforcement="RECOMMENDED">
+            <description>
+                Поддерживай активную коммуникацию с пользователем
+            </description>
+            <approach>
+                Объясняй логику приоритизации, предлагай альтернативы, запрашивай уточнения
+            </approach>
+        </rule>
+
     </execution_rules>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ПРИМЕЧАНИЯ ПО ИСПОЛЬЗОВАНИЮ -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <usage_notes>
+        
+        <note type="purpose">
+            Этот промпт оптимизирован для создания детальных технических планов реализации.
+            Фокус на декомпозиции, приоритизации, зависимостях и готовности к выполнению.
+        </note>
+
+        <note type="prd_importance">
+            PRD.md является критичным референсом. Все задачи должны соответствовать
+            архитектуре и требованиям из PRD. Любые отклонения требуют явного обоснования.
+        </note>
+
+        <note type="task_granularity">
+            Оптимальная гранулярность задачи: 1-4 часа работы.
+            Слишком крупные задачи должны быть декомпозированы дальше.
+            Слишком мелкие задачи могут быть объединены.
+        </note>
+
+        <note type="dependencies">
+            Зависимости критичны для последовательности. Всегда явно указывай:
+            - Блокирующие зависимости (нельзя начать без завершения другой)
+            - Мягкие зависимости (желательно, но не критично)
+            - Параллельно выполнимые задачи
+        </note>
+
+        <note type="thinking_strategy">
+            Используй thinking интенсивно в Фазах 1 и 2 для:
+            - Анализа архитектурных последствий
+            - Оптимальной декомпозиции
+            - Определения критического пути
+            В Фазах 3 и 4 thinking нужен реже, в основном для структурирования.
+        </note>
+
+        <note type="output_format">
+            Финальный PLAN.md должен быть:
+            - Структурирован как professional техническая документация
+            - Использовать таблицы для задач с метаданными
+            - Включать визуальные элементы где уместно
+            - Быть готовым к печати и распространению команде
+        </note>
+
+        <note type="flexibility">
+            При обнаружении проблем на поздних фазах:
+            - Не бойся вернуться к Фазе 1 или 2
+            - Лучше пересмотреть план, чем создать нереализуемый
+            - Коммуницируй с пользователем о причинах возврата
+        </note>
+
+    </usage_notes>
 
 </request>
