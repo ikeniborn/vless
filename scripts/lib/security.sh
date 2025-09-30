@@ -157,10 +157,16 @@ update_config_shortids() {
     fi
 
     # Extract all shortIds from all users (flatten the arrays)
-    local all_shortids=$(jq -r '[.users[].short_ids[]] | unique | @json' "$USERS_FILE")
+    # Support both new format (short_ids array) and legacy format (short_id string)
+    # Handle null/missing values gracefully
+    local all_shortids=$(jq -r '[.users[] | (.short_ids // [.short_id] // []) | .[]] | unique | @json' "$USERS_FILE")
 
-    # Also include empty string for compatibility
-    all_shortids=$(echo "$all_shortids" | jq '. = [""] + .')
+    # Validate and include empty string for compatibility
+    if [ -z "$all_shortids" ] || [ "$all_shortids" == "null" ] || [ "$all_shortids" == "[]" ]; then
+        all_shortids='[""]'
+    else
+        all_shortids=$(echo "$all_shortids" | jq '. = [""] + .')
+    fi
 
     # Update config.json
     local tmp_file=$(mktemp)
