@@ -50,11 +50,29 @@
                 Диагностика и исправление проблемы в VLESS системе
             </description>
             <problem_description>
-                <!-- Описание проблемы заполняется пользователем -->
-                <symptom>Наблюдаемая проблема или некорректное поведение</symptom>
-                <environment>Где проявляется проблема</environment>
-                <impact>Как проблема влияет на систему</impact>
-                <when_started>Когда проблема начала проявляться</when_started>
+                ПРи добавлении пользователя в логазз отображены ошибки
+                ========================================
+                    Add New User
+                ========================================
+
+                Enter username: ikeniborn-dev
+
+                Do you want to set bandwidth quota and expiry date? [y/N]: n
+                ℹ Generated UUID: 404b7ebf-a1de-4beb-85d6-0203827179b5
+                ℹ Generated ShortIDs: ["2efb327e", "2efb32", "2efb"]
+                ✓ User added to configuration
+                jq: error (at /opt/vless/data/users.json:27): Cannot iterate over null (null)
+                jq: error: syntax error, unexpected end of file (Unix shell quoting issues?) at <top-level>, line 1:
+                .inbounds[0].streamSettings.realitySettings.shortIds =                                                       
+                jq: 1 compile error
+                ✗ Failed to update config.json
+                ⚠ Failed to update shortIds, but user was added
+                → Restarting Xray service...
+                [+] Running 1/1
+                ✔ Container xray-server  Removed                                          0.1s 
+                WARN[0000] Found orphan containers ([vless-fake-site]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up. 
+                [+] Running 1/1
+
             </problem_description>
             <available_resources>
                 <file path="PRD.md" 
