@@ -96,16 +96,20 @@ echo ""
 
 # Docker-managed rules (good)
 print_info "[Docker-managed rules (automatic)]"
-iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
-    grep -E "br-[a-f0-9]+" | \
-    awk '{print "  "$1": "$0}' || echo "  None found"
+DOCKER_RULES=$(iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
+    grep -E "br-[a-f0-9]+" || true)
+if [ -n "$DOCKER_RULES" ]; then
+    echo "$DOCKER_RULES" | awk '{print "  "$1": "$0}'
+else
+    echo "  None found"
+fi
 echo ""
 
 # Manual rules via external interface (potentially conflicting)
 print_info "[Manual rules via external interface (may conflict)]"
 MANUAL_RULES=$(iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
     grep -E "MASQUERADE.*${EXTERNAL_IF}" | \
-    grep -E "172\.[0-9]+\.0\.0/1[0-9]")
+    grep -E "172\.[0-9]+\.0\.0/1[0-9]" || true)
 
 if [ -n "$MANUAL_RULES" ]; then
     echo "$MANUAL_RULES" | awk '{print "  "$1": "$0}'
@@ -121,9 +125,13 @@ echo ""
 
 # Docker default bridge rules
 print_info "[Default Docker bridge rules]"
-iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
-    grep -E "docker0" | \
-    awk '{print "  "$1": "$0}' || echo "  None found"
+DOCKER0_RULES=$(iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
+    grep -E "docker0" || true)
+if [ -n "$DOCKER0_RULES" ]; then
+    echo "$DOCKER0_RULES" | awk '{print "  "$1": "$0}'
+else
+    echo "  None found"
+fi
 
 echo ""
 
@@ -136,7 +144,7 @@ echo ""
 # Group rules by source subnet and count
 DUPLICATES=$(iptables -t nat -L POSTROUTING -n 2>/dev/null | \
     grep -E "MASQUERADE.*172\.[0-9]+\.0\.0/1[0-9]" | \
-    awk '{print $4}' | sort | uniq -c | awk '$1 > 2 {print}')
+    awk '{print $4}' | sort | uniq -c | awk '$1 > 2 {print}' || true)
 
 if [ -n "$DUPLICATES" ]; then
     print_warning "Found duplicate rules:"
