@@ -410,7 +410,7 @@ clean_conflicting_nat_rules() {
     fi
 
     # Count manual MASQUERADE rules for Docker subnets (172.x.0.0/16) via external interface
-    local manual_rules=$(iptables -t nat -L POSTROUTING -n --line-numbers 2>/dev/null | \
+    local manual_rules=$(iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
         grep -E "MASQUERADE.*\*[[:space:]]+${external_if}[[:space:]]+172\.[0-9]+\.0\.0/1[0-9]" | \
         wc -l)
 
@@ -439,7 +439,7 @@ clean_conflicting_nat_rules() {
         fi
         # After deletion, all subsequent line numbers shift down by 1
         # So we only delete the first matching rule in each iteration
-    done < <(iptables -t nat -L POSTROUTING -n --line-numbers 2>/dev/null | \
+    done < <(iptables -t nat -L POSTROUTING -n -v --line-numbers 2>/dev/null | \
         grep -E "MASQUERADE.*\*[[:space:]]+${external_if}[[:space:]]+172\.[0-9]+\.0\.0/1[0-9]" | \
         awk '{print $1}' | sort -rn)
 
