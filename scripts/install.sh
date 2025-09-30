@@ -333,16 +333,16 @@ copy_files() {
 generate_keys() {
     print_header "Generating X25519 Keys"
 
-    # Pull Docker image first
+    # Pull Docker image first (pinned version for compatibility)
     print_step "Pulling Xray Docker image..."
-    docker pull teddysun/xray:latest
+    docker pull teddysun/xray:24.11.30
 
     # Generate keys using Docker
     print_step "Generating X25519 key pair..."
 
     # Generate both keys in one command
     # xray x25519 outputs: PrivateKey, Password (which is PublicKey), and Hash32
-    local key_output=$(docker run --rm teddysun/xray:latest xray x25519)
+    local key_output=$(docker run --rm teddysun/xray:24.11.30 xray x25519)
 
     # Extract private key (PrivateKey: field)
     PRIVATE_KEY=$(echo "$key_output" | grep "PrivateKey:" | awk '{print $2}')

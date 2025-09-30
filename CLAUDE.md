@@ -13,11 +13,12 @@ VLESS+Reality VPN service using Xray-core in Docker with bash-based CLI manageme
 2. **Working Directory** (`/opt/vless/`) - Created during installation, contains runtime data, configs, and user data
 
 ### Key Components
-- **Xray-core Container**: Main VPN server running in Docker (teddysun/xray:latest)
+- **Xray-core Container**: Main VPN server running in Docker (teddysun/xray:24.11.30 - pinned version)
 - **REALITY Protocol**: Traffic obfuscation using TLS masquerading
 - **X25519 Cryptography**: Key generation and management for REALITY
 - **Interactive CLI Menus**: All management scripts have both menu and direct command modes
 - **DNS Configuration**: Customizable DNS servers during installation (Google, Cloudflare, Quad9, or custom)
+- **Network Auto-Configuration**: Automatic setup of IP forwarding, NAT, and firewall rules with legacy cleanup
 
 ## Common Development Commands
 
@@ -52,7 +53,21 @@ docker network inspect vless-reality_vless-network
 
 # Verify network configuration
 sysctl net.ipv4.ip_forward
-iptables -t nat -L POSTROUTING -n
+sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
+```
+
+### Network Cleanup and Maintenance
+```bash
+# Clean up legacy network rules (after upgrade or reinstallation)
+sudo /opt/vless/scripts/cleanup-legacy-network.sh
+
+# Check for duplicate/legacy rules
+sudo iptables -t nat -L POSTROUTING -n -v --line-numbers | grep "172\."
+sudo cat /etc/ufw/before.rules | grep "NAT table" -A 20
+
+# Verify IP forwarding persistence
+grep "ip_forward" /etc/sysctl.conf
+sysctl net.ipv4.ip_forward
 ```
 
 ### Script Dependencies
@@ -70,11 +85,14 @@ All scripts source dependencies in this order:
 - `restart_xray_service()` - Safe restart with docker-compose
 
 ### Key Functions in lib/network.sh
-#### Network Configuration (Added 2025-09-30)
+#### Network Configuration (Updated 2025-09-30)
 - `find_available_docker_subnet()` - Finds free Docker subnet in 172.16-254.x.x range
-- `enable_ip_forwarding()` - Enables and persists IP forwarding via sysctl
-- `configure_nat_iptables()` - Sets up NAT MASQUERADE rules for Docker subnet
-- `configure_ufw_for_docker()` - Configures UFW for Docker bridge network (adds NAT rules to /etc/ufw/before.rules)
+- `enable_ip_forwarding()` - Enables and persists IP forwarding via sysctl (checks both runtime and persistence)
+- `check_iptables_rule_exists()` - Checks if iptables rule exists (works around -C limitations)
+- `remove_legacy_iptables_rules()` - Removes legacy iptables rules for old Docker subnets
+- `configure_nat_iptables()` - Sets up NAT MASQUERADE rules for Docker subnet (with duplicate prevention and legacy cleanup)
+- `remove_legacy_ufw_nat_rules()` - Removes duplicate/legacy UFW NAT blocks from before.rules
+- `configure_ufw_for_docker()` - Configures UFW for Docker bridge network (adds NAT rules to /etc/ufw/before.rules, includes cleanup)
 - `configure_network_for_vless()` - Main function to configure all network settings
 - `verify_network_configuration()` - Validates network setup
 - `get_external_interface()` - Auto-detects external network interface
@@ -241,25 +259,31 @@ Set automatically by scripts:
 **Solution:** Bridge network mode with automatic NAT and IP forwarding configuration
 - Installation automatically detects free Docker subnet (172.16-254.x.x/16)
 - IP forwarding enabled via sysctl (`net.ipv4.ip_forward = 1`)
+- IP forwarding persistence in /etc/sysctl.conf (survives reboot)
 - NAT MASQUERADE configured via iptables for Docker subnet
 - UFW automatically configured with NAT rules in /etc/ufw/before.rules
+- Legacy rules cleanup on installation (removes old subnet rules)
 - Verification: `sysctl net.ipv4.ip_forward` should return 1
 - Verification: `iptables -t nat -L POSTROUTING -n` should show MASQUERADE rule
 
 **Troubleshooting:**
 ```bash
-# Check IP forwarding
+# Check IP forwarding (runtime and persistent)
 sysctl net.ipv4.ip_forward
+grep "ip_forward" /etc/sysctl.conf
 
 # Check iptables NAT rules
-iptables -t nat -L -n -v
+sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
 
 # Check UFW configuration
-cat /etc/ufw/before.rules | grep -A 10 "NAT table"
+sudo cat /etc/ufw/before.rules | grep -A 10 "NAT table"
+
+# Clean up legacy network rules
+sudo /opt/vless/scripts/cleanup-legacy-network.sh
 
 # Manually reconfigure network if needed
 source /opt/vless/scripts/lib/network.sh
-configure_network_for_vless "172.20.0.0/16" "443"
+configure_network_for_vless "172.19.0.0/16" "443"
 ```
 
 ### sed Expression Errors
