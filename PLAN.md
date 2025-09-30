@@ -546,39 +546,39 @@
 - [ ] Создан отдельный branch для разработки (`git checkout -b security-improvements`)
 
 ### Фаза 1: Базовые улучшения REALITY ✅
-- [ ] 1.1: config.json.tpl обновлен с множественными serverNames
-- [ ] 1.2: minClientVer="1.8.0" и maxTimeDiff=90 добавлены
-- [ ] 1.3: config_with_dns.json.tpl синхронизирован
-- [ ] 1.4: lib/domains.sh создан/обновлен с проверенными доменами
-- [ ] 1.5: scripts/check-destination.sh создан и работает
-- [ ] 1.6: check-destination интегрирован в install.sh
-- [ ] 1.7: Конфигурация протестирована, клиенты подключаются
-- [ ] **Checkpoint Фазы 1:** Xray запускается без ошибок, REALITY параметры усилены
+- [x] 1.1: config.json.tpl обновлен с множественными serverNames
+- [x] 1.2: minClientVer="1.8.0" и maxTimeDiff=90 добавлены
+- [x] 1.3: config_with_dns.json.tpl синхронизирован
+- [x] 1.4: lib/domains.sh создан/обновлен с проверенными доменами
+- [x] 1.5: scripts/check-destination.sh создан и работает
+- [x] 1.6: check-destination интегрирован в install.sh
+- [x] 1.7: Конфигурация протестирована, клиенты подключаются
+- [x] **Checkpoint Фазы 1:** Xray запускается без ошибок, REALITY параметры усилены
 
 ### Фаза 2: Расширенная фильтрация и DNS ✅
-- [ ] 2.1: templates/routing_rules.json создан с комплексными правилами
-- [ ] 2.2: templates/dns_config.json создан с защитой от утечек
-- [ ] 2.3: Routing интегрирован в config.json.tpl
-- [ ] 2.4: DNS интегрирован в config_with_dns.json.tpl
-- [ ] 2.5: install.sh обновлен для routing/DNS
-- [ ] 2.6: Фильтрация протестирована (BitTorrent блокируется, DNS не утекает)
-- [ ] **Checkpoint Фазы 2:** Трафик фильтруется корректно, DNS защищен
+- [x] 2.1: templates/routing_rules.json создан с комплексными правилами
+- [x] 2.2: templates/dns_config.json создан с защитой от утечек
+- [x] 2.3: Routing интегрирован в config.json.tpl
+- [x] 2.4: DNS интегрирован в config_with_dns.json.tpl
+- [x] 2.5: install.sh обновлен для routing/DNS
+- [x] 2.6: Фильтрация протестирована (BitTorrent блокируется, DNS не утекает)
+- [x] **Checkpoint Фазы 2:** Трафик фильтруется корректно, DNS защищен
 
 ### Фаза 3: Fallback и fake сайт ✅
-- [ ] 3.1: templates/docker-compose.fake.yml создан
-- [ ] 3.2: scripts/setup-fake-site.sh создан и работает
-- [ ] 3.3: Fallback правила добавлены в config.json.tpl
-- [ ] 3.4: Fake site интегрирован в install.sh
-- [ ] 3.5: Fallback механизмы протестированы
-- [ ] **Checkpoint Фазы 3:** Fallback работает, fake site отвечает
+- [x] 3.1: templates/docker-compose.fake.yml создан
+- [x] 3.2: scripts/setup-fake-site.sh создан и работает
+- [x] 3.3: Fallback правила добавлены в config.json.tpl
+- [x] 3.4: Fake site интегрирован в install.sh
+- [x] 3.5: Fallback механизмы протестированы
+- [x] **Checkpoint Фазы 3:** Fallback работает, fake site отвечает
 
 ### Фаза 4: Библиотека security и данные ✅
-- [ ] 4.1: scripts/lib/security.sh создан с базовыми функциями
-- [ ] 4.2: Скрипт миграции users.json создан и протестирован на копии
-- [ ] 4.2: Миграция users.json выполнена, backup создан
-- [ ] 4.3: scripts/user-manager.sh обновлен для работы с квотами
-- [ ] 4.4: Stats API настроен в конфигурации, протестирован
-- [ ] **Checkpoint Фазы 4:** lib/security.sh работает, users.json расширен, API отвечает
+- [x] 4.1: scripts/lib/security.sh создан с базовыми функциями
+- [x] 4.2: Скрипт миграции users.json создан и протестирован на копии
+- [x] 4.2: Миграция users.json выполнена, backup создан
+- [x] 4.3: scripts/user-manager.sh обновлен для работы с квотами
+- [x] 4.4: Stats API настроен в конфигурации, протестирован
+- [x] **Checkpoint Фазы 4:** lib/security.sh работает, users.json расширен, API отвечает
 
 ### Фаза 5: Мониторинг безопасности ✅
 - [ ] 5.1: scripts/monitoring/monitor-security.sh создан
