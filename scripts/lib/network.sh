@@ -271,6 +271,7 @@ configure_network_for_vless() {
     print_info "Network configuration approach:"
     print_info "  • Enable kernel modules and sysctl settings"
     print_info "  • Configure Docker daemon"
+    print_info "  • Clean up conflicting manual NAT rules"
     print_info "  • Docker automatically manages iptables NAT rules"
     print_info "  • No manual iptables manipulation needed"
     echo ""
@@ -293,7 +294,10 @@ configure_network_for_vless() {
         return 1
     fi
 
-    # Step 4: Configure firewall (if UFW is active)
+    # Step 4: Clean up conflicting manual NAT rules (from other VPN services)
+    clean_conflicting_nat_rules
+
+    # Step 5: Configure firewall (if UFW is active)
     configure_firewall "$server_port"
 
     echo ""
@@ -384,6 +388,68 @@ get_external_interface() {
     fi
 
     echo "$interface"
+    return 0
+}
+
+# Clean up conflicting manual NAT rules
+# Removes duplicate MASQUERADE rules that conflict with Docker-managed rules
+clean_conflicting_nat_rules() {
+    print_step "Checking for conflicting NAT rules..."
+
+    # Get external interface
+    local external_if=$(get_external_interface 2>/dev/null)
+    if [ -z "$external_if" ]; then
+        print_warning "Could not detect external interface, skipping NAT cleanup"
+        return 0
+    fi
+
+    # Check if iptables is available
+    if ! command_exists iptables; then
+        print_info "iptables not found, skipping NAT cleanup"
+        return 0
+    fi
+
+    # Count manual MASQUERADE rules for Docker subnets (172.x.0.0/16) via external interface
+    local manual_rules=$(iptables -t nat -L POSTROUTING -n --line-numbers 2>/dev/null | \
+        grep -E "MASQUERADE.*\*[[:space:]]+${external_if}[[:space:]]+172\.[0-9]+\.0\.0/1[0-9]" | \
+        wc -l)
+
+    if [ "$manual_rules" -eq 0 ]; then
+        print_success "No conflicting manual NAT rules found"
+        return 0
+    fi
+
+    print_warning "Found $manual_rules manual NAT rule(s) that may conflict with Docker"
+    print_info "These rules are typically added by other VPN services or manual configuration"
+    echo ""
+
+    if ! confirm_action "Remove conflicting manual NAT rules?" "y"; then
+        print_info "Keeping existing rules (may cause routing conflicts)"
+        return 0
+    fi
+
+    # Remove duplicate rules (iterate in reverse to maintain line numbers)
+    local removed=0
+    while read -r line_num; do
+        if iptables -t nat -D POSTROUTING "$line_num" 2>/dev/null; then
+            ((removed++))
+            print_success "Removed manual rule #$line_num"
+        else
+            print_warning "Failed to remove rule #$line_num"
+        fi
+        # After deletion, all subsequent line numbers shift down by 1
+        # So we only delete the first matching rule in each iteration
+    done < <(iptables -t nat -L POSTROUTING -n --line-numbers 2>/dev/null | \
+        grep -E "MASQUERADE.*\*[[:space:]]+${external_if}[[:space:]]+172\.[0-9]+\.0\.0/1[0-9]" | \
+        awk '{print $1}' | sort -rn)
+
+    if [ $removed -gt 0 ]; then
+        print_success "Removed $removed conflicting NAT rule(s)"
+        print_info "Docker will recreate necessary rules automatically"
+    else
+        print_info "No rules were removed"
+    fi
+
     return 0
 }
 

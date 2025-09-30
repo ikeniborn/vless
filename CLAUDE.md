@@ -98,8 +98,9 @@ All scripts source dependencies in this order:
 - `enable_ip_forwarding()` - Enables IP forwarding and bridge netfilter (bridge-nf-call-iptables)
 - `make_sysctl_persistent()` - Creates /etc/sysctl.d/99-vless-network.conf for persistence
 - `configure_docker_daemon()` - Creates/updates /etc/docker/daemon.json with optimal settings
+- `clean_conflicting_nat_rules()` - **NEW**: Detects and removes manual NAT rules that conflict with Docker (from other VPN services)
 - `configure_firewall()` - Configures UFW port and forward policy (if UFW is active)
-- `configure_network_for_vless()` - Main function: loads modules, enables sysctl, configures Docker
+- `configure_network_for_vless()` - Main function: loads modules, enables sysctl, cleans conflicting rules, configures Docker
 - `verify_network_configuration()` - Validates network setup (checks modules, sysctl, Docker NAT)
 - `get_external_interface()` - Auto-detects external network interface
 - `display_network_summary()` - Shows network configuration summary
@@ -313,6 +314,69 @@ sudo sysctl -p /etc/sysctl.d/99-vless-network.conf
 sudo systemctl restart docker
 cd /opt/vless && docker-compose restart
 ```
+
+### VPN Conflicts with Other Services (NEW)
+**Issue:** Multiple VPN services (VLESS, Outline, OpenVPN, etc.) on same server create conflicting NAT rules
+**Symptoms:**
+- Client connects but cannot access internet (despite system settings correct)
+- Multiple duplicate MASQUERADE rules in iptables
+- Example: `172.18.0.0/16` appears 10 times, `172.19.0.0/16` appears 5 times
+
+**Root Cause:** Other VPN services manually add iptables NAT rules that conflict with Docker-managed rules
+
+**Diagnostic Tool:**
+```bash
+# Run comprehensive diagnostic
+sudo /opt/vless/scripts/diagnose-vpn-conflicts.sh
+
+# Or from repo directory
+sudo ./scripts/diagnose-vpn-conflicts.sh
+```
+
+The tool will:
+- Check system configuration (kernel modules, sysctl settings)
+- Analyze Docker networks and subnets
+- Identify conflicting manual NAT rules
+- Check for duplicate MASQUERADE rules
+- Test container connectivity
+- Provide actionable recommendations
+
+**Automatic Cleanup (Recommended):**
+```bash
+# During installation (automatic)
+sudo bash scripts/install.sh
+# Installation will detect and offer to remove conflicting rules
+
+# For existing installation
+source /opt/vless/scripts/lib/colors.sh
+source /opt/vless/scripts/lib/utils.sh
+source /opt/vless/scripts/lib/network.sh
+clean_conflicting_nat_rules
+
+# Restart services
+sudo systemctl restart docker
+cd /opt/vless && docker-compose restart
+```
+
+**Manual Cleanup:**
+```bash
+# List conflicting rules (manual rules via external interface for Docker subnets)
+sudo iptables -t nat -L POSTROUTING -n -v --line-numbers | grep -E "MASQUERADE.*ens1.*172\."
+
+# Remove rules in REVERSE order (highest number first)
+# Example: if you have rules 7-20, remove them like this:
+for i in {20..7}; do sudo iptables -t nat -D POSTROUTING $i; done
+
+# Verify only Docker-managed rules remain (with br-XXXXX interface)
+sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
+```
+
+**Prevention:**
+- Use different Docker subnets for each VPN service
+- Let Docker manage its own NAT rules automatically
+- Never manually add iptables rules for Docker subnets
+
+**See also:** docs/VPN-CONFLICTS-SOLUTIONS.md for complete guide
 
 ### sed Expression Errors
 Fixed in `lib/config.sh:167` - split complex sed command into pipeline:
