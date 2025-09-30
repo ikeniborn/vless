@@ -56,18 +56,23 @@ sysctl net.ipv4.ip_forward
 sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
 ```
 
-### Network Cleanup and Maintenance
+### Network Verification and Troubleshooting
 ```bash
-# Clean up legacy network rules (after upgrade or reinstallation)
-sudo /opt/vless/scripts/cleanup-legacy-network.sh
-
-# Check for duplicate/legacy rules
-sudo iptables -t nat -L POSTROUTING -n -v --line-numbers | grep "172\."
-sudo cat /etc/ufw/before.rules | grep "NAT table" -A 20
-
-# Verify IP forwarding persistence
-grep "ip_forward" /etc/sysctl.conf
+# Verify kernel modules and sysctl settings
+lsmod | grep br_netfilter
 sysctl net.ipv4.ip_forward
+sysctl net.bridge.bridge-nf-call-iptables
+cat /etc/sysctl.d/99-vless-network.conf
+
+# Check Docker-managed NAT rules (automatic, no manual editing)
+sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
+
+# Verify Docker network
+docker network inspect vless-reality_vless-network
+
+# Test connectivity from container
+docker exec xray-server ping -c 2 8.8.8.8
+docker exec xray-server nslookup google.com 8.8.8.8
 ```
 
 ### Script Dependencies
@@ -85,18 +90,24 @@ All scripts source dependencies in this order:
 - `restart_xray_service()` - Safe restart with docker-compose
 
 ### Key Functions in lib/network.sh
-#### Network Configuration (Updated 2025-09-30)
+#### Network Configuration (Rewritten 2025-09-30)
+**Philosophy: Docker automatically manages iptables NAT rules. Scripts only configure kernel settings.**
+
 - `find_available_docker_subnet()` - Finds free Docker subnet in 172.16-254.x.x range
-- `enable_ip_forwarding()` - Enables and persists IP forwarding via sysctl (checks both runtime and persistence)
-- `check_iptables_rule_exists()` - Checks if iptables rule exists (works around -C limitations)
-- `remove_legacy_iptables_rules()` - Removes legacy iptables rules for old Docker subnets
-- `configure_nat_iptables()` - Sets up NAT MASQUERADE rules for Docker subnet (with duplicate prevention and legacy cleanup)
-- `remove_legacy_ufw_nat_rules()` - Removes duplicate/legacy UFW NAT blocks from before.rules
-- `configure_ufw_for_docker()` - Configures UFW for Docker bridge network (adds NAT rules to /etc/ufw/before.rules, includes cleanup)
-- `configure_network_for_vless()` - Main function to configure all network settings
-- `verify_network_configuration()` - Validates network setup
+- `load_br_netfilter()` - Loads br_netfilter kernel module (required for bridge+iptables)
+- `enable_ip_forwarding()` - Enables IP forwarding and bridge netfilter (bridge-nf-call-iptables)
+- `make_sysctl_persistent()` - Creates /etc/sysctl.d/99-vless-network.conf for persistence
+- `configure_docker_daemon()` - Creates/updates /etc/docker/daemon.json with optimal settings
+- `configure_firewall()` - Configures UFW port and forward policy (if UFW is active)
+- `configure_network_for_vless()` - Main function: loads modules, enables sysctl, configures Docker
+- `verify_network_configuration()` - Validates network setup (checks modules, sysctl, Docker NAT)
 - `get_external_interface()` - Auto-detects external network interface
 - `display_network_summary()` - Shows network configuration summary
+
+**Key Settings:**
+- `net.ipv4.ip_forward = 1` - Enable routing
+- `net.bridge.bridge-nf-call-iptables = 1` - **CRITICAL**: Bridge traffic through iptables
+- `br_netfilter` module loaded - Required for above setting to work
 
 ### Key Functions in lib/utils.sh
 #### Symlink Management
@@ -254,36 +265,53 @@ Set automatically by scripts:
 
 ## Common Issues and Solutions
 
-### Network Configuration and VPN Routing
+### Network Configuration and VPN Routing (CRITICAL)
 **Issue:** VPN clients cannot access internet after connection
-**Solution:** Bridge network mode with automatic NAT and IP forwarding configuration
-- Installation automatically detects free Docker subnet (172.16-254.x.x/16)
-- IP forwarding enabled via sysctl (`net.ipv4.ip_forward = 1`)
-- IP forwarding persistence in /etc/sysctl.conf (survives reboot)
-- NAT MASQUERADE configured via iptables for Docker subnet
-- UFW automatically configured with NAT rules in /etc/ufw/before.rules
-- Legacy rules cleanup on installation (removes old subnet rules)
-- Verification: `sysctl net.ipv4.ip_forward` should return 1
-- Verification: `iptables -t nat -L POSTROUTING -n` should show MASQUERADE rule
+**Root Cause:** Missing `br_netfilter` module or `bridge-nf-call-iptables` setting
 
-**Troubleshooting:**
+**How Docker NAT Works:**
+1. Docker automatically creates MASQUERADE rule: `-A POSTROUTING -s 172.X.0.0/16 ! -o br-XXX -j MASQUERADE`
+2. **Requires** `br_netfilter` kernel module loaded
+3. **Requires** `net.bridge.bridge-nf-call-iptables = 1` (bridge traffic through iptables)
+4. **Requires** `net.ipv4.ip_forward = 1` (routing enabled)
+
+**What Installation Configures:**
+- Loads `br_netfilter` module persistently (`/etc/modules-load.d/br_netfilter.conf`)
+- Creates `/etc/sysctl.d/99-vless-network.conf` with all required settings
+- Configures `/etc/docker/daemon.json` with optimal settings
+- Docker automatically manages iptables NAT rules (no manual intervention)
+
+**Verification:**
 ```bash
-# Check IP forwarding (runtime and persistent)
+# All three must return 1
+lsmod | grep br_netfilter
 sysctl net.ipv4.ip_forward
-grep "ip_forward" /etc/sysctl.conf
+sysctl net.bridge.bridge-nf-call-iptables
 
-# Check iptables NAT rules
-sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
+# Docker should create this rule automatically after docker-compose up
+sudo iptables -t nat -L POSTROUTING -n -v | grep "MASQUERADE.*172\."
 
-# Check UFW configuration
-sudo cat /etc/ufw/before.rules | grep -A 10 "NAT table"
+# Test from container
+docker exec xray-server ping -c 2 8.8.8.8
+```
 
-# Clean up legacy network rules
-sudo /opt/vless/scripts/cleanup-legacy-network.sh
+**Manual Fix (if needed):**
+```bash
+# Load module
+sudo modprobe br_netfilter
+echo "br_netfilter" | sudo tee /etc/modules-load.d/br_netfilter.conf
 
-# Manually reconfigure network if needed
-source /opt/vless/scripts/lib/network.sh
-configure_network_for_vless "172.19.0.0/16" "443"
+# Enable sysctl settings
+sudo tee /etc/sysctl.d/99-vless-network.conf << EOF
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+sudo sysctl -p /etc/sysctl.d/99-vless-network.conf
+
+# Restart Docker to apply
+sudo systemctl restart docker
+cd /opt/vless && docker-compose restart
 ```
 
 ### sed Expression Errors

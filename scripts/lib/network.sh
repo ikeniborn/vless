@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Network configuration library for VLESS VPN service
-# Handles IP forwarding, NAT, and Docker bridge network setup
+# Configures kernel modules and sysctl settings for Docker bridge networking
+# Docker automatically manages iptables NAT rules - no manual intervention needed
 
 # Load colors if not already loaded
 if [ -z "$NC" ]; then
@@ -50,24 +51,48 @@ find_available_docker_subnet() {
     return 1
 }
 
-# Enable IP forwarding on the host
-enable_ip_forwarding() {
-    print_step "Enabling IP forwarding..."
+# Load br_netfilter kernel module (required for bridge traffic to pass through iptables)
+load_br_netfilter() {
+    print_step "Loading br_netfilter kernel module..."
 
-    # Check current runtime status
-    local current_forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo "0")
-    local sysctl_conf="/etc/sysctl.conf"
-
-    # Check if it's persistent in sysctl.conf
-    local persistent=0
-    if [ -f "$sysctl_conf" ]; then
-        if grep -q "^net.ipv4.ip_forward.*=.*1" "$sysctl_conf"; then
-            persistent=1
+    # Check if already loaded
+    if lsmod | grep -q "^br_netfilter"; then
+        print_success "br_netfilter module already loaded"
+    else
+        # Load module
+        if modprobe br_netfilter 2>/dev/null; then
+            print_success "br_netfilter module loaded"
+        else
+            print_error "Failed to load br_netfilter module"
+            return 1
         fi
     fi
 
-    # Enable runtime if not already enabled
-    if [ "$current_forward" != "1" ]; then
+    # Make it persistent across reboots
+    local modules_conf="/etc/modules-load.d/br_netfilter.conf"
+    if [ ! -f "$modules_conf" ] || ! grep -q "^br_netfilter" "$modules_conf"; then
+        print_step "Making br_netfilter load persistent..."
+        mkdir -p /etc/modules-load.d
+        echo "br_netfilter" > "$modules_conf"
+        print_success "br_netfilter will load on boot"
+    else
+        print_success "br_netfilter already configured to load on boot"
+    fi
+
+    return 0
+}
+
+# Enable IP forwarding and bridge netfilter
+enable_ip_forwarding() {
+    print_step "Configuring IP forwarding..."
+
+    # Check current runtime status
+    local ip_forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo "0")
+    local bridge_iptables=$(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo "0")
+    local bridge_ip6tables=$(cat /proc/sys/net/bridge/bridge-nf-call-ip6tables 2>/dev/null || echo "0")
+
+    # Enable IP forwarding if not already enabled
+    if [ "$ip_forward" != "1" ]; then
         if sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1; then
             print_success "IP forwarding enabled (runtime)"
         else
@@ -78,249 +103,136 @@ enable_ip_forwarding() {
         print_success "IP forwarding already enabled (runtime)"
     fi
 
-    # Make it persistent if not already
-    if [ "$persistent" = "0" ]; then
-        print_step "Making IP forwarding persistent..."
-        if [ -f "$sysctl_conf" ]; then
-            if grep -q "^net.ipv4.ip_forward" "$sysctl_conf"; then
-                # Update existing entry (may be set to 0 or commented)
-                sed -i 's/^net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' "$sysctl_conf"
+    # Enable bridge netfilter for iptables (CRITICAL for Docker NAT to work)
+    if [ "$bridge_iptables" != "1" ]; then
+        if sysctl -w net.bridge.bridge-nf-call-iptables=1 >/dev/null 2>&1; then
+            print_success "Bridge netfilter for iptables enabled (runtime)"
+        else
+            print_warning "Failed to enable bridge netfilter for iptables"
+        fi
+    else
+        print_success "Bridge netfilter for iptables already enabled"
+    fi
+
+    if [ "$bridge_ip6tables" != "1" ]; then
+        if sysctl -w net.bridge.bridge-nf-call-ip6tables=1 >/dev/null 2>&1; then
+            print_success "Bridge netfilter for ip6tables enabled (runtime)"
+        else
+            print_warning "Failed to enable bridge netfilter for ip6tables"
+        fi
+    else
+        print_success "Bridge netfilter for ip6tables already enabled"
+    fi
+
+    # Make settings persistent
+    make_sysctl_persistent
+
+    return 0
+}
+
+# Make sysctl settings persistent across reboots
+make_sysctl_persistent() {
+    print_step "Making network settings persistent..."
+
+    local sysctl_conf="/etc/sysctl.d/99-vless-network.conf"
+
+    # Create sysctl config file for VLESS
+    cat > "$sysctl_conf" << 'EOF'
+# Network configuration for VLESS VPN service
+# Required for Docker bridge networking and VPN functionality
+
+# Enable IP forwarding (allows router functionality)
+net.ipv4.ip_forward = 1
+
+# Enable bridge netfilter (CRITICAL: allows iptables to process bridge traffic)
+# Without this, Docker's automatic NAT rules won't work
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+    print_success "Created persistent sysctl configuration: $sysctl_conf"
+
+    # Also update /etc/sysctl.conf for compatibility
+    local main_sysctl="/etc/sysctl.conf"
+    if [ -f "$main_sysctl" ]; then
+        if ! grep -q "^net.ipv4.ip_forward.*=.*1" "$main_sysctl"; then
+            if grep -q "^net.ipv4.ip_forward" "$main_sysctl"; then
+                sed -i 's/^net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' "$main_sysctl"
             else
-                # Add new entry
-                echo "" >> "$sysctl_conf"
-                echo "# Enable IP forwarding for VLESS VPN" >> "$sysctl_conf"
-                echo "net.ipv4.ip_forward = 1" >> "$sysctl_conf"
+                echo "" >> "$main_sysctl"
+                echo "# Enable IP forwarding for VLESS VPN" >> "$main_sysctl"
+                echo "net.ipv4.ip_forward = 1" >> "$main_sysctl"
             fi
-            print_success "IP forwarding configured persistently in $sysctl_conf"
-        else
-            print_warning "Could not find $sysctl_conf, IP forwarding is temporary only"
+            print_success "Updated $main_sysctl for IP forwarding"
         fi
-    else
-        print_success "IP forwarding already configured persistently"
     fi
 
     return 0
 }
 
-# Check if iptables rule exists (works around iptables -C limitations)
-check_iptables_rule_exists() {
-    local table="$1"
-    local chain="$2"
-    local subnet="$3"
-    local action="$4"
+# Configure Docker daemon with optimal settings
+configure_docker_daemon() {
+    print_step "Configuring Docker daemon..."
 
-    local subnet_pattern=$(echo "$subnet" | sed 's/\./\\./g')
-    iptables -t "$table" -L "$chain" -n 2>/dev/null | grep -q "${action}.*${subnet_pattern}"
+    local daemon_json="/etc/docker/daemon.json"
+    local needs_restart=0
+
+    # Create or update daemon.json
+    if [ ! -f "$daemon_json" ]; then
+        print_step "Creating Docker daemon configuration..."
+        mkdir -p /etc/docker
+        cat > "$daemon_json" << 'EOF'
+{
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+    },
+    "storage-driver": "overlay2",
+    "userland-proxy": false,
+    "live-restore": true
 }
-
-# Remove legacy iptables rules for old Docker subnets
-remove_legacy_iptables_rules() {
-    local current_subnet="$1"
-    local external_interface="$2"
-
-    print_step "Checking for legacy iptables rules..."
-
-    # Get list of all 172.x.0.0/16 subnets currently in iptables (excluding current subnet)
-    local legacy_subnets=$(iptables -t nat -L POSTROUTING -n -v 2>/dev/null | \
-        grep "172\." | \
-        grep -v "$current_subnet" | \
-        awk '{print $9}' | \
-        grep "^172\." | \
-        sort -u)
-
-    if [ -z "$legacy_subnets" ]; then
-        print_info "No legacy rules found"
-        return 0
-    fi
-
-    print_info "Found legacy subnets in iptables:"
-    echo "$legacy_subnets" | sed 's/^/  - /'
-
-    # Remove legacy MASQUERADE rules
-    for subnet in $legacy_subnets; do
-        print_step "Removing legacy MASQUERADE rule for $subnet..."
-        # Try to delete the rule (may fail if rule doesn't exist in expected format)
-        if iptables -t nat -D POSTROUTING -s "$subnet" -o "$external_interface" -j MASQUERADE 2>/dev/null; then
-            print_success "Removed legacy MASQUERADE rule for $subnet"
-        else
-            print_info "Could not remove rule for $subnet (may not exist or different format)"
-        fi
-    done
-
-    # Remove legacy FORWARD rules
-    for subnet in $legacy_subnets; do
-        print_step "Removing legacy FORWARD rules for $subnet..."
-        iptables -D FORWARD -s "$subnet" -j ACCEPT 2>/dev/null && \
-            print_success "Removed FORWARD rule for $subnet (source)" || true
-        iptables -D FORWARD -d "$subnet" -j ACCEPT 2>/dev/null && \
-            print_success "Removed FORWARD rule for $subnet (dest)" || true
-    done
-
-    return 0
-}
-
-# Configure NAT using iptables (improved with duplicate prevention)
-configure_nat_iptables() {
-    local docker_subnet="${1:-172.20.0.0/16}"
-    local external_interface="${2:-}"
-
-    print_step "Configuring NAT with iptables..."
-
-    # Auto-detect external interface if not provided
-    if [ -z "$external_interface" ]; then
-        external_interface=$(ip route | grep default | awk '{print $5}' | head -1)
-        if [ -z "$external_interface" ]; then
-            print_error "Could not detect external network interface"
-            return 1
-        fi
-        print_info "Detected external interface: $external_interface"
-    fi
-
-    # Check if iptables is available
-    if ! command_exists "iptables"; then
-        print_error "iptables is not installed"
-        return 1
-    fi
-
-    # Clean up legacy rules first
-    remove_legacy_iptables_rules "$docker_subnet" "$external_interface"
-
-    # Check if MASQUERADE rule already exists
-    if check_iptables_rule_exists "nat" "POSTROUTING" "$docker_subnet" "MASQUERADE"; then
-        print_success "NAT MASQUERADE rule already exists for $docker_subnet"
+EOF
+        needs_restart=1
+        print_success "Docker daemon configuration created"
     else
-        # Add MASQUERADE rule for Docker subnet
-        if iptables -t nat -A POSTROUTING -s "$docker_subnet" -o "$external_interface" -j MASQUERADE 2>/dev/null; then
-            print_success "Added NAT MASQUERADE rule for $docker_subnet"
+        print_success "Docker daemon configuration exists"
+    fi
+
+    # Restart Docker if needed
+    if [ $needs_restart -eq 1 ]; then
+        print_step "Restarting Docker daemon..."
+        if systemctl restart docker; then
+            print_success "Docker daemon restarted"
+            sleep 2  # Give Docker time to initialize
         else
-            print_error "Failed to add NAT MASQUERADE rule"
+            print_error "Failed to restart Docker daemon"
             return 1
         fi
     fi
 
-    # Check and add FORWARD rules
-    if check_iptables_rule_exists "filter" "FORWARD" "$docker_subnet" "ACCEPT"; then
-        print_success "FORWARD rules already exist for $docker_subnet"
-    else
-        # Allow forwarding for Docker subnet
-        if iptables -A FORWARD -s "$docker_subnet" -j ACCEPT 2>/dev/null; then
-            print_success "Added FORWARD rule for outgoing traffic"
-        else
-            print_warning "Could not add FORWARD rule for outgoing traffic"
-        fi
-
-        if iptables -A FORWARD -d "$docker_subnet" -j ACCEPT 2>/dev/null; then
-            print_success "Added FORWARD rule for incoming traffic"
-        else
-            print_warning "Could not add FORWARD rule for incoming traffic"
-        fi
-    fi
-
-    # Save iptables rules (distribution-specific)
-    if command_exists "netfilter-persistent"; then
-        netfilter-persistent save
-        print_success "iptables rules saved with netfilter-persistent"
-    elif command_exists "iptables-save"; then
-        # Try to save to /etc/iptables/rules.v4 (create directory if needed)
-        if [ ! -d "/etc/iptables" ]; then
-            mkdir -p /etc/iptables 2>/dev/null || true
-        fi
-
-        if [ -d "/etc/iptables" ]; then
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null && \
-                print_success "iptables rules saved to /etc/iptables/rules.v4"
-        else
-            # Fallback to /etc/iptables.rules
-            iptables-save > /etc/iptables.rules 2>/dev/null && \
-                print_success "iptables rules saved to /etc/iptables.rules"
-        fi
-    else
-        print_warning "Could not save iptables rules persistently"
-        print_info "Rules will be lost after reboot. Consider installing iptables-persistent"
-    fi
-
     return 0
 }
 
-# Remove legacy UFW NAT rules for old Docker subnets
-remove_legacy_ufw_nat_rules() {
-    local current_subnet="$1"
-    local before_rules="/etc/ufw/before.rules"
-
-    if [ ! -f "$before_rules" ]; then
-        print_warning "UFW before.rules file not found"
-        return 0
-    fi
-
-    print_step "Checking for legacy UFW NAT rules..."
-
-    # Check if there are multiple NAT blocks in before.rules
-    local nat_block_count=$(grep -c "^# NAT table rules for Docker" "$before_rules" 2>/dev/null || echo "0")
-
-    if [ "$nat_block_count" -le 1 ]; then
-        print_info "No duplicate NAT blocks found in UFW before.rules"
-        return 0
-    fi
-
-    print_warning "Found $nat_block_count NAT blocks in UFW before.rules (should be 1)"
-    print_step "Cleaning up legacy NAT rules..."
-
-    # Backup before.rules
-    cp "$before_rules" "${before_rules}.backup.$(date +%Y%m%d-%H%M%S)"
-    print_success "Created backup of before.rules"
-
-    # Extract all legacy subnets (excluding current)
-    local legacy_subnets=$(grep "172\." "$before_rules" | \
-        grep -v "$current_subnet" | \
-        grep "POSTROUTING" | \
-        awk '{print $4}' | \
-        sort -u)
-
-    if [ -n "$legacy_subnets" ]; then
-        print_info "Found legacy subnets in UFW NAT rules:"
-        echo "$legacy_subnets" | sed 's/^/  - /'
-    fi
-
-    # Remove all NAT blocks and rebuild with only current subnet
-    # Extract content before first NAT block
-    awk '
-        BEGIN { in_nat_block = 0; printed_header = 0; }
-        /^# NAT table rules for Docker/ { in_nat_block = 1; next; }
-        /^COMMIT/ && in_nat_block {
-            in_nat_block = 0;
-            getline;  # Skip next line (should be "# End of NAT table rules")
-            next;
-        }
-        /^# End of NAT table rules/ && in_nat_block { next; }
-        !in_nat_block { print; }
-    ' "$before_rules" > /tmp/before.rules.cleaned
-
-    mv /tmp/before.rules.cleaned "$before_rules"
-    print_success "Removed all legacy NAT blocks from UFW before.rules"
-
-    return 0
-}
-
-# Configure UFW for Docker bridge network (improved with cleanup)
-configure_ufw_for_docker() {
-    local docker_subnet="${1:-172.20.0.0/16}"
-    local server_port="${2:-443}"
+# Configure UFW to allow VPN port (if UFW is active)
+configure_firewall() {
+    local server_port="${1:-443}"
 
     if ! command_exists "ufw"; then
-        print_info "UFW is not installed, skipping UFW configuration"
+        print_info "UFW is not installed, skipping firewall configuration"
         return 0
     fi
-
-    print_step "Configuring UFW for Docker bridge network..."
 
     # Check if UFW is active
     local ufw_status=$(ufw status 2>/dev/null | head -1)
     if ! echo "$ufw_status" | grep -q "active"; then
-        print_info "UFW is not active, skipping UFW configuration"
+        print_info "UFW is not active, skipping firewall configuration"
         return 0
     fi
 
-    # 1. Allow incoming connections on server port
+    print_step "Configuring UFW firewall..."
+
+    # Allow VPN port
     if ! ufw status numbered | grep -q "$server_port/tcp"; then
         print_step "Adding UFW rule for port $server_port/tcp..."
         ufw allow "$server_port/tcp" comment "VLESS VPN Service" 2>/dev/null
@@ -329,107 +241,21 @@ configure_ufw_for_docker() {
         print_success "UFW rule for port $server_port/tcp already exists"
     fi
 
-    # 2. Configure DEFAULT_FORWARD_POLICY
+    # Set forward policy to ACCEPT
     local ufw_default="/etc/default/ufw"
     if [ -f "$ufw_default" ]; then
-        print_step "Configuring UFW forward policy..."
-
-        if grep -q "^DEFAULT_FORWARD_POLICY=" "$ufw_default"; then
-            # Update existing policy
+        if ! grep -q '^DEFAULT_FORWARD_POLICY="ACCEPT"' "$ufw_default"; then
+            print_step "Configuring UFW forward policy..."
             sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' "$ufw_default"
             print_success "UFW forward policy set to ACCEPT"
+
+            # Reload UFW
+            print_step "Reloading UFW..."
+            ufw reload 2>/dev/null
+            print_success "UFW reloaded"
         else
-            # Add new policy
-            echo 'DEFAULT_FORWARD_POLICY="ACCEPT"' >> "$ufw_default"
-            print_success "UFW forward policy added"
+            print_success "UFW forward policy already set to ACCEPT"
         fi
-    fi
-
-    # 3. Clean up legacy NAT rules and add current subnet rules
-    remove_legacy_ufw_nat_rules "$docker_subnet"
-
-    # 4. Add NAT rules to /etc/ufw/before.rules
-    local before_rules="/etc/ufw/before.rules"
-    if [ -f "$before_rules" ]; then
-        print_step "Adding NAT rules to UFW before.rules..."
-
-        # Check if NAT rules already exist for current subnet
-        if grep -q "$docker_subnet" "$before_rules"; then
-            print_success "NAT rules for $docker_subnet already exist in before.rules"
-        else
-            # Add NAT rules for current subnet
-            print_info "Adding NAT rules for current subnet..."
-
-            # Backup before.rules (if not already backed up by legacy cleanup)
-            if [ ! -f "${before_rules}.backup."* ]; then
-                print_step "Creating backup of before.rules..."
-                cp "$before_rules" "${before_rules}.backup.$(date +%Y%m%d-%H%M%S)"
-            fi
-
-            # Add NAT rules at the beginning of the file
-            local external_interface=$(ip route | grep default | awk '{print $5}' | head -1)
-
-            if [ -z "$external_interface" ]; then
-                print_error "Could not determine external network interface"
-                return 1
-            fi
-
-            print_info "Using external interface: $external_interface"
-
-            cat > /tmp/ufw_nat_rules << EOF
-# NAT table rules for Docker VLESS bridge network
-*nat
-:POSTROUTING ACCEPT [0:0]
-
-# Forward traffic from Docker subnet to external interface
--A POSTROUTING -s $docker_subnet -o $external_interface -j MASQUERADE
-
-COMMIT
-# End of NAT table rules
-
-EOF
-            # Insert NAT rules before existing rules
-            cat /tmp/ufw_nat_rules "$before_rules" > /tmp/before.rules.new
-            mv /tmp/before.rules.new "$before_rules"
-            rm -f /tmp/ufw_nat_rules
-
-            print_success "NAT rules for $docker_subnet added to UFW before.rules"
-        fi
-
-        # Verify NAT rules were added correctly
-        print_step "Verifying NAT rules in before.rules..."
-        if grep -q "$docker_subnet" "$before_rules"; then
-            print_success "Verified: NAT rules for $docker_subnet are present"
-        else
-            print_error "Verification failed: NAT rules for $docker_subnet NOT found"
-            print_info "Check $before_rules manually"
-            return 1
-        fi
-    else
-        print_error "UFW before.rules file not found: $before_rules"
-        return 1
-    fi
-
-    # 5. Reload UFW to apply changes
-    print_step "Reloading UFW..."
-    if ufw reload 2>/dev/null; then
-        print_success "UFW reloaded successfully"
-    else
-        print_error "Failed to reload UFW"
-        return 1
-    fi
-
-    # 6. Verify NAT rules are active in iptables after reload
-    print_step "Verifying NAT rules in iptables after reload..."
-    sleep 1  # Give UFW a moment to apply rules
-
-    local subnet_pattern=$(echo "$docker_subnet" | sed 's/\./\\./g')
-    if iptables -t nat -L POSTROUTING -n 2>/dev/null | grep -q "MASQUERADE.*${subnet_pattern}"; then
-        print_success "Verified: NAT MASQUERADE rules are active in iptables"
-    else
-        print_warning "NAT rules not found in iptables after UFW reload"
-        print_info "This may cause VPN clients to have no internet access"
-        print_info "Try manually: sudo iptables -t nat -A POSTROUTING -s $docker_subnet -o \$(ip route | grep default | awk '{print \$5}') -j MASQUERADE"
     fi
 
     return 0
@@ -442,22 +268,38 @@ configure_network_for_vless() {
 
     print_header "Configuring Network for VLESS Service"
 
-    # Step 1: Enable IP forwarding
+    print_info "Network configuration approach:"
+    print_info "  • Enable kernel modules and sysctl settings"
+    print_info "  • Configure Docker daemon"
+    print_info "  • Docker automatically manages iptables NAT rules"
+    print_info "  • No manual iptables manipulation needed"
+    echo ""
+
+    # Step 1: Load br_netfilter module
+    if ! load_br_netfilter; then
+        print_error "Failed to load br_netfilter module"
+        return 1
+    fi
+
+    # Step 2: Enable IP forwarding and bridge netfilter
     if ! enable_ip_forwarding; then
         print_error "Failed to enable IP forwarding"
         return 1
     fi
 
-    # Step 2: Configure NAT with iptables
-    if ! configure_nat_iptables "$docker_subnet"; then
-        print_error "Failed to configure NAT with iptables"
+    # Step 3: Configure Docker daemon
+    if ! configure_docker_daemon; then
+        print_error "Failed to configure Docker daemon"
         return 1
     fi
 
-    # Step 3: Configure UFW if installed and active
-    configure_ufw_for_docker "$docker_subnet" "$server_port"
+    # Step 4: Configure firewall (if UFW is active)
+    configure_firewall "$server_port"
 
+    echo ""
     print_success "Network configuration completed successfully"
+    print_info "Docker will automatically create NAT rules when containers start"
+
     return 0
 }
 
@@ -479,23 +321,46 @@ verify_network_configuration() {
         ((errors++))
     fi
 
-    # Check iptables NAT rule
-    if iptables -t nat -L POSTROUTING -n | grep -q "MASQUERADE.*$docker_subnet"; then
-        print_success "iptables NAT rule: configured"
+    # Check bridge netfilter
+    local bridge_iptables=$(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo "0")
+    if [ "$bridge_iptables" = "1" ]; then
+        print_success "Bridge netfilter (iptables): enabled"
     else
-        print_warning "iptables NAT rule: not found (may use UFW instead)"
+        print_error "Bridge netfilter (iptables): disabled"
+        ((errors++))
+    fi
+
+    # Check br_netfilter module
+    if lsmod | grep -q "^br_netfilter"; then
+        print_success "br_netfilter module: loaded"
+    else
+        print_error "br_netfilter module: not loaded"
+        ((errors++))
+    fi
+
+    # Check Docker service
+    if systemctl is-active --quiet docker; then
+        print_success "Docker service: running"
+    else
+        print_error "Docker service: not running"
+        ((errors++))
     fi
 
     # Check port availability
-    if netstat -tuln | grep -q ":$server_port "; then
+    if netstat -tuln 2>/dev/null | grep -q ":$server_port "; then
         print_success "Port $server_port: listening"
     else
         print_info "Port $server_port: not listening yet (service may not be started)"
     fi
 
-    # Check Docker network
-    if docker network ls | grep -q "vless-network"; then
+    # Check Docker network (after containers start)
+    if docker network ls 2>/dev/null | grep -q "vless-network"; then
         print_success "Docker network: exists"
+
+        # Check if Docker created NAT rules
+        if command_exists iptables && iptables -t nat -L POSTROUTING -n 2>/dev/null | grep -q "$docker_subnet"; then
+            print_success "Docker NAT rules: configured automatically"
+        fi
     else
         print_info "Docker network: not created yet (will be created by docker-compose)"
     fi
@@ -531,14 +396,20 @@ display_network_summary() {
     print_header "Network Configuration Summary"
 
     echo "Docker Network:"
-    echo "  Subnet:    $docker_subnet"
-    echo "  Gateway:   $docker_gateway"
+    echo "  Subnet:          $docker_subnet"
+    echo "  Gateway:         $docker_gateway"
     echo ""
     echo "VLESS Service:"
-    echo "  Port:      $server_port"
+    echo "  Port:            $server_port"
     echo ""
     echo "System:"
-    echo "  IP Forward: $(sysctl -n net.ipv4.ip_forward)"
-    echo "  Interface:  $(get_external_interface 2>/dev/null || echo 'auto-detect')"
+    echo "  IP Forward:      $(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo 'unknown')"
+    echo "  Bridge Netfilter: $(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo 'unknown')"
+    echo "  br_netfilter:    $(lsmod | grep -q '^br_netfilter' && echo 'loaded' || echo 'not loaded')"
+    echo "  Interface:       $(get_external_interface 2>/dev/null || echo 'auto-detect')"
+    echo ""
+    echo "NAT Management:"
+    echo "  Docker automatically creates and manages iptables NAT rules"
+    echo "  No manual intervention required"
     echo ""
 }
