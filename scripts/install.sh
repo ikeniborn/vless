@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/lib/colors.sh"
 source "$SCRIPT_DIR/lib/utils.sh"
 source "$SCRIPT_DIR/lib/domains.sh"
 source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/lib/network.sh"
 
 # Configuration variables
 VLESS_HOME="/opt/vless"
@@ -25,6 +26,8 @@ PRIVATE_KEY=""
 PUBLIC_KEY=""
 DNS_PRIMARY=""
 DNS_SECONDARY=""
+DOCKER_SUBNET=""
+DOCKER_GATEWAY=""
 
 # Installation functions
 install_dependencies() {
@@ -371,8 +374,22 @@ generate_keys() {
 
 create_configuration() {
     print_header "Creating Configuration"
-    
-    # Create .env file
+
+    # Step 1: Find available Docker subnet
+    print_step "Detecting available Docker subnet..."
+    local subnet_info=$(find_available_docker_subnet)
+    if [ -z "$subnet_info" ]; then
+        print_error "Failed to find available Docker subnet"
+        exit 1
+    fi
+
+    DOCKER_SUBNET=$(echo "$subnet_info" | cut -d':' -f1)
+    DOCKER_GATEWAY=$(echo "$subnet_info" | cut -d':' -f2)
+
+    print_success "Docker subnet: $DOCKER_SUBNET"
+    print_success "Docker gateway: $DOCKER_GATEWAY"
+
+    # Step 2: Create .env file
     print_step "Creating environment file..."
     cat > "$VLESS_HOME/.env" << EOF
 # Server Configuration
@@ -396,6 +413,10 @@ ADMIN_EMAIL=$ADMIN_EMAIL
 PRIVATE_KEY=$PRIVATE_KEY
 PUBLIC_KEY=$PUBLIC_KEY
 
+# Docker Network Configuration
+DOCKER_SUBNET=$DOCKER_SUBNET
+DOCKER_GATEWAY=$DOCKER_GATEWAY
+
 # System Settings
 COMPOSE_PROJECT_NAME=vless-reality
 TZ=UTC
@@ -403,12 +424,15 @@ RESTART_POLICY=unless-stopped
 EOF
     chmod 600 "$VLESS_HOME/.env"
     print_success ".env file created"
-    
-    # Create docker-compose.yml
+
+    # Step 3: Create docker-compose.yml
     print_step "Creating Docker Compose configuration..."
     apply_template \
         "$VLESS_HOME/templates/docker-compose.yml.tpl" \
         "$VLESS_HOME/docker-compose.yml" \
+        "SERVER_PORT=$SERVER_PORT" \
+        "DOCKER_SUBNET=$DOCKER_SUBNET" \
+        "DOCKER_GATEWAY=$DOCKER_GATEWAY" \
         "RESTART_POLICY=unless-stopped" \
         "TZ=UTC"
     chmod 640 "$VLESS_HOME/docker-compose.yml"
@@ -498,6 +522,16 @@ start_service() {
     print_header "Starting Service"
 
     cd "$VLESS_HOME"
+
+    # Configure network settings for VPN functionality
+    print_header "Configuring Network for VPN"
+    if ! configure_network_for_vless "$DOCKER_SUBNET" "$SERVER_PORT"; then
+        print_error "Failed to configure network settings"
+        print_info "You may need to configure NAT and IP forwarding manually"
+        if ! confirm_action "Continue anyway?" "n"; then
+            exit 1
+        fi
+    fi
 
     # Check for network conflicts
     check_docker_networks
