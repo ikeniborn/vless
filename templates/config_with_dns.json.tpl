@@ -74,7 +74,7 @@
         "decryption": "none",
         "fallbacks": [
           {
-            "dest": "127.0.0.1:8080",
+            "dest": "vless-fake-site:80",
             "xver": 0
           }
         ]

@@ -278,6 +278,28 @@ Requires Docker running and teddysun/xray image accessible
 ### Port 443 Conflicts
 Check with `netstat -tlnp | grep 443` before installation
 
+### Fake Site Configuration
+**Network Setup:**
+- Fake site container (`vless-fake-site`) connects to the same Docker network as xray-server (`vless-network`)
+- Network is marked as `external: true` in docker-compose.fake.yml to use existing network
+- Fallback destination in config.json uses container name: `vless-fake-site:80`
+- No external port mapping needed - fake site is only accessible within Docker network
+- This ensures fallback mechanism works correctly regardless of selected subnet
+
+**Troubleshooting:**
+```bash
+# Check if fake site is in the correct network
+docker network inspect vless-reality_vless-network
+
+# Test connectivity from xray-server to fake-site
+docker exec xray-server wget -O- http://vless-fake-site:80/health
+
+# Restart fake site if network connection fails
+cd /opt/vless
+docker-compose -f docker-compose.fake.yml down
+docker-compose -f docker-compose.fake.yml up -d
+```
+
 ### Permission Issues (Fixed)
 If vless commands show "lib/colors.sh: No such file or directory" or "Permission denied":
 - Run: `sudo /opt/vless/scripts/fix-permissions.sh`

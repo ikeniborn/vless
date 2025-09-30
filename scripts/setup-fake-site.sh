@@ -266,8 +266,12 @@ check_fake_site() {
     local attempt=1
 
     while [ $attempt -le $max_attempts ]; do
-        if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health | grep -q "200"; then
-            print_success "Fake site is accessible at http://127.0.0.1:8080"
+        # Check container health
+        if docker ps --filter "name=vless-fake-site" --filter "status=running" | grep -q "vless-fake-site"; then
+            print_success "Fake site container is running"
+            print_info "Container: vless-fake-site"
+            print_info "Network: vless-network (shared with xray-server)"
+            print_info "Internal endpoint: vless-fake-site:80"
             return 0
         fi
 
@@ -276,7 +280,7 @@ check_fake_site() {
         ((attempt++))
     done
 
-    print_error "Fake site is not accessible after $max_attempts attempts"
+    print_error "Fake site container is not running after $max_attempts attempts"
     return 1
 }
 
@@ -339,9 +343,14 @@ install_fake_site() {
     echo ""
     print_success "Fake site setup completed!"
     echo ""
-    print_info "Fake site is running at: http://127.0.0.1:8080"
+    print_info "Container: vless-fake-site"
+    print_info "Network: vless-network (shared with xray-server)"
+    print_info "Internal endpoint: vless-fake-site:80"
     print_info "Configuration: $FAKE_SITE_DIR"
     print_info "Docker Compose: $DOCKER_COMPOSE_FAKE"
+    echo ""
+    print_warning "Note: Fake site is only accessible from within Docker network"
+    print_info "      It will respond to fallback requests from xray-server"
 }
 
 # ═══════════════════════════════════════════════════════════════════

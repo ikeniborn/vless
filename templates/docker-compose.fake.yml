@@ -5,8 +5,6 @@ services:
     image: nginx:alpine
     container_name: vless-fake-site
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:80"
     volumes:
       - ./fake-site/html:/usr/share/nginx/html:ro
       - ./fake-site/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -16,11 +14,12 @@ services:
         max-size: "10m"
         max-file: "3"
     networks:
-      - fake-net
+      - vless-network
     labels:
       - "com.vless.service=fake-site"
       - "com.vless.description=Fallback decoy website"
 
 networks:
-  fake-net:
-    driver: bridge
+  vless-network:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME}_vless-network
