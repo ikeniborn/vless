@@ -341,11 +341,13 @@ generate_keys() {
     print_step "Generating X25519 key pair..."
 
     # Generate both keys in one command
-    # xray x25519 outputs: PrivateKey, Password (which is PublicKey), and Hash32
+    # xray x25519 outputs format changed in newer versions:
+    # - Old format: "PrivateKey: <key>" and "Password: <key>"
+    # - New format (24.11.30): "Private key: <key>" and "Public key: <key>"
     local key_output=$(docker run --rm teddysun/xray:24.11.30 xray x25519)
 
-    # Extract private key (PrivateKey: field)
-    PRIVATE_KEY=$(echo "$key_output" | grep "PrivateKey:" | awk '{print $2}')
+    # Extract private key (try both formats)
+    PRIVATE_KEY=$(echo "$key_output" | grep -i "private.key:" | awk '{print $NF}')
 
     if [ -z "$PRIVATE_KEY" ]; then
         print_error "Failed to generate private key"
@@ -353,8 +355,8 @@ generate_keys() {
         exit 1
     fi
 
-    # Extract public key (Password: field is actually the public key)
-    PUBLIC_KEY=$(echo "$key_output" | grep "Password:" | awk '{print $2}')
+    # Extract public key (try both "Public key:" and "Password:" formats)
+    PUBLIC_KEY=$(echo "$key_output" | grep -iE "(public.key:|password:)" | awk '{print $NF}')
 
     if [ -z "$PUBLIC_KEY" ]; then
         print_error "Failed to generate public key"

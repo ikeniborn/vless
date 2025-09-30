@@ -44,19 +44,25 @@ generate_x25519_keys() {
     
     print_step "Generating X25519 key pair..."
     
-    # Generate private key
-    local private_key=$(docker run --rm teddysun/xray:latest xray x25519 | grep "Private key:" | cut -d' ' -f3)
-    
+    # Generate keys using pinned version for compatibility
+    # Format in 24.11.30: "Private key: <key>" and "Public key: <key>"
+    local key_output=$(docker run --rm teddysun/xray:24.11.30 xray x25519)
+
+    # Extract private key (last field to handle spacing variations)
+    local private_key=$(echo "$key_output" | grep -i "private.key:" | awk '{print $NF}')
+
     if [ -z "$private_key" ]; then
         print_error "Failed to generate private key"
+        print_info "Debug output: $key_output"
         return 1
     fi
-    
-    # Generate public key from private key
-    local public_key=$(echo "$private_key" | docker run --rm -i teddysun/xray:latest xray x25519 -i /dev/stdin | grep "Public key:" | cut -d' ' -f3)
+
+    # Extract public key (last field to handle both formats)
+    local public_key=$(echo "$key_output" | grep -iE "(public.key:|password:)" | awk '{print $NF}')
     
     if [ -z "$public_key" ]; then
         print_error "Failed to generate public key"
+        print_info "Debug output: $key_output"
         return 1
     fi
     
