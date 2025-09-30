@@ -50,24 +50,7 @@
                 Диагностика и исправление проблемы в VLESS системе
             </description>
             <problem_description>
-                ПРи добавлении пользователя в логах отображены ошибки на удаленном сервере
-               ========================================
-                    Add New User
-                ========================================
-
-                Enter username: ikeniborn-dev
-
-                Do you want to set bandwidth quota and expiry date? [y/N]: n
-                ℹ Generated UUID: ffe8b547-fb0d-48e4-affe-83d4021e425e
-                ℹ Generated ShortIDs: ["bea23c8d", "bea23c", "bea2"]
-                ✓ User added to configuration
-                jq: error (at /opt/vless/data/users.json:27): Cannot iterate over null (null)
-                jq: error: syntax error, unexpected end of file (Unix shell quoting issues?) at <top-level>, line 1:
-                .inbounds[0].streamSettings.realitySettings.shortIds =                                                       
-                jq: 1 compile error
-                ✗ Failed to update config.json
-                ⚠ Failed to update shortIds, but user was added
-
+                При подключении к серверу после установки соединение не проходит. Доступа к интернету черзе клиента нет.
             </problem_description>
             <available_resources>
                 <file path="PRD.md" 
@@ -92,9 +75,10 @@
         <!-- Требования к выполнению -->
         <requirements>
             <primary>
-                Исправить ошибку 
-                ✗ Failed to update config.json
-                ⚠ Failed to update shortIds, but user was added
+                Измени шаблон докер контейнера для работы без режима network_mode: host
+                Скорректируй скрпиты устанвоки 
+                Проанализируй скрпиты настрйоки файрвола и маршрутов. Доработай скрпит настрйоки UFW и iptbles для корректнйо работы xray-server
+                После формирования решения согласовать изменение PRD.md
             </primary>
             
             <diagnostic_goals>
