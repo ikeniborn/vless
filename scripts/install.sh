@@ -539,8 +539,13 @@ start_service() {
     # Clean up any existing network to avoid conflicts
     cleanup_existing_network "vless-reality_vless-network"
 
+    # Additional safety: ensure no orphan containers exist
+    print_step "Checking for orphan containers..."
+    docker-compose down --remove-orphans 2>/dev/null || true
+    sleep 1
+
     print_step "Starting Xray container..."
-    docker-compose up -d
+    docker-compose up -d --remove-orphans
 
     # Wait for service to be ready
     if wait_for_service "xray-server" 30; then

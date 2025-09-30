@@ -279,13 +279,17 @@ cleanup_existing_network() {
     if docker network ls | grep -q "$network_name"; then
         print_warning "Found existing network: $network_name"
 
-        # Check for running containers using this network
-        local containers=$(docker ps -q --filter network="$network_name" 2>/dev/null)
-        if [ -n "$containers" ]; then
-            print_info "Stopping containers using the network..."
-            docker stop $containers 2>/dev/null || true
-            print_success "Containers stopped"
+        # Check for ALL containers (running and stopped) using this network
+        local all_containers=$(docker ps -aq --filter network="$network_name" 2>/dev/null)
+        if [ -n "$all_containers" ]; then
+            print_info "Stopping and removing containers using the network..."
+            docker stop $all_containers 2>/dev/null || true
+            docker rm $all_containers 2>/dev/null || true
+            print_success "Containers removed"
         fi
+
+        # Wait a moment for Docker to clean up
+        sleep 2
 
         # Remove the network
         print_info "Removing existing network..."
@@ -293,6 +297,10 @@ cleanup_existing_network() {
             print_success "Network removed successfully"
         else
             print_warning "Could not remove network, it may be in use"
+            # Force disconnect any remaining containers
+            docker network disconnect -f "$network_name" $(docker ps -aq) 2>/dev/null || true
+            sleep 1
+            docker network rm "$network_name" 2>/dev/null || true
         fi
     else
         print_info "No existing network found"

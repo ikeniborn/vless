@@ -20,6 +20,7 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 # Load libraries
 source "${SCRIPT_DIR}/lib/colors.sh"
 source "${SCRIPT_DIR}/lib/utils.sh"
+source "${SCRIPT_DIR}/lib/config.sh"
 
 # Configuration
 VLESS_HOME="${VLESS_HOME:-/opt/vless}"
@@ -222,21 +223,41 @@ EOF
     print_success "Nginx configuration created"
 }
 
-# Copy docker-compose.fake.yml
+# Copy and process docker-compose.fake.yml template
 copy_docker_compose() {
-    print_step "Copying docker-compose configuration"
+    print_step "Processing docker-compose configuration template"
 
-    local template_file="$REPO_DIR/templates/docker-compose.fake.yml"
+    # Try installed location first, then repo location
+    local template_file="$VLESS_HOME/templates/docker-compose.fake.yml.tpl"
+    if [ ! -f "$template_file" ]; then
+        template_file="$REPO_DIR/templates/docker-compose.fake.yml.tpl"
+    fi
 
     if [ ! -f "$template_file" ]; then
-        print_error "Template file not found: $template_file"
+        print_error "Template file not found"
+        print_info "Searched: $VLESS_HOME/templates/docker-compose.fake.yml.tpl"
+        print_info "         $REPO_DIR/templates/docker-compose.fake.yml.tpl"
         return 1
     fi
 
-    cp "$template_file" "$DOCKER_COMPOSE_FAKE"
+    # Load environment variables from .env file
+    if [ -f "$VLESS_HOME/.env" ]; then
+        source "$VLESS_HOME/.env"
+    else
+        print_error ".env file not found at $VLESS_HOME/.env"
+        print_info "Please run installation script first"
+        return 1
+    fi
+
+    # Apply template with variables from .env
+    apply_template "$template_file" "$DOCKER_COMPOSE_FAKE" \
+        "RESTART_POLICY=${RESTART_POLICY:-unless-stopped}" \
+        "TZ=${TZ:-UTC}" \
+        "COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-vless-reality}"
+
     chmod 644 "$DOCKER_COMPOSE_FAKE"
 
-    print_success "Docker Compose configuration copied"
+    print_success "Docker Compose configuration processed"
 }
 
 # Start fake site container

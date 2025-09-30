@@ -147,9 +147,19 @@ configure_nat_iptables() {
         netfilter-persistent save
         print_success "iptables rules saved with netfilter-persistent"
     elif command_exists "iptables-save"; then
-        iptables-save > /etc/iptables/rules.v4 2>/dev/null || \
-        iptables-save > /etc/iptables.rules 2>/dev/null
-        print_success "iptables rules saved"
+        # Try to save to /etc/iptables/rules.v4 (create directory if needed)
+        if [ ! -d "/etc/iptables" ]; then
+            mkdir -p /etc/iptables 2>/dev/null || true
+        fi
+
+        if [ -d "/etc/iptables" ]; then
+            iptables-save > /etc/iptables/rules.v4 2>/dev/null && \
+                print_success "iptables rules saved to /etc/iptables/rules.v4"
+        else
+            # Fallback to /etc/iptables.rules
+            iptables-save > /etc/iptables.rules 2>/dev/null && \
+                print_success "iptables rules saved to /etc/iptables.rules"
+        fi
     else
         print_warning "Could not save iptables rules persistently"
         print_info "Rules will be lost after reboot. Consider installing iptables-persistent"

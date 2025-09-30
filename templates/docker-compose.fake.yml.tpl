@@ -4,7 +4,7 @@ services:
   fake-site:
     image: nginx:alpine
     container_name: vless-fake-site
-    restart: unless-stopped
+    restart: {{RESTART_POLICY}}
     volumes:
       - ./fake-site/html:/usr/share/nginx/html:ro
       - ./fake-site/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -15,6 +15,8 @@ services:
         max-file: "3"
     networks:
       - vless-network
+    environment:
+      - TZ={{TZ}}
     labels:
       - "com.vless.service=fake-site"
       - "com.vless.description=Fallback decoy website"
@@ -22,4 +24,4 @@ services:
 networks:
   vless-network:
     external: true
-    name: ${COMPOSE_PROJECT_NAME}_vless-network
+    name: {{COMPOSE_PROJECT_NAME}}_vless-network

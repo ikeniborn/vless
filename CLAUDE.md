@@ -97,6 +97,26 @@ All scripts source dependencies in this order:
 ### Template Processing
 The `apply_template` function uses sed to replace {{VARIABLE}} placeholders. Special characters in values are escaped with `sed 's/[\/&]/\\&/g'` to prevent sed errors.
 
+**Template Files (.tpl):**
+All configuration templates use `.tpl` extension and are stored in `templates/` directory:
+- `config.json.tpl` - Main Xray configuration (without custom DNS)
+- `config_with_dns.json.tpl` - Xray configuration with custom DNS
+- `docker-compose.yml.tpl` - Main xray-server container
+- `docker-compose.fake.yml.tpl` - Fake site container (uses COMPOSE_PROJECT_NAME, RESTART_POLICY, TZ)
+- `.env.example` - Environment variables template
+
+During installation:
+1. Templates are copied to `/opt/vless/templates/`
+2. Processed with `apply_template()` to create final configs in `/opt/vless/`
+3. Variables loaded from `.env` file in `/opt/vless/`
+
+**Fake Site Template Processing:**
+The `setup-fake-site.sh` script processes `docker-compose.fake.yml.tpl`:
+1. Loads variables from `/opt/vless/.env`
+2. Applies template with COMPOSE_PROJECT_NAME, RESTART_POLICY, TZ
+3. Creates `/opt/vless/docker-compose.fake.yml`
+4. Network name: `${COMPOSE_PROJECT_NAME}_vless-network` (typically `vless-reality_vless-network`)
+
 ### UUID and Short ID Generation
 - **UUID**: `uuidgen` command (standard Linux utility)
 - **Short ID**: `openssl rand -hex 4` (8 hex characters)
