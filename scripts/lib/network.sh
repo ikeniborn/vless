@@ -117,7 +117,9 @@ configure_nat_iptables() {
         print_success "Added NAT MASQUERADE rule for $docker_subnet"
     else
         # If failed, check if rule already exists by listing
-        if iptables -t nat -L POSTROUTING -n | grep -q "MASQUERADE.*$docker_subnet"; then
+        # Extract network part from CIDR for grep (escape dots for regex)
+        local subnet_pattern=$(echo "$docker_subnet" | sed 's/\./\\./g')
+        if iptables -t nat -L POSTROUTING -n | grep -q "MASQUERADE.*${subnet_pattern}"; then
             print_success "NAT MASQUERADE rule already exists"
         else
             print_error "Failed to add NAT MASQUERADE rule"
