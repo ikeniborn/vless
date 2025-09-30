@@ -131,35 +131,6 @@
       },
       {
         "type": "field",
-        "comment": "Блокировка приватных IP адресов (RFC1918)",
-        "ip": [
-          "geoip:private"
-        ],
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
-        "comment": "Геоблокировка опасных стран (CN, RU, IR, CU, KP, SY)",
-        "ip": [
-          "geoip:cn",
-          "geoip:ru",
-          "geoip:ir",
-          "geoip:cu",
-          "geoip:kp",
-          "geoip:sy"
-        ],
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
-        "comment": "Блокировка доменов опасных стран",
-        "domain": [
-          "geosite:cn"
-        ],
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
         "comment": "Блокировка рекламы и трекеров",
         "domain": [
           "geosite:category-ads-all"
