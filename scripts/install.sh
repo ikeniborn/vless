@@ -535,10 +535,20 @@ start_service() {
     # Clean up any existing network to avoid conflicts
     cleanup_existing_network "vless-reality_vless-network"
 
+    # Also cleanup fake-net if exists (to prevent "resource in use" errors)
+    cleanup_existing_network "vless-reality_fake-net"
+
     # Additional safety: ensure no orphan containers exist
     print_step "Checking for orphan containers..."
     docker-compose down --remove-orphans 2>/dev/null || true
     sleep 1
+
+    # CRITICAL: Restart Docker to clear old NAT rules and bridges
+    # Without this, old iptables NAT rules may point to non-existent bridges
+    print_step "Restarting Docker to clear old NAT rules..."
+    systemctl restart docker
+    sleep 3
+    print_success "Docker restarted with clean NAT rules"
 
     print_step "Starting Xray container..."
     docker-compose up -d --remove-orphans

@@ -387,6 +387,41 @@ Fixed in `lib/config.sh:167` - split complex sed command into pipeline:
 ### Docker Compose Version
 Always use `docker-compose` (hyphenated), not `docker compose` (space)
 
+### Stale NAT Rules After Reinstallation (CRITICAL)
+**Issue:** After reinstallation, container has no internet despite correct configuration
+**Symptoms:**
+- Config shows correct subnet (e.g., 172.19.0.0/16)
+- Docker network created correctly
+- NAT rules exist BUT point to old non-existent bridge (br-XXXXXXX)
+- Container: `ping 8.8.8.8` fails, `nslookup` fails
+
+**Root Cause:** Docker created new network with new bridge ID, but old NAT rules remained
+
+**Example:**
+```bash
+# Network config: 172.19.0.0/16 with bridge br-24c7f5beb905 (correct)
+# But NAT rule points to: br-4a8280dac07c (old, non-existent)
+
+# Result: Traffic goes nowhere because old bridge doesn't exist
+```
+
+**Solution (automatic in install.sh):**
+```bash
+# 1. Stop all containers (including fake-site)
+cd /opt/vless
+docker-compose down
+docker-compose -f docker-compose.fake.yml down
+
+# 2. Restart Docker to clear old NAT rules
+sudo systemctl restart docker
+sleep 3
+
+# 3. Start containers - Docker creates fresh NAT rules
+docker-compose up -d
+```
+
+**Prevention:** Installation script now includes automatic Docker restart before starting containers
+
 ### Docker Subnet Conflicts
 **Issue:** Docker subnet 172.20.0.0/16 already in use
 **Solution:** Installation automatically detects and uses free subnet
