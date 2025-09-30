@@ -8,34 +8,9 @@
     "servers": [
       {
         "address": "{{DNS_PRIMARY}}",
-        "port": 53,
-        "domains": [
-          "geosite:geolocation-!cn"
-        ],
-        "expectIPs": [
-          "geoip:!cn"
-        ]
-      }{{DNS_SECONDARY_SERVER_OBJECT}},
-      {
-        "address": "114.114.114.114",
-        "port": 53,
-        "domains": [
-          "geosite:cn"
-        ],
-        "expectIPs": [
-          "geoip:cn"
-        ],
-        "skipFallback": true
-      }
-    ],
-    "hosts": {
-      "domain:googleapis.cn": "googleapis.com",
-      "domain:gstatic.cn": "gstatic.com"
-    },
-    "queryStrategy": "UseIPv4",
-    "disableCache": false,
-    "disableFallback": true,
-    "tag": "dns_inbound"
+        "port": 53
+      }{{DNS_SECONDARY_SERVER_OBJECT}}
+    ]
   },
   "api": {
     "tag": "api",
@@ -125,9 +100,7 @@
     {
       "protocol": "freedom",
       "tag": "direct",
-      "settings": {
-        "domainStrategy": "UseIP"
-      }
+      "settings": {}
     },
     {
       "protocol": "blackhole",

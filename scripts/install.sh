@@ -472,13 +472,7 @@ EOF
                 dns_secondary_server_object=",
       {
         \"address\": \"$DNS_SECONDARY\",
-        \"port\": 53,
-        \"domains\": [
-          \"geosite:geolocation-!cn\"
-        ],
-        \"expectIPs\": [
-          \"geoip:!cn\"
-        ]
+        \"port\": 53
       }"
             fi
         fi
