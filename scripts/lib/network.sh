@@ -9,9 +9,10 @@ if [ -z "$NC" ]; then
 fi
 
 # Find available Docker subnet
-# Returns subnet in format "172.X.0.0/16" where X is not used
+# Returns subnet in format "172.X.0.0/16:172.X.0.1" where X is not used
+# All status messages go to stderr, result goes to stdout
 find_available_docker_subnet() {
-    print_step "Searching for available Docker subnet..."
+    print_step "Searching for available Docker subnet..." >&2
 
     # Get list of all Docker networks and their subnets
     local used_subnets=$(docker network inspect $(docker network ls -q) 2>/dev/null | \
@@ -26,26 +27,26 @@ find_available_docker_subnet() {
             local subnet="172.${i}.0.0/16"
             local gateway="172.${i}.0.1"
 
-            print_success "Found available subnet: $subnet"
+            print_success "Found available subnet: $subnet" >&2
             echo "$subnet:$gateway"
             return 0
         fi
     done
 
     # If 172.16-31 are all taken, try 172.32-254
-    print_warning "Standard Docker range (172.16-31.x.x) is full, checking extended range..."
+    print_warning "Standard Docker range (172.16-31.x.x) is full, checking extended range..." >&2
     for i in {32..254}; do
         if ! echo "$used_subnets" | grep -qw "$i"; then
             local subnet="172.${i}.0.0/16"
             local gateway="172.${i}.0.1"
 
-            print_success "Found available subnet: $subnet"
+            print_success "Found available subnet: $subnet" >&2
             echo "$subnet:$gateway"
             return 0
         fi
     done
 
-    print_error "No available subnets found in 172.x.x.x range"
+    print_error "No available subnets found in 172.x.x.x range" >&2
     return 1
 }
 
