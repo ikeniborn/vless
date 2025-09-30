@@ -1,0 +1,79 @@
+{
+  "domainStrategy": "IPIfNonMatch",
+  "rules": [
+    {
+      "type": "field",
+      "comment": "API routing - Stats API для мониторинга",
+      "inboundTag": [
+        "api"
+      ],
+      "outboundTag": "api"
+    },
+    {
+      "type": "field",
+      "comment": "Блокировка BitTorrent протокола",
+      "protocol": [
+        "bittorrent"
+      ],
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Блокировка опасных портов (SMTP, POP3, RPC, SMB)",
+      "port": "25,110,135,139,445,465,587",
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Блокировка приватных IP адресов (RFC1918)",
+      "ip": [
+        "geoip:private"
+      ],
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Геоблокировка опасных стран (CN, RU, IR, CU, KP, SY)",
+      "ip": [
+        "geoip:cn",
+        "geoip:ru",
+        "geoip:ir",
+        "geoip:cu",
+        "geoip:kp",
+        "geoip:sy"
+      ],
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Блокировка доменов опасных стран",
+      "domain": [
+        "geosite:cn"
+      ],
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Блокировка рекламы и трекеров",
+      "domain": [
+        "geosite:category-ads-all"
+      ],
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Блокировка Windows telemetry и шпионского ПО",
+      "domain": [
+        "geosite:win-spy",
+        "geosite:win-update"
+      ],
+      "outboundTag": "block"
+    },
+    {
+      "type": "field",
+      "comment": "Default routing - весь остальной трафик разрешён",
+      "network": "tcp,udp",
+      "outboundTag": "direct"
+    }
+  ]
+}
