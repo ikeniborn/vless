@@ -28,6 +28,14 @@ else
     exit 1
 fi
 
+# Check for security.sh (required for Phase 4 functionality)
+if ! command -v generate_shortids_array &> /dev/null; then
+    echo "Error: security.sh library not loaded or missing required functions" >&2
+    echo "This usually means your installation is incomplete or outdated." >&2
+    echo "Please run: sudo /opt/vless/scripts/reinstall.sh" >&2
+    exit 1
+fi
+
 # User management functions
 show_users() {
     local mode="${1:-simple}"  # simple or detailed

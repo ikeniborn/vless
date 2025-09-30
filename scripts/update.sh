@@ -10,6 +10,7 @@ else
 fi
 
 VLESS_HOME="${VLESS_HOME:-/opt/vless}"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Load libraries with fallback
 if [ -f "$SCRIPT_DIR/lib/colors.sh" ]; then
@@ -121,6 +122,18 @@ perform_update() {
         print_success "Service is healthy and accepting connections"
     else
         print_warning "Service may not be fully operational"
+    fi
+
+    # Update scripts from git repository if available
+    if [ -d "$REPO_DIR" ]; then
+        print_step "Updating scripts from repository..."
+        if cp -r "$REPO_DIR/scripts/"* "$VLESS_HOME/scripts/" 2>/dev/null; then
+            chmod 750 "$VLESS_HOME/scripts/"*.sh 2>/dev/null
+            chmod 640 "$VLESS_HOME/scripts/lib/"*.sh 2>/dev/null
+            print_success "Scripts updated successfully"
+        else
+            print_warning "Could not update scripts (repository may be missing)"
+        fi
     fi
 
     # Clean up old images
