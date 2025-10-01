@@ -1135,3 +1135,90 @@ cd /opt/vless && sudo docker-compose restart xray-server
 - Использовать несколько serverNames для fallback
 - Мониторить доступность destination через cron
 - Скрипт `check-destination.sh` для автоматической проверки
+
+#### 13.5 Проблема: UFW блокирует Docker FORWARD трафик - контейнер без интернета
+
+**Симптомы:**
+- Контейнер запущен, но нет доступа к интернету
+- `docker exec xray-server ping 8.8.8.8` - FAILS: ping: connect: Network is unreachable
+- NAT правила существуют в iptables, но не работают
+- Проблема возникает только при активном UFW firewall
+
+**Root Cause:**
+UFW блокирует трафик в FORWARD chain до того, как Docker NAT правила в POSTROUTING chain могут примениться. Настройка только `DEFAULT_FORWARD_POLICY="ACCEPT"` недостаточна - UFW создает explicit blocking правила, которые имеют приоритет.
+
+**Диагностика:**
+```bash
+# 1. Проверить статус UFW
+sudo ufw status
+
+# 2. Проверить наличие UFW FORWARD правил для Docker subnet
+sudo ufw status numbered | grep "172\."
+
+# 3. Проверить iptables FORWARD chain
+sudo iptables -L FORWARD -n -v | head -20
+
+# 4. Запустить полную диагностику
+sudo /opt/vless/scripts/diagnose-vpn-conflicts.sh
+# Step 7 проверит UFW FORWARD правила
+```
+
+**Решение (автоматическое):**
+Установка автоматически настраивает UFW. Для существующих установок:
+```bash
+# Загрузить функции
+source /opt/vless/scripts/lib/colors.sh
+source /opt/vless/scripts/lib/utils.sh
+source /opt/vless/scripts/lib/network.sh
+
+# Получить Docker subnet из .env
+DOCKER_SUBNET=$(grep '^DOCKER_SUBNET=' /opt/vless/.env | cut -d'=' -f2)
+
+# Настроить UFW для Docker
+configure_ufw_for_docker "$DOCKER_SUBNET"
+
+# Перезапустить контейнер
+cd /opt/vless && docker-compose restart
+```
+
+**Решение (ручное):**
+```bash
+# Получить Docker subnet
+DOCKER_SUBNET=$(grep '^DOCKER_SUBNET=' /opt/vless/.env | cut -d'=' -f2)
+
+# Добавить UFW FORWARD правила
+sudo ufw route allow from $DOCKER_SUBNET
+sudo ufw route allow to $DOCKER_SUBNET
+
+# Перезапустить контейнер
+cd /opt/vless && docker-compose restart
+```
+
+**Проверка:**
+```bash
+# 1. UFW должен показывать правила для Docker subnet
+sudo ufw status numbered | grep "172\."
+# Ожидается: [X] 172.X.0.0/16 ALLOW FWD Anywhere
+
+# 2. Проверить iptables
+sudo iptables -L ufw-user-forward -n | grep "172\."
+# Должны быть ACCEPT правила для subnet
+
+# 3. Тест connectivity из контейнера
+docker exec xray-server ping -c 2 8.8.8.8
+# Должно успешно проходить
+```
+
+**Превентивные меры:**
+- Установка автоматически настраивает UFW при обнаружении
+- Используется функция `configure_ufw_for_docker()` из network.sh
+- Graceful degradation если UFW не установлен/не активен
+- Diagnostic script (`diagnose-vpn-conflicts.sh`) включает проверку UFW
+- Документация в CLAUDE.md: раздел "UFW Blocks Docker FORWARD Traffic"
+
+**Техническая информация:**
+- UFW управляет FORWARD chain
+- Docker управляет POSTROUTING NAT chain
+- Explicit FORWARD правила необходимы для пропуска трафика к Docker NAT
+- Правила добавляются командой `ufw route allow`
+- Функция `remove_ufw_docker_rules()` для cleanup
