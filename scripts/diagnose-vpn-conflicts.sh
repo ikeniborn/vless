@@ -228,4 +228,55 @@ else
 fi
 
 echo ""
+print_header "Step 8: REALITY Keys Verification"
+
+if [ -f "/opt/vless/.env" ]; then
+    print_step "Checking X25519 key pair correspondence..."
+
+    # Load environment
+    source /opt/vless/.env 2>/dev/null || true
+
+    if [ -n "$PRIVATE_KEY" ] && [ -n "$PUBLIC_KEY" ]; then
+        # Verify key correspondence using xray
+        EXPECTED_PUBLIC_KEY=$(docker run --rm teddysun/xray:24.11.30 xray x25519 -i "$PRIVATE_KEY" 2>/dev/null | grep "Public key:" | awk '{print $3}')
+
+        if [ "$EXPECTED_PUBLIC_KEY" = "$PUBLIC_KEY" ]; then
+            print_success "X25519 keys are correctly matched"
+        else
+            print_error "X25519 key pair mismatch detected!"
+            print_warning "Expected public key: $EXPECTED_PUBLIC_KEY"
+            print_warning "Current public key: $PUBLIC_KEY"
+            echo ""
+            print_info "This will cause 'REALITY: processed invalid connection' errors"
+            print_info "Clients will connect but have NO internet access"
+            echo ""
+            print_info "To fix this issue:"
+            echo "  1. Update PUBLIC_KEY in /opt/vless/.env with: $EXPECTED_PUBLIC_KEY"
+            echo "  2. Restart service: cd /opt/vless && docker-compose restart"
+            echo "  3. Update ALL client configurations with new PUBLIC_KEY"
+            echo "  4. Get new config: vless-users export-config admin"
+        fi
+
+        # Check for recent 'invalid connection' errors
+        print_step "Checking for recent REALITY connection errors..."
+        if [ -f "/opt/vless/logs/error.log" ]; then
+            INVALID_COUNT=$(grep -c "REALITY: processed invalid connection" /opt/vless/logs/error.log 2>/dev/null || echo "0")
+            if [ "$INVALID_COUNT" -gt 0 ]; then
+                print_warning "Found $INVALID_COUNT 'invalid connection' errors in logs"
+                print_info "This usually means clients are using OLD keys after reinstallation"
+                echo ""
+                print_info "Solution: Clients MUST update their configuration with NEW keys"
+                print_info "Run: vless-users export-config <username>"
+            else
+                print_success "No 'invalid connection' errors found"
+            fi
+        fi
+    else
+        print_warning "PRIVATE_KEY or PUBLIC_KEY not found in .env"
+    fi
+else
+    print_warning "VLESS not installed at /opt/vless"
+fi
+
+echo ""
 print_header "Diagnostic Complete"

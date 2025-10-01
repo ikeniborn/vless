@@ -754,12 +754,25 @@ show_connection_info() {
     # Save QR code as image
     qrencode -o "$VLESS_HOME/data/qr_codes/admin.png" -s 10 "$vless_link"
     print_info "QR code saved to: $VLESS_HOME/data/qr_codes/admin.png"
-    
+
     echo ""
-    print_info "To manage users, run: vless-users"
-    print_info "To view logs, run: vless-logs"
-    print_info "To create backup, run: vless-backup"
-    print_info "To update Xray, run: vless-update"
+    print_warning "⚠️  IMPORTANT: Client Configuration Update Required!"
+    echo ""
+    print_info "If this is a REINSTALLATION or if you regenerated keys:"
+    print_info "  • ALL existing clients MUST update their configuration with NEW keys"
+    print_info "  • Old configurations will show 'REALITY: processed invalid connection'"
+    print_info "  • Clients will connect but have NO internet access with old keys"
+    echo ""
+    print_info "To get updated configuration later, run:"
+    print_info "  ${CYAN}vless-users export-config admin${NC}"
+    echo ""
+    print_separator
+    echo ""
+    print_info "Management Commands:"
+    print_info "  • Manage users: ${CYAN}vless-users${NC}"
+    print_info "  • View logs: ${CYAN}vless-logs${NC}"
+    print_info "  • Create backup: ${CYAN}vless-backup${NC}"
+    print_info "  • Update Xray: ${CYAN}vless-update${NC}"
 }
 
 # Main installation flow
