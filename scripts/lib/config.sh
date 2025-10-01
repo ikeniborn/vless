@@ -149,6 +149,61 @@ remove_user_from_config() {
     return 0
 }
 
+# Validate X25519 key correspondence (privateKey -> publicKey match)
+validate_x25519_keys() {
+    local private_key="$1"
+
+    if [ -z "$private_key" ]; then
+        print_error "Private key not provided for validation"
+        return 1
+    fi
+
+    print_step "Validating X25519 key correspondence..."
+
+    # Compute public key from private key using xray
+    local computed_output
+    computed_output=$(docker run --rm teddysun/xray:24.11.30 xray x25519 -i "$private_key" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        print_error "Failed to compute public key from private key"
+        print_info "Docker error: $computed_output"
+        return 1
+    fi
+
+    # Extract computed public key (handles both "Public key:" and "password:" formats)
+    local computed_public_key=$(echo "$computed_output" | grep -iE "(public.key:|password:)" | awk '{print $NF}')
+
+    if [ -z "$computed_public_key" ]; then
+        print_error "Failed to extract computed public key"
+        print_info "Debug output: $computed_output"
+        return 1
+    fi
+
+    # Load PUBLIC_KEY from .env
+    if [ ! -f "$ENV_FILE" ]; then
+        print_error ".env file not found: $ENV_FILE"
+        return 1
+    fi
+
+    local stored_public_key=$(grep '^PUBLIC_KEY=' "$ENV_FILE" | cut -d'=' -f2)
+
+    if [ -z "$stored_public_key" ]; then
+        print_error "PUBLIC_KEY not found in .env file"
+        return 1
+    fi
+
+    # Compare keys
+    if [ "$computed_public_key" = "$stored_public_key" ]; then
+        print_success "X25519 keys are mathematically valid and match"
+        return 0
+    else
+        print_error "X25519 key mismatch detected!"
+        print_warning "Computed public key: $computed_public_key"
+        print_warning "Stored PUBLIC_KEY:   $stored_public_key"
+        return 1
+    fi
+}
+
 # Apply template substitution
 apply_template() {
     local template_file=$1

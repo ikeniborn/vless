@@ -93,6 +93,25 @@ source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/network.sh
 remove_ufw_docker_rules
 ```
 
+### Key Management and Diagnostics (NEW - 2025-10-01)
+```bash
+# Diagnose X25519 key correspondence issues
+/opt/vless/scripts/diagnose-keys.sh
+
+# Or from repo directory
+./scripts/diagnose-keys.sh
+
+# Rotate X25519 keys safely (with backup and validation)
+sudo /opt/vless/scripts/security/rotate-keys.sh
+
+# Or from repo directory
+sudo ./scripts/security/rotate-keys.sh
+
+# Test key validation function
+source scripts/lib/colors.sh scripts/lib/config.sh
+VLESS_HOME=/opt/vless validate_x25519_keys "<private-key>"
+```
+
 ### Script Dependencies
 All scripts source dependencies in this order:
 1. `lib/colors.sh` - Terminal colors and formatting
@@ -104,6 +123,7 @@ All scripts source dependencies in this order:
 ### Key Functions in lib/config.sh
 - `apply_template()` - Replaces {{VARIABLE}} in templates with values (uses sed escaping)
 - `generate_x25519_keys()` - Creates private/public key pair using xray container
+- `validate_x25519_keys()` - **NEW (2025-10-01)**: Validates mathematical correspondence between privateKey and publicKey
 - `add_user_to_config()` - Updates config.json with new user
 - `restart_xray_service()` - Safe restart with docker-compose
 
@@ -237,6 +257,20 @@ done
 # Test key generation (requires Docker)
 source scripts/lib/*.sh
 generate_x25519_keys
+
+# Test key validation (NEW - 2025-10-01)
+source scripts/lib/colors.sh scripts/lib/config.sh
+PRIVATE_KEY="<test-private-key>"
+PUBLIC_KEY="<test-public-key>"
+echo "PRIVATE_KEY=$PRIVATE_KEY" > /tmp/test.env
+echo "PUBLIC_KEY=$PUBLIC_KEY" >> /tmp/test.env
+ENV_FILE=/tmp/test.env validate_x25519_keys "$PRIVATE_KEY"
+
+# Test diagnostic script
+./scripts/diagnose-keys.sh  # Requires /opt/vless installation
+
+# Test key rotation script (dry run possible by reviewing code first)
+# sudo ./scripts/security/rotate-keys.sh  # Creates real backups and changes keys
 ```
 
 ## Important Paths and Variables
@@ -584,28 +618,63 @@ docker-compose -f docker-compose.fake.yml up -d
 ### REALITY Invalid Connection - No Internet Access (CRITICAL)
 **Issue:** Client shows "Connected" but cannot access internet, logs show "REALITY: processed invalid connection"
 **Root Cause:** X25519 key pair mismatch between server (privateKey) and client (publicKey)
-**Solution:**
+
+**Quick Diagnosis (NEW - 2025-10-01):**
+```bash
+# Run comprehensive diagnostic script
+/opt/vless/scripts/diagnose-keys.sh
+
+# Example output:
+# [1] Keys from config.json: privateKey extracted
+# [2] Keys from .env: PRIVATE_KEY and PUBLIC_KEY extracted
+# [3] Computed publicKey from privateKey: mathematically derived
+# [4] Validation Results:
+#     ✓ privateKey matches between sources
+#     ✓ PUBLIC_KEY matches computed value (keys valid)
+# [5] Log Analysis: Shows invalid connection count
+# [6] Conclusion: All keys correct OR specific mismatch detected
+```
+
+**Solution (Automated - RECOMMENDED):**
+```bash
+# Use safe key rotation script (with automatic backup and validation)
+sudo /opt/vless/scripts/security/rotate-keys.sh
+
+# Script will:
+# - Create timestamped backup
+# - Generate and validate new keys
+# - Update all configuration files
+# - Restart Xray service safely
+# - Display critical warning about updating clients
+```
+
+**Solution (Manual):**
 1. Generate new X25519 keys: `docker run --rm teddysun/xray:24.11.30 xray x25519`
 2. Update privateKey in `/opt/vless/config/config.json`
 3. Update PRIVATE_KEY and PUBLIC_KEY in `/opt/vless/.env`
 4. Restart: `cd /opt/vless && docker-compose restart`
 5. Update all client configurations with new PUBLIC_KEY
 
-**Diagnosis:**
+**Manual Diagnosis:**
 ```bash
 # Check for invalid connection errors
 sudo tail -100 /opt/vless/logs/error.log | grep "invalid connection"
 
-# Verify key correspondence
+# Verify key correspondence manually
 docker exec xray-server cat /etc/xray/config.json | jq -r '.inbounds[0].streamSettings.realitySettings.privateKey'
 docker run --rm teddysun/xray:24.11.30 xray x25519 -i <PRIVATE_KEY_FROM_ABOVE>
 # Compare output with PUBLIC_KEY in .env
+
+# Or use validation function
+source /opt/vless/scripts/lib/colors.sh /opt/vless/scripts/lib/config.sh
+VLESS_HOME=/opt/vless validate_x25519_keys "<PRIVATE_KEY>"
 ```
 
 **Prevention:**
+- Installation now includes automatic key validation (added 2025-10-01)
 - Use `scripts/security/rotate-keys.sh` for safe key rotation
-- Always backup before changing keys
-- Validate key pairs after generation
+- Run `scripts/diagnose-keys.sh` if connection issues occur
+- Always backup before changing keys manually
 
 **See also:**
 - TROUBLESHOOTING.md: Section "REALITY: processed invalid connection"

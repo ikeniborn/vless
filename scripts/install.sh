@@ -372,6 +372,10 @@ generate_keys() {
     print_success "Keys generated successfully"
     print_info "Private key saved to: $VLESS_HOME/data/keys/private.key"
     print_info "Public key saved to: $VLESS_HOME/data/keys/public.key"
+
+    # Validate key correspondence
+    # Note: This requires .env file to exist, so validation will be done after .env creation
+    # in create_configuration() function
 }
 
 create_configuration() {
@@ -426,6 +430,38 @@ RESTART_POLICY=unless-stopped
 EOF
     chmod 600 "$VLESS_HOME/.env"
     print_success ".env file created"
+
+    # Step 2.1: Validate X25519 keys correspondence
+    echo ""
+    if validate_x25519_keys "$PRIVATE_KEY"; then
+        # Validation successful - message already printed by function
+        :
+    else
+        print_error "X25519 key validation failed!"
+        print_warning "Attempting to regenerate keys..."
+
+        # Regenerate keys once
+        local key_output=$(docker run --rm teddysun/xray:24.11.30 xray x25519)
+        PRIVATE_KEY=$(echo "$key_output" | grep -i "private.key:" | awk '{print $NF}')
+        PUBLIC_KEY=$(echo "$key_output" | grep -iE "(public.key:|password:)" | awk '{print $NF}')
+
+        # Update saved keys
+        echo "$PRIVATE_KEY" > "$VLESS_HOME/data/keys/private.key"
+        echo "$PUBLIC_KEY" > "$VLESS_HOME/data/keys/public.key"
+
+        # Update .env file with new keys
+        sed -i "s/^PRIVATE_KEY=.*/PRIVATE_KEY=$PRIVATE_KEY/" "$VLESS_HOME/.env"
+        sed -i "s/^PUBLIC_KEY=.*/PUBLIC_KEY=$PUBLIC_KEY/" "$VLESS_HOME/.env"
+
+        # Validate again
+        if validate_x25519_keys "$PRIVATE_KEY"; then
+            print_success "Keys regenerated and validated successfully"
+        else
+            print_error "Key validation failed after regeneration. Installation cannot continue."
+            exit 1
+        fi
+    fi
+    echo ""
 
     # Step 3: Create docker-compose.yml
     print_step "Creating Docker Compose configuration..."
@@ -756,15 +792,29 @@ show_connection_info() {
     print_info "QR code saved to: $VLESS_HOME/data/qr_codes/admin.png"
 
     echo ""
-    print_warning "⚠️  IMPORTANT: Client Configuration Update Required!"
+
+    # Critical warning with prominent display
+    local warning_message="⚠️  CRITICAL: CLIENT CONFIGURATION UPDATE REQUIRED! ⚠️
+
+If this is a REINSTALLATION or if you regenerated keys:
+  • ALL existing clients MUST update configuration with NEW keys
+  • Old configurations will show 'REALITY: processed invalid connection'
+  • Clients will connect but have NO internet access with old keys
+
+Current PUBLIC_KEY: ${PUBLIC_KEY}
+Key Fingerprint: ${PUBLIC_KEY:0:8}...
+
+You MUST export new configuration for all users:
+  → Run: vless-users export-config <username>
+  → Update client apps with the new vless:// link or QR code
+
+DO NOT SKIP THIS STEP if you have existing clients!"
+
+    print_critical_warning "$warning_message"
+
     echo ""
-    print_info "If this is a REINSTALLATION or if you regenerated keys:"
-    print_info "  • ALL existing clients MUST update their configuration with NEW keys"
-    print_info "  • Old configurations will show 'REALITY: processed invalid connection'"
-    print_info "  • Clients will connect but have NO internet access with old keys"
-    echo ""
-    print_info "To get updated configuration later, run:"
-    print_info "  ${CYAN}vless-users export-config admin${NC}"
+    echo -e "${YELLOW}Press Enter to confirm you have read this warning...${NC}"
+    read -r
     echo ""
     print_separator
     echo ""

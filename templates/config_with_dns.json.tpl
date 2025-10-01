@@ -60,20 +60,13 @@
         "realitySettings": {
           "dest": "{{REALITY_DEST}}",
           "serverNames": [
-            "{{REALITY_SERVER_NAME}}",
-            "www.microsoft.com",
-            "www.apple.com",
-            "github.com",
-            "www.cloudflare.com",
-            "stackoverflow.com",
-            "www.wikipedia.org"
+            "{{REALITY_SERVER_NAME}}"
           ],
           "privateKey": "{{PRIVATE_KEY}}",
           "minClientVer": "1.8.0",
           "maxClientVer": "",
           "maxTimeDiff": 90,
           "shortIds": [
-            "",
             "{{ADMIN_SHORT_ID}}"
           ]
         }
