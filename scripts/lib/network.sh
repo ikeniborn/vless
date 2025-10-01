@@ -215,6 +215,8 @@ EOF
 }
 
 # Configure UFW to allow VPN port (if UFW is active)
+# This function sets the DEFAULT_FORWARD_POLICY and adds port rules
+# For Docker bridge networking, use configure_ufw_for_docker() to add explicit FORWARD rules
 configure_firewall() {
     local server_port="${1:-443}"
 
@@ -261,6 +263,145 @@ configure_firewall() {
     return 0
 }
 
+# Remove UFW rules for Docker bridge networking
+# Used during uninstallation or reconfiguration
+# Only removes rules for the specified Docker subnet
+remove_ufw_docker_rules() {
+    local docker_subnet="${1:-}"
+
+    # If no subnet provided, try to load from .env
+    if [ -z "$docker_subnet" ]; then
+        if [ -f "/opt/vless/.env" ]; then
+            docker_subnet=$(grep '^DOCKER_SUBNET=' /opt/vless/.env 2>/dev/null | cut -d'=' -f2)
+        fi
+    fi
+
+    if [ -z "$docker_subnet" ]; then
+        print_error "Docker subnet not specified and could not be determined from .env"
+        print_info "Usage: remove_ufw_docker_rules <subnet>"
+        return 1
+    fi
+
+    # Check if UFW is installed
+    if ! command_exists "ufw"; then
+        print_info "UFW is not installed, no rules to remove"
+        return 0
+    fi
+
+    # Check if UFW is active
+    local ufw_status=$(ufw status 2>/dev/null | head -1)
+    if ! echo "$ufw_status" | grep -q "active"; then
+        print_info "UFW is not active, no rules to remove"
+        return 0
+    fi
+
+    print_step "Removing UFW rules for Docker subnet: $docker_subnet..."
+
+    # Find and delete rules containing the subnet
+    # UFW rule numbers change after each deletion, so we delete in reverse order
+    local rule_numbers=$(ufw status numbered 2>/dev/null | grep "$docker_subnet" | grep -oE '^\[[0-9]+\]' | tr -d '[]' | sort -rn)
+
+    if [ -z "$rule_numbers" ]; then
+        print_info "No UFW rules found for subnet $docker_subnet"
+        return 0
+    fi
+
+    local removed=0
+    for rule_num in $rule_numbers; do
+        print_step "Removing UFW rule #$rule_num..."
+        if echo "y" | ufw delete "$rule_num" >/dev/null 2>&1; then
+            ((removed++))
+            print_success "Removed rule #$rule_num"
+        else
+            print_warning "Failed to remove rule #$rule_num"
+        fi
+    done
+
+    if [ $removed -gt 0 ]; then
+        print_success "Removed $removed UFW rule(s) for $docker_subnet"
+    else
+        print_info "No rules were removed"
+    fi
+
+    return 0
+}
+
+# Configure UFW for Docker bridge networking
+# Adds explicit FORWARD rules to allow Docker subnet traffic through UFW
+# This is CRITICAL when UFW is active - without these rules, containers have no internet access
+# even if DEFAULT_FORWARD_POLICY="ACCEPT" is set
+configure_ufw_for_docker() {
+    local docker_subnet="$1"
+
+    # Validate input
+    if [ -z "$docker_subnet" ]; then
+        print_error "Docker subnet parameter is required"
+        return 1
+    fi
+
+    # Validate subnet format (basic check for 172.X.0.0/16)
+    if ! echo "$docker_subnet" | grep -qE '^172\.[0-9]{1,3}\.0\.0/1[0-9]$'; then
+        print_error "Invalid Docker subnet format: $docker_subnet"
+        print_info "Expected format: 172.X.0.0/16"
+        return 1
+    fi
+
+    # Check if UFW is installed
+    if ! command_exists "ufw"; then
+        print_info "UFW is not installed, skipping Docker bridge configuration"
+        return 0
+    fi
+
+    # Check if UFW is active
+    local ufw_status=$(ufw status 2>/dev/null | head -1)
+    if ! echo "$ufw_status" | grep -q "active"; then
+        print_info "UFW is not active, skipping Docker bridge configuration"
+        return 0
+    fi
+
+    print_step "Configuring UFW for Docker bridge network..."
+    print_info "Adding FORWARD rules for subnet: $docker_subnet"
+
+    # Check if rules already exist
+    local existing_rules=$(ufw status numbered 2>/dev/null | grep -c "$docker_subnet" || echo "0")
+
+    if [ "$existing_rules" -ge 2 ]; then
+        print_success "UFW FORWARD rules for $docker_subnet already exist"
+        return 0
+    fi
+
+    # Add UFW route rules for bidirectional traffic
+    # These rules allow Docker bridge traffic to be forwarded through UFW
+    print_step "Adding UFW route allow from $docker_subnet..."
+    if ufw route allow from "$docker_subnet" 2>/dev/null; then
+        print_success "UFW route allow from $docker_subnet added"
+    else
+        print_error "Failed to add UFW route allow from $docker_subnet"
+        return 1
+    fi
+
+    print_step "Adding UFW route allow to $docker_subnet..."
+    if ufw route allow to "$docker_subnet" 2>/dev/null; then
+        print_success "UFW route allow to $docker_subnet added"
+    else
+        print_warning "Failed to add UFW route allow to $docker_subnet"
+        # Don't fail - inbound rule is most critical
+    fi
+
+    # Verify rules were added
+    print_step "Verifying UFW rules..."
+    local new_rules=$(ufw status numbered 2>/dev/null | grep -c "$docker_subnet" || echo "0")
+
+    if [ "$new_rules" -ge 1 ]; then
+        print_success "UFW FORWARD rules configured successfully"
+        print_info "Docker containers in $docker_subnet can now access internet through UFW"
+        return 0
+    else
+        print_error "UFW rules verification failed"
+        return 1
+    fi
+}
+
 # Main function to configure all network settings for VLESS service
 configure_network_for_vless() {
     local docker_subnet="$1"
@@ -299,6 +440,11 @@ configure_network_for_vless() {
 
     # Step 5: Configure firewall (if UFW is active)
     configure_firewall "$server_port"
+
+    # Step 6: Configure UFW for Docker bridge (if UFW is active)
+    # This adds explicit FORWARD rules to allow Docker subnet traffic through UFW
+    # Without this, containers may have no internet access even with correct NAT configuration
+    configure_ufw_for_docker "$docker_subnet"
 
     echo ""
     print_success "Network configuration completed successfully"
@@ -451,6 +597,100 @@ clean_conflicting_nat_rules() {
     fi
 
     return 0
+}
+
+# Detect other VPN services that may conflict with VLESS
+# Returns 0 if no conflicts detected, 1 if potential conflicts found
+detect_other_vpn_services() {
+    print_step "Checking for other VPN services..."
+
+    local conflicts_found=0
+    local warnings=()
+
+    # Check for VPN-related Docker containers
+    print_info "Scanning Docker containers..."
+    local vpn_containers=$(docker ps -a --format '{{.Names}}' 2>/dev/null | \
+        grep -iE 'outline|openvpn|wireguard|shadowsocks|v2ray|xray|trojan' | \
+        grep -v 'xray-server' || true)
+
+    if [ -n "$vpn_containers" ]; then
+        print_warning "Found other VPN containers:"
+        echo "$vpn_containers" | while read container; do
+            local status=$(docker ps --filter "name=$container" --format '{{.Status}}' 2>/dev/null || echo "stopped")
+            echo "  - $container ($status)"
+        done
+        warnings+=("Other VPN Docker containers detected")
+        conflicts_found=1
+    fi
+
+    # Check for existing manual NAT rules
+    if command_exists iptables; then
+        local external_if=$(get_external_interface 2>/dev/null)
+        if [ -n "$external_if" ]; then
+            local manual_nat_count=$(iptables -t nat -L POSTROUTING -n 2>/dev/null | \
+                grep -c -E "MASQUERADE.*${external_if}.*172\.[0-9]+\.0\.0/1[0-9]" || echo "0")
+
+            if [ "$manual_nat_count" -gt 0 ]; then
+                print_warning "Found $manual_nat_count manual NAT rule(s) for Docker subnets"
+                print_info "These rules may have been added by other VPN services"
+                warnings+=("Manual NAT rules detected (count: $manual_nat_count)")
+                conflicts_found=1
+            fi
+        fi
+    fi
+
+    # Check for VPN-related systemd services
+    print_info "Checking systemd services..."
+    local vpn_services=$(systemctl list-units --type=service --state=running 2>/dev/null | \
+        grep -iE 'openvpn|wireguard|outline|ipsec|strongswan|l2tp' | \
+        awk '{print $1}' || true)
+
+    if [ -n "$vpn_services" ]; then
+        print_warning "Found active VPN services:"
+        echo "$vpn_services" | while read service; do
+            echo "  - $service"
+        done
+        warnings+=("Active VPN systemd services detected")
+        conflicts_found=1
+    fi
+
+    # Check Docker networks with 172.x subnets
+    local docker_networks=$(docker network ls --format '{{.Name}}' 2>/dev/null | \
+        grep -v 'bridge\|host\|none' || true)
+
+    if [ -n "$docker_networks" ]; then
+        local subnet_conflicts=0
+        while read network; do
+            local subnet=$(docker network inspect "$network" 2>/dev/null | \
+                jq -r '.[0].IPAM.Config[0].Subnet // ""' 2>/dev/null || true)
+
+            if [[ "$subnet" =~ ^172\. ]]; then
+                ((subnet_conflicts++))
+            fi
+        done <<< "$docker_networks"
+
+        if [ $subnet_conflicts -gt 0 ]; then
+            print_info "Found $subnet_conflicts Docker network(s) using 172.x.x.x subnets"
+        fi
+    fi
+
+    echo ""
+
+    # Summary
+    if [ $conflicts_found -eq 0 ]; then
+        print_success "No VPN service conflicts detected"
+        return 0
+    else
+        print_warning "Potential conflicts detected with other VPN services"
+        echo ""
+        print_info "This may cause routing issues. Recommendations:"
+        echo "  • Stop conflicting VPN services before installation"
+        echo "  • Or proceed with installation and clean up NAT rules automatically"
+        echo "  • Use 'diagnose-vpn-conflicts.sh' for detailed analysis"
+        echo ""
+
+        return 1
+    fi
 }
 
 # Display network configuration summary

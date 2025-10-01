@@ -188,8 +188,102 @@ fi
 
 echo ""
 
-# Step 7: Recommendations
-print_header "Step 7: Recommendations"
+# Step 7: UFW FORWARD Rules Check
+print_header "Step 7: UFW FORWARD Rules Check"
+
+print_step "Checking UFW firewall configuration..."
+
+# Check if UFW is installed
+if ! command_exists ufw; then
+    print_info "UFW is not installed (firewall check skipped)"
+else
+    # Check if UFW is active
+    UFW_STATUS=$(ufw status 2>/dev/null | head -1)
+    if echo "$UFW_STATUS" | grep -q "active"; then
+        print_success "UFW is active"
+        echo ""
+
+        # Load Docker subnet from .env
+        DOCKER_SUBNET=""
+        if [ -f "/opt/vless/.env" ]; then
+            DOCKER_SUBNET=$(grep '^DOCKER_SUBNET=' /opt/vless/.env 2>/dev/null | cut -d'=' -f2)
+        fi
+
+        if [ -n "$DOCKER_SUBNET" ]; then
+            print_step "Checking UFW FORWARD rules for Docker subnet: $DOCKER_SUBNET"
+
+            # Check if UFW has route rules for Docker subnet
+            UFW_DOCKER_RULES=$(ufw status numbered 2>/dev/null | grep "$DOCKER_SUBNET" || true)
+
+            if [ -n "$UFW_DOCKER_RULES" ]; then
+                print_success "UFW FORWARD rules found for Docker subnet:"
+                echo "$UFW_DOCKER_RULES" | while read line; do
+                    echo "  $line"
+                done
+                echo ""
+            else
+                print_error "No UFW FORWARD rules found for Docker subnet!"
+                echo ""
+                print_warning "This is the MOST COMMON cause of 'no internet access' in containers"
+                print_info "Docker needs explicit UFW FORWARD rules to route traffic"
+                echo ""
+                print_info "To fix this issue:"
+                echo "  1. Run the configuration function:"
+                echo "     source /opt/vless/scripts/lib/colors.sh"
+                echo "     source /opt/vless/scripts/lib/utils.sh"
+                echo "     source /opt/vless/scripts/lib/network.sh"
+                echo "     configure_ufw_for_docker \"$DOCKER_SUBNET\""
+                echo ""
+                echo "  2. Or manually add rules:"
+                echo "     sudo ufw route allow from $DOCKER_SUBNET"
+                echo "     sudo ufw route allow to $DOCKER_SUBNET"
+                echo ""
+                echo "  3. Restart containers:"
+                echo "     cd /opt/vless && docker-compose restart"
+                echo ""
+            fi
+        else
+            print_warning "Docker subnet not found in /opt/vless/.env"
+        fi
+
+        # Show UFW DEFAULT_FORWARD_POLICY
+        print_step "Checking UFW FORWARD policy..."
+        UFW_FORWARD_POLICY=$(grep '^DEFAULT_FORWARD_POLICY=' /etc/default/ufw 2>/dev/null | cut -d'"' -f2 || echo "unknown")
+        if [ "$UFW_FORWARD_POLICY" = "ACCEPT" ]; then
+            print_success "UFW DEFAULT_FORWARD_POLICY is ACCEPT"
+        else
+            print_warning "UFW DEFAULT_FORWARD_POLICY is $UFW_FORWARD_POLICY (should be ACCEPT)"
+            print_info "Update with: sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY=\"ACCEPT\"/' /etc/default/ufw"
+        fi
+
+        echo ""
+
+        # Check iptables FORWARD chain rule order
+        print_step "Analyzing iptables FORWARD chain..."
+        print_info "First 10 rules in FORWARD chain:"
+        iptables -L FORWARD -n -v --line-numbers 2>/dev/null | head -12 | tail -10 | while read line; do
+            echo "  $line"
+        done
+        echo ""
+
+        print_info "UFW user forward rules:"
+        UFW_USER_FORWARD=$(iptables -L ufw-user-forward -n 2>/dev/null | grep -v "^Chain\|^target" || echo "None")
+        if [ "$UFW_USER_FORWARD" = "None" ]; then
+            echo "  No custom rules"
+        else
+            echo "$UFW_USER_FORWARD" | while read line; do
+                echo "  $line"
+            done
+        fi
+    else
+        print_info "UFW is installed but not active"
+    fi
+fi
+
+echo ""
+
+# Step 8: Recommendations
+print_header "Step 8: Recommendations"
 
 if [ -n "$MANUAL_RULES" ] && [ "$CONFLICT_COUNT" -gt 0 ]; then
     print_warning "Action Required: Remove conflicting manual NAT rules"
@@ -228,7 +322,7 @@ else
 fi
 
 echo ""
-print_header "Step 8: REALITY Keys Verification"
+print_header "Step 9: REALITY Keys Verification"
 
 if [ -f "/opt/vless/.env" ]; then
     print_step "Checking X25519 key pair correspondence..."

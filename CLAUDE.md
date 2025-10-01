@@ -73,6 +73,24 @@ docker network inspect vless-reality_vless-network
 # Test connectivity from container
 docker exec xray-server ping -c 2 8.8.8.8
 docker exec xray-server nslookup google.com 8.8.8.8
+
+# Check for VPN service conflicts (pre-installation check)
+source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/network.sh
+detect_other_vpn_services
+
+# Check UFW FORWARD rules (if UFW is active)
+sudo ufw status numbered | grep -i forward
+sudo iptables -L FORWARD -n -v --line-numbers | head -20
+sudo iptables -L ufw-user-forward -n
+
+# Configure UFW for Docker (if needed)
+source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/network.sh
+DOCKER_SUBNET=$(grep '^DOCKER_SUBNET=' /opt/vless/.env | cut -d'=' -f2)
+configure_ufw_for_docker "$DOCKER_SUBNET"
+
+# Remove UFW Docker rules (cleanup)
+source scripts/lib/colors.sh scripts/lib/utils.sh scripts/lib/network.sh
+remove_ufw_docker_rules
 ```
 
 ### Script Dependencies
@@ -90,17 +108,20 @@ All scripts source dependencies in this order:
 - `restart_xray_service()` - Safe restart with docker-compose
 
 ### Key Functions in lib/network.sh
-#### Network Configuration (Rewritten 2025-09-30)
-**Philosophy: Docker automatically manages iptables NAT rules. Scripts only configure kernel settings.**
+#### Network Configuration (Rewritten 2025-09-30, Updated 2025-10-01)
+**Philosophy: Docker automatically manages iptables NAT rules. Scripts configure kernel settings and UFW firewall. Clean separation: UFW handles FORWARD rules, Docker handles NAT.**
 
 - `find_available_docker_subnet()` - Finds free Docker subnet in 172.16-254.x.x range
 - `load_br_netfilter()` - Loads br_netfilter kernel module (required for bridge+iptables)
 - `enable_ip_forwarding()` - Enables IP forwarding and bridge netfilter (bridge-nf-call-iptables)
 - `make_sysctl_persistent()` - Creates /etc/sysctl.d/99-vless-network.conf for persistence
 - `configure_docker_daemon()` - Creates/updates /etc/docker/daemon.json with optimal settings
-- `clean_conflicting_nat_rules()` - **NEW**: Detects and removes manual NAT rules that conflict with Docker (from other VPN services)
-- `configure_firewall()` - Configures UFW port and forward policy (if UFW is active)
-- `configure_network_for_vless()` - Main function: loads modules, enables sysctl, cleans conflicting rules, configures Docker
+- `clean_conflicting_nat_rules()` - Detects and removes manual NAT rules that conflict with Docker (from other VPN services)
+- `detect_other_vpn_services()` - **NEW (2025-10-01)**: Pre-installation check for VPN service conflicts. Scans Docker containers, systemd services, manual NAT rules, and Docker networks for potential conflicts. Returns 0 if no conflicts, 1 if conflicts detected.
+- `configure_firewall()` - Configures UFW port and DEFAULT_FORWARD_POLICY (if UFW is active)
+- `configure_ufw_for_docker()` - **NEW (2025-10-01)**: Adds UFW FORWARD rules for Docker bridge networking. CRITICAL when UFW is active - without these rules, containers have no internet access.
+- `remove_ufw_docker_rules()` - **NEW (2025-10-01)**: Removes UFW rules for Docker subnet during cleanup/uninstall
+- `configure_network_for_vless()` - Main function: loads modules, enables sysctl, cleans conflicting rules, configures Docker and UFW
 - `verify_network_configuration()` - Validates network setup (checks modules, sysctl, Docker NAT)
 - `get_external_interface()` - Auto-detects external network interface
 - `display_network_summary()` - Shows network configuration summary
@@ -109,6 +130,7 @@ All scripts source dependencies in this order:
 - `net.ipv4.ip_forward = 1` - Enable routing
 - `net.bridge.bridge-nf-call-iptables = 1` - **CRITICAL**: Bridge traffic through iptables
 - `br_netfilter` module loaded - Required for above setting to work
+- UFW FORWARD rules - **CRITICAL**: Explicit rules to allow Docker subnet traffic through UFW firewall
 
 ### Key Functions in lib/utils.sh
 #### Symlink Management
@@ -280,6 +302,7 @@ Set automatically by scripts:
 - Loads `br_netfilter` module persistently (`/etc/modules-load.d/br_netfilter.conf`)
 - Creates `/etc/sysctl.d/99-vless-network.conf` with all required settings
 - Configures `/etc/docker/daemon.json` with optimal settings
+- Configures UFW FORWARD rules for Docker subnet (if UFW is active)
 - Docker automatically manages iptables NAT rules (no manual intervention)
 
 **Verification:**
@@ -315,7 +338,84 @@ sudo systemctl restart docker
 cd /opt/vless && docker-compose restart
 ```
 
-### VPN Conflicts with Other Services (NEW)
+### UFW Blocks Docker FORWARD Traffic (NEW - 2025-10-01)
+**Issue:** Container has no internet access despite correct NAT configuration when UFW firewall is active
+**Root Cause:** UFW blocks FORWARD chain traffic before Docker rules can apply. Setting DEFAULT_FORWARD_POLICY="ACCEPT" alone is insufficient.
+
+**Why This Happens:**
+- UFW creates rules in the FORWARD chain that evaluate traffic before Docker
+- Without explicit UFW rules allowing Docker subnet, packets are dropped
+- Docker's NAT rules in POSTROUTING chain never get reached if FORWARD blocks packets
+
+**Symptoms:**
+```bash
+# Container connectivity test fails
+docker exec xray-server ping -c 2 8.8.8.8
+# FAILS: ping: connect: Network is unreachable
+
+# NAT rules exist but don't help
+sudo iptables -t nat -L POSTROUTING -n -v | grep "172\."
+# Shows Docker MASQUERADE rule (correct)
+
+# But FORWARD chain blocks traffic
+sudo iptables -L FORWARD -n -v
+# Shows UFW rules without explicit Docker subnet allow
+```
+
+**Solution (Automatic):**
+Installation automatically configures UFW if active. For existing installations:
+```bash
+# Run configuration function
+source /opt/vless/scripts/lib/colors.sh
+source /opt/vless/scripts/lib/utils.sh
+source /opt/vless/scripts/lib/network.sh
+
+# Get Docker subnet from .env
+DOCKER_SUBNET=$(grep '^DOCKER_SUBNET=' /opt/vless/.env | cut -d'=' -f2)
+
+# Configure UFW
+configure_ufw_for_docker "$DOCKER_SUBNET"
+
+# Restart containers
+cd /opt/vless && docker-compose restart
+```
+
+**Solution (Manual):**
+```bash
+# Get Docker subnet
+DOCKER_SUBNET=$(grep '^DOCKER_SUBNET=' /opt/vless/.env | cut -d'=' -f2)
+
+# Add UFW FORWARD rules
+sudo ufw route allow from $DOCKER_SUBNET
+sudo ufw route allow to $DOCKER_SUBNET
+
+# Restart containers
+cd /opt/vless && docker-compose restart
+```
+
+**Verification:**
+```bash
+# Check UFW has rules for Docker subnet
+sudo ufw status numbered | grep "172\."
+# Should show: [X] 172.X.0.0/16 ALLOW FWD Anywhere
+
+# Check iptables FORWARD chain
+sudo iptables -L ufw-user-forward -n | grep "172\."
+# Should show ACCEPT rules for Docker subnet
+
+# Test container connectivity
+docker exec xray-server ping -c 2 8.8.8.8
+# Should succeed
+```
+
+**Diagnostic:**
+```bash
+# Run diagnostic with UFW checks
+sudo /opt/vless/scripts/diagnose-vpn-conflicts.sh
+# Step 7 checks UFW FORWARD rules
+```
+
+### VPN Conflicts with Other Services
 **Issue:** Multiple VPN services (VLESS, Outline, OpenVPN, etc.) on same server create conflicting NAT rules
 **Symptoms:**
 - Client connects but cannot access internet (despite system settings correct)

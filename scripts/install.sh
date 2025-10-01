@@ -780,11 +780,24 @@ main() {
     clear
     
     print_header "VLESS + REALITY VPN Installer v1.0"
-    
+
     # Check prerequisites
     check_root
     check_system_requirements
-    
+
+    # Check for potential VPN service conflicts
+    print_header "Pre-Installation Checks"
+    if ! detect_other_vpn_services; then
+        echo ""
+        if ! confirm_action "Potential conflicts detected. Continue with installation?" "y"; then
+            print_warning "Installation cancelled by user"
+            print_info "Run 'diagnose-vpn-conflicts.sh' for detailed analysis"
+            exit 0
+        fi
+        print_info "Continuing installation. Conflicts will be resolved automatically."
+    fi
+    echo ""
+
     # Installation steps
     install_dependencies
     collect_parameters
