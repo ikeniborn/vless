@@ -1,563 +1,268 @@
-<request version="3.0">
-
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+<request>
     <!-- КОНФИГУРАЦИЯ ВЫПОЛНЕНИЯ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <execution_config>
-        <language>ru</language>
-        <mode>flexible_sequential</mode>
-        <!-- flexible_sequential: фазы выполняются последовательно, 
-             но возможен возврат к предыдущим при необходимости -->
-
-        <thinking>
-            <enabled>true</enabled>
-            <strategy>adaptive</strategy>
-            <!-- adaptive: используй thinking когда требуется планирование,
-                 анализ сложностей или принятие решений -->
-            <max_length>16000</max_length>
-        </thinking>
-
+        <mode>strict_sequential</mode>
+        <thinking enabled="true" mode="interleaved" max_length="16000"/>
         <validation>checkpoint_based</validation>
-        <!-- Проверка выполнения на ключевых этапах -->
-
-        <error_handling>clarify_and_continue</error_handling>
-        <!-- При проблемах: объяснить, предложить решение, продолжить -->
+        <error_handling>stop_on_failure</error_handling>
     </execution_config>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ВНЕШНИЕ ПАРАМЕТРЫ -->
-    <!-- Этот раздел заполняется для конкретной задачи -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ВНЕШНИЕ ПАРАМЕТРЫ (подставляются отдельно) -->
     <external_inputs>
-
-        <!-- Роль и экспертиза -->
         <role>
-            <title>Full-Stack разработчик</title>
-            <expertise>
-                - Bash scripting для Linux платформ
-                - Docker и Docker Compose
-                - Python разработка
-                - Техническая документация
-                - Тестирование и отладка
-            </expertise>
+            Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
+            Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
-
-        <!-- Контекст выполнения -->
         <context>
-            <description>
-                Проект по улучшению безопасности VLESS
-            </description>
-            <source_files>
-                <file path="/home/ikeniborn/Documents/Project/vless/VLESS_SECURITY_IMPROVEMENTS.md" type="requirements" status="должен существовать"/>
-            </source_files>
-            <target_files>
-                <file path="PRD.md" type="product_requirements" action="update"/>
-            </target_files>
+            /home/ikeniborn/Documents/Project/vless/VLESS_SECURITY_IMPROVEMENTS.md
         </context>
-
-        <!-- Требования к выполнению -->
         <requirements>
-            <primary>
-                Внести изменения в PRD.md на основании документа VLESS_SECURITY_IMPROVEMENTS.md
-            </primary>
-            <quality_criteria>
-                - Все требования из источника учтены
-                - Документ структурирован и читаем
-                - Сохранена консистентность стиля
-                - Изменения логически обоснованы
-            </quality_criteria>
+            - Внести изменения в PRD.md на основании VLESS_SECURITY_IMPROVEMENTS
         </requirements>
-
-        <!-- Ограничения -->
         <constraints>
-            <must>
-                - Опираться на содержимое VLESS_SECURITY_IMPROVEMENTS.md
-                - Сохранять существующую структуру PRD.md где возможно
-                - Обеспечить техническую точность
-            </must>
-            <must_not>
-                - Изменять смысл исходных требований
-                - Удалять критичную информацию без обоснования
-                - Нарушать логическую связность документа
-            </must_not>
+            - Опираться на /home/ikeniborn/Documents/Project/vless/VLESS_SECURITY_IMPROVEMENTS.md
         </constraints>
-
     </external_inputs>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
-    <!-- Универсальные правила работы -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <directives>
+    <!-- УНИВЕРСАЛЬНЫЙ WORKFLOW -->
+    <workflow version="2.0">
+        
+        <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
+        <directives>
+            <directive priority="CRITICAL">
+                ВЫПОЛНЯЙТЕ фазы СТРОГО ПОСЛЕДОВАТЕЛЬНО по значению атрибута 'order'
+            </directive>
+            <directive priority="HIGH">
+                НЕ переходите к следующей фазе пока не выполнен checkpoint текущей
+            </directive>
+            <directive priority="HIGH">
+                Используйте <thinking> перед каждой фазой для планирования действий
+            </directive>
+        </directives>
 
-        <directive id="SEQ-01" priority="CRITICAL">
-            <rule>Выполняй фазы последовательно по атрибуту 'order'</rule>
-            <flexibility>Возврат к предыдущей фазе разрешен при обнаружении проблем</flexibility>
-        </directive>
-
-        <directive id="CHK-01" priority="HIGH">
-            <rule>Не переходи к следующей фазе без выполнения checkpoint текущей</rule>
-            <exception>Если checkpoint блокирует прогресс - объясни проблему и предложи решение</exception>
-        </directive>
-
-        <directive id="THK-01" priority="MEDIUM">
-            <rule>Используй &lt;thinking&gt; для сложных решений и планирования</rule>
-            <when>
-                - Неясные или противоречивые требования
-                - Необходимость выбора между вариантами
-                - Обнаружение потенциальных проблем
-                - Планирование архитектуры/структуры решения
-                - Анализ зависимостей и последствий
-            </when>
-            <when_not>
-                - Простые однозначные действия
-                - Прямое применение известных паттернов
-                - Рутинные операции
-                - Форматирование и оформление
-            </when_not>
-        </directive>
-
-        <directive id="OUT-01" priority="HIGH">
-            <rule>Создавай финальные артефакты, избегай промежуточных файлов</rule>
-            <preferred_output>
-                - Готовые к использованию результаты (код, документы, конфиги)
-                - Краткий summary выполненной работы
-                - Необходимые инструкции по использованию
-            </preferred_output>
-            <avoid>
-                - Множественные промежуточные файлы
-                - Избыточное документирование процесса
-                - Дублирование информации
-            </avoid>
-        </directive>
-
-        <directive id="ERR-01" priority="CRITICAL">
-            <rule>При ошибках и проблемах - объясни и предложи решение</rule>
-            <behavior>
-                1. Четко опиши проблему
-                2. Проанализируй причины (используй thinking если нужно)
-                3. Предложи варианты решения
-                4. Дождись подтверждения пользователя если критично
-            </behavior>
-        </directive>
-
-        <directive id="COM-01" priority="MEDIUM">
-            <rule>Поддерживай конструктивный диалог с пользователем</rule>
-            <approach>
-                - Объясняй свои действия и решения
-                - Запрашивай уточнения при неоднозначностях
-                - Предлагай альтернативы когда уместно
-                - Избегай избыточной формальности
-            </approach>
-        </directive>
-
-        <directive id="CTX-01" priority="HIGH">
-            <rule>Всегда учитывай параметры из &lt;external_inputs&gt;</rule>
-            <approach>
-                - Роль определяет стиль и экспертизу ответов
-                - Контекст задает область работы и источники данных
-                - Требования определяют цели и критерии успеха
-                - Ограничения устанавливают рамки допустимых решений
-            </approach>
-        </directive>
-
-    </directives>
-
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- УНИВЕРСАЛЬНЫЙ РАБОЧИЙ ПРОЦЕСС -->
-    <!-- Применим к любым задачам независимо от домена -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <workflow>
-
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 1: АНАЛИЗ И ПОНИМАНИЕ -->
-        <!-- ───────────────────────────────────────────────────────────── -->
+        <!-- ФАЗА 1: ПОНИМАНИЕ -->
         <phase order="1" id="understanding" mandatory="true">
-
-            <objective>
-                Полное понимание задачи, контекста и требований из &lt;external_inputs&gt;
-            </objective>
-
+            <objective>Полное понимание задачи и контекста</objective>
+            
             <actions>
-                <action priority="critical">
-                    Изучить &lt;requirements&gt; и &lt;constraints&gt; из external_inputs
-                </action>
-                <action priority="high">
-                    Проанализировать доступный &lt;context&gt; (файлы, данные, состояние)
-                </action>
-                <action priority="high">
-                    Определить scope работы: что нужно создать/изменить/удалить
-                </action>
-                <action priority="medium">
-                    Выявить потенциальные риски, конфликты и зависимости
-                </action>
-                <action priority="medium">
-                    Сформулировать подход и стратегию выполнения
-                </action>
+                <action seq="1">Изучить все входные данные из <external_inputs></action>
+                <action seq="2">Выявить явные и неявные требования</action>
+                <action seq="3">Определить потенциальные проблемы и риски</action>
+                <action seq="4">Сформулировать понимание задачи</action>
+                <action seq="4">Назначить проверки для каждой подзадачи</action>
             </actions>
-
+            
             <thinking_prompt>
-                Используй thinking если:
-                - Требования неясны, неполны или противоречивы
-                - Нужно выбрать между несколькими подходами к решению
-                - Обнаружены потенциальные проблемы или конфликты
-                - Требуется планирование сложной структуры/архитектуры
-                
-                Проанализируй:
-                - Что конкретно требуется сделать?
-                - Какие ресурсы и данные доступны?
-                - Какие ограничения нужно учесть?
-                - Какие риски существуют?
-                - Какая последовательность действий оптимальна?
+                Проанализируйте:
+                - Что именно требуется сделать?
+                - Какие есть ограничения?
+                - Какие могут быть подводные камни?
+                - Что является критичным для успеха?
             </thinking_prompt>
-
-            <deliverables>
-                <item type="понимание">
-                    Четкая формулировка задачи и требуемых результатов
-                </item>
-                <item type="стратегия">
-                    План действий с учетом контекста и ограничений
-                </item>
-                <item type="риски">
-                    Идентифицированные проблемы и способы их решения
-                </item>
-            </deliverables>
-
+            
+            <output>
+                <file path="workflow/1_analysis.xml" format="structured">
+                    <understanding/>
+                    <requirements_parsed/>
+                    <risks_identified/>
+                    <success_criteria/>
+                </file>
+            </output>
+            
             <checkpoint>
-                ✓ Все параметры из external_inputs проанализированы
-                ✓ Требования понятны и структурированы
-                ✓ Стратегия выполнения сформулирована
-                ✓ Потенциальные проблемы идентифицированы
-                ✓ Готовность к выполнению подтверждена
+                ✓ Файл analysis.xml создан
+                ✓ Все требования идентифицированы
+                ✓ Критерии успеха определены
             </checkpoint>
-
         </phase>
 
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 2: РЕАЛИЗАЦИЯ -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="2" id="implementation" mandatory="true">
-
+        <!-- ФАЗА 2: ПЛАНИРОВАНИЕ -->
+        <phase order="2" id="planning" mandatory="true">
             <dependency>phase[order=1].checkpoint.passed</dependency>
-
-            <objective>
-                Выполнение запланированных действий для достижения требуемых результатов
-            </objective>
-
+            <objective>Создание детального плана выполнения</objective>
+            
             <actions>
-                <action priority="critical">
-                    Реализовать решение согласно стратегии из Фазы 1
-                </action>
-                <action priority="high">
-                    Применить ограничения из &lt;constraints&gt;
-                </action>
-                <action priority="high">
-                    Обеспечить соответствие &lt;quality_criteria&gt;
-                </action>
-                <action priority="medium">
-                    Поддерживать консистентность и структурированность
-                </action>
-                <action priority="medium">
-                    Документировать ключевые решения и изменения
-                </action>
+                <action seq="1">Загрузить результаты анализа</action>
+                <action seq="2">Декомпозировать задачу на подзадачи</action>
+                <action seq="3">Определить последовательность выполнения</action>
+                <action seq="4">Назначить проверки для каждой подзадачи</action>
             </actions>
-
-            <quality_guidelines>
-                <technical>
-                    - Корректность и точность реализации
-                    - Соответствие best practices для домена
-                    - Обработка edge cases
-                </technical>
-                <structural>
-                    - Логичная организация и структура
-                    - Консистентность стиля и подхода
-                    - Читаемость и поддерживаемость
-                </structural>
-                <contextual>
-                    - Соответствие роли и экспертизе из &lt;role&gt;
-                    - Учет специфики проекта из &lt;context&gt;
-                    - Выполнение всех требований из &lt;requirements&gt;
-                </contextual>
-            </quality_guidelines>
-
-            <deliverables>
-                <item type="primary_output">
-                    Основной результат работы (код, документ, конфиг и т.д.)
-                </item>
-                <item type="supporting_artifacts" optional="true">
-                    Вспомогательные материалы если требуются
-                </item>
-            </deliverables>
-
+            
+            <thinking_prompt>
+                Спланируйте:
+                - Какие конкретные шаги нужны?
+                - В каком порядке их выполнять?
+                - Что может пойти не так на каждом шаге?
+                - Как проверить корректность выполнения?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/2_plan.xml" format="structured">
+                    <tasks>
+                        <task id="" description="" validation=""/>
+                    </tasks>
+                    <execution_order/>
+                    <dependencies/>
+                </file>
+            </output>
+            
             <checkpoint>
-                ✓ Все запланированные действия выполнены
-                ✓ Результат соответствует требованиям
-                ✓ Ограничения соблюдены
-                ✓ Качество соответствует критериям
-                ✓ Артефакты созданы и готовы к проверке
+                ✓ План создан и структурирован
+                ✓ Все задачи имеют критерии проверки
+                ✓ Зависимости определены
             </checkpoint>
-
         </phase>
 
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 3: ВАЛИДАЦИЯ И ФИНАЛИЗАЦИЯ -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="3" id="validation" mandatory="true">
-
+        <!-- ФАЗА 3: ИСПОЛНЕНИЕ -->
+        <phase order="3" id="execution" mandatory="true">
             <dependency>phase[order=2].checkpoint.passed</dependency>
-
-            <objective>
-                Проверка качества, полноты и корректности выполненной работы
-            </objective>
-
-            <validation_checks>
-                <check type="requirements_fulfillment">
-                    Все ли требования из &lt;requirements&gt; выполнены?
-                </check>
-                <check type="constraints_compliance">
-                    Все ли ограничения из &lt;constraints&gt; соблюдены?
-                </check>
-                <check type="quality_standards">
-                    Соответствует ли результат &lt;quality_criteria&gt;?
-                </check>
-                <check type="consistency">
-                    Нет ли внутренних противоречий или ошибок?
-                </check>
-                <check type="completeness">
-                    Решение полное и готово к использованию?
-                </check>
-            </validation_checks>
-
+            <objective>Выполнение запланированных задач</objective>
+            
             <actions>
-                <action priority="critical">
-                    Провести все validation_checks
+                <action seq="1">Загрузить план выполнения</action>
+                <action seq="2">FOR EACH task IN plan.tasks:
+                    - Выполнить задачу
+                    - Провести валидацию
+                    - Документировать результат
                 </action>
-                <action priority="high">
-                    Подготовить summary выполненной работы
-                </action>
-                <action priority="medium">
-                    При обнаружении проблем - исправить или вернуться к Фазе 2
-                </action>
-                <action priority="low">
-                    Добавить необходимые инструкции по использованию
-                </action>
+                <action seq="3">Собрать все результаты</action>
             </actions>
-
-            <deliverables>
-                <item type="validation_report">
-                    Результаты проверки по всем критериям
-                </item>
-                <item type="summary">
-                    Структурированное описание выполненной работы
-                </item>
-                <item type="instructions" optional="true">
-                    Руководство по использованию результатов (если требуется)
-                </item>
-            </deliverables>
-
+            
+            <thinking_prompt>
+                Для каждой задачи:
+                - Как именно её реализовать?
+                - Соответствует ли результат требованиям?
+                - Нужны ли корректировки?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/3_implementation.md" format="markdown">
+                    Документация всех выполненных изменений
+                </file>
+                <artifacts>
+                    Созданные/измененные файлы согласно плану
+                </artifacts>
+            </output>
+            
             <checkpoint>
-                ✓ Все validation_checks пройдены успешно
-                ✓ Результат соответствует external_inputs
-                ✓ Summary подготовлен
-                ✓ Качество подтверждено
-                ✓ Работа завершена и готова к использованию
+                ✓ Все задачи из плана выполнены
+                ✓ Результаты задокументированы
+                ✓ Файлы созданы/обновлены
             </checkpoint>
+        </phase>
 
+        <!-- ФАЗА 4: ВАЛИДАЦИЯ -->
+        <phase order="4" id="validation" mandatory="true">
+            <dependency>phase[order=3].checkpoint.passed</dependency>
+            <objective>Проверка корректности выполнения</objective>
+            
+            <actions>
+                <action seq="1">Проверить соответствие требованиям</action>
+                <action seq="2">Выполнить тестирование (если применимо)</action>
+                <action seq="3">Валидировать все созданные артефакты</action>
+                <action seq="4">Убедиться в решении исходной проблемы</action>
+            </actions>
+            
+            <thinking_prompt>
+                Проверьте:
+                - Решена ли исходная проблема?
+                - Все ли требования выполнены?
+                - Работает ли решение корректно?
+                - Есть ли побочные эффекты?
+            </thinking_prompt>
+            
+            <output>
+                <file path="workflow/4_validation.md" format="markdown">
+                    Результаты всех проверок
+                </file>
+                <tests_if_applicable path="tests/"/>
+            </output>
+            
+            <checkpoint>
+                ✓ Все требования выполнены
+                ✓ Тесты пройдены (если есть)
+                ✓ Решение работает корректно
+            </checkpoint>
+        </phase>
+
+        <!-- ФАЗА 5: ДОКУМЕНТИРОВАНИЕ -->
+        <phase order="5" id="documentation" mandatory="true">
+            <dependency>phase[order=4].checkpoint.passed</dependency>
+            <objective>Финальное документирование</objective>
+            
+            <actions>
+                <action seq="1">Обновить основную документацию</action>
+                <action seq="2">Создать/обновить README если нужно</action>
+                <action seq="3">Обновить память проекта (CLAUDE.md)</action>
+                <action seq="4">Подготовить summary выполненной работы</action>
+            </actions>
+            
+            <output>
+                <documentation>
+                    Обновленные файлы документации
+                </documentation>
+                <file path="workflow/5_summary.md" format="markdown">
+                    Итоговый отчет о выполненной работе
+                </file>
+            </output>
+            
+            <checkpoint>
+                ✓ Документация обновлена
+                ✓ Изменения описаны
+                ✓ Summary создан
+            </checkpoint>
+        </phase>
+
+        <!-- ФАЗА 6: ФИНАЛИЗАЦИЯ -->
+        <phase order="6" id="finalization" optional="true">
+            <dependency>phase[order=5].checkpoint.passed</dependency>
+            <objective>Завершающие действия</objective>
+            
+            <actions>
+                <action seq="1">Выполнить git commit если требуется</action>
+                <action seq="2">Очистить временные файлы</action>
+                <action seq="3">Вывести финальный статус</action>
+            </actions>
+            
+            <checkpoint>
+                ✓ Все изменения сохранены
+                ✓ Работа завершена успешно
+            </checkpoint>
         </phase>
 
     </workflow>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ОБРАБОТКА ОШИБОК И ИСКЛЮЧЕНИЙ -->
-    <!-- Универсальные сценарии для любых задач -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ОБРАБОТКА ОШИБОК -->
     <error_handling>
-
-        <scenario type="missing_context">
-            <detection>Необходимые данные из &lt;context&gt; недоступны</detection>
-            <response>
-                1. Четко указать, какие данные отсутствуют
-                2. Объяснить, как это влияет на выполнение
-                3. Запросить данные у пользователя или предложить альтернативы
-                4. Не продолжать без критичной информации
-            </response>
-        </scenario>
-
-        <scenario type="unclear_requirements">
-            <detection>Требования неоднозначны или противоречивы</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для анализа неясностей
-                2. Сформулировать конкретные вопросы
-                3. Запросить уточнения у пользователя
-                4. Предложить возможные интерпретации с обоснованием
-            </response>
-        </scenario>
-
-        <scenario type="conflicting_constraints">
-            <detection>Ограничения из &lt;constraints&gt; конфликтуют между собой</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для анализа конфликта
-                2. Описать суть противоречия
-                3. Предложить варианты приоритизации
-                4. Получить решение от пользователя
-            </response>
-        </scenario>
-
-        <scenario type="checkpoint_failure">
-            <detection>Checkpoint фазы не может быть пройден</detection>
-            <response>
-                1. Остановить выполнение
-                2. Объяснить, какие критерии checkpoint не выполнены
-                3. Проанализировать причины (thinking если нужно)
-                4. Предложить план исправления
-                5. Запросить подтверждение дальнейших действий
-            </response>
-        </scenario>
-
-        <scenario type="quality_issues">
-            <detection>Результат не соответствует &lt;quality_criteria&gt;</detection>
-            <response>
-                1. Идентифицировать конкретные проблемы качества
-                2. Вернуться к Фазе 2 для исправления
-                3. Применить корректировки
-                4. Повторить валидацию
-            </response>
-        </scenario>
-
-        <scenario type="scope_creep">
-            <detection>Запрос выходит за рамки определенных требований</detection>
-            <response>
-                1. Указать, что запрос выходит за scope
-                2. Объяснить текущие границы из &lt;requirements&gt;
-                3. Предложить расширить external_inputs или создать новую задачу
-                4. Не выполнять без явного обновления требований
-            </response>
-        </scenario>
-
+        <on_checkpoint_failure>
+            <action>STOP</action>
+            <message>❌ Checkpoint не пройден. Исправьте проблему перед продолжением.</message>
+            <instruction>Используйте <thinking> для анализа причины сбоя</instruction>
+        </on_checkpoint_failure>
+        
+        <on_dependency_not_met>
+            <action>STOP</action>
+            <message>⚠️ Зависимость не удовлетворена. Завершите предыдущую фазу.</message>
+        </on_dependency_not_met>
     </error_handling>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ПРАВИЛА ВЫПОЛНЕНИЯ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ПРАВИЛА СЛЕДОВАНИЯ -->
     <execution_rules>
-
-        <rule id="R01" enforcement="STRICT">
-            <description>
-                Фазы выполняются последовательно по атрибуту 'order'
-            </description>
-            <flexibility>
-                Разрешен возврат к предыдущим фазам при необходимости
-            </flexibility>
+        <rule id="1" enforcement="STRICT">
+            Фазы выполняются ТОЛЬКО в порядке возрастания атрибута 'order'
         </rule>
-
-        <rule id="R02" enforcement="STRICT">
-            <description>
-                Переход к следующей фазе только после прохождения checkpoint
-            </description>
-            <exception>
-                При блокирующих проблемах - остановка и запрос помощи
-            </exception>
+        <rule id="2" enforcement="STRICT">
+            Переход к следующей фазе ТОЛЬКО после прохождения всех checkpoint'ов текущей
         </rule>
-
-        <rule id="R03" enforcement="CRITICAL">
-            <description>
-                Всегда работай в рамках параметров из &lt;external_inputs&gt;
-            </description>
-            <rationale>
-                External inputs определяют роль, контекст, требования и ограничения задачи
-            </rationale>
+        <rule id="3" enforcement="STRICT">
+            При любой ошибке - ОСТАНОВКА и запрос действий пользователя
         </rule>
-
-        <rule id="R04" enforcement="REQUIRED">
-            <description>
-                Используй thinking для планирования и сложных решений
-            </description>
-            <guidance>
-                Thinking для: анализа, выбора подхода, разрешения противоречий
-                НЕ для: простых действий, форматирования, рутинных операций
-            </guidance>
+        <rule id="4" enforcement="REQUIRED">
+            Каждая фаза начинается с <thinking> блока для планирования
         </rule>
-
-        <rule id="R05" enforcement="REQUIRED">
-            <description>
-                Создавай финальные артефакты, избегай промежуточных файлов
-            </description>
-            <rationale>
-                Фокус на результате для пользователя, а не на процессе выполнения
-            </rationale>
+        <rule id="5" enforcement="REQUIRED">
+            Все выходные файлы создаются в указанных путях
         </rule>
-
-        <rule id="R06" enforcement="RECOMMENDED">
-            <description>
-                Поддерживай активную коммуникацию с пользователем
-            </description>
-            <approach>
-                Объясняй решения, запрашивай уточнения, предлагай варианты
-            </approach>
-        </rule>
-
-        <rule id="R07" enforcement="RECOMMENDED">
-            <description>
-                Адаптируй уровень детализации к сложности задачи
-            </description>
-            <guidance>
-                Простые задачи - краткие ответы и быстрое выполнение
-                Сложные задачи - детальный анализ и тщательная валидация
-            </guidance>
-        </rule>
-
     </execution_rules>
-
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ПРИМЕЧАНИЯ ПО ИСПОЛЬЗОВАНИЮ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <usage_notes>
-
-        <note type="universality">
-            Этот workflow является универсальным шаблоном для любых задач.
-            Специфика задачи определяется только параметрами в &lt;external_inputs&gt;.
-        </note>
-
-        <note type="customization">
-            Для конкретной задачи заполните только &lt;external_inputs&gt;:
-            - role: кто выполняет задачу
-            - context: где и с чем работаем
-            - requirements: что нужно сделать
-            - constraints: какие есть ограничения
-            
-            Workflow остается неизменным.
-        </note>
-
-        <note type="flexibility">
-            Режим flexible_sequential позволяет:
-            - Возвращаться к предыдущим фазам при обнаружении проблем
-            - Итеративно дорабатывать решение
-            - Адаптироваться к изменяющимся требованиям
-        </note>
-
-        <note type="thinking">
-            Adaptive thinking strategy означает:
-            - Используй thinking осознанно для сложных решений
-            - Не используй для простых рутинных действий
-            - Качество важнее количества thinking блоков
-        </note>
-
-        <note type="scaling">
-            Workflow масштабируется автоматически:
-            - Простые задачи проходят фазы быстро
-            - Сложные задачи требуют больше времени на каждой фазе
-            - Детализация адаптируется к complexity задачи
-        </note>
-
-        <note type="artifacts">
-            Создавай артефакты напрямую с финальными результатами:
-            - Документы готовы к использованию
-            - Код готов к запуску/внедрению
-            - Конфиги готовы к применению
-            
-            Избегай промежуточных файлов типа analysis.xml, plan.json и т.д.
-        </note>
-
-    </usage_notes>
 
 </request>

@@ -145,10 +145,9 @@ vless/                          # Корневая директория репо
 │       └── security-check.sh   # Комплексная проверка безопасности
 ├── templates/
 │   ├── docker-compose.yml.tpl  # Шаблон Docker Compose
-│   ├── config.json.tpl         # Шаблон конфигурации Xray
-│   ├── config_with_dns.json.tpl # Шаблон с кастомным DNS
-│   ├── routing_rules.json      # Правила маршрутизации трафика
-│   ├── dns_config.json         # Конфигурация DNS с защитой от утечек
+│   ├── docker-compose.fake.yml.tpl # Шаблон Docker Compose для fake site
+│   ├── config.json.tpl         # Шаблон конфигурации Xray (system default DNS)
+│   ├── config_with_dns.json.tpl # Шаблон конфигурации Xray (custom DNS)
 │   └── .env.example            # Пример переменных окружения
 ├── docs/
 │   ├── README.md               # Быстрый старт
@@ -637,15 +636,15 @@ Is this correct? [Y/n]: Y
   - [ ] Реализация динамической генерации shortIds для пользователей
   - [ ] Добавление minClientVer и maxTimeDiff в realitySettings
   - [ ] Скрипт проверки destination серверов (check-destination.sh)
-- [ ] Расширенная фильтрация трафика:
-  - [ ] Создание шаблона routing_rules.json с комплексными правилами
-  - [ ] Блокировка BitTorrent, рекламы, Win telemetry
-  - [ ] Геоблокировка опасных стран и private сетей
-  - [ ] Блокировка опасных портов (25, 110, 135, 139, 445)
-- [ ] Защита от DNS утечек:
-  - [ ] Создание шаблона dns_config.json
-  - [ ] Настройка DNS с expectIPs для валидации
-  - [ ] Интеграция в config_with_dns.json.tpl
+- [x] Расширенная фильтрация трафика:
+  - [x] Встроенные routing rules в config.json.tpl с комплексными правилами
+  - [x] Блокировка BitTorrent протокола
+  - [x] Блокировка рекламы (geosite:category-ads-all)
+  - [x] Блокировка опасных портов (25, 110, 135, 139, 445, 465, 587)
+- [x] Защита от DNS утечек:
+  - [x] Встроенная DNS конфигурация в config_with_dns.json.tpl
+  - [x] Поддержка выбора DNS провайдеров (Google, Cloudflare, Quad9, Custom)
+  - [x] Автоматический выбор шаблона в зависимости от DNS настроек
 - [ ] Fallback механизмы:
   - [ ] Настройка многоуровневых fallbacks в конфигурации
   - [ ] Скрипт setup-fake-site.sh для fake веб-сервера
@@ -845,9 +844,9 @@ Is this correct? [Y/n]: Y
 - [ ] Тестирование подключения клиентов после изменений
 
 **Фаза 2: Важные улучшения (День 2-3)**
-- [ ] Настройка расширенной маршрутизации (routing_rules.json)
-- [ ] Внедрение DNS защиты (dns_config.json)
-- [ ] Настройка fallback механизмов
+- [x] Настройка расширенной маршрутизации (встроено в config.json.tpl)
+- [x] Внедрение DNS защиты (config_with_dns.json.tpl с выбором провайдера)
+- [x] Настройка fallback механизмов (fake site с docker-compose.fake.yml.tpl)
 - [ ] Запуск мониторинга безопасности (anomaly-detection.sh в фоне)
 - [ ] Настройка ежедневных security отчетов
 

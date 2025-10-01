@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   fake-site:
     image: nginx:alpine

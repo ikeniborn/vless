@@ -169,6 +169,16 @@ The `setup-fake-site.sh` script processes `docker-compose.fake.yml.tpl`:
 3. Creates `/opt/vless/docker-compose.fake.yml`
 4. Network name: `${COMPOSE_PROJECT_NAME}_vless-network` (typically `vless-reality_vless-network`)
 
+**Legacy Templates Removal (2025-10-01):**
+The following static configuration files have been removed as legacy:
+- `routing_rules.json` - Routing rules are now embedded in `config.json.tpl` and `config_with_dns.json.tpl`
+- `dns_config.json` - DNS configuration is now embedded in `config_with_dns.json.tpl` with dynamic provider selection
+
+Both config templates include:
+- Routing rules: BitTorrent blocking, ads blocking (geosite:category-ads-all), dangerous ports blocking (25, 110, 135, 139, 445, 465, 587)
+- Fallback mechanisms: Built-in fallback to fake site container
+- DNS configuration (config_with_dns.json.tpl only): Dynamic DNS servers based on user selection during installation
+
 ### UUID and Short ID Generation
 - **UUID**: `uuidgen` command (standard Linux utility)
 - **Short ID**: `openssl rand -hex 4` (8 hex characters)

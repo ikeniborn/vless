@@ -1,1037 +1,272 @@
-<request version="3.0">
-    
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+<request>
     <!-- КОНФИГУРАЦИЯ ВЫПОЛНЕНИЯ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <execution_config>
+        <mode>strict_sequential</mode>
+        <thinking enabled="true" mode="interleaved" max_length="16000"/>
+        <validation>checkpoint_based</validation>
+        <error_handling>stop_on_failure</error_handling>
         <language>ru</language>
-        <mode>flexible_iterative</mode>
-        <!-- flexible_iterative: итеративный процесс с возможностью 
-             многократного возврата для проверки гипотез -->
-        
-        <thinking>
-            <enabled>true</enabled>
-            <strategy>intensive</strategy>
-            <!-- intensive: активное использование thinking для анализа,
-                 формирования гипотез и диагностики проблем -->
-            <max_length>16000</max_length>
-        </thinking>
-        
-        <validation>hypothesis_based</validation>
-        <!-- Проверка гипотез и итеративная диагностика -->
-        
-        <error_handling>investigate_and_resolve</error_handling>
-        <!-- При проблемах: глубокий анализ, гипотезы, решение -->
     </execution_config>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ВНЕШНИЕ ПАРАМЕТРЫ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ВНЕШНИЕ ПАРАМЕТРЫ (подставляются отдельно) -->
     <external_inputs>
-        
-        <!-- Роль и экспертиза -->
         <role>
-            <title>Full-Stack разработчик и отладчик систем</title>
-            <expertise>
-                - Bash scripting для Linux платформ
-                - Docker и Docker Compose
-                - Python разработка
-                - Системная диагностика и отладка
-                - Root cause analysis
-                - Логирование и мониторинг
-                - Performance troubleshooting
-                - Security debugging
-            </expertise>
+            Вы - опытный Full-Stack разработчик, специализирующийся создании скриптов с использованием bash для linux платформ.
+            Ваша экспертиза включает: Bash, Docker, Docker Compose, Python, тестирование и отладку.
         </role>
-
-        <!-- Контекст выполнения -->
         <context>
-            <description>
-                Диагностика и исправление проблемы в VLESS системе
-            </description>
-            <problem_description>
-                При подключении к серверу после установки соединение не проходит. Доступа к интернету черзе клиента нет.
-            </problem_description>
-            <available_resources>
-                <file path="PRD.md" 
-                      type="architecture_reference" 
-                      status="reference"
-                      description="Архитектура системы - для понимания как должно работать"/>
-                <logs>Логи приложения/системы если доступны</logs>
-                <configs>Конфигурационные файлы</configs>
-                <source_code>Исходный код для анализа</source_code>
-            </available_resources>
-            <work_area>
-                <base_path>/home/ikeniborn/Documents/Project/vless/</base_path>
-                <affected_components>Определяются в процессе диагностики</affected_components>
-            </work_area>
-            <environment>
-                <platform>Linux</platform>
-                <containerization>Docker</containerization>
-                <scripting>Bash, Python</scripting>
-            </environment>
+            После переустанвоки последней версии недо интернета у кликента. В контейнере так же нет интернета
         </context>
-
-        <!-- Требования к выполнению -->
         <requirements>
-            <primary>
-                Проверить сетевыей настройки файревола и машрутизациии. Оценить корректная ли установлена конфиграция сервера.
-                На дев сервере все работало. при переносе на прод опять проблемы с интернетом.
-            </primary>
-            
-            <diagnostic_goals>
-                - Воспроизвести проблему
-                - Определить root cause (не симптом!)
-                - Понять почему это произошло
-                - Оценить масштаб влияния
-                - Найти все affected components
-            </diagnostic_goals>
-            
-            <fix_requirements>
-                - Исправить root cause, не симптомы
-                - Минимальное invasive изменение
-                - Не сломать существующий функционал
-                - Обеспечить откатываемость
-                - Предотвратить регрессию
-            </fix_requirements>
-            
-            <quality_criteria>
-                - Проблема полностью решена
-                - Root cause устранен
-                - Регрессионное тестирование пройдено
-                - Документирован для предотвращения повторения
-                - Соответствие PRD.md сохранено
-            </quality_criteria>
+            - Определить причину проблемы с интеннетом в контейнере на уровне конфиграций сервера xray
+            - Проверить iptables с учетом правил докера и UFW. Определить причины
+            - Сформировать детальный план доработки и соххраить в FIX.md
         </requirements>
-
-        <!-- Ограничения -->
         <constraints>
-            <technical>
-                - Использовать только Bash для скриптов
-                - Обеспечить совместимость с Docker окружением
-                - Учитывать особенности Linux платформы
-                - Минимизировать downtime
-            </technical>
-            
-            <architectural>
-                - ВСЕГДА следовать архитектуре из PRD.md
-                - Не создавать технический долг
-                - Соблюдать принятые паттерны
-                - Обеспечить обратную совместимость
-            </architectural>
-            
-            <operational>
-                - Возможность быстрого rollback
-                - Минимальное влияние на работающую систему
-                - Сохранение данных при исправлении
-                - Логирование для будущей диагностики
-            </operational>
+            - Использовать bash
+            - Совместимость с Docker окружением
+            - Всегда следовать PRD.md при реализии и исправлении
         </constraints>
-
     </external_inputs>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <directives>
+    <!-- УНИВЕРСАЛЬНЫЙ WORKFLOW -->
+    <workflow version="2.0">
         
-        <directive id="ITER-01" priority="CRITICAL">
-            <rule>Используй итеративный подход: гипотеза → проверка → уточнение</rule>
-            <flexibility>Многократный возврат к диагностике при необходимости</flexibility>
-        </directive>
+        <!-- ДИРЕКТИВЫ ВЫПОЛНЕНИЯ -->
+        <directives>
+            <directive priority="CRITICAL">
+                ВЫПОЛНЯЙТЕ фазы СТРОГО ПОСЛЕДОВАТЕЛЬНО по значению атрибута 'order'
+            </directive>
+            <directive priority="HIGH">
+                НЕ переходите к следующей фазе пока не выполнен checkpoint текущей
+            </directive>
+            <directive priority="HIGH">
+                Используйте <thinking> перед каждой фазой для планирования действий
+            </directive>
+        </directives>
 
-        <directive id="THK-01" priority="CRITICAL">
-            <rule>АКТИВНО используй &lt;thinking&gt; на всех этапах диагностики</rule>
-            <when>
-                - Формирование гипотез о причине проблемы
-                - Анализ симптомов и паттернов
-                - Выбор направления расследования
-                - Оценка последствий потенциальных fix'ов
-                - Связывание разрозненных фактов
-            </when>
-            <emphasis>
-                Debugging - это про размышление и анализ. 
-                Thinking должен быть интенсивным на протяжении всего процесса.
-            </emphasis>
-        </directive>
-
-        <directive id="ROOT-01" priority="CRITICAL">
-            <rule>Всегда ищи root cause, а не симптомы</rule>
-            <approach>
-                - Спрашивай "почему?" минимум 3-5 раз (5 Whys method)
-                - Отличай симптом от причины
-                - Проверяй все компоненты в цепочке
-                - Не останавливайся на первом найденном факторе
-            </approach>
-        </directive>
-
-        <directive id="HYP-01" priority="HIGH">
-            <rule>Формируй и проверяй гипотезы систематически</rule>
-            <process>
-                1. Собери факты и симптомы
-                2. Сформулируй несколько гипотез
-                3. Определи как проверить каждую
-                4. Проверь гипотезы от наиболее вероятной
-                5. Уточни понимание на основе результатов
-                6. Повтори если нужно
-            </process>
-        </directive>
-
-        <directive id="PRD-01" priority="CRITICAL">
-            <rule>Сверяйся с PRD.md для понимания как должно работать</rule>
-            <verification>
-                - Как система спроектирована?
-                - Какое поведение expected?
-                - Соответствует ли fix архитектуре?
-            </verification>
-        </directive>
-
-        <directive id="MIN-01" priority="HIGH">
-            <rule>Минимальные invasive изменения для fix'а</rule>
-            <principle>
-                Surgical fix: измени ровно то, что необходимо для решения проблемы.
-                Избегай рефакторинга "заодно" - это отдельная задача.
-            </principle>
-        </directive>
-
-        <directive id="REG-01" priority="CRITICAL">
-            <rule>Обязательное регрессионное тестирование после fix'а</rule>
-            <scope>
-                - Проверь что проблема решена
-                - Проверь что ничего не сломалось
-                - Проверь edge cases
-                - Проверь смежные компоненты
-            </scope>
-        </directive>
-
-        <directive id="DOC-01" priority="HIGH">
-            <rule>Детально документируй проблему и решение</rule>
-            <rationale>
-                Post-mortem анализ поможет избежать подобных проблем в будущем
-                и ускорит диагностику схожих issues.
-            </rationale>
-        </directive>
-
-        <directive id="SAFE-01" priority="CRITICAL">
-            <rule>Обеспечь возможность быстрого rollback</rule>
-            <approach>
-                - Backup критичных конфигов перед изменением
-                - Документируй шаги для отката
-                - Тестируй fix в безопасном окружении если возможно
-            </approach>
-        </directive>
-
-        <directive id="COM-01" priority="MEDIUM">
-            <rule>Поддерживай активную коммуникацию</rule>
-            <approach>
-                - Объясняй свои гипотезы
-                - Запрашивай дополнительную информацию
-                - Предупреждай о рисках
-                - Предлагай альтернативные подходы
-            </approach>
-        </directive>
-
-    </directives>
-
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- РАБОЧИЙ ПРОЦЕСС -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <workflow>
-
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 1: СБОР ИНФОРМАЦИИ И ДИАГНОСТИКА -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="1" id="diagnosis" mandatory="true" iterative="true">
+        <!-- ФАЗА 1: ПОНИМАНИЕ -->
+        <phase order="1" id="understanding" mandatory="true">
+            <objective>Полное понимание задачи и контекста</objective>
             
-            <objective>
-                Глубокое понимание проблемы и определение root cause
-            </objective>
-
             <actions>
-                <action priority="critical">
-                    Собрать детальную информацию о проблеме:
-                    - Точные симптомы и error messages
-                    - Условия воспроизведения
-                    - Когда/как часто проявляется
-                    - Что изменилось перед появлением
-                </action>
-                <action priority="critical">
-                    Изучить доступные источники информации:
-                    - Логи приложения и системы
-                    - Конфигурационные файлы
-                    - Исходный код affected components
-                    - Метрики системы если доступны
-                </action>
-                <action priority="high">
-                    Проверить соответствие PRD.md:
-                    - Как система должна работать
-                    - Какие компоненты вовлечены
-                    - Expected поведение
-                </action>
-                <action priority="high">
-                    Воспроизвести проблему если возможно:
-                    - Создать минимальный test case
-                    - Определить точные условия
-                    - Проверить стабильность воспроизведения
-                </action>
-                <action priority="medium">
-                    Исследовать контекст:
-                    - История изменений (git log)
-                    - Документация по известным issues
-                    - Web search для схожих проблем
-                </action>
+                <action seq="1">Изучить все входные данные из <external_inputs></action>
+                <action seq="2">Выявить явные и неявные требования</action>
+                <action seq="3">Определить потенциальные проблемы и риски</action>
+                <action seq="4">Сформулировать понимание задачи</action>
             </actions>
-
+            
             <thinking_prompt>
-                КРИТИЧНО: используй intensive thinking для:
-                - Анализа собранной информации
-                - Формирования гипотез о причине
-                - Связывания симптомов с возможными причинами
-                - Определения направления дальнейшего расследования
-                
-                Проанализируй:
-                - Какие паттерны видны в симптомах?
-                - Что могло быть истинной причиной?
-                - Какие компоненты могут быть вовлечены?
-                - Какие гипотезы наиболее вероятны?
-                - Как можно проверить каждую гипотезу?
-                - Что говорит PRD о том как должно работать?
+                Проанализируйте:
+                - Что именно требуется сделать?
+                - Какие есть ограничения?
+                - Какие могут быть подводные камни?
+                - Что является критичным для успеха?
             </thinking_prompt>
-
-            <hypothesis_formation>
-                <step>1. Список всех наблюдаемых симптомов</step>
-                <step>2. Для каждого симптома - возможные причины</step>
-                <step>3. Ранжирование гипотез по вероятности</step>
-                <step>4. Определение способов проверки</step>
-                <step>5. Систематическая проверка от наиболее вероятной</step>
-            </hypothesis_formation>
-
-            <deliverables>
-                <item type="problem_analysis">
-                    Детальный анализ проблемы с симптомами и контекстом
-                </item>
-                <item type="hypotheses_list">
-                    Список сформированных гипотез с приоритетами
-                </item>
-                <item type="reproduction_steps" optional="true">
-                    Шаги для воспроизведения проблемы
-                </item>
-                <item type="affected_components">
-                    Список компонентов, которые могут быть затронуты
-                </item>
-            </deliverables>
-
+            
+            <output>
+                <file path="workflow/1_analysis.xml" format="structured">
+                    <understanding/>
+                    <requirements_parsed/>
+                    <risks_identified/>
+                    <success_criteria/>
+                </file>
+            </output>
+            
             <checkpoint>
-                ✓ Проблема детально описана и понята
-                ✓ Доступная информация собрана и проанализирована
-                ✓ Гипотезы о root cause сформулированы
-                ✓ План проверки гипотез готов
-                ✓ Готовность к root cause analysis подтверждена
+                ✓ Файл analysis.xml создан
+                ✓ Все требования идентифицированы
+                ✓ Критерии успеха определены
             </checkpoint>
-
-            <iteration_note>
-                Эта фаза может повторяться многократно по мере проверки гипотез
-                и получения новой информации. Это нормально для debugging.
-            </iteration_note>
-
         </phase>
 
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 2: ROOT CAUSE ANALYSIS -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="2" id="root_cause_analysis" mandatory="true" iterative="true">
-            
+        <!-- ФАЗА 2: ПЛАНИРОВАНИЕ -->
+        <phase order="2" id="planning" mandatory="true">
             <dependency>phase[order=1].checkpoint.passed</dependency>
+            <objective>Создание детального плана выполнения</objective>
             
-            <objective>
-                Определение истинной причины проблемы, не симптомов
-            </objective>
-
             <actions>
-                <action priority="critical">
-                    Проверить гипотезы систематически:
-                    - Начать с наиболее вероятной
-                    - Собрать evidence для/против
-                    - Исключить или подтвердить
-                </action>
-                <action priority="critical">
-                    Применить 5 Whys method:
-                    - Спросить "почему?" минимум 3-5 раз
-                    - Не останавливаться на поверхностных причинах
-                    - Докопаться до root cause
-                </action>
-                <action priority="high">
-                    Проверить цепочку причинно-следственных связей:
-                    - Как проблема propagates через систему
-                    - Где первоначальный failure point
-                    - Какие компоненты affected downstream
-                </action>
-                <action priority="high">
-                    Анализировать с разных перспектив:
-                    - Код и логика
-                    - Конфигурация
-                    - Окружение и dependencies
-                    - Timing и race conditions
-                    - Permissions и security
-                </action>
-                <action priority="medium">
-                    Использовать инструменты диагностики:
-                    - Детальное логирование
-                    - Debugger если применимо
-                    - Трассировка вызовов
-                    - Мониторинг ресурсов
-                </action>
+                <action seq="1">Загрузить результаты анализа</action>
+                <action seq="2">Декомпозировать задачу на подзадачи</action>
+                <action seq="3">Определить последовательность выполнения</action>
+                <action seq="4">Назначить проверки для каждой подзадачи</action>
             </actions>
-
-            <five_whys_example>
-                Problem: Скрипт падает с ошибкой
-                Why 1? → Файл не найден
-                Why 2? → Путь некорректный
-                Why 3? → Переменная окружения не установлена
-                Why 4? → Docker контейнер не передает переменные
-                Why 5? → docker-compose.yml не содержит environment section
-                ROOT CAUSE: Отсутствующая конфигурация в docker-compose.yml
-            </five_whys_example>
-
+            
             <thinking_prompt>
-                КРИТИЧНО: intensive thinking для:
-                - Оценки evidence для каждой гипотезы
-                - Связывания разрозненных факторов
-                - Определения настоящего root cause
-                - Отличия симптомов от причин
-                
-                Проанализируй:
-                - Это действительно root cause или еще один симптом?
-                - Почему это произошло на более глубоком уровне?
-                - Какие другие факторы могут быть вовлечены?
-                - Как это объясняет ВСЕ наблюдаемые симптомы?
-                - Есть ли противоречия в текущем понимании?
+                Спланируйте:
+                - Какие конкретные шаги нужны?
+                - В каком порядке их выполнять?
+                - Что может пойти не так на каждом шаге?
+                - Как проверить корректность выполнения?
             </thinking_prompt>
-
-            <deliverables>
-                <item type="root_cause">
-                    Определенная root cause с обоснованием
-                </item>
-                <item type="evidence">
-                    Evidence подтверждающий root cause
-                </item>
-                <item type="impact_analysis">
-                    Анализ масштаба влияния проблемы
-                </item>
-                <item type="why_it_happened">
-                    Объяснение почему это произошло
-                </item>
-            </deliverables>
-
+            
+            <output>
+                <file path="workflow/2_plan.xml" format="structured">
+                    <tasks>
+                        <task id="" description="" validation=""/>
+                    </tasks>
+                    <execution_order/>
+                    <dependencies/>
+                </file>
+            </output>
+            
             <checkpoint>
-                ✓ Root cause определен с уверенностью
-                ✓ Evidence подтверждает root cause
-                ✓ Объяснение покрывает все симптомы
-                ✓ Понятно почему это произошло
-                ✓ Масштаб влияния оценен
-                ✓ Готовность к разработке fix'а подтверждена
+                ✓ План создан и структурирован
+                ✓ Все задачи имеют критерии проверки
+                ✓ Зависимости определены
             </checkpoint>
-
-            <iteration_note>
-                Если root cause не подтверждается - возврат к Фазе 1 для 
-                пересмотра гипотез. Лучше потратить время на точную диагностику,
-                чем исправлять не ту проблему.
-            </iteration_note>
-
         </phase>
 
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 3: РАЗРАБОТКА И ПРИМЕНЕНИЕ FIX'А -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="3" id="fix_development" mandatory="true">
-            
+        <!-- ФАЗА 3: ИСПОЛНЕНИЕ -->
+        <phase order="3" id="execution" mandatory="true">
             <dependency>phase[order=2].checkpoint.passed</dependency>
+            <objective>Выполнение запланированных задач</objective>
             
-            <objective>
-                Создание минимального, безопасного и эффективного исправления
-            </objective>
-
             <actions>
-                <action priority="critical">
-                    Спроектировать fix для root cause:
-                    - Адресовать именно root cause, не симптомы
-                    - Минимальные необходимые изменения
-                    - Учесть архитектуру из PRD.md
+                <action seq="1">Загрузить план выполнения</action>
+                <action seq="2">FOR EACH task IN plan.tasks:
+                    - Выполнить задачу
+                    - Провести валидацию
+                    - Документировать результат
                 </action>
-                <action priority="critical">
-                    Оценить риски и side effects:
-                    - Что может сломаться
-                    - Какие компоненты затронуты
-                    - Нужен ли staged rollout
-                </action>
-                <action priority="high">
-                    Подготовить rollback план:
-                    - Backup конфигураций
-                    - Документировать шаги отката
-                    - Подготовить проверочные команды
-                </action>
-                <action priority="high">
-                    Реализовать fix с quality standards:
-                    - Clean, понятный код
-                    - Proper error handling
-                    - Logging для мониторинга
-                    - Комментарии объясняющие fix
-                </action>
-                <action priority="medium">
-                    Добавить защиту от повторения:
-                    - Validation checks
-                    - Better error messages
-                    - Monitoring/alerting
-                </action>
+                <action seq="3">Собрать все результаты</action>
             </actions>
-
-            <fix_design_principles>
-                <principle>Surgical precision: измени ровно необходимое</principle>
-                <principle>Backwards compatible: не ломай существующий функционал</principle>
-                <principle>Fail-safe: graceful degradation при проблемах</principle>
-                <principle>Observable: добавь логирование для мониторинга</principle>
-                <principle>Reversible: обеспечь возможность отката</principle>
-            </fix_design_principles>
-
+            
             <thinking_prompt>
-                Используй thinking для:
-                - Проектирования оптимального fix'а
-                - Оценки последствий и рисков
-                - Выбора между альтернативными подходами
-                - Обеспечения соответствия PRD
-                
-                Проанализируй:
-                - Какой подход наиболее безопасен?
-                - Что может пойти не так?
-                - Как минимизировать риски?
-                - Соответствует ли fix архитектуре?
-                - Есть ли более элегантное решение?
+                Для каждой задачи:
+                - Как именно её реализовать?
+                - Соответствует ли результат требованиям?
+                - Нужны ли корректировки?
             </thinking_prompt>
-
-            <deliverables>
-                <item type="fix_implementation">
-                    Код/конфиг исправления с комментариями
-                </item>
-                <item type="rollback_plan">
-                    Детальный план отката изменений
-                </item>
-                <item type="deployment_instructions">
-                    Инструкции по применению fix'а
-                </item>
-                <item type="monitoring_plan">
-                    Что мониторить после применения
-                </item>
-            </deliverables>
-
+            
+            <output>
+                <file path="workflow/3_implementation.md" format="markdown">
+                    Документация всех выполненных изменений
+                </file>
+                <artifacts>
+                    Созданные/измененные файлы согласно плану
+                </artifacts>
+            </output>
+            
             <checkpoint>
-                ✓ Fix разработан и адресует root cause
-                ✓ Код соответствует quality standards
-                ✓ Rollback план подготовлен
-                ✓ Риски оценены и минимизированы
-                ✓ PRD соблюден
-                ✓ Fix готов к тестированию
+                ✓ Все задачи из плана выполнены
+                ✓ Результаты задокументированы
+                ✓ Файлы созданы/обновлены
             </checkpoint>
-
         </phase>
 
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 4: ТЕСТИРОВАНИЕ И ВЕРИФИКАЦИЯ -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="4" id="testing_verification" mandatory="true">
-            
+        <!-- ФАЗА 4: ВАЛИДАЦИЯ -->
+        <phase order="4" id="validation" mandatory="true">
             <dependency>phase[order=3].checkpoint.passed</dependency>
+            <objective>Проверка корректности выполнения</objective>
             
-            <objective>
-                Подтверждение что проблема решена и ничего не сломано
-            </objective>
-
             <actions>
-                <action priority="critical">
-                    Проверить что проблема решена:
-                    - Воспроизвести оригинальный сценарий
-                    - Подтвердить отсутствие симптомов
-                    - Проверить на различных условиях
-                </action>
-                <action priority="critical">
-                    Регрессионное тестирование:
-                    - Проверить существующий функционал
-                    - Тестировать смежные компоненты
-                    - Проверить edge cases
-                    - Integration testing
-                </action>
-                <action priority="high">
-                    Тестирование rollback'а:
-                    - Проверить что откат работает
-                    - Система возвращается в исходное состояние
-                </action>
-                <action priority="high">
-                    Мониторинг после применения:
-                    - Проверить логи на errors/warnings
-                    - Мониторить метрики производительности
-                    - Наблюдать поведение в production-like условиях
-                </action>
-                <action priority="medium">
-                    Stress testing если применимо:
-                    - Поведение под нагрузкой
-                    - Длительная работа (soak test)
-                    - Concurrent scenarios
-                </action>
+                <action seq="1">Проверить соответствие требованиям</action>
+                <action seq="2">Выполнить тестирование (если применимо)</action>
+                <action seq="3">Валидировать все созданные артефакты</action>
+                <action seq="4">Убедиться в решении исходной проблемы</action>
             </actions>
-
-            <testing_checklist>
-                <check>✓ Оригинальная проблема больше не воспроизводится</check>
-                <check>✓ Все существующие функции работают корректно</check>
-                <check>✓ Edge cases обработаны правильно</check>
-                <check>✓ Нет новых errors в логах</check>
-                <check>✓ Производительность не деградировала</check>
-                <check>✓ Rollback работает корректно</check>
-                <check>✓ Документация соответствует реальности</check>
-            </testing_checklist>
-
+            
             <thinking_prompt>
-                Используй thinking для:
-                - Анализа результатов тестирования
-                - Оценки полноты проверок
-                - Выявления потенциальных проблем
-                
-                Проанализируй:
-                - Проблема действительно решена?
-                - Есть ли признаки новых issues?
-                - Достаточно ли тестового покрытия?
-                - Безопасно ли применять в production?
+                Проверьте:
+                - Решена ли исходная проблема?
+                - Все ли требования выполнены?
+                - Работает ли решение корректно?
+                - Есть ли побочные эффекты?
             </thinking_prompt>
-
-            <deliverables>
-                <item type="test_results">
-                    Детальные результаты всех тестов
-                </item>
-                <item type="regression_report">
-                    Подтверждение отсутствия регрессий
-                </item>
-                <item type="production_readiness">
-                    Оценка готовности к production deployment
-                </item>
-            </deliverables>
-
+            
+            <output>
+                <file path="workflow/4_validation.md" format="markdown">
+                    Результаты всех проверок
+                </file>
+                <tests_if_applicable path="tests/"/>
+            </output>
+            
             <checkpoint>
-                ✓ Оригинальная проблема полностью решена
-                ✓ Регрессионное тестирование пройдено
-                ✓ Rollback протестирован и работает
-                ✓ Нет побочных эффектов
-                ✓ Мониторинг показывает нормальную работу
-                ✓ Fix готов к production deployment
+                ✓ Все требования выполнены
+                ✓ Тесты пройдены (если есть)
+                ✓ Решение работает корректно
             </checkpoint>
-
         </phase>
 
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <!-- ФАЗА 5: ДОКУМЕНТИРОВАНИЕ И POST-MORTEM -->
-        <!-- ───────────────────────────────────────────────────────────── -->
-        <phase order="5" id="documentation_postmortem" mandatory="true">
-            
+        <!-- ФАЗА 5: ДОКУМЕНТИРОВАНИЕ -->
+        <phase order="5" id="documentation" mandatory="true">
             <dependency>phase[order=4].checkpoint.passed</dependency>
+            <objective>Финальное документирование</objective>
             
-            <objective>
-                Полное документирование проблемы, решения и уроков на будущее
-            </objective>
-
             <actions>
-                <action priority="critical">
-                    Создать post-mortem документ:
-                    - Детальное описание проблемы
-                    - Timeline событий
-                    - Root cause analysis
-                    - Примененное решение
-                    - Lessons learned
-                </action>
-                <action priority="high">
-                    Документировать fix:
-                    - Что было изменено и почему
-                    - Как это решает проблему
-                    - Deployment instructions
-                    - Rollback procedure
-                </action>
-                <action priority="high">
-                    Обновить проектную документацию:
-                    - README если нужно
-                    - Troubleshooting guide
-                    - Known issues list
-                    - CLAUDE.md (память проекта)
-                </action>
-                <action priority="medium">
-                    Предложить превентивные меры:
-                    - Как предотвратить в будущем
-                    - Улучшения мониторинга
-                    - Дополнительные тесты
-                    - Process improvements
-                </action>
-                <action priority="low">
-                    Создать knowledge base entry:
-                    - Для будущего reference
-                    - Для схожих проблем
-                    - Для onboarding новых членов команды
-                </action>
+                <action seq="1">Обновить основную документацию</action>
+                <action seq="2">Создать/обновить README если нужно</action>
+                <action seq="3">Обновить память проекта (CLAUDE.md)</action>
+                <action seq="4">Подготовить summary выполненной работы</action>
             </actions>
-
-            <postmortem_structure>
-                <section order="1">
-                    ## Executive Summary
-                    - Что произошло (краткое описание)
-                    - Когда произошло
-                    - Impact на систему/пользователей
-                    - Время до решения
-                </section>
-                
-                <section order="2">
-                    ## Timeline
-                    - Когда проблема начала проявляться
-                    - Когда была обнаружена
-                    - Ключевые моменты диагностики
-                    - Когда был применен fix
-                    - Когда проблема полностью решена
-                </section>
-                
-                <section order="3">
-                    ## Root Cause Analysis
-                    - Детальное описание root cause
-                    - Почему это произошло
-                    - Как долго существовала проблема
-                    - Почему не была обнаружена раньше
-                </section>
-                
-                <section order="4">
-                    ## Resolution
-                    - Что было изменено
-                    - Почему этот подход выбран
-                    - Как это решает проблему
-                    - Deployment details
-                </section>
-                
-                <section order="5">
-                    ## Prevention
-                    - Как предотвратить повторение
-                    - Улучшения процессов
-                    - Дополнительный мониторинг
-                    - Автоматизированные проверки
-                </section>
-                
-                <section order="6">
-                    ## Lessons Learned
-                    - Что сработало хорошо
-                    - Что можно улучшить
-                    - Технические insights
-                    - Process improvements
-                </section>
-            </postmortem_structure>
-
-            <deliverables>
-                <item type="postmortem_document" format="markdown">
-                    Полный post-mortem анализ инцидента
-                </item>
-                <item type="fix_documentation">
-                    Техническая документация fix'а
-                </item>
-                <item type="updated_docs">
-                    Обновленная проектная документация
-                </item>
-                <item type="prevention_plan">
-                    План превентивных мер
-                </item>
-            </deliverables>
-
+            
+            <output>
+                <documentation>
+                    Обновленные файлы документации
+                </documentation>
+                <file path="workflow/5_summary.md" format="markdown">
+                    Итоговый отчет о выполненной работе
+                </file>
+            </output>
+            
             <checkpoint>
-                ✓ Post-mortem документ создан
-                ✓ Fix полностью задокументирован
-                ✓ Проектная документация обновлена
-                ✓ Превентивные меры определены
-                ✓ Knowledge captured для будущего
-                ✓ Работа полностью завершена
+                ✓ Документация обновлена
+                ✓ Изменения описаны
+                ✓ Summary создан
             </checkpoint>
+        </phase>
 
+        <!-- ФАЗА 6: ФИНАЛИЗАЦИЯ -->
+        <phase order="6" id="finalization" optional="true">
+            <dependency>phase[order=5].checkpoint.passed</dependency>
+            <objective>Завершающие действия</objective>
+            
+            <actions>
+                <action seq="1">Выполнить git commit</action>
+                <action seq="2">Очистить временные файлы</action>
+                <action seq="3">Вывести финальный статус</action>
+            </actions>
+            
+            <checkpoint>
+                ✓ Все изменения сохранены
+                ✓ Работа завершена успешно
+            </checkpoint>
         </phase>
 
     </workflow>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ОБРАБОТКА ОШИБОК И ИСКЛЮЧЕНИЙ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ОБРАБОТКА ОШИБОК -->
     <error_handling>
-
-        <scenario type="cannot_reproduce">
-            <detection>Проблему невозможно воспроизвести</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для анализа
-                2. Собрать максимум информации о условиях
-                3. Проверить различные окружения
-                4. Рассмотреть intermittent/race condition
-                5. Попросить пользователя о дополнительных деталях
-                6. Если критично - работать с логами и traces
-            </response>
-        </scenario>
-
-        <scenario type="multiple_root_causes">
-            <detection>Обнаружено несколько независимых root causes</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для анализа взаимосвязей
-                2. Определить приоритеты causes по impact
-                3. Решить можно ли исправить все сразу
-                4. Создать отдельные fix'ы для каждого
-                5. Тестировать комплексно
-            </response>
-        </scenario>
-
-        <scenario type="fix_creates_regression">
-            <detection>Fix решает проблему но ломает другой функционал</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для анализа конфликта
-                2. Вернуться к Фазе 3 для пересмотра подхода
-                3. Найти альтернативное решение
-                4. Возможно требуется более глубокий рефакторинг
-                5. Согласовать trade-offs с пользователем
-            </response>
-        </scenario>
-
-        <scenario type="insufficient_information">
-            <detection>Недостаточно информации для диагностики</detection>
-            <response>
-                1. Четко перечислить что требуется
-                2. Объяснить зачем нужна эта информация
-                3. Предложить способы получения данных
-                4. Предложить добавить логирование для сбора
-                5. Работать с тем что доступно, документируя предположения
-            </response>
-        </scenario>
-
-        <scenario type="architectural_issue">
-            <detection>Root cause в архитектурном решении</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для глубокого анализа
-                2. Четко объяснить архитектурную проблему
-                3. Предложить варианты:
-                   - Quick tactical fix (workaround)
-                   - Proper architectural fix (долгосрочно)
-                4. Оценить trade-offs каждого подхода
-                5. Получить решение от пользователя
-                6. Документировать технический долг если tactical fix
-            </response>
-        </scenario>
-
-        <scenario type="environment_specific">
-            <detection>Проблема проявляется только в специфичном окружении</detection>
-            <response>
-                1. Детально изучить различия окружений
-                2. Использовать &lt;thinking&gt; для анализа environment factors
-                3. Проверить: versions, configs, resources, timing
-                4. Найти специфичный фактор
-                5. Решить адаптировать fix или окружение
-            </response>
-        </scenario>
-
-        <scenario type="fix_too_complex">
-            <detection>Необходимый fix слишком сложен и рискован</detection>
-            <response>
-                1. Использовать &lt;thinking&gt; для оценки options
-                2. Рассмотреть alternatives:
-                   - Staged approach (по частям)
-                   - Temporary workaround + долгосрочное решение
-                   - Полный рефакторинг компонента
-                3. Оценить риски каждого подхода
-                4. Предложить рекомендацию с обоснованием
-                5. Получить направление от пользователя
-            </response>
-        </scenario>
-
+        <on_checkpoint_failure>
+            <action>STOP</action>
+            <message>❌ Checkpoint не пройден. Исправьте проблему перед продолжением.</message>
+            <instruction>Используйте <thinking> для анализа причины сбоя</instruction>
+        </on_checkpoint_failure>
+        
+        <on_dependency_not_met>
+            <action>STOP</action>
+            <message>⚠️ Зависимость не удовлетворена. Завершите предыдущую фазу.</message>
+        </on_dependency_not_met>
     </error_handling>
 
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ПРАВИЛА ВЫПОЛНЕНИЯ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ПРАВИЛА СЛЕДОВАНИЯ -->
     <execution_rules>
-
-        <rule id="R01" enforcement="CRITICAL">
-            <description>
-                Итеративный подход обязателен: гипотеза → проверка → уточнение
-            </description>
-            <rationale>
-                Debugging - это исследование. Многократные итерации нормальны.
-            </rationale>
+        <rule id="1" enforcement="STRICT">
+            Фазы выполняются ТОЛЬКО в порядке возрастания атрибута 'order'
         </rule>
-
-        <rule id="R02" enforcement="CRITICAL">
-            <description>
-                Всегда ищи root cause, никогда не останавливайся на симптомах
-            </description>
-            <verification>
-                Применяй 5 Whys method. Если fix не адресует root cause - возвращайся к анализу.
-            </verification>
+        <rule id="2" enforcement="STRICT">
+            Переход к следующей фазе ТОЛЬКО после прохождения всех checkpoint'ов текущей
         </rule>
-
-        <rule id="R03" enforcement="CRITICAL">
-            <description>
-                Intensive использование thinking на всех этапах
-            </description>
-            <rationale>
-                Debugging требует глубокого анализа и размышления. 
-                Thinking - основной инструмент для этого.
-            </rationale>
+        <rule id="3" enforcement="STRICT">
+            При любой ошибке - ОСТАНОВКА и запрос действий пользователя
         </rule>
-
-        <rule id="R04" enforcement="STRICT">
-            <description>
-                PRD.md - reference для понимания expected behavior
-            </description>
-            <usage>
-                Сверяйся с PRD чтобы понять как должно работать и 
-                ensure fix соответствует архитектуре.
-            </usage>
+        <rule id="4" enforcement="REQUIRED">
+            Каждая фаза начинается с <thinking> блока для планирования
         </rule>
-
-        <rule id="R05" enforcement="CRITICAL">
-            <description>
-                Минимальные invasive изменения для fix'а
-            </description>
-            <principle>
-                Surgical fix: измени ровно то что нужно для решения проблемы.
-                Рефакторинг "заодно" - это отдельная задача.
-            </principle>
+        <rule id="5" enforcement="REQUIRED">
+            Все выходные файлы создаются в указанных путях
         </rule>
-
-        <rule id="R06" enforcement="CRITICAL">
-            <description>
-                Обязательное регрессионное тестирование после любого fix'а
-            </description>
-            <scope>
-                Проверь что проблема решена И ничего не сломалось.
-            </scope>
-        </rule>
-
-        <rule id="R07" enforcement="REQUIRED">
-            <description>
-                Всегда обеспечивай возможность rollback
-            </description>
-            <approach>
-                Backup configs, document rollback steps, test rollback procedure.
-            </approach>
-        </rule>
-
-        <rule id="R08" enforcement="REQUIRED">
-            <description>
-                Детальное post-mortem документирование обязательно
-            </description>
-            <rationale>
-                Lessons learned предотвращают повторение и помогают команде расти.
-            </rationale>
-        </rule>
-
-        <rule id="R09" enforcement="RECOMMENDED">
-            <description>
-                Предлагай превентивные меры для предотвращения повторения
-            </description>
-            <examples>
-                Мониторинг, автоматизированные проверки, улучшения процессов
-            </examples>
-        </rule>
-
-        <rule id="R10" enforcement="RECOMMENDED">
-            <description>
-                Активная коммуникация с пользователем на всех этапах
-            </description>
-            <approach>
-                Объясняй гипотезы, запрашивай информацию, предупреждай о рисках
-            </approach>
-        </rule>
-
     </execution_rules>
-
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ПРИМЕЧАНИЯ ПО ИСПОЛЬЗОВАНИЮ -->
-    <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <usage_notes>
-        
-        <note type="purpose">
-            Этот промпт оптимизирован для диагностики и исправления проблем.
-            Фокус на root cause analysis, systematic debugging и prevention.
-        </note>
-
-        <note type="iterative_nature">
-            Debugging - это итеративный процесс исследования:
-            - Нормально возвращаться к Фазе 1 многократно
-            - Гипотезы будут уточняться по мере получения информации
-            - Не спеши с выводами - лучше потратить время на точную диагностику
-        </note>
-
-        <note type="thinking_intensity">
-            Thinking должен использоваться ИНТЕНСИВНО:
-            - Фаза 1: для анализа симптомов и формирования гипотез
-            - Фаза 2: для root cause analysis и связывания фактов
-            - Фаза 3: для проектирования безопасного fix'а
-            - Фаза 4: для анализа результатов тестирования
-            
-            Debugging - это про размышление, не про действие.
-        </note>
-
-        <note type="root_cause_focus">
-            Критично важно найти root cause, а не просто fix симптомы:
-            - Симптом: "Скрипт падает" → Fix: try/catch
-            - Root cause: "Некорректная конфигурация" → Fix: исправить config
-            
-            Используй 5 Whys method систематически.
-        </note>
-
-        <note type="minimal_fix">
-            Surgical fix principle:
-            - Измени ТОЛЬКО то что необходимо для решения проблемы
-            - Не рефактори "заодно" - это усложняет тестирование
-            - Не добавляй "улучшения" не связанные с проблемой
-            - Рефакторинг - это отдельная задача после fix'а
-        </note>
-
-        <note type="regression_testing">
-            Регрессионное тестирование НЕ опционально:
-            - Проверь что проблема решена
-            - Проверь что существующий функционал работает
-            - Проверь смежные компоненты
-            - Проверь edge cases
-            
-            Fix который ломает что-то еще - это не fix.
-        </note>
-
-        <note type="rollback_readiness">
-            Всегда будь готов откатить изменения:
-            - Backup критичных configs/файлов
-            - Документируй rollback procedure
-            - Тестируй что rollback работает
-            - В production лучше иметь и не использовать, чем нужно и не иметь
-        </note>
-
-        <note type="postmortem_value">
-            Post-mortem документирование - это инвестиция в будущее:
-            - Помогает избежать повторения проблемы
-            - Ускоряет диагностику схожих issues
-            - Обучает команду
-            - Улучшает процессы
-            
-            Не пропускай эту фазу даже для "мелких" проблем.
-        </note>
-
-        <note type="web_search">
-            Используй web_search когда:
-            - Сталкиваешься с незнакомой error message
-            - Нужна информация о специфичной технологии
-            - Ищешь known issues в software/библиотеках
-            - Требуется информация о best practices для fix'а
-        </note>
-
-        <note type="documentation_artifacts">
-            Создавай artifacts с:
-            - Fix code (bash, python, configs)
-            - Post-mortem документ
-            - Обновленная troubleshooting guide
-            - Prevention recommendations
-            
-            Избегай промежуточных analysis.xml файлов.
-        </note>
-
-    </usage_notes>
 
 </request>
