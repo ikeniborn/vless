@@ -213,7 +213,8 @@ validate_destination() {
 
     # Check 1: DNS resolution
     echo -n "  [1/3] Checking DNS resolution... "
-    if ! host "$dest_host" &>/dev/null; then
+    # Use getent instead of host (getent is always available, host requires bind9-host package)
+    if ! getent hosts "$dest_host" &>/dev/null; then
         echo -e "${RED}FAIL${NC}"
         echo -e "${RED}      Cannot resolve ${dest_host}${NC}"
         return 1
