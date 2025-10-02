@@ -224,12 +224,13 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling non-tech
 **Priority:** High | **Complexity:** Medium
 
 **Tasks:**
-1. TASK-8.1: Start/stop/restart commands (4h)
-2. TASK-8.2: Status display (3h)
-3. TASK-8.3: Update mechanism (preserve subnet/port) (6h)
-4. TASK-8.4: Log display with filtering (3h)
+1. TASK-8.1: Start/stop/restart commands (4h) ✅ COMPLETE (2025-10-02)
+2. TASK-8.2: Status display (3h) ✅ COMPLETE (2025-10-02)
+3. TASK-8.3: Update mechanism (preserve subnet/port) (6h) ✅ COMPLETE (2025-10-02)
+4. TASK-8.4: Log display with filtering (3h) ✅ COMPLETE (2025-10-02)
 
 **Dependencies:** EPIC-5 complete
+**Implementation:** lib/service_operations.sh (857 lines, 33 functions)
 
 ---
 
