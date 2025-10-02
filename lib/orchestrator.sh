@@ -146,7 +146,13 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 12: Set permissions
+    # Step 12: Install CLI tools
+    install_cli_tools || {
+        echo -e "${RED}Failed to install CLI tools${NC}" >&2
+        return 1
+    }
+
+    # Step 13: Set permissions
     set_permissions || {
         echo -e "${RED}Failed to set permissions${NC}" >&2
         return 1
@@ -186,6 +192,7 @@ create_directory_structure() {
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"
         "${INSTALL_ROOT}/backup"
+        "${INSTALL_ROOT}/lib"
         "${LOGS_DIR}"
         "${KEYS_DIR}"
         "${SCRIPTS_DIR}"
@@ -766,13 +773,74 @@ deploy_containers() {
 }
 
 # =============================================================================
+# FUNCTION: install_cli_tools
+# =============================================================================
+# Description: Install CLI management tools and create symlinks
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+install_cli_tools() {
+    echo -e "${CYAN}[12/13] Installing CLI tools...${NC}"
+
+    # Get the project root (assuming script is in lib/ subdirectory)
+    local project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    local cli_source="${project_root}/cli/vless"
+
+    # Check if CLI script exists in project
+    if [[ ! -f "$cli_source" ]]; then
+        echo -e "${YELLOW}  ⚠ CLI script not found in project: $cli_source${NC}"
+        echo "  ℹ CLI tool installation skipped"
+        return 0
+    fi
+
+    # Copy CLI script to installation directory
+    cp "$cli_source" "${SCRIPTS_DIR}/vless" || {
+        echo -e "${RED}Failed to copy CLI script${NC}" >&2
+        return 1
+    }
+
+    # Make it executable
+    chmod 755 "${SCRIPTS_DIR}/vless" || {
+        echo -e "${RED}Failed to set execute permission${NC}" >&2
+        return 1
+    }
+
+    # Create symlink in /usr/local/bin
+    ln -sf "${SCRIPTS_DIR}/vless" /usr/local/bin/vless || {
+        echo -e "${RED}Failed to create symlink${NC}" >&2
+        return 1
+    }
+
+    # Copy lib modules to installation
+    local lib_modules=(
+        "user_management.sh"
+        "service_operations.sh"
+        "qr_generator.sh"
+    )
+
+    for module in "${lib_modules[@]}"; do
+        if [[ -f "${project_root}/lib/${module}" ]]; then
+            cp "${project_root}/lib/${module}" "${INSTALL_ROOT}/lib/" || {
+                echo -e "${YELLOW}  ⚠ Warning: Failed to copy ${module}${NC}"
+            }
+        fi
+    done
+
+    echo "  ✓ CLI script installed: ${SCRIPTS_DIR}/vless"
+    echo "  ✓ Symlink created: /usr/local/bin/vless"
+    echo "  ✓ Command available: vless"
+
+    echo -e "${GREEN}✓ CLI tools installed${NC}"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: set_permissions
 # =============================================================================
 # Description: Set appropriate file and directory permissions
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 set_permissions() {
-    echo -e "${CYAN}[12/12] Setting file permissions...${NC}"
+    echo -e "${CYAN}[13/13] Setting file permissions...${NC}"
 
     # Sensitive directories: 700 (root only)
     # Set permissions on each directory individually to ensure all exist
@@ -826,4 +894,5 @@ export -f create_env_file
 export -f create_docker_network
 export -f configure_ufw
 export -f deploy_containers
+export -f install_cli_tools
 export -f set_permissions
