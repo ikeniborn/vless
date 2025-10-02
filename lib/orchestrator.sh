@@ -541,7 +541,9 @@ services:
       - SETUID
     security_opt:
       - no-new-privileges:true
+    read_only: true
     tmpfs:
+      - /tmp
       - /var/cache/nginx
       - /var/run
     depends_on:
