@@ -185,6 +185,7 @@ create_directory_structure() {
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"
+        "${INSTALL_ROOT}/backup"
         "${LOGS_DIR}"
         "${KEYS_DIR}"
         "${SCRIPTS_DIR}"
@@ -771,7 +772,7 @@ set_permissions() {
     echo -e "${CYAN}[12/12] Setting file permissions...${NC}"
 
     # Sensitive directories: 700 (root only)
-    chmod 700 "${CONFIG_DIR}" "${DATA_DIR}" "${KEYS_DIR}" 2>/dev/null || true
+    chmod 700 "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/clients" "${KEYS_DIR}" "${INSTALL_ROOT}/backup" 2>/dev/null || true
 
     # Sensitive files: 600 (root read/write only)
     find "${CONFIG_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
