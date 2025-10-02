@@ -351,11 +351,11 @@ add_client_to_xray() {
     fi
 
     # Validate with xray -test (if container is running)
+    # Note: Container has read-only filesystem, so we validate by mounting the file
     if docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
-        # Copy temp file to container for validation
-        docker cp "$temp_file" "${XRAY_CONTAINER}:/tmp/xray_config_test.json" 2>/dev/null || true
-
-        if ! docker exec "$XRAY_CONTAINER" xray -test -config=/tmp/xray_config_test.json &>/dev/null; then
+        # Validate by running xray with mounted config file
+        if ! docker run --rm -v "$temp_file:/tmp/test_config.json:ro" "${XRAY_IMAGE:-teddysun/xray:latest}" \
+            xray -test -config=/tmp/test_config.json &>/dev/null; then
             log_error "Xray configuration validation failed"
             rm -f "$temp_file"
             mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
