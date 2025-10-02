@@ -869,8 +869,48 @@ vless remove-user alice
 ├── keys/
 │   ├── private.key         # X25519 private key
 │   └── public.key          # X25519 public key
-└── logs/
-    └── xray.log            # Xray logs
+├── logs/
+│   └── xray.log            # Xray logs
+├── scripts/                # Additional utility scripts
+│   ├── backup.sh           # Backup utilities
+│   └── maintenance.sh      # Maintenance tasks
+├── docs/                   # Additional documentation
+│   ├── api.md              # API documentation
+│   └── troubleshooting.md  # Troubleshooting guide
+└── tests/                  # Test files
+    ├── unit/               # Unit tests
+    └── integration/        # Integration tests
+```
+
+**Project Development Structure:**
+
+During development (before installation), files are organized in the project repository:
+
+```
+/home/ikeniborn/Documents/Project/vless/  # Project root
+├── install.sh              # Main installation script
+├── PLAN.md                 # Implementation plan
+├── PRD.md                  # Product requirements
+├── lib/                    # Installation modules
+│   ├── os_detection.sh     # OS detection
+│   ├── dependencies.sh     # Dependency management
+│   ├── old_install_detect.sh # Old installation detection
+│   ├── interactive_params.sh # Parameter collection
+│   ├── sudoers_info.sh     # Sudoers instructions
+│   ├── orchestrator.sh     # Installation orchestration
+│   └── verification.sh     # Post-install verification
+├── docs/                   # Additional documentation
+│   ├── OLD_INSTALL_DETECT_REPORT.md
+│   ├── INTERACTIVE_PARAMS_REPORT.md
+│   └── SUDOERS_INFO_REPORT.md
+├── tests/                  # Test files
+│   ├── unit/               # Unit tests (bats framework)
+│   └── integration/        # Integration tests
+├── scripts/                # Additional utility scripts
+│   ├── dev-helpers/        # Development helpers
+│   └── ci/                 # CI/CD scripts
+└── requests/               # Task request templates
+    └── request_implement.xml
 ```
 
 ---

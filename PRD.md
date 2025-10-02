@@ -941,10 +941,12 @@ Internet → UFW:${VLESS_PORT} → Docker bridge → Xray container
 
 ### 3.6 Storage Architecture
 
-**Filesystem Structure:**
+**Filesystem Structure (after installation):**
+
+**Note:** During development, files are in the project Git repository. The installer creates `/opt/vless/` and copies files during installation.
 
 ```
-/opt/vless/
+/opt/vless/                              # Created by installer
 ├── config/                          # Configuration files (700, sensitive)
 │   ├── config.json                  # Xray main configuration (600)
 │   ├── users.json                   # User database: UUID, shortId, metadata (600)
@@ -967,6 +969,12 @@ Internet → UFW:${VLESS_PORT} → Docker bridge → Xray container
 │   ├── user-manager.sh              # User management functions (755)
 │   ├── service-manager.sh           # Service control functions (755)
 │   └── common-functions.sh          # Shared utilities (755)
+├── docs/                            # Additional documentation (755)
+│   ├── api.md                       # API documentation
+│   └── troubleshooting.md           # Troubleshooting guide
+├── tests/                           # Test files (755)
+│   ├── unit/                        # Unit tests (bats framework)
+│   └── integration/                 # Integration tests
 ├── .env                             # Environment variables (600)
 └── docker-compose.yml               # Container orchestration (644)
 
@@ -981,12 +989,45 @@ Internet → UFW:${VLESS_PORT} → Docker bridge → Xray container
 └── vless-uninstall -> /opt/vless/scripts/uninstall.sh
 ```
 
+**Project Development Structure:**
+
+During development (before installation), files are organized in the project repository:
+
+```
+/home/ikeniborn/Documents/Project/vless/  # Project root
+├── install.sh                       # Main installation script
+├── PLAN.md                          # Implementation plan
+├── PRD.md                           # Product requirements document
+├── lib/                             # Installation modules
+│   ├── os_detection.sh              # OS detection
+│   ├── dependencies.sh              # Dependency management
+│   ├── old_install_detect.sh        # Old installation detection
+│   ├── interactive_params.sh        # Parameter collection
+│   ├── sudoers_info.sh              # Sudoers instructions
+│   ├── orchestrator.sh              # Installation orchestration
+│   └── verification.sh              # Post-install verification
+├── docs/                            # Additional documentation
+│   ├── OLD_INSTALL_DETECT_REPORT.md
+│   ├── INTERACTIVE_PARAMS_REPORT.md
+│   └── SUDOERS_INFO_REPORT.md
+├── tests/                           # Test files
+│   ├── unit/                        # Unit tests (bats framework)
+│   └── integration/                 # Integration tests
+├── scripts/                         # Additional utility scripts
+│   ├── dev-helpers/                 # Development helpers
+│   └── ci/                          # CI/CD scripts
+└── requests/                        # Task request templates
+    └── request_implement.xml
+```
+
 **Permissions:**
 
 - **config/**: 700 (root only), sensitive files 600
 - **scripts/**: 755 (executable by all), files 755
 - **logs/**: 755, log files 644 (readable by monitoring tools)
 - **data/**: 700 (protect client configs)
+- **docs/**: 755, documentation files 644 (readable by all)
+- **tests/**: 755, test files 755 (executable)
 - **Symlinks**: 755 (non-root users can execute via sudo)
 
 **Volume Mounts:**
@@ -2094,7 +2135,7 @@ While this system is designed for **10-50 concurrent users**, scalability constr
 
 **Steps:**
 
-1. Download and run installer: `curl -O install.sh && chmod +x install.sh && sudo ./install.sh`
+1. Clone repository and run installer: `git clone <repo_url> && cd vless && sudo ./install.sh` (installer creates `/opt/vless` during installation)
 2. Select destination site (google.com, microsoft.com, apple.com, cloudflare.com, or custom)
 3. Validate destination (TLS 1.3, HTTP/2, SNI extraction)
 4. Select port (default: 443, auto-detect conflicts)
@@ -2107,7 +2148,7 @@ While this system is designed for **10-50 concurrent users**, scalability constr
 
 ```mermaid
 flowchart TD
-    Start([Download install.sh]) --> CheckRoot{Root/Sudo?}
+    Start([Clone repository & cd vless]) --> CheckRoot{Root/Sudo?}
     CheckRoot -->|No| Error1[Error: Requires root]
     CheckRoot -->|Yes| DetectOS[Detect OS]
     DetectOS --> CheckDocker{Docker Installed?}
