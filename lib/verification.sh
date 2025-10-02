@@ -458,7 +458,7 @@ verify_ufw_rules() {
 
     # Check VLESS port rule
     local vless_port=$(jq -r '.inbounds[0].port' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "443")
-    if ufw status numbered | grep -q "ALLOW.*${vless_port}/tcp"; then
+    if ufw status numbered | grep -q "${vless_port}/tcp.*ALLOW"; then
         log_success "UFW allows port $vless_port/tcp"
     else
         log_error "UFW does not allow port $vless_port/tcp"
