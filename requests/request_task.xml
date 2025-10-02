@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<request_execute version="2.0" optimized="true">
+<request_execute version="2.1" optimized="true">
 
     <!-- ═══════════════════════════════════════════════════════ -->
     <!-- META -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <meta>
-        <version>2.0</version>
-        <purpose>Быстрое выполнение точечных задач с опорой на PRD</purpose>
-        <optimization>Скорость, минимальный overhead, обязательное соответствие PRD</optimization>
+        <version>2.1</version>
     </meta>
 
     <!-- ═══════════════════════════════════════════════════════ -->
@@ -15,30 +13,20 @@
     <!-- ═══════════════════════════════════════════════════════ -->
     <config>
         <mode>streamlined_sequential</mode>
-        <thinking enabled="true" mode="interleaved" max_length="16000"/>
+        <thinking enabled="true" mode="interleaved"/>
         <validation strategy="targeted" focus="critical_only"/>
-        <error_handling on_failure="stop_and_report" retry_policy="smart_retry"/>
         <git mode="optional" auto_commit="false"/>
     </config>
 
     <!-- ═══════════════════════════════════════════════════════ -->
-    <!-- EXECUTION PRINCIPLES -->
+    <!-- SPECIFIC PRINCIPLES (дополняют CLAUDE.md) -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <principles>
-        <principle id="P1" level="CRITICAL" enforce="always">
-            PRD compliance - все решения ДОЛЖНЫ соответствовать PRD.md
+        <principle id="PS1" level="CRITICAL">
+            PRD Compliance - все решения ДОЛЖНЫ соответствовать PRD
         </principle>
-        <principle id="P2" level="CRITICAL" enforce="before_action">
-            Thinking required - используйте &lt;thinking&gt; перед критическими решениями
-        </principle>
-        <principle id="P3" level="HIGH" enforce="always">
-            Acceptance criteria fulfillment - все критерии ДОЛЖНЫ быть выполнены
-        </principle>
-        <principle id="P4" level="MEDIUM" enforce="when_unclear">
-            Ask, don't guess - при неясности спрашивайте, не угадывайте
-        </principle>
-        <principle id="P5" level="MEDIUM" enforce="always">
-            Document decisions - важные решения должны быть документированы
+        <principle id="PS2" level="HIGH">
+            Acceptance Criteria Fulfillment - все критерии ДОЛЖНЫ быть выполнены
         </principle>
     </principles>
 
@@ -47,204 +35,570 @@
     <!-- ═══════════════════════════════════════════════════════ -->
     <context>
         <role>
-            Опытный Full-Stack разработчик и системный архитектор,
-            специализирующийся на быстром и качественном выполнении точечных задач.
-            
-            Экспертиза: быстрый анализ, декомпозиция задач, выбор оптимального решения,
-            Bash, Python, Docker, web frameworks, безопасность, тестирование.
+            Full-Stack разработчик, специализирующийся на быстром выполнении точечных задач
+            с фокусом на Bash, Python, Docker, безопасность, тестирование.
         </role>
 
         <prd_document required="true">
-            PRD.md - ОБЯЗАТЕЛЬНЫЙ Product Requirements Document.
-            Все решения ДОЛЖНЫ соответствовать PRD.
+            PRD - ОБЯЗАТЕЛЬНЫЙ Product Requirements Document
         </prd_document>
 
         <project_context>
-            ikeniborn@11154:~/vless$ sudo ./install.sh
-                ╔══════════════════════════════════════════════════════════════╗
-                ║          VLESS + Reality VPN Server Installation            ║
-                ║  Production-grade CLI-based Reality protocol deployment     ║
-                ║  Version: 3.0                                               ║
-                ╚══════════════════════════════════════════════════════════════╝
+ikeniborn@11154:~/vless$ sudo ./install.sh
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║          VLESS + Reality VPN Server Installation            ║
+║                                                              ║
+║  Production-grade CLI-based Reality protocol deployment     ║
+║  Version: 3.0                                               ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
 
-                [1/10] Checking root privileges...
-                ✓ Running with root privileges
 
-                Loading installation modules...
-                /home/ikeniborn/vless/lib/interactive_params.sh: line 25: RED: readonly variable
-                /home/ikeniborn/vless/lib/interactive_params.sh: line 26: GREEN: readonly variable
-                /home/ikeniborn/vless/lib/interactive_params.sh: line 27: YELLOW: readonly variable
-                /home/ikeniborn/vless/lib/interactive_params.sh: line 28: BLUE: readonly variable
-                /home/ikeniborn/vless/lib/interactive_params.sh: line 30: NC: readonly variable
-                /home/ikeniborn/vless/lib/sudoers_info.sh: line 23: RED: readonly variable
-                /home/ikeniborn/vless/lib/sudoers_info.sh: line 24: GREEN: readonly variable
-                /home/ikeniborn/vless/lib/sudoers_info.sh: line 25: YELLOW: readonly variable
-                /home/ikeniborn/vless/lib/sudoers_info.sh: line 26: BLUE: readonly variable
-                /home/ikeniborn/vless/lib/sudoers_info.sh: line 27: CYAN: readonly variable
-                /home/ikeniborn/vless/lib/sudoers_info.sh: line 29: NC: readonly variable
-                /home/ikeniborn/vless/lib/orchestrator.sh: line 27: RED: readonly variable
-                /home/ikeniborn/vless/lib/orchestrator.sh: line 28: GREEN: readonly variable
-                /home/ikeniborn/vless/lib/orchestrator.sh: line 29: YELLOW: readonly variable
-                /home/ikeniborn/vless/lib/orchestrator.sh: line 30: BLUE: readonly variable
-                /home/ikeniborn/vless/lib/orchestrator.sh: line 31: CYAN: readonly variable
-                /home/ikeniborn/vless/lib/orchestrator.sh: line 32: NC: readonly variable
-                /home/ikeniborn/vless/lib/verification.sh: line 54: RED: readonly variable
-                /home/ikeniborn/vless/lib/verification.sh: line 55: GREEN: readonly variable
-                /home/ikeniborn/vless/lib/verification.sh: line 56: YELLOW: readonly variable
-                /home/ikeniborn/vless/lib/verification.sh: line 57: BLUE: readonly variable
-                /home/ikeniborn/vless/lib/verification.sh: line 58: NC: readonly variable
-                ✓ All library modules loaded successfully
+[1/10] Checking root privileges...
+✓ Running with root privileges
 
-                [2/10] Detecting operating system...
-                ✓ Operating system detected
+Loading installation modules...
+✓ All library modules loaded successfully
 
-                [3/10] Validating OS compatibility...
-                ✓ Operating system is compatible
+[2/10] Detecting operating system...
+✓ Operating system detected
 
-                [4/10] Checking dependencies...
-                Checking dependencies...
+[3/10] Validating OS compatibility...
+✓ Operating system is compatible
 
-                ✓ All dependencies are installed and meet version requirements
-                ✓ Dependency check complete
+[4/10] Checking dependencies...
+Checking dependencies...
 
-                [5/10] Installing missing dependencies...
-                Installing missing dependencies...
+  ✓ docker.io - installed (version: 28.4.0)
+  ✓ docker-compose - installed (version: 2.39.4)
+  ✓ ufw - installed
+  ✓ jq - installed (version: 1.7)
+  ✓ qrencode - installed
+  ✓ curl - installed
+  ✓ openssl - installed
 
-                ERROR: PKG_MANAGER not set. Run get_package_manager() first
-                ✗ ERROR: Installation failed with exit code 1
+✓ All dependencies are installed and meet version requirements
+✓ Dependency check complete
 
-                To retry installation:
-                cd /home/ikeniborn/vless
-                sudo ./install.sh
+[5/10] Installing missing dependencies...
+Installing missing dependencies...
+
+Updating package lists...
+✓ Package lists updated
+
+[1/7] ✓ docker.io - already installed
+[2/7] ✓ docker-compose - already installed
+[3/7] ✓ ufw - already installed
+[4/7] ✓ jq - already installed
+[5/7] ✓ qrencode - already installed
+[6/7] ✓ curl - already installed
+[7/7] ✓ openssl - already installed
+
+Installation Summary:
+  Total packages: 7
+  Successfully installed: 7
+  Failed: 0
+
+✓ All dependencies installed successfully
+✓ Dependencies installed
+
+[6/10] Detecting previous installations...
+╔════════════════════════════════════════════════════════════════╗
+║      DETECTING EXISTING VLESS INSTALLATIONS (7 LEVELS)       ║
+╚════════════════════════════════════════════════════════════════╝
+
+[Level 1/7] Checking Docker containers...
+  ⚠ Found 2 container(s):
+    - vless_nginx (running)
+    - vless_xray (running)
+
+[Level 2/7] Checking Docker networks...
+  ⚠ Found 1 network(s):
+    - vless_reality_net (172.20.0.0/16)
+
+[Level 3/7] Checking Docker volumes...
+  ✓ No VLESS volumes found
+
+[Level 4/7] Checking /opt/vless directory...
+  ⚠ Directory exists:
+    Path: /opt/vless
+    Size: 476K
+    Files: 47
+    Contains: users.json (USER DATA)
+    Contains: xray_config.json
+    Contains: docker-compose.yml
+
+[Level 5/7] Checking UFW rules...
+  ⚠ Found 2 UFW rule(s):
+    [ 2] 443/tcp                    ALLOW IN    Anywhere                   # VLESS Reality VPN
+    [ 7] 8443/tcp                   ALLOW IN    Anywhere                   # VLESS Reality VPN
+
+[Level 6/7] Checking systemd services...
+  ⚠ Found 1 service(s):
+    - docker-vless-firewall.service (enabled)
+
+[Level 7/7] Checking symlinks in /usr/local/bin...
+  ⚠ Found 1 symlink(s):
+    - /usr/local/bin/vless-update -> /opt/vless/scripts/update.sh
+
+╔════════════════════════════════════════════════════════════════╗
+║               DETECTION SUMMARY                               ║
+╚════════════════════════════════════════════════════════════════╝
+
+⚠ Old installation detected: 8 finding(s)
+
+  Containers: 2
+  Networks:   1
+  Volumes:    0
+  Directory:  YES
+  UFW Rules:  2
+  Services:   1
+  Symlinks:   1
+
+╔════════════════════════════════════════════════════════════════╗
+║           OLD INSTALLATION DETECTED - ACTION REQUIRED         ║
+╚════════════════════════════════════════════════════════════════╝
+
+The following components from a previous VLESS installation were detected:
+
+Docker Containers (2):
+  - vless_nginx
+  - vless_xray
+
+Docker Networks (1):
+  - vless_reality_net
+
+Installation Directory:
+  - /opt/vless
+    WARNING: Contains user data (users.json)
+
+UFW Rules (2):
+  [ 2] 443/tcp                    ALLOW IN    Anywhere                   # VLESS Reality VPN
+  [ 7] 8443/tcp                   ALLOW IN    Anywhere                   # VLESS Reality VPN
+
+Systemd Services (1):
+  - docker-vless-firewall.service
+
+Symlinks (1):
+  - /usr/local/bin/vless-update
+
+╔════════════════════════════════════════════════════════════════╗
+║                  RECOMMENDED ACTION                           ║
+╚════════════════════════════════════════════════════════════════╝
+
+Option 1 (RECOMMENDED): Backup and cleanup
+  - Creates timestamped backup of all data
+  - Backs up UFW rules separately
+  - Safely removes old installation
+  - Allows restoration if needed
+
+Option 2 (RISKY): Cleanup without backup
+  - Immediately removes all components
+  - No recovery possible
+  - Use only if data is not important
+
+Option 3 (SAFE): Skip cleanup and exit
+  - Aborts installation
+  - Allows manual cleanup
+  - Recommended if unsure
+
+
+Would you like to:
+  1) Backup and cleanup old installation (recommended)
+  2) Cleanup without backup (risky)
+  3) Skip cleanup and exit
+
+Enter your choice [1-3]: 2
+Cleaning up without backup...
+╔════════════════════════════════════════════════════════════════╗
+║           CLEANING UP OLD INSTALLATION                       ║
+╚════════════════════════════════════════════════════════════════╝
+
+⚠ WARNING: This will DELETE the following components:
+
+  - 2 Docker container(s)
+  - 1 Docker network(s)
+  - Installation directory: /opt/vless
+  - 2 UFW rule(s)
+  - 1 systemd service(s)
+  - 1 symlink(s)
+
+⚠ This action is IRREVERSIBLE (unless you created a backup)
+
+Type 'yes' to confirm cleanup (or 'no' to cancel): yes
+
+[1/7] Removing Docker containers...
+  Stopping vless_nginx... ✓
+  Removing vless_nginx... ✓
+  Stopping vless_xray... ✓
+  Removing vless_xray... ✓
+
+[2/7] Removing Docker networks...
+  Removing vless_reality_net... ✓
+
+[4/7] Removing installation directory...
+  Removing /opt/vless... ✓
+
+[5/7] Cleaning UFW rules...
+  ⚠ Manual UFW rule removal recommended
+  Found 2 rule(s) that may need cleanup
+  Review with: ufw status numbered
+  Remove with: ufw delete <rule_number>
+
+[6/7] Removing systemd services...
+  Stopping docker-vless-firewall.service... ✓
+  Disabling docker-vless-firewall.service... ✓
+  Removing /etc/systemd/system/docker-vless-firewall.service... ✓
+  Reloading systemd daemon... ✓
+
+[7/7] Removing symlinks...
+  Removing /usr/local/bin/vless-update... ✓
+
+╔════════════════════════════════════════════════════════════════╗
+║               CLEANUP SUMMARY                                 ║
+╚════════════════════════════════════════════════════════════════╝
+
+✓ All cleanup tasks completed successfully
+
+✓ Old installation check complete
+
+[7/10] Collecting installation parameters...
+
+╔══════════════════════════════════════════════════════════════╗
+║         INTERACTIVE PARAMETER COLLECTION                    ║
+╚══════════════════════════════════════════════════════════════╝
+
+This wizard will guide you through configuration.
+Press Ctrl+C at any time to cancel.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1/3] Select Destination Site for Reality Masquerading
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Reality protocol 'borrows' the TLS handshake from a legitimate HTTPS site.
+Your VPN traffic will be indistinguishable from normal traffic to this site.
+
+Available options:
+  1) www.google.com:443      (Recommended - highly reliable)
+  2) www.microsoft.com:443   (Enterprise-friendly)
+  3) www.apple.com:443       (Good for regions where Google is blocked)
+  4) www.cloudflare.com:443  (CDN provider)
+  5) Custom site (advanced)  
+
+Enter your choice [1-5] (default: 1): 1
+
+Selected: www.google.com:443
+Validating destination (this may take up to 10 seconds)...
+  [1/3] Checking DNS resolution... OK
+  [2/3] Checking TLS connectivity... OK
+  [3/3] Checking TLS 1.3 support... WARN
+      TLS 1.3 not confirmed, but may still work
+✓ Destination validated successfully
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[2/3] Select VLESS Server Port
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VLESS server will listen on this port for incoming VPN connections.
+Port 443 is recommended (standard HTTPS) for maximum compatibility.
+
+Checking port availability...
+✓ Port 443 is available
+
+Use port 443? [Y/n]: y
+✓ Selected port: 443
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[3/3] Select Docker Network Subnet
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Docker bridge network will be created with an isolated subnet.
+This ensures no conflicts with other VPN services.
+
+Scanning existing Docker networks...
+
+Existing Docker subnets:
+  bridge: 172.17.0.0/16
+
+✓ Default subnet 172.20.0.0/16 is available
+
+Use default subnet 172.20.0.0/16? [Y/n]: y
+✓ Selected subnet: 172.20.0.0/16
+
+
+╔══════════════════════════════════════════════════════════════╗
+║            CONFIGURATION SUMMARY                             ║
+╚══════════════════════════════════════════════════════════════╝
+
+Please review your configuration:
+
+  Destination Site:    www.google.com:443
+  VLESS Port:          443
+  Docker Subnet:       172.20.0.0/16
+
+Is this configuration correct? [Y/n]: y
+
+✓ Configuration confirmed
+
+✓ All parameters collected successfully
+
+✓ Parameters collected
+
+[8/10] Orchestrating installation...
+  → Creating /opt/vless directory structure
+  → Copying files from project to /opt/vless
+  → Configuring Docker network
+  → Setting up Xray configuration
+  → Deploying containers
+
+╔══════════════════════════════════════════════════════════════╗
+║           INSTALLATION ORCHESTRATION                         ║
+╚══════════════════════════════════════════════════════════════╝
+
+[1/12] Creating directory structure...
+  ✓ Created /opt/vless
+  ✓ /opt/vless/config exists
+  ✓ /opt/vless/data exists
+  ✓ /opt/vless/data/clients exists
+  ✓ /opt/vless/data/backups exists
+  ✓ /opt/vless/backup exists
+  ✓ /opt/vless/logs exists
+  ✓ /opt/vless/keys exists
+  ✓ /opt/vless/scripts exists
+  ✓ /opt/vless/fake-site exists
+  ✓ /opt/vless/docs exists
+  ✓ /opt/vless/tests exists
+  ✓ /opt/vless/tests/unit exists
+  ✓ /opt/vless/tests/integration exists
+✓ Directory structure created
+[2/12] Generating X25519 Reality keys...
+  ✓ Private key: eMwMQL08It...qSrYg6u7Xs
+  ✓ Public key: pnTs15mwMp...07Cdj7eKiM
+  ✓ Keys saved to /opt/vless/keys/
+✓ Reality keys generated
+[3/12] Generating Short ID...
+  ✓ Short ID: 33a70793986513c7
+✓ Short ID generated
+[4/12] Creating Xray configuration...
+  ✓ Configuration file: /opt/vless/config/xray_config.json
+  ✓ Listen port: 443
+  ✓ Destination: www.google.com:443
+  ✓ Fallback to Nginx configured
+✓ Xray configuration created
+[5/12] Creating users database...
+  ✓ Users database: /opt/vless/data/users.json
+  ✓ Initial state: empty (0 users)
+✓ Users database created
+[6/12] Creating Nginx configuration...
+  ✓ Nginx configuration: /opt/vless/fake-site/default.conf
+  ✓ Proxying to: https://www.google.com:443
+  ✓ Cache: 1h for 200 OK responses
+✓ Nginx configuration created
+[7/12] Creating Docker Compose configuration...
+  ✓ Docker Compose file: /opt/vless/docker-compose.yml
+  ✓ Xray image: teddysun/xray:24.11.30
+  ✓ Nginx image: nginx:alpine
+  ✓ Network: vless_reality_net
+  ✓ Security: hardened containers with minimal capabilities
+✓ Docker Compose configuration created
+[8/12] Creating environment file...
+  ✓ Environment file: /opt/vless/.env
+✓ Environment file created
+[9/12] Creating Docker network...
+5a18ecb15db611b7d28c7aa17b7d3b8d061e136aa0017101e84e8b60f7ed23db
+  ✓ Network name: vless_reality_net
+  ✓ Subnet: 172.20.0.0/16
+  ✓ Driver: bridge
+✓ Docker network created
+[10/12] Configuring UFW firewall...
+  Creating UFW backup...
+  ✓ Backup saved to /tmp/ufw_backup_20251002_205501
+  ✓ Docker forwarding rules already present
+  Allowing port 443...
+Skipping adding existing rule
+  Reloading UFW...
+Firewall reloaded
+  ✓ Port 443/tcp allowed
+  ✓ Docker forwarding configured for 172.20.0.0/16
+✓ UFW firewall configured
+[11/12] Deploying Docker containers...
+  Pulling Docker images...
+WARN[0000] /opt/vless/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+[+] Pulling 2/2
+ ✔ nginx Pulled                                                                                              0.2s 
+ ✔ xray Pulled                                                                                               0.2s 
+  ✓ Images pulled
+  Starting containers...
+WARN[0000] /opt/vless/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+[+] Running 2/2
+ ✔ Container vless_xray   Started                                                                            0.3s 
+ ✔ Container vless_nginx  Started                                                                            0.4s 
+  Waiting for containers to start...
+  ✓ Xray container running
+  ✓ Nginx container running
+✓ Containers deployed successfully
+[12/12] Setting file permissions...
+  ✓ Sensitive files: 600 (root only)
+  ✓ Config/keys directories: 700 (root only)
+  ✓ Logs/scripts: 755/644 (readable)
+✓ Permissions set
+
+✓ Installation orchestration completed successfully
+
+✓ Installation orchestration complete
+
+[9/10] Verifying installation...
+
+======================================================================
+  VLESS Reality - Post-Installation Verification
+======================================================================
+
+[INFO] Starting comprehensive verification checks...
+
+[INFO] Verification 1/8: Checking directory structure...
+[✓] All required directories exist (13 directories)
+[✓] All required files exist (7 files)
+
+[INFO] Verification 2/8: Checking file permissions...
+[✓] All file permissions and ownership are correct
+
+[INFO] Verification 3/8: Checking Docker network...
+[✓] Network subnet: 172.20.0.0/16
+[✓] Network driver: bridge
+[✓] Network ID: 5a18ecb15db6
+
+[INFO] Verification 4/8: Checking container health...
+[✓] Container 'vless_xray' is running
+[INFO]   Started at: 2025-10-02T18:55:37.930106442Z
+[✓] Container 'vless_nginx' is running
+[INFO]   Started at: 2025-10-02T18:55:38.133372552Z
+[✗] Container 'vless_xray' is not connected to vless_reality_net (networks: bridge )
+[✗] Container 'vless_nginx' is not connected to vless_reality_net (networks: bridge )
+[✓] Container 'vless_xray' restart policy: unless-stopped
+
+[INFO] Verification 5/8: Validating Xray configuration...
+[✓] Xray configuration JSON syntax is valid
+[✓] Xray configuration validation passed (xray -test)
+[✓] Inbound protocol: vless
+[✓] Stream security: reality
+[✓] Reality private key is configured
+[✓] Reality destination: www.google.com:443
+
+[INFO] Verification 6/8: Checking UFW firewall rules...
+[✓] UFW is active
+[✗] UFW does not allow port 443/tcp
+[⚠] VLESS REALITY rules section not found in /etc/ufw/after.rules
+[✓] iptables MASQUERADE rule active
+
+[INFO] Verification 7/8: Testing container internet connectivity...
+[✓] Container 'vless_xray' can reach internet (ping 8.8.8.8)
+[✓] Container 'vless_xray' has DNS resolution
+[✓] Container 'vless_nginx' can reach internet (ping 8.8.8.8)
+[⚠] Container cannot reach Reality destination: www.google.com:443 (may be normal if destination requires TLS)
+
+[INFO] Verification 8/8: Checking port listening status...
+[✓] Port 443 is listening on host
+[✓] Container 'vless_xray' port binding: 443/tcp -> 443 
+[INFO] Server public IP: 205.172.58.179
+
+======================================================================
+  Verification Summary
+======================================================================
+
+[✗] VERIFICATION FAILED (3 errors)
+
+Errors encountered:
+  - Container 'vless_xray' is not connected to vless_reality_net (networks: bridge )
+  - Container 'vless_nginx' is not connected to vless_reality_net (networks: bridge )
+  - UFW does not allow port 443/tcp
+  - VERIFICATION FAILED (3 errors)
+
+Please review the errors above and fix them before proceeding.
+
+Common fixes:
+  1. Container issues: docker-compose -f /opt/vless/docker-compose.yml up -d
+  2. Permission issues: Run the installation script again as root
+  3. Network issues: Check UFW Docker forwarding configuration
+
+======================================================================
+
+✗ ERROR: Installation failed with exit code 1
+
+To retry installation:
+  cd /home/ikeniborn/vless
+  sudo ./install.sh
+
+
         </project_context>
 
         <task>
             <technical_requirements>
                 - Проанализировать логи установки
-                - Определить причину ошибки
-                - Исправить ошибку в коде
+                - Определить ошибки и проблемы устанвоки
+                - Исправь все выявленные проблемы
             </technical_requirements>
 
             <quality_requirements>
-                - Следовать PRD.md
-                - Обеспечить качество кода
+                - Следовать PRD
                 - Создать необходимые тесты
                 - Документировать изменения
             </quality_requirements>
-
-            <constraints>
-                - Использовать существующий tech stack
-                - Следовать code style проекта
-                - Обеспечить обратную совместимость
-                - Не ломать существующий функционал
-            </constraints>
         </task>
     </context>
-
-    <!-- ═══════════════════════════════════════════════════════ -->
-    <!-- VALIDATION TEMPLATES -->
-    <!-- ═══════════════════════════════════════════════════════ -->
-    <validation_templates>
-        <template id="micro">
-            <checks>["output_exists", "syntax_valid"]</checks>
-            <on_fail>log_and_continue</on_fail>
-        </template>
-
-        <template id="standard">
-            <checks>["functionality_works", "no_regressions", "code_quality"]</checks>
-            <on_fail>retry_once</on_fail>
-        </template>
-
-        <template id="critical">
-            <checks>["prd_compliance", "acceptance_criteria", "functionality_works"]</checks>
-            <on_fail>STOP_IMMEDIATELY</on_fail>
-        </template>
-    </validation_templates>
 
     <!-- ═══════════════════════════════════════════════════════ -->
     <!-- WORKFLOW -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <workflow>
+        
         <!-- ═══════════════════════════════════════════════════════ -->
-        <!-- PHASE 1: ANALYZE AND PLAN -->
+        <!-- PHASE 1: ANALYZE & PLAN -->
         <!-- ═══════════════════════════════════════════════════════ -->
-        <phase id="1_analyze_plan" mandatory="true">
+        <phase id="1_analyze" mandatory="true">
             <objective>Анализ задачи, проверка PRD, создание плана</objective>
 
-            <thinking_focus>
-                Ключевые вопросы:
-                1. Что конкретно нужно сделать? Каковы acceptance criteria?
-                2. Соответствует ли задача PRD? Какие секции релевантны?
-                3. Какой технический подход оптимален? Какие файлы затронуты?
-                4. Какие риски? Где критичные точки валидации?
-            </thinking_focus>
-
             <actions>
-                <action seq="1" validation="micro">
-                    <do>Загрузить и проанализировать PRD.md</do>
-                    <verify>PRD прочитан, релевантные секции идентифицированы</verify>
+                <action seq="1" requires_thinking="true">
+                    <do>Загрузить PRD и проанализировать релевантные секции</do>
+                    <verify>PRD прочитан, задача aligned</verify>
                 </action>
 
-                <action seq="2" validation="micro">
-                    <do>Проанализировать описание задачи из context</do>
-                    <verify>Цель ясна, acceptance criteria определены</verify>
+                <action seq="2" requires_thinking="true">
+                    <do>Проанализировать логи и определить root causes проблем</do>
+                    <verify>Проблемы идентифицированы, подход выбран</verify>
                 </action>
 
-                <action seq="3" validation="critical">
-                    <do>Проверить соответствие задачи PRD</do>
-                    <verify>Задача aligned с PRD, нет противоречий</verify>
-                    <on_conflict>STOP и сообщить о конфликте</on_conflict>
-                </action>
-
-                <action seq="4" validation="micro">
-                    <do>Определить технический подход и декомпозицию</do>
-                    <verify>Подход выбран, файлы идентифицированы, шаги понятны</verify>
-                </action>
-
-                <action seq="5" validation="micro" output="required">
+                <action seq="3" output="required" mandatory_format="true">
                     <do>Создать план выполнения</do>
                     <format>
                         ПЛАН ВЫПОЛНЕНИЯ
-                        ═══════════════════════════════════════
+                        ════════════════════════════════════════════
+                        PRD: ✓ [релевантные секции]
                         
-                        PRD Validation: ✓
-                        Релевантные секции: [список]
+                        ПРОБЛЕМЫ:
+                        1. [проблема 1] → [решение]
+                        2. [проблема 2] → [решение]
                         
-                        Технический подход: [описание]
+                        ФАЙЛЫ:
+                        - [файл]: [что изменить]
                         
-                        Шаги выполнения:
-                        1. [шаг 1] - [детали]
-                        2. [шаг 2] - [детали]
-                        3. ...
+                        ШАГИ:
+                        1. [шаг]
+                        2. [шаг]
                         
-                        Файлы для изменения:
-                        - file1.sh: [что делать]
-                        - file2.py: [что делать]
-                        
-                        Риски и критичные точки:
-                        - [риск 1] → [как минимизировать]
-                        - [риск 2] → [как минимизировать]
-                        
-                        Валидация:
-                        - [как проверить результат]
-                        
-                        ═══════════════════════════════════════
+                        РИСКИ: [список]
+                        ВАЛИДАЦИЯ: [как проверить]
+                        ════════════════════════════════════════════
                     </format>
-                    <verify>План детальный, выполнимый, риски учтены</verify>
                 </action>
             </actions>
 
-            <checkpoint>
-                <check priority="CRITICAL">✓ PRD.md проанализирован</check>
-                <check priority="CRITICAL">✓ Задача соответствует PRD</check>
-                <check priority="HIGH">✓ План создан и детализирован</check>
-                <check priority="HIGH">✓ Риски идентифицированы</check>
-            </checkpoint>
-
-            <approval_gate required="optional">
-                План готов. Если выглядит хорошо - продолжаем автоматически.
-                Если нужны уточнения - задавайте вопросы сейчас.
-            </approval_gate>
+            <exit_conditions>
+                <condition>PRD проверен, задача соответствует</condition>
+                <condition>План создан с деталями</condition>
+                <condition>Риски идентифицированы</condition>
+            </exit_conditions>
         </phase>
 
         <!-- ═══════════════════════════════════════════════════════ -->
@@ -253,135 +607,53 @@
         <phase id="2_execute" mandatory="true">
             <objective>Выполнение задачи согласно плану</objective>
 
-            <thinking_focus>
-                Для каждого шага:
-                1. Входные данные готовы? Понятно что делать?
-                2. Как реализовать? Best practices соблюдены?
-                3. Работает ли код? Нет регрессий?
-            </thinking_focus>
-
             <execution_loop>
-                ДЛЯ КАЖДОГО ШАГА ИЗ ПЛАНА:
-
-                <step seq="1">
-                    Выполнить задачу шага (создание/модификация кода)
-                </step>
-
-                <step seq="2" validation="micro">
-                    Проверить результат:
-                    - Код компилируется/работает
-                    - Syntax корректный
-                    - Нет очевидных ошибок
-                </step>
-
-                <step seq="3">
-                    Документировать результат шага
-                </step>
-
-                <step seq="4" conditional="if_critical">
-                    Если шаг критичный - запросить подтверждение
-                </step>
+                ДЛЯ КАЖДОГО ШАГА:
+                1. Выполнить изменения кода
+                2. Micro-валидация (syntax, basic functionality)
+                3. Документировать результат
             </execution_loop>
 
-            <checkpoint>
-                <check priority="HIGH">✓ Все шаги выполнены</check>
-                <check priority="HIGH">✓ Код работает</check>
-                <check priority="MEDIUM">✓ Нет syntax errors</check>
-                <check priority="MEDIUM">✓ Результаты задокументированы</check>
-            </checkpoint>
-
-            <approval_gate required="false">
-                Выполнение завершено. Переходим к валидации.
-            </approval_gate>
+            <exit_conditions>
+                <condition>Все шаги выполнены</condition>
+                <condition>Код работает, нет syntax errors</condition>
+            </exit_conditions>
         </phase>
 
         <!-- ═══════════════════════════════════════════════════════ -->
         <!-- PHASE 3: VALIDATE -->
         <!-- ═══════════════════════════════════════════════════════ -->
         <phase id="3_validate" mandatory="true">
-            <objective>Проверка соответствия acceptance criteria и PRD</objective>
-
-            <thinking_focus>
-                Критически оцените:
-                1. Все ли acceptance criteria выполнены? Есть ли edge cases?
-                2. Соответствует ли решение PRD? Нет ли противоречий?
-                3. Best practices соблюдены? Код читаемый?
-                4. Нужны ли тесты? Достаточно ли покрытие?
-            </thinking_focus>
+            <objective>Проверка acceptance criteria и PRD</objective>
 
             <actions>
-                <action seq="1" validation="critical">
+                <action seq="1" validation="critical" blocking="true">
                     <do>Проверить acceptance criteria</do>
-                    <verify>
-                        Для каждого критерия:
-                        - Выполнен полностью
-                        - Работает корректно
-                        - Протестирован
-                    </verify>
-                    <on_fail>STOP и исправить проблему</on_fail>
+                    <verify>Каждый критерий ✓, работает корректно</verify>
                 </action>
 
-                <action seq="2" validation="critical">
-                    <do>Проверить соответствие PRD</do>
-                    <verify>
-                        - Все требования PRD учтены
-                        - Нет противоречий с PRD
-                        - Решение aligned с vision
-                    </verify>
-                    <on_fail>STOP и пересмотреть решение</on_fail>
+                <action seq="2" validation="critical" blocking="true">
+                    <do>Проверить PRD compliance</do>
+                    <verify>Нет противоречий, requirements соблюдены</verify>
                 </action>
 
                 <action seq="3" validation="standard">
                     <do>Функциональное тестирование</do>
-                    <verify>
-                        - Основной функционал работает
-                        - Edge cases обработаны
-                        - Нет регрессий
-                    </verify>
-                </action>
-
-                <action seq="4" validation="standard" conditional="if_tests_exist">
-                    <do>Запустить тесты</do>
-                    <verify>
-                        - Все тесты проходят
-                        - Новый код покрыт тестами
-                        - Coverage не уменьшился
-                    </verify>
-                </action>
-
-                <action seq="5" validation="standard">
-                    <do>Code quality check</do>
-                    <verify>
-                        - Code style соблюдён
-                        - Нет code smells
-                        - Best practices применены
-                    </verify>
+                    <verify>Функционал работает, edge cases обработаны</verify>
                 </action>
             </actions>
 
-            <checkpoint>
-                <check priority="CRITICAL">✓ Acceptance criteria выполнены</check>
-                <check priority="CRITICAL">✓ PRD requirements соблюдены</check>
-                <check priority="HIGH">✓ Функциональность работает</check>
-                <check priority="MEDIUM">✓ Тесты пройдены</check>
-                <check priority="MEDIUM">✓ Качество кода приемлемо</check>
-            </checkpoint>
+            <exit_conditions>
+                <condition>Acceptance criteria выполнены</condition>
+                <condition>PRD requirements соблюдены</condition>
+                <condition>Тесты пройдены (если применимо)</condition>
+            </exit_conditions>
 
             <approval_gate required="true">
-                <format>
-                    ═══════════════════════════════════════
-                    ВАЛИДАЦИЯ ЗАВЕРШЕНА
-                    ═══════════════════════════════════════
-                    
-                    Acceptance Criteria: [✓/✗]
-                    PRD Compliance: [✓/✗]
-                    Tests: [✓/✗/N/A]
-                    Code Quality: [✓/✗]
-                    
-                    [Детальный отчёт]
-                    
-                    Продолжить с документированием?
-                </format>
+                Валидация завершена. Результаты:
+                - Acceptance Criteria: [✓/✗]
+                - PRD Compliance: [✓/✗]
+                - Tests: [✓/✗/N/A]
             </approval_gate>
         </phase>
 
@@ -389,166 +661,67 @@
         <!-- PHASE 4: FINALIZE -->
         <!-- ═══════════════════════════════════════════════════════ -->
         <phase id="4_finalize" mandatory="true">
-            <objective>Документирование изменений и опциональная git-фиксация</objective>
-
-            <thinking_focus>
-                1. Что изменилось? Что нужно документировать?
-                2. Нужен ли commit сейчас? Какой commit message?
-                3. Что сделано? Какие решения приняты? Что дальше?
-            </thinking_focus>
+            <objective>Документирование и git (опционально)</objective>
 
             <actions>
-                <action seq="1" validation="micro">
-                    <do>Обновить inline документацию в коде</do>
-                    <verify>Комментарии добавлены, docstrings актуальны</verify>
+                <action seq="1">
+                    <do>Обновить inline документацию</do>
                 </action>
 
-                <action seq="2" validation="micro" conditional="if_needed">
-                    <do>Обновить README/документацию</do>
-                    <verify>README актуален, новая функциональность описана</verify>
-                </action>
-
-                <action seq="3" validation="micro" output="required">
-                    <do>Создать summary выполненной работы</do>
+                <action seq="2" output="required" mandatory_format="true">
+                    <do>Создать summary</do>
                     <format>
-                        SUMMARY ВЫПОЛНЕННОЙ ЗАДАЧИ
-                        ═══════════════════════════════════════
-                        
-                        ЗАДАЧА: [название]
+                        TASK SUMMARY
+                        ════════════════════════════════════════════
                         СТАТУС: ✓ COMPLETED
                         
-                        ЧТО СДЕЛАНО:
+                        СДЕЛАНО:
                         - [пункт 1]
                         - [пункт 2]
-                        - [пункт 3]
                         
-                        ИЗМЕНЁННЫЕ ФАЙЛЫ:
-                        - file1.sh: [описание изменений]
-                        - file2.py: [описание изменений]
+                        ФАЙЛЫ:
+                        - [файл]: [изменения]
                         
                         ACCEPTANCE CRITERIA:
                         ✓ [критерий 1]
                         ✓ [критерий 2]
-                        ✓ [критерий 3]
                         
-                        PRD COMPLIANCE: ✓
+                        PRD: ✓
+                        TESTS: [статус]
                         
-                        ТЕСТЫ:
-                        - [описание тестов или N/A]
-                        - Coverage: [% или N/A]
-                        
-                        ВАЖНЫЕ РЕШЕНИЯ:
-                        - [решение 1]: [обоснование]
-                        - [решение 2]: [обоснование]
-                        
-                        РИСКИ И МИТИГАЦИЯ:
-                        - [риск]: [как минимизирован]
+                        РЕШЕНИЯ:
+                        - [решение]: [обоснование]
                         
                         NEXT STEPS (если есть):
-                        - [рекомендация 1]
-                        - [рекомендация 2]
-                        
-                        ═══════════════════════════════════════
+                        - [рекомендация]
+                        ════════════════════════════════════════════
                     </format>
-                    <verify>Summary полный, все изменения описаны</verify>
                 </action>
 
-                <action seq="4" optional="true">
-                    <do>Git commit и push (опционально)</do>
-                    <user_choice>
-                        Хотите зафиксировать изменения в git?
-                        
-                        [да] - выполнить git add, commit, push
-                        [нет] - пропустить git операции
-                        [показать команды] - вывести команды для ручного выполнения
-                    </user_choice>
+                <action seq="3" optional="true">
+                    <do>Git commit (по запросу пользователя)</do>
                 </action>
             </actions>
-
-            <checkpoint>
-                <check priority="HIGH">✓ Документация обновлена</check>
-                <check priority="HIGH">✓ Summary создан</check>
-                <check priority="LOW">✓ Git операции завершены/пропущены</check>
-            </checkpoint>
-
-            <completion_message>
-                ═══════════════════════════════════════════════════════
-                ЗАДАЧА ВЫПОЛНЕНА ✓
-                ═══════════════════════════════════════════════════════
-                
-                Все фазы пройдены успешно.
-                Summary доступен выше.
-                
-                ═══════════════════════════════════════════════════════
-            </completion_message>
         </phase>
     </workflow>
 
     <!-- ═══════════════════════════════════════════════════════ -->
-    <!-- ERROR HANDLING -->
+    <!-- SPECIFIC ERROR TYPES (дополняют CLAUDE.md) -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <error_handling>
         <error type="prd_conflict" action="STOP_IMMEDIATELY">
             <message>
                 ⛔ КОНФЛИКТ С PRD
-                
-                Задача противоречит Product Requirements Document.
-                
-                Конфликт: {details}
+                Задача противоречит PRD: {details}
                 PRD секция: {reference}
-                
-                Возможные действия:
-                1. Пересмотреть задачу
-                2. Обновить PRD (если требования изменились)
-                3. Обсудить с Product Owner
-                
-                Выполнение остановлено до разрешения конфликта.
             </message>
         </error>
 
         <error type="acceptance_fail" action="RETRY" max_attempts="2">
             <message>
                 ❌ ACCEPTANCE CRITERIA НЕ ВЫПОЛНЕН
-                
                 Критерий: {criterion}
-                Проблема: {details}
-                
                 Попытка исправления...
-            </message>
-        </error>
-
-        <error type="validation_fail" action="STOP_AND_REPORT">
-            <message>
-                ⚠️ ВАЛИДАЦИЯ НЕ ПРОЙДЕНА
-                
-                Проблема: {details}
-                Checkpoint: {checkpoint_name}
-                
-                Исправьте проблему для продолжения.
-            </message>
-        </error>
-
-        <error type="unclear_requirements" action="ASK_USER">
-            <message>
-                ❓ ТРЕБУЕТСЯ УТОЧНЕНИЕ
-                
-                Неясно: {what}
-                
-                Вопросы:
-                {questions_list}
-                
-                Пожалуйста, уточните для продолжения.
-            </message>
-        </error>
-
-        <error type="technical_error" action="ANALYZE_AND_RETRY" max_attempts="1">
-            <message>
-                🔧 ТЕХНИЧЕСКАЯ ОШИБКА
-                
-                Ошибка: {error_details}
-                Контекст: {context}
-                
-                Анализ причины и retry...
             </message>
         </error>
     </error_handling>
@@ -557,52 +730,26 @@
     <!-- QUICK COMMANDS -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <quick_commands>
-        <command name="execute">
-            <syntax>execute: [описание задачи]</syntax>
-            <description>Быстрое выполнение задачи без заполнения XML</description>
-            <example>execute: Add logging to user authentication flow</example>
-        </command>
-
-        <command name="fix">
-            <syntax>fix: [описание бага]</syntax>
-            <description>Быстрое исправление бага</description>
-            <example>fix: User can't login with special characters in password</example>
-        </command>
-
-        <command name="refactor">
-            <syntax>refactor: [что улучшить]</syntax>
-            <description>Рефакторинг кода</description>
-            <example>refactor: Extract database queries into repository pattern</example>
-        </command>
-
-        <command name="test">
-            <syntax>test: [что покрыть тестами]</syntax>
-            <description>Добавить тесты</description>
-            <example>test: Add unit tests for payment processing service</example>
-        </command>
+        <command name="execute" syntax="execute: [описание]" />
+        <command name="fix" syntax="fix: [описание бага]" />
+        <command name="refactor" syntax="refactor: [что улучшить]" />
+        <command name="test" syntax="test: [что покрыть]" />
     </quick_commands>
 
     <!-- ═══════════════════════════════════════════════════════ -->
-    <!-- STARTUP INSTRUCTIONS -->
+    <!-- STARTUP -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <startup_instructions>
-        При получении этого request_execute:
-        
-        1. Проверьте наличие задачи в &lt;context&gt;&lt;task&gt;
-        2. Если задачи нет - запросите у пользователя
-        3. Начните с Phase 1 (Analyze and Plan)
-        4. Используйте &lt;thinking&gt; перед критическими решениями
-        5. ПЕРВЫМ ДЕЛОМ проверьте PRD.md
-        6. Сообщите план пользователю
-        7. Выполните задачу быстро и качественно
-        8. Провалидируйте acceptance criteria
-        9. Создайте детальный summary
+        1. Проверить задачу в &lt;context&gt;&lt;task&gt;
+        2. ПЕРВЫМ ДЕЛОМ загрузить PRD
+        3. Начать с Phase 1
+        4. Использовать thinking (следуя CLAUDE.md)
+        5. Применять все правила из CLAUDE.md автоматически
         
         КРИТИЧНО:
-        - PRD.md проверяется ВСЕГДА
+        - PRD проверяется ВСЕГДА
         - При конфликте с PRD - STOP
         - Acceptance criteria ДОЛЖНЫ быть выполнены
-        - Спрашивайте при неясности
     </startup_instructions>
 
 </request_execute>
