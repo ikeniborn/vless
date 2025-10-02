@@ -498,7 +498,8 @@ services:
     image: ${XRAY_IMAGE}
     container_name: ${XRAY_CONTAINER_NAME}
     restart: unless-stopped
-    network_mode: bridge
+    networks:
+      - ${DOCKER_NETWORK_NAME}
     ports:
       - "${VLESS_PORT}:${VLESS_PORT}"
     volumes:
@@ -519,7 +520,8 @@ services:
     image: ${NGINX_IMAGE}
     container_name: ${NGINX_CONTAINER_NAME}
     restart: unless-stopped
-    network_mode: bridge
+    networks:
+      - ${DOCKER_NETWORK_NAME}
     volumes:
       - ${FAKESITE_DIR}/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ${LOGS_DIR}/nginx:/var/log/nginx
@@ -539,8 +541,7 @@ services:
       - xray
 
 networks:
-  default:
-    name: ${DOCKER_NETWORK_NAME}
+  ${DOCKER_NETWORK_NAME}:
     external: true
 EOF
 
@@ -687,19 +688,22 @@ EOF
         echo "  ✓ Docker forwarding rules already present"
     fi
 
-    # Allow VLESS port
+    # Allow VLESS port (check if rule already exists first)
     echo "  Allowing port ${VLESS_PORT}..."
-    ufw allow "${VLESS_PORT}/tcp" comment 'VLESS Reality VPN' || {
-        echo -e "${YELLOW}Warning: Failed to add UFW rule (may already exist)${NC}"
-    }
+    if ufw status numbered | grep -q "${VLESS_PORT}/tcp.*ALLOW"; then
+        echo "  ✓ Port ${VLESS_PORT}/tcp already allowed"
+    else
+        ufw allow "${VLESS_PORT}/tcp" comment 'VLESS Reality VPN' || {
+            echo -e "${YELLOW}Warning: Failed to add UFW rule${NC}"
+        }
+        echo "  ✓ Port ${VLESS_PORT}/tcp allowed"
+    fi
 
-    # Reload UFW
+    # Reload UFW to apply changes
     echo "  Reloading UFW..."
     ufw reload || {
         echo -e "${YELLOW}Warning: Failed to reload UFW${NC}"
     }
-
-    echo "  ✓ Port ${VLESS_PORT}/tcp allowed"
     echo "  ✓ Docker forwarding configured for ${DOCKER_SUBNET}"
 
     echo -e "${GREEN}✓ UFW firewall configured${NC}"

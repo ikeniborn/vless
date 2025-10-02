@@ -466,7 +466,7 @@ verify_ufw_rules() {
 
     # Check Docker forwarding rules in after.rules
     if [[ -f /etc/ufw/after.rules ]]; then
-        if grep -q "BEGIN VLESS REALITY RULES" /etc/ufw/after.rules; then
+        if grep -q "BEGIN VLESS REALITY DOCKER FORWARDING RULES" /etc/ufw/after.rules; then
             log_success "Docker forwarding rules found in /etc/ufw/after.rules"
 
             # Verify MASQUERADE rule
@@ -476,7 +476,7 @@ verify_ufw_rules() {
                 log_warning "MASQUERADE rule not found in after.rules"
             fi
         else
-            log_warning "VLESS REALITY rules section not found in /etc/ufw/after.rules"
+            log_warning "VLESS REALITY DOCKER FORWARDING rules section not found in /etc/ufw/after.rules"
         fi
     else
         log_warning "/etc/ufw/after.rules file not found"
