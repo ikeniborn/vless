@@ -1,0 +1,715 @@
+#!/bin/bash
+# ============================================================================
+# VLESS Reality Deployment System
+# Module: User Management
+# Version: 1.0.0
+# Tasks: EPIC-6 (TASK-6.1 through TASK-6.5)
+# ============================================================================
+#
+# Purpose:
+#   Complete user management system for VLESS Reality VPN. Handles user
+#   creation, deletion, UUID generation, JSON storage with atomic operations,
+#   and Xray configuration updates.
+#
+# Functions:
+#   1. create_user()                  - Create new VPN user
+#   2. remove_user()                  - Remove existing user
+#   3. list_users()                   - List all users
+#   4. user_exists()                  - Check if user exists
+#   5. get_user_info()                - Get user details
+#   6. validate_username()            - Validate username format
+#   7. generate_uuid()                - Generate UUID v4
+#   8. add_user_to_json()             - Add user to users.json (atomic)
+#   9. remove_user_from_json()        - Remove user from users.json (atomic)
+#   10. add_client_to_xray()          - Add client to xray_config.json
+#   11. remove_client_from_xray()     - Remove client from xray_config.json
+#   12. reload_xray()                 - Reload Xray configuration
+#   13. generate_vless_uri()          - Generate VLESS connection URI
+#
+# Usage:
+#   source lib/user_management.sh
+#   create_user "alice"
+#   remove_user "alice"
+#   list_users
+#
+# Dependencies:
+#   - jq (JSON processing)
+#   - uuidgen or /proc/sys/kernel/random/uuid
+#   - flock (file locking for atomic operations)
+#   - docker (for Xray container management)
+#
+# Author: Claude Code Agent
+# Date: 2025-10-02
+# ============================================================================
+
+set -euo pipefail
+
+# ============================================================================
+# Global Variables
+# ============================================================================
+
+# Installation paths
+readonly VLESS_HOME="${VLESS_HOME:-/opt/vless}"
+readonly USERS_JSON="${VLESS_HOME}/data/users.json"
+readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
+readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
+readonly LOCK_FILE="/var/lock/vless_users.lock"
+
+# Container name
+readonly XRAY_CONTAINER="vless_xray"
+
+# Colors for output
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m' # No Color
+
+# ============================================================================
+# Logging Functions
+# ============================================================================
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}[✓]${NC} $*"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[⚠]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[✗]${NC} $*" >&2
+}
+
+# ============================================================================
+# TASK-6.2: UUID Generation
+# ============================================================================
+
+generate_uuid() {
+    # Try uuidgen first (most common)
+    if command -v uuidgen &>/dev/null; then
+        uuidgen
+        return 0
+    fi
+
+    # Fallback to /proc/sys/kernel/random/uuid (Linux)
+    if [[ -r /proc/sys/kernel/random/uuid ]]; then
+        cat /proc/sys/kernel/random/uuid
+        return 0
+    fi
+
+    # Fallback to manual generation using /dev/urandom
+    if [[ -r /dev/urandom ]]; then
+        # Generate UUID v4 manually
+        local uuid
+        uuid=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
+
+        # Format as UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+        # Set version (4) and variant bits
+        uuid="${uuid:0:8}-${uuid:8:4}-4${uuid:13:3}-${uuid:16:4}-${uuid:20:12}"
+        echo "$uuid"
+        return 0
+    fi
+
+    log_error "No UUID generation method available"
+    return 1
+}
+
+# ============================================================================
+# Username Validation
+# ============================================================================
+
+validate_username() {
+    local username="$1"
+
+    # Check if empty
+    if [[ -z "$username" ]]; then
+        log_error "Username cannot be empty"
+        return 1
+    fi
+
+    # Check length (3-32 characters)
+    if [[ ${#username} -lt 3 ]] || [[ ${#username} -gt 32 ]]; then
+        log_error "Username must be 3-32 characters long"
+        return 1
+    fi
+
+    # Check format: alphanumeric + underscore/dash only
+    if ! [[ "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        log_error "Username can only contain letters, numbers, underscore, and dash"
+        return 1
+    fi
+
+    # Check reserved names
+    local reserved_names=("root" "admin" "administrator" "system" "default" "test")
+    for reserved in "${reserved_names[@]}"; do
+        if [[ "${username,,}" == "$reserved" ]]; then
+            log_error "Username '$username' is reserved"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+# ============================================================================
+# User Existence Check
+# ============================================================================
+
+user_exists() {
+    local username="$1"
+
+    if [[ ! -f "$USERS_JSON" ]]; then
+        return 1
+    fi
+
+    if jq -e ".users[] | select(.username == \"$username\")" "$USERS_JSON" &>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ============================================================================
+# Get User Information
+# ============================================================================
+
+get_user_info() {
+    local username="$1"
+
+    if [[ ! -f "$USERS_JSON" ]]; then
+        log_error "Users database not found: $USERS_JSON"
+        return 1
+    fi
+
+    local user_info
+    user_info=$(jq -r ".users[] | select(.username == \"$username\")" "$USERS_JSON" 2>/dev/null)
+
+    if [[ -z "$user_info" ]]; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    echo "$user_info"
+    return 0
+}
+
+# ============================================================================
+# TASK-6.3: JSON Storage with flock (Atomic Operations)
+# ============================================================================
+
+add_user_to_json() {
+    local username="$1"
+    local uuid="$2"
+
+    log_info "Adding user to database..."
+
+    # Create lock file directory if it doesn't exist
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    # Atomic update with exclusive lock
+    (
+        # Acquire exclusive lock (will wait if locked)
+        flock -x 200
+
+        # Check if users.json exists
+        if [[ ! -f "$USERS_JSON" ]]; then
+            log_error "Users database not found: $USERS_JSON"
+            return 1
+        fi
+
+        # Double-check user doesn't exist (race condition protection)
+        if jq -e ".users[] | select(.username == \"$username\")" "$USERS_JSON" &>/dev/null; then
+            log_error "User '$username' already exists (race condition detected)"
+            return 1
+        fi
+
+        # Create temporary file in same directory (atomic mv requires same filesystem)
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Add user to JSON
+        jq ".users += [{
+            \"username\": \"$username\",
+            \"uuid\": \"$uuid\",
+            \"created\": \"$(date -Iseconds)\",
+            \"created_timestamp\": $(date +%s)
+        }]" "$USERS_JSON" > "$temp_file"
+
+        # Verify JSON is valid
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+
+        # Set proper permissions
+        chmod 600 "$USERS_JSON"
+        chown root:root "$USERS_JSON" 2>/dev/null || true
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "User added to database"
+    return 0
+}
+
+remove_user_from_json() {
+    local username="$1"
+
+    log_info "Removing user from database..."
+
+    # Atomic update with exclusive lock
+    (
+        # Acquire exclusive lock
+        flock -x 200
+
+        # Check if users.json exists
+        if [[ ! -f "$USERS_JSON" ]]; then
+            log_error "Users database not found: $USERS_JSON"
+            return 1
+        fi
+
+        # Check user exists
+        if ! jq -e ".users[] | select(.username == \"$username\")" "$USERS_JSON" &>/dev/null; then
+            log_error "User '$username' not found in database"
+            return 1
+        fi
+
+        # Create temporary file
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Remove user from JSON
+        jq ".users = [.users[] | select(.username != \"$username\")]" "$USERS_JSON" > "$temp_file"
+
+        # Verify JSON is valid
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+
+        # Set proper permissions
+        chmod 600 "$USERS_JSON"
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "User removed from database"
+    return 0
+}
+
+# ============================================================================
+# TASK-6.4: Xray Config Update
+# ============================================================================
+
+add_client_to_xray() {
+    local username="$1"
+    local uuid="$2"
+
+    log_info "Adding client to Xray configuration..."
+
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        log_error "Xray configuration not found: $XRAY_CONFIG"
+        return 1
+    fi
+
+    # Create backup
+    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.bak.$$"
+
+    # Add client to inbounds[0].settings.clients array
+    local temp_file="${XRAY_CONFIG}.tmp.$$"
+
+    jq ".inbounds[0].settings.clients += [{
+        \"id\": \"$uuid\",
+        \"email\": \"${username}@vless.local\",
+        \"flow\": \"xtls-rprx-vision\"
+    }]" "$XRAY_CONFIG" > "$temp_file"
+
+    # Verify JSON is valid
+    if ! jq empty "$temp_file" 2>/dev/null; then
+        log_error "Generated invalid Xray configuration"
+        rm -f "$temp_file"
+        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        return 1
+    fi
+
+    # Validate with xray -test (if container is running)
+    if docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
+        # Copy temp file to container for validation
+        docker cp "$temp_file" "${XRAY_CONTAINER}:/tmp/xray_config_test.json" 2>/dev/null || true
+
+        if ! docker exec "$XRAY_CONTAINER" xray -test -config=/tmp/xray_config_test.json &>/dev/null; then
+            log_error "Xray configuration validation failed"
+            rm -f "$temp_file"
+            mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+            return 1
+        fi
+    fi
+
+    # Apply configuration
+    mv "$temp_file" "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.$$"
+
+    log_success "Client added to Xray configuration"
+    return 0
+}
+
+remove_client_from_xray() {
+    local uuid="$1"
+
+    log_info "Removing client from Xray configuration..."
+
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        log_error "Xray configuration not found: $XRAY_CONFIG"
+        return 1
+    fi
+
+    # Create backup
+    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.bak.$$"
+
+    # Remove client from inbounds[0].settings.clients array
+    local temp_file="${XRAY_CONFIG}.tmp.$$"
+
+    jq ".inbounds[0].settings.clients = [.inbounds[0].settings.clients[] | select(.id != \"$uuid\")]" \
+        "$XRAY_CONFIG" > "$temp_file"
+
+    # Verify JSON is valid
+    if ! jq empty "$temp_file" 2>/dev/null; then
+        log_error "Generated invalid Xray configuration"
+        rm -f "$temp_file"
+        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        return 1
+    fi
+
+    # Apply configuration
+    mv "$temp_file" "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.$$"
+
+    log_success "Client removed from Xray configuration"
+    return 0
+}
+
+reload_xray() {
+    log_info "Reloading Xray configuration..."
+
+    if ! docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
+        log_warning "Xray container is not running, skipping reload"
+        return 0
+    fi
+
+    # Send HUP signal to Xray process for graceful reload
+    if docker exec "$XRAY_CONTAINER" killall -HUP xray 2>/dev/null; then
+        log_success "Xray configuration reloaded"
+        return 0
+    else
+        log_warning "Failed to send HUP signal, restarting container..."
+        if docker restart "$XRAY_CONTAINER" &>/dev/null; then
+            log_success "Xray container restarted"
+            return 0
+        else
+            log_error "Failed to restart Xray container"
+            return 1
+        fi
+    fi
+}
+
+# ============================================================================
+# Generate VLESS URI
+# ============================================================================
+
+generate_vless_uri() {
+    local username="$1"
+    local uuid="$2"
+
+    # Get server information
+    local server_ip
+    server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP")
+
+    local server_port
+    server_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG" 2>/dev/null || echo "443")
+
+    local public_key
+    public_key=$(cat "${VLESS_HOME}/keys/public.key" 2>/dev/null || echo "PUBLIC_KEY")
+
+    local short_id
+    short_id=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$XRAY_CONFIG" 2>/dev/null || echo "")
+
+    local server_name
+    server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG" 2>/dev/null || echo "www.google.com")
+
+    # Construct VLESS URI
+    # Format: vless://UUID@SERVER:PORT?param1=value1&param2=value2#REMARK
+    local uri="vless://${uuid}@${server_ip}:${server_port}?"
+    uri+="encryption=none"
+    uri+="&flow=xtls-rprx-vision"
+    uri+="&security=reality"
+    uri+="&sni=${server_name}"
+    uri+="&fp=chrome"
+    uri+="&pbk=${public_key}"
+    uri+="&sid=${short_id}"
+    uri+="&type=tcp"
+    uri+="#${username}"
+
+    echo "$uri"
+}
+
+# ============================================================================
+# TASK-6.1: User Creation Workflow
+# ============================================================================
+
+create_user() {
+    local username="$1"
+
+    echo ""
+    log_info "Creating new VPN user: $username"
+    echo ""
+
+    # Step 1: Validate username
+    if ! validate_username "$username"; then
+        return 1
+    fi
+
+    # Step 2: Check if user already exists
+    if user_exists "$username"; then
+        log_error "User '$username' already exists"
+        return 1
+    fi
+
+    # Step 3: Generate UUID
+    local uuid
+    uuid=$(generate_uuid)
+    if [[ -z "$uuid" ]]; then
+        log_error "Failed to generate UUID"
+        return 1
+    fi
+    log_success "Generated UUID: $uuid"
+
+    # Step 4: Create user directory
+    local user_dir="${CLIENTS_DIR}/${username}"
+    if ! mkdir -p "$user_dir"; then
+        log_error "Failed to create user directory: $user_dir"
+        return 1
+    fi
+    chmod 700 "$user_dir"
+    log_success "Created user directory: $user_dir"
+
+    # Step 5: Add user to users.json (atomic)
+    if ! add_user_to_json "$username" "$uuid"; then
+        # Cleanup on failure
+        rm -rf "$user_dir"
+        return 1
+    fi
+
+    # Step 6: Add client to Xray configuration
+    if ! add_client_to_xray "$username" "$uuid"; then
+        # Rollback: remove from users.json
+        log_warning "Rolling back user creation..."
+        remove_user_from_json "$username"
+        rm -rf "$user_dir"
+        return 1
+    fi
+
+    # Step 7: Reload Xray
+    if ! reload_xray; then
+        log_warning "Xray reload failed, but user was created successfully"
+    fi
+
+    # Step 8: Generate VLESS URI and save to file
+    local vless_uri
+    vless_uri=$(generate_vless_uri "$username" "$uuid")
+    echo "$vless_uri" > "${user_dir}/vless_uri.txt"
+    chmod 600 "${user_dir}/vless_uri.txt"
+
+    # Display success message
+    echo ""
+    log_success "User '$username' created successfully!"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Username:  $username"
+    echo "  UUID:      $uuid"
+    echo "  Directory: $user_dir"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "VLESS URI:"
+    echo "$vless_uri"
+    echo ""
+    echo "URI saved to: ${user_dir}/vless_uri.txt"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Generate QR code: vless qr $username"
+    echo "  2. Share VLESS URI or QR code with user"
+    echo "  3. User imports into VPN client (v2rayN, v2rayNG, etc.)"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# TASK-6.5: User Removal
+# ============================================================================
+
+remove_user() {
+    local username="$1"
+
+    echo ""
+    log_info "Removing VPN user: $username"
+    echo ""
+
+    # Step 1: Validate username
+    if ! validate_username "$username"; then
+        return 1
+    fi
+
+    # Step 2: Check if user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' does not exist"
+        return 1
+    fi
+
+    # Step 3: Get user UUID
+    local uuid
+    uuid=$(jq -r ".users[] | select(.username == \"$username\") | .uuid" "$USERS_JSON" 2>/dev/null)
+    if [[ -z "$uuid" ]]; then
+        log_error "Failed to retrieve UUID for user '$username'"
+        return 1
+    fi
+
+    # Step 4: Remove client from Xray configuration
+    if ! remove_client_from_xray "$uuid"; then
+        log_error "Failed to remove client from Xray configuration"
+        return 1
+    fi
+
+    # Step 5: Reload Xray
+    if ! reload_xray; then
+        log_warning "Xray reload failed"
+    fi
+
+    # Step 6: Remove from users.json
+    if ! remove_user_from_json "$username"; then
+        log_error "Failed to remove user from database"
+        return 1
+    fi
+
+    # Step 7: Remove user directory
+    local user_dir="${CLIENTS_DIR}/${username}"
+    if [[ -d "$user_dir" ]]; then
+        rm -rf "$user_dir"
+        log_success "Removed user directory: $user_dir"
+    fi
+
+    # Display success message
+    echo ""
+    log_success "User '$username' removed successfully!"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# List All Users
+# ============================================================================
+
+list_users() {
+    if [[ ! -f "$USERS_JSON" ]]; then
+        log_error "Users database not found: $USERS_JSON"
+        return 1
+    fi
+
+    local user_count
+    user_count=$(jq '.users | length' "$USERS_JSON" 2>/dev/null || echo "0")
+
+    if [[ "$user_count" -eq 0 ]]; then
+        echo ""
+        log_info "No users found"
+        echo ""
+        return 0
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  VPN Users ($user_count total)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    jq -r '.users[] | "  \(.username)\n    UUID: \(.uuid)\n    Created: \(.created)\n"' "$USERS_JSON"
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# Export Functions
+# ============================================================================
+
+# Export all functions for use by other scripts
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    # Script is being sourced
+    export -f create_user
+    export -f remove_user
+    export -f list_users
+    export -f user_exists
+    export -f get_user_info
+    export -f validate_username
+    export -f generate_uuid
+    export -f add_user_to_json
+    export -f remove_user_from_json
+    export -f add_client_to_xray
+    export -f remove_client_from_xray
+    export -f reload_xray
+    export -f generate_vless_uri
+    export -f log_info
+    export -f log_success
+    export -f log_warning
+    export -f log_error
+fi
+
+# ============================================================================
+# Main Execution (if run directly)
+# ============================================================================
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # Script is being run directly
+    case "${1:-}" in
+        create|add)
+            if [[ -z "${2:-}" ]]; then
+                log_error "Usage: $0 create <username>"
+                exit 1
+            fi
+            create_user "$2"
+            ;;
+        remove|delete|rm)
+            if [[ -z "${2:-}" ]]; then
+                log_error "Usage: $0 remove <username>"
+                exit 1
+            fi
+            remove_user "$2"
+            ;;
+        list|ls)
+            list_users
+            ;;
+        *)
+            echo "Usage: $0 {create|remove|list} [username]"
+            echo ""
+            echo "Commands:"
+            echo "  create <username>  - Create new VPN user"
+            echo "  remove <username>  - Remove existing user"
+            echo "  list               - List all users"
+            echo ""
+            exit 1
+            ;;
+    esac
+fi
