@@ -813,7 +813,6 @@ install_cli_tools() {
     # Copy lib modules to installation
     local lib_modules=(
         "user_management.sh"
-        "service_operations.sh"
         "qr_generator.sh"
     )
 

@@ -81,7 +81,6 @@ EOF
 source_modules() {
     local modules=(
         "user_management.sh"
-        "service_operations.sh"
         "qr_generator.sh"
     )
 

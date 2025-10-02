@@ -17,9 +17,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Source required modules
-source "${SCRIPT_DIR}/logger.sh"
-source "${SCRIPT_DIR}/validation.sh"
+# Source required modules (conditionally - they may not exist in minimal installations)
+[[ -f "${SCRIPT_DIR}/logger.sh" ]] && source "${SCRIPT_DIR}/logger.sh"
+[[ -f "${SCRIPT_DIR}/validation.sh" ]] && source "${SCRIPT_DIR}/validation.sh"
+
+# If logger.sh wasn't loaded, provide minimal logging functions
+if ! declare -f log_info &>/dev/null; then
+    # Colors for logging (only if not already defined)
+    [[ -z "${RED:-}" ]] && RED='\033[0;31m'
+    [[ -z "${GREEN:-}" ]] && GREEN='\033[0;32m'
+    [[ -z "${YELLOW:-}" ]] && YELLOW='\033[1;33m'
+    [[ -z "${BLUE:-}" ]] && BLUE='\033[0;34m'
+    [[ -z "${NC:-}" ]] && NC='\033[0m'
+
+    log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
+    log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
+    log_warn() { echo -e "${YELLOW}[⚠]${NC} $*"; }
+    log_error() { echo -e "${RED}[✗]${NC} $*" >&2; }
+    log_debug() { echo -e "${BLUE}[DEBUG]${NC} $*"; }
+fi
 
 # Configuration paths
 COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.yml"
