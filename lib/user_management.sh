@@ -54,23 +54,23 @@ fi
 # Global Variables
 # ============================================================================
 
-# Installation paths
-readonly VLESS_HOME="${VLESS_HOME:-/opt/vless}"
-readonly USERS_JSON="${VLESS_HOME}/data/users.json"
-readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
-readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
-readonly LOCK_FILE="/var/lock/vless_users.lock"
+# Installation paths (only define if not already set)
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${VLESS_HOME}/data/users.json"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
+[[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
+[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_users.lock"
 
-# Container name
-readonly XRAY_CONTAINER="vless_xray"
+# Container name (only define if not already set)
+[[ -z "${XRAY_CONTAINER:-}" ]] && readonly XRAY_CONTAINER="vless_xray"
 
-# Colors for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m' # No Color
+# Colors for output (only define if not already set to avoid conflicts)
+[[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && readonly BLUE='\033[0;34m'
+[[ -z "${CYAN:-}" ]] && readonly CYAN='\033[0;36m'
+[[ -z "${NC:-}" ]] && readonly NC='\033[0m' # No Color
 
 # ============================================================================
 # Logging Functions

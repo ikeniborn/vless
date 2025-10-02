@@ -38,25 +38,25 @@ set -euo pipefail
 # Global Variables
 # ============================================================================
 
-# Installation paths
-readonly VLESS_HOME="${VLESS_HOME:-/opt/vless}"
-readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
-readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
-readonly KEYS_DIR="${VLESS_HOME}/keys"
+# Installation paths (only define if not already set)
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
+[[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
+[[ -z "${KEYS_DIR:-}" ]] && readonly KEYS_DIR="${VLESS_HOME}/keys"
 
-# QR Code settings (as per Q-007)
-readonly QR_PNG_SIZE=10        # -s 10 = 40 modules * 10 pixels = 400x400px
-readonly QR_PNG_TYPE="PNG"
-readonly QR_ANSI_TYPE="ANSIUTF8"
+# QR Code settings (as per Q-007) - only define if not already set
+[[ -z "${QR_PNG_SIZE:-}" ]] && readonly QR_PNG_SIZE=10        # -s 10 = 40 modules * 10 pixels = 400x400px
+[[ -z "${QR_PNG_TYPE:-}" ]] && readonly QR_PNG_TYPE="PNG"
+[[ -z "${QR_ANSI_TYPE:-}" ]] && readonly QR_ANSI_TYPE="ANSIUTF8"
 
-# Colors for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly MAGENTA='\033[0;35m'
-readonly NC='\033[0m' # No Color
+# Colors for output (only define if not already set to avoid conflicts)
+[[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && readonly BLUE='\033[0;34m'
+[[ -z "${CYAN:-}" ]] && readonly CYAN='\033[0;36m'
+[[ -z "${MAGENTA:-}" ]] && readonly MAGENTA='\033[0;35m'
+[[ -z "${NC:-}" ]] && readonly NC='\033[0m' # No Color
 
 # ============================================================================
 # Logging Functions
