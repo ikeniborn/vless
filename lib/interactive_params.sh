@@ -37,14 +37,14 @@ readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 readonly DEST_VALIDATION_TIMEOUT=10  # seconds
 
 # Predefined destination sites (validated for Reality compatibility)
+# Declare as associative array FIRST, then populate
+declare -gA PREDEFINED_DESTINATIONS
 PREDEFINED_DESTINATIONS=(
     ["1"]="www.google.com:443"
     ["2"]="www.microsoft.com:443"
     ["3"]="www.apple.com:443"
     ["4"]="www.cloudflare.com:443"
 )
-# Ensure it's properly declared as associative array
-declare -gA PREDEFINED_DESTINATIONS
 
 # Alternative ports if 443 is occupied
 readonly ALTERNATIVE_PORTS=(8443 2053 2083 2087 2096 2052)

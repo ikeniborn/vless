@@ -197,13 +197,12 @@ create_directory_structure() {
     )
 
     for dir in "${directories[@]}"; do
-        if [[ ! -d "$dir" ]]; then
-            mkdir -p "$dir" || {
-                echo -e "${RED}Failed to create $dir${NC}" >&2
-                return 1
-            }
-            echo "  ✓ Created $dir"
-        else
+        # Always ensure directory exists (mkdir -p is idempotent)
+        mkdir -p "$dir" || {
+            echo -e "${RED}Failed to create $dir${NC}" >&2
+            return 1
+        }
+        if [[ -d "$dir" ]]; then
             echo "  ✓ $dir exists"
         fi
     done
@@ -772,7 +771,12 @@ set_permissions() {
     echo -e "${CYAN}[12/12] Setting file permissions...${NC}"
 
     # Sensitive directories: 700 (root only)
-    chmod 700 "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/clients" "${KEYS_DIR}" "${INSTALL_ROOT}/backup" 2>/dev/null || true
+    # Set permissions on each directory individually to ensure all exist
+    for sensitive_dir in "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/clients" "${DATA_DIR}/backups" "${KEYS_DIR}" "${INSTALL_ROOT}/backup"; do
+        if [[ -d "$sensitive_dir" ]]; then
+            chmod 700 "$sensitive_dir" 2>/dev/null || true
+        fi
+    done
 
     # Sensitive files: 600 (root read/write only)
     find "${CONFIG_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true

@@ -247,6 +247,49 @@ main() {
     # Step 6: Detect old installations
     print_step 6 "Detecting previous installations"
     detect_old_installation
+
+    # If old installation found, offer cleanup before proceeding
+    if [[ "$OLD_INSTALL_FOUND" == "true" ]]; then
+        display_detection_summary
+
+        echo ""
+        print_message "${COLOR_YELLOW}" "Would you like to:"
+        print_message "${COLOR_CYAN}" "  1) Backup and cleanup old installation (recommended)"
+        print_message "${COLOR_CYAN}" "  2) Cleanup without backup (risky)"
+        print_message "${COLOR_CYAN}" "  3) Skip cleanup and exit"
+        echo ""
+
+        read -rp "Enter your choice [1-3]: " cleanup_choice
+
+        case "$cleanup_choice" in
+            1)
+                print_message "${COLOR_BLUE}" "Creating backup..."
+                backup_old_installation || {
+                    print_error "Backup failed"
+                    exit 1
+                }
+                print_message "${COLOR_BLUE}" "Cleaning up old installation..."
+                cleanup_old_installation || {
+                    print_warning "Cleanup completed with warnings"
+                }
+                ;;
+            2)
+                print_message "${COLOR_BLUE}" "Cleaning up without backup..."
+                cleanup_old_installation || {
+                    print_warning "Cleanup completed with warnings"
+                }
+                ;;
+            3)
+                print_message "${COLOR_YELLOW}" "Installation cancelled by user"
+                exit 0
+                ;;
+            *)
+                print_error "Invalid choice. Installation cancelled."
+                exit 1
+                ;;
+        esac
+    fi
+
     print_success "Old installation check complete"
 
     # Step 7: Collect installation parameters
