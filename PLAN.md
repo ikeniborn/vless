@@ -121,7 +121,7 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling non-tech
 3. TASK-1.3: Dependency auto-installation (4h)
 4. TASK-1.4: Old installation detection (4h) ✅ COMPLETE (2025-10-02)
 5. TASK-1.5: Interactive parameter collection (3h) ✅ COMPLETE (2025-10-02)
-6. TASK-1.6: Sudoers configuration display (1h)
+6. TASK-1.6: Sudoers configuration display (1h) ✅ COMPLETE (2025-10-02)
 7. TASK-1.7: Installation orchestration (5h)
 8. TASK-1.8: Post-installation verification (2h)
 
