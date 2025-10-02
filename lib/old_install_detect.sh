@@ -21,19 +21,23 @@
 #   1 = error (detection/cleanup failed)
 #
 
-set -euo pipefail
+# Only set strict mode if not already set (to avoid issues when sourced)
+[[ ! -o pipefail ]] && set -euo pipefail || true
 
 # =============================================================================
 # GLOBAL VARIABLES
 # =============================================================================
 
 # Detection results - populated by detect_old_installation()
-declare -a OLD_CONTAINERS=()
-declare -a OLD_NETWORKS=()
-declare -a OLD_VOLUMES=()
-declare -a OLD_UFW_RULES=()
-declare -a OLD_SERVICES=()
-declare -a OLD_SYMLINKS=()
+OLD_CONTAINERS=()
+OLD_NETWORKS=()
+OLD_VOLUMES=()
+OLD_UFW_RULES=()
+OLD_SERVICES=()
+OLD_SYMLINKS=()
+
+# Ensure arrays are properly declared for export
+declare -ga OLD_CONTAINERS OLD_NETWORKS OLD_VOLUMES OLD_UFW_RULES OLD_SERVICES OLD_SYMLINKS
 
 OLD_INSTALL_FOUND=false
 OLD_INSTALL_DIR="/opt/vless"
@@ -183,7 +187,7 @@ detect_old_installation() {
         [[ -f "$OLD_INSTALL_DIR/config/xray_config.json" ]] && echo -e "${CYAN}    Contains: xray_config.json${NC}"
         [[ -f "$OLD_INSTALL_DIR/docker-compose.yml" ]] && echo -e "${CYAN}    Contains: docker-compose.yml${NC}"
 
-        ((total_findings++))
+        ((total_findings++)) || true
     else
         echo -e "${GREEN}  ${CHECK_MARK} Directory does not exist${NC}"
     fi
@@ -454,7 +458,7 @@ backup_ufw_rules() {
             local basename=$(basename "$file")
             if cp "$file" "$backup_dir/$basename" 2>/dev/null; then
                 echo -e "${GREEN}  ${CHECK_MARK} Backed up: $basename${NC}"
-                ((backup_count++))
+                ((backup_count++)) || true
             else
                 echo -e "${YELLOW}  ${WARNING_MARK} Failed to backup: $basename${NC}"
             fi
@@ -465,7 +469,7 @@ backup_ufw_rules() {
     echo -e "${CYAN}Saving UFW status...${NC}"
     if ufw status numbered > "$backup_dir/ufw_status.txt" 2>/dev/null; then
         echo -e "${GREEN}  ${CHECK_MARK} Saved UFW status${NC}"
-        ((backup_count++))
+        ((backup_count++)) || true
     else
         echo -e "${YELLOW}  ${WARNING_MARK} Failed to save UFW status${NC}"
     fi
@@ -473,7 +477,7 @@ backup_ufw_rules() {
     # Backup UFW verbose status
     if ufw status verbose > "$backup_dir/ufw_status_verbose.txt" 2>/dev/null; then
         echo -e "${GREEN}  ${CHECK_MARK} Saved UFW verbose status${NC}"
-        ((backup_count++))
+        ((backup_count++)) || true
     fi
 
     # Create backup metadata
@@ -736,7 +740,7 @@ cleanup_old_installation() {
                 echo -e "${GREEN}${CHECK_MARK}${NC}"
             else
                 echo -e "${RED}${CROSS_MARK}${NC}"
-                ((cleanup_errors++))
+                ((cleanup_errors++)) || true
             fi
         done
         echo ""
@@ -754,7 +758,7 @@ cleanup_old_installation() {
                 echo -e "${GREEN}${CHECK_MARK}${NC}"
             else
                 echo -e "${RED}${CROSS_MARK}${NC}"
-                ((cleanup_errors++))
+                ((cleanup_errors++)) || true
             fi
         done
         echo ""
@@ -772,7 +776,7 @@ cleanup_old_installation() {
                 echo -e "${GREEN}${CHECK_MARK}${NC}"
             else
                 echo -e "${RED}${CROSS_MARK}${NC}"
-                ((cleanup_errors++))
+                ((cleanup_errors++)) || true
             fi
         done
         echo ""
@@ -789,7 +793,7 @@ cleanup_old_installation() {
             echo -e "${GREEN}${CHECK_MARK}${NC}"
         else
             echo -e "${RED}${CROSS_MARK}${NC}"
-            ((cleanup_errors++))
+            ((cleanup_errors++)) || true
         fi
         echo ""
     else
@@ -835,7 +839,7 @@ cleanup_old_installation() {
                     echo -e "${GREEN}${CHECK_MARK}${NC}"
                 else
                     echo -e "${RED}${CROSS_MARK}${NC}"
-                    ((cleanup_errors++))
+                    ((cleanup_errors++)) || true
                 fi
             fi
         done
@@ -865,7 +869,7 @@ cleanup_old_installation() {
                 echo -e "${GREEN}${CHECK_MARK}${NC}"
             else
                 echo -e "${RED}${CROSS_MARK}${NC}"
-                ((cleanup_errors++))
+                ((cleanup_errors++)) || true
             fi
         done
         echo ""
@@ -954,7 +958,7 @@ restore_from_backup() {
             echo -e "${GREEN}${CHECK_MARK}${NC}"
         else
             echo -e "${RED}${CROSS_MARK}${NC}"
-            ((restore_errors++))
+            ((restore_errors++)) || true
         fi
         echo ""
     else
@@ -984,7 +988,7 @@ restore_from_backup() {
                     echo -e "${GREEN}${CHECK_MARK}${NC}"
                 else
                     echo -e "${RED}${CROSS_MARK}${NC}"
-                    ((restore_errors++))
+                    ((restore_errors++)) || true
                 fi
             fi
         done
@@ -1013,7 +1017,7 @@ restore_from_backup() {
             echo -e "${GREEN}${CHECK_MARK}${NC}"
         else
             echo -e "${RED}${CROSS_MARK}${NC}"
-            ((restore_errors++))
+            ((restore_errors++)) || true
         fi
         echo ""
     else

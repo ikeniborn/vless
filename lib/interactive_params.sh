@@ -10,7 +10,8 @@
 # TASK-1.5: Interactive parameter collection (3h)
 #
 
-set -euo pipefail
+# Only set strict mode if not already set (to avoid issues when sourced)
+[[ ! -o pipefail ]] && set -euo pipefail || true
 
 # =============================================================================
 # GLOBAL VARIABLES (exported for use by other modules)
@@ -22,12 +23,13 @@ export VLESS_PORT=""
 export DOCKER_SUBNET=""
 
 # Color codes for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m' # No Color
+# Only define if not already set (to avoid conflicts when sourced after install.sh)
+[[ -z "${RED:-}" ]] && RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && BLUE='\033[0;34m'
+[[ -z "${CYAN:-}" ]] && CYAN='\033[0;36m'
+[[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Default values
 readonly DEFAULT_VLESS_PORT=443
@@ -35,12 +37,14 @@ readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 readonly DEST_VALIDATION_TIMEOUT=10  # seconds
 
 # Predefined destination sites (validated for Reality compatibility)
-declare -A PREDEFINED_DESTINATIONS=(
+PREDEFINED_DESTINATIONS=(
     ["1"]="www.google.com:443"
     ["2"]="www.microsoft.com:443"
     ["3"]="www.apple.com:443"
     ["4"]="www.cloudflare.com:443"
 )
+# Ensure it's properly declared as associative array
+declare -gA PREDEFINED_DESTINATIONS
 
 # Alternative ports if 443 is occupied
 readonly ALTERNATIVE_PORTS=(8443 2053 2083 2087 2096 2052)

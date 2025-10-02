@@ -231,6 +231,9 @@ main() {
     validate_os
     print_success "Operating system is compatible"
 
+    # Get package manager (required for dependency installation)
+    get_package_manager
+
     # Step 4: Check dependencies
     print_step 4 "Checking dependencies"
     check_dependencies

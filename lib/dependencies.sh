@@ -19,14 +19,15 @@
 #   3 = dependency error
 #
 
-set -euo pipefail
+# Only set strict mode if not already set (to avoid issues when sourced)
+[[ ! -o pipefail ]] && set -euo pipefail || true
 
 # =============================================================================
 # GLOBAL VARIABLES
 # =============================================================================
 
 # Required packages for VLESS+Reality system
-declare -a REQUIRED_PACKAGES=(
+REQUIRED_PACKAGES=(
     "docker.io"
     "docker-compose"
     "ufw"
@@ -35,6 +36,8 @@ declare -a REQUIRED_PACKAGES=(
     "curl"
     "openssl"
 )
+# Ensure it's properly declared as array for export
+declare -ga REQUIRED_PACKAGES
 
 # Minimum version requirements
 readonly DOCKER_MIN_VERSION="20.10"
@@ -238,7 +241,7 @@ check_dependencies() {
         if ! command -v "$cmd_name" &>/dev/null; then
             echo -e "  ${CROSS_MARK} ${package} - ${RED}NOT INSTALLED${NC}"
             missing_packages+=("$package")
-            ((missing_count++))
+            ((missing_count++)) || true
             continue
         fi
 
@@ -248,7 +251,7 @@ check_dependencies() {
             docker.io)
                 if ! check_package_version "docker.io" "$DOCKER_MIN_VERSION"; then
                     version_failed_packages+=("$package (minimum: $DOCKER_MIN_VERSION)")
-                    ((version_fail_count++))
+                    ((version_fail_count++)) || true
                     version_ok=0
                 else
                     local docker_version
@@ -260,7 +263,7 @@ check_dependencies() {
             docker-compose)
                 if ! check_package_version "docker-compose" "$DOCKER_COMPOSE_MIN_VERSION"; then
                     version_failed_packages+=("$package (minimum: $DOCKER_COMPOSE_MIN_VERSION)")
-                    ((version_fail_count++))
+                    ((version_fail_count++)) || true
                     version_ok=0
                 else
                     local compose_version
@@ -272,7 +275,7 @@ check_dependencies() {
             jq)
                 if ! check_package_version "jq" "$JQ_MIN_VERSION"; then
                     version_failed_packages+=("$package (minimum: $JQ_MIN_VERSION)")
-                    ((version_fail_count++))
+                    ((version_fail_count++)) || true
                     version_ok=0
                 else
                     local jq_version
@@ -350,10 +353,12 @@ install_dependencies() {
     echo -e "${GREEN}${CHECK_MARK} Package lists updated${NC}"
     echo ""
 
+    # Get total package count (using ${#array[@]:-} would be invalid for arrays)
+    # Ensure REQUIRED_PACKAGES is accessible from global scope
     local total_packages=${#REQUIRED_PACKAGES[@]}
     local installed_count=0
     local failed_count=0
-    declare -a failed_packages=()
+    local -a failed_packages=()
 
     for i in "${!REQUIRED_PACKAGES[@]}"; do
         local package="${REQUIRED_PACKAGES[$i]}"
@@ -369,27 +374,27 @@ install_dependencies() {
                 docker.io)
                     if check_package_version "docker.io" "$DOCKER_MIN_VERSION"; then
                         echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
-                        ((installed_count++))
+                        ((installed_count++)) || true
                         continue
                     fi
                     ;;
                 docker-compose)
                     if check_package_version "docker-compose" "$DOCKER_COMPOSE_MIN_VERSION"; then
                         echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
-                        ((installed_count++))
+                        ((installed_count++)) || true
                         continue
                     fi
                     ;;
                 jq)
                     if check_package_version "jq" "$JQ_MIN_VERSION"; then
                         echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
-                        ((installed_count++))
+                        ((installed_count++)) || true
                         continue
                     fi
                     ;;
                 *)
                     echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
-                    ((installed_count++))
+                    ((installed_count++)) || true
                     continue
                     ;;
             esac
@@ -402,7 +407,7 @@ install_dependencies() {
             # Validate installation
             if command -v "$cmd_name" &>/dev/null; then
                 echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}installed successfully${NC}"
-                ((installed_count++))
+                ((installed_count++)) || true
 
                 # Special handling for Docker
                 if [[ "$package" == "docker.io" ]]; then
@@ -416,12 +421,12 @@ install_dependencies() {
             else
                 echo -e "[$current_num/$total_packages] ${CROSS_MARK} $package - ${RED}installation verification failed${NC}"
                 failed_packages+=("$package")
-                ((failed_count++))
+                ((failed_count++)) || true
             fi
         else
             echo -e "[$current_num/$total_packages] ${CROSS_MARK} $package - ${RED}installation failed${NC}"
             failed_packages+=("$package")
-            ((failed_count++))
+            ((failed_count++)) || true
         fi
     done
 
@@ -484,7 +489,7 @@ start_docker_service() {
             return 1
         fi
         sleep 1
-        ((waited++))
+        ((waited++)) || true
     done
 
     return 0
@@ -521,7 +526,7 @@ validate_docker() {
     if ! command -v docker &>/dev/null; then
         echo -e "${RED}  ${CROSS_MARK} Docker command not found${NC}"
         failed_checks+=("Docker not installed")
-        ((failed_count++))
+        ((failed_count++)) || true
     else
         local docker_version
         docker_version=$(docker --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
@@ -529,17 +534,17 @@ validate_docker() {
         if [[ -z "$docker_version" ]]; then
             echo -e "${RED}  ${CROSS_MARK} Cannot determine Docker version${NC}"
             failed_checks+=("Docker version unknown")
-            ((failed_count++))
+            ((failed_count++)) || true
         elif ! version_compare "$docker_version" "$DOCKER_MIN_VERSION"; then
             echo -e "${RED}  ${CROSS_MARK} Docker version $docker_version is below minimum $DOCKER_MIN_VERSION${NC}"
             echo -e "${YELLOW}  Suggestion: Upgrade Docker with 'sudo apt-get install --only-upgrade docker.io'${NC}"
             failed_checks+=("Docker version too old: $docker_version")
-            ((failed_count++))
+            ((failed_count++)) || true
         else
             echo -e "${GREEN}  ${CHECK_MARK} Docker version: $docker_version (meets minimum $DOCKER_MIN_VERSION)${NC}"
         fi
     fi
-    ((check_count++))
+    ((check_count++)) || true
     echo ""
 
     # -------------------------------------------------------------------------
@@ -553,12 +558,12 @@ validate_docker() {
         echo -e "${RED}  ${CROSS_MARK} Docker socket not found at $socket_path${NC}"
         echo -e "${YELLOW}  Suggestion: Start Docker service with 'sudo systemctl start docker'${NC}"
         failed_checks+=("Docker socket missing")
-        ((failed_count++))
+        ((failed_count++)) || true
     elif [[ ! -r "$socket_path" ]]; then
         echo -e "${RED}  ${CROSS_MARK} Docker socket exists but is not readable${NC}"
         echo -e "${YELLOW}  Suggestion: Add current user to docker group or run as root${NC}"
         failed_checks+=("Docker socket not readable")
-        ((failed_count++))
+        ((failed_count++)) || true
     elif [[ ! -w "$socket_path" ]]; then
         echo -e "${YELLOW}  ${WARNING_MARK} Docker socket is read-only (may need sudo)${NC}"
         echo -e "${GREEN}  ${CHECK_MARK} Socket exists at $socket_path${NC}"
@@ -570,7 +575,7 @@ validate_docker() {
         socket_perms=$(ls -l "$socket_path" | awk '{print $1, $3, $4}')
         echo -e "${CYAN}  Permissions: $socket_perms${NC}"
     fi
-    ((check_count++))
+    ((check_count++)) || true
     echo ""
 
     # -------------------------------------------------------------------------
@@ -598,7 +603,7 @@ validate_docker() {
             # This is a warning, not a failure
         fi
     fi
-    ((check_count++))
+    ((check_count++)) || true
     echo ""
 
     # -------------------------------------------------------------------------
@@ -617,7 +622,7 @@ validate_docker() {
         fi
 
         failed_checks+=("Docker daemon not running")
-        ((failed_count++))
+        ((failed_count++)) || true
     else
         echo -e "${GREEN}  ${CHECK_MARK} Docker daemon is running${NC}"
 
@@ -628,7 +633,7 @@ validate_docker() {
             echo -e "${CYAN}  Started: $docker_uptime${NC}"
         fi
     fi
-    ((check_count++))
+    ((check_count++)) || true
     echo ""
 
     # -------------------------------------------------------------------------
@@ -651,9 +656,9 @@ validate_docker() {
         echo "$test_output" | head -n 5 | sed 's/^/    /'
 
         failed_checks+=("Docker test container failed")
-        ((failed_count++))
+        ((failed_count++)) || true
     fi
-    ((check_count++))
+    ((check_count++)) || true
     echo ""
 
     # -------------------------------------------------------------------------
@@ -664,7 +669,7 @@ validate_docker() {
     if ! command -v docker-compose &>/dev/null; then
         echo -e "${RED}  ${CROSS_MARK} docker-compose command not found${NC}"
         failed_checks+=("docker-compose not installed")
-        ((failed_count++))
+        ((failed_count++)) || true
     else
         local compose_version
         compose_version=$(docker-compose --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
@@ -672,17 +677,17 @@ validate_docker() {
         if [[ -z "$compose_version" ]]; then
             echo -e "${RED}  ${CROSS_MARK} Cannot determine docker-compose version${NC}"
             failed_checks+=("docker-compose version unknown")
-            ((failed_count++))
+            ((failed_count++)) || true
         elif ! version_compare "$compose_version" "$DOCKER_COMPOSE_MIN_VERSION"; then
             echo -e "${RED}  ${CROSS_MARK} docker-compose version $compose_version is below minimum $DOCKER_COMPOSE_MIN_VERSION${NC}"
             echo -e "${YELLOW}  Suggestion: Upgrade docker-compose with 'sudo apt-get install --only-upgrade docker-compose'${NC}"
             failed_checks+=("docker-compose version too old: $compose_version")
-            ((failed_count++))
+            ((failed_count++)) || true
         else
             echo -e "${GREEN}  ${CHECK_MARK} docker-compose version: $compose_version (meets minimum $DOCKER_COMPOSE_MIN_VERSION)${NC}"
         fi
     fi
-    ((check_count++))
+    ((check_count++)) || true
     echo ""
 
     # -------------------------------------------------------------------------

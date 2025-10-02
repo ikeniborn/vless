@@ -21,11 +21,12 @@ export OS_ID=""
 export PKG_MANAGER=""
 
 # Color codes for output (optional but improves readability)
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly NC='\033[0m' # No Color
+# Only define if not already set (to avoid conflicts when sourced after install.sh)
+[[ -z "${RED:-}" ]] && RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && BLUE='\033[0;34m'
+[[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # =============================================================================
 # FUNCTION: detect_os
