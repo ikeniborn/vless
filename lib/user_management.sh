@@ -44,6 +44,12 @@
 
 set -euo pipefail
 
+# Source QR generator module for client configuration export
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/qr_generator.sh" ]]; then
+    source "${SCRIPT_DIR}/qr_generator.sh"
+fi
+
 # ============================================================================
 # Global Variables
 # ============================================================================
@@ -525,32 +531,37 @@ create_user() {
         log_warning "Xray reload failed, but user was created successfully"
     fi
 
-    # Step 8: Generate VLESS URI and save to file
+    # Step 8: Generate VLESS URI
     local vless_uri
     vless_uri=$(generate_vless_uri "$username" "$uuid")
-    echo "$vless_uri" > "${user_dir}/vless_uri.txt"
-    chmod 600 "${user_dir}/vless_uri.txt"
 
-    # Display success message
-    echo ""
+    # Step 9: Generate QR code and export connection config (EPIC-7)
     log_success "User '$username' created successfully!"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  Username:  $username"
-    echo "  UUID:      $uuid"
-    echo "  Directory: $user_dir"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "VLESS URI:"
-    echo "$vless_uri"
-    echo ""
-    echo "URI saved to: ${user_dir}/vless_uri.txt"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Generate QR code: vless qr $username"
-    echo "  2. Share VLESS URI or QR code with user"
-    echo "  3. User imports into VPN client (v2rayN, v2rayNG, etc.)"
-    echo ""
+
+    if command -v generate_qr_code &>/dev/null; then
+        # QR generator is available, use it
+        generate_qr_code "$username" "$uuid" "$vless_uri"
+    else
+        # Fallback: just save URI
+        echo "$vless_uri" > "${user_dir}/vless_uri.txt"
+        chmod 600 "${user_dir}/vless_uri.txt"
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Username:  $username"
+        echo "  UUID:      $uuid"
+        echo "  Directory: $user_dir"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "VLESS URI:"
+        echo "$vless_uri"
+        echo ""
+        echo "URI saved to: ${user_dir}/vless_uri.txt"
+        echo ""
+        log_warning "QR code generator not available. Install qrencode: apt-get install qrencode"
+        echo ""
+    fi
 
     return 0
 }
