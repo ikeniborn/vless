@@ -10,6 +10,13 @@
 # Usage:
 #   sudo ./install.sh
 #
+#   Non-Interactive Mode (for automation):
+#     VLESS_AUTO_CLEANUP=1 sudo ./install.sh          # Auto backup+cleanup old installation
+#     VLESS_AUTO_CLEANUP=2 sudo ./install.sh          # Auto cleanup without backup
+#     VLESS_AUTO_CLEANUP=3 sudo ./install.sh          # Auto skip and exit
+#     VLESS_CONFIRM_CLEANUP=yes sudo ./install.sh     # Auto-confirm cleanup prompts
+#     VLESS_AUTO_INSTALL_DEPS=yes sudo ./install.sh   # Auto-install missing dependencies
+#
 # Requirements:
 #   - Must be run as root
 #   - Must be executed from project directory
@@ -236,7 +243,11 @@ main() {
 
     # Step 4: Check dependencies
     print_step 4 "Checking dependencies"
-    check_dependencies
+    if ! check_dependencies; then
+        # User declined to install missing dependencies
+        print_error "Dependency installation declined"
+        exit 1
+    fi
     print_success "Dependency check complete"
 
     # Step 5: Install missing dependencies
@@ -252,14 +263,28 @@ main() {
     if [[ "$OLD_INSTALL_FOUND" == "true" ]]; then
         display_detection_summary
 
-        echo ""
-        print_message "${COLOR_YELLOW}" "Would you like to:"
-        print_message "${COLOR_CYAN}" "  1) Backup and cleanup old installation (recommended)"
-        print_message "${COLOR_CYAN}" "  2) Cleanup without backup (risky)"
-        print_message "${COLOR_CYAN}" "  3) Skip cleanup and exit"
-        echo ""
+        # Check for non-interactive mode via environment variable
+        if [[ -n "${VLESS_AUTO_CLEANUP:-}" ]]; then
+            cleanup_choice="${VLESS_AUTO_CLEANUP}"
+            print_message "${COLOR_CYAN}" "Non-interactive mode: Using VLESS_AUTO_CLEANUP=$cleanup_choice"
+        else
+            echo ""
+            print_message "${COLOR_YELLOW}" "Would you like to:"
+            print_message "${COLOR_CYAN}" "  1) Backup and cleanup old installation (recommended)"
+            print_message "${COLOR_CYAN}" "  2) Cleanup without backup (risky)"
+            print_message "${COLOR_CYAN}" "  3) Skip cleanup and exit"
+            echo ""
 
-        read -rp "Enter your choice [1-3]: " cleanup_choice
+            # Read with 60-second timeout, default to option 3 (safe exit)
+            if ! read -t 60 -rp "Enter your choice [1-3] (60s timeout, default=3): " cleanup_choice; then
+                cleanup_choice="3"
+                echo ""
+                print_message "${COLOR_YELLOW}" "Input timeout reached, defaulting to safe exit (option 3)"
+            fi
+
+            # If empty input, default to safe exit
+            [[ -z "$cleanup_choice" ]] && cleanup_choice="3"
+        fi
 
         case "$cleanup_choice" in
             1)

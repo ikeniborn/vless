@@ -736,7 +736,7 @@ deploy_containers() {
 
     # Pull images
     echo "  Pulling Docker images..."
-    docker-compose pull || {
+    docker compose pull || {
         echo -e "${RED}Failed to pull Docker images${NC}" >&2
         return 1
     }
@@ -744,7 +744,7 @@ deploy_containers() {
 
     # Start containers
     echo "  Starting containers..."
-    docker-compose up -d || {
+    docker compose up -d || {
         echo -e "${RED}Failed to start containers${NC}" >&2
         return 1
     }
@@ -758,7 +758,7 @@ deploy_containers() {
         echo "  ✓ Xray container running"
     else
         echo -e "${RED}Xray container failed to start${NC}" >&2
-        docker-compose logs xray
+        docker compose logs xray
         return 1
     fi
 
@@ -766,7 +766,7 @@ deploy_containers() {
         echo "  ✓ Nginx container running"
     else
         echo -e "${RED}Nginx container failed to start${NC}" >&2
-        docker-compose logs nginx
+        docker compose logs nginx
         return 1
     fi
 

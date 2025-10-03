@@ -29,7 +29,7 @@
 # Required packages for VLESS+Reality system
 REQUIRED_PACKAGES=(
     "docker.io"
-    "docker-compose"
+    "docker-compose-plugin"
     "ufw"
     "jq"
     "qrencode"
@@ -137,22 +137,22 @@ check_package_version() {
             fi
             ;;
 
-        docker-compose)
-            # Get docker-compose version
-            if ! command -v docker-compose &>/dev/null; then
+        docker-compose-plugin)
+            # Get docker compose version (v2 uses "docker compose" command)
+            if ! docker compose version &>/dev/null 2>&1; then
                 return 1
             fi
 
             local compose_version
-            compose_version=$(docker-compose --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
+            compose_version=$(docker compose version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
 
             if [[ -z "$compose_version" ]]; then
-                echo -e "${YELLOW}WARNING: Cannot determine docker-compose version${NC}" >&2
+                echo -e "${YELLOW}WARNING: Cannot determine docker compose version${NC}" >&2
                 return 1
             fi
 
             if ! version_compare "$compose_version" "$min_version"; then
-                echo -e "${RED}ERROR: docker-compose version $compose_version is below minimum $min_version${NC}" >&2
+                echo -e "${RED}ERROR: docker compose version $compose_version is below minimum $min_version${NC}" >&2
                 return 1
             fi
             ;;
@@ -238,7 +238,15 @@ check_dependencies() {
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
 
-        if ! command -v "$cmd_name" &>/dev/null; then
+        # Special check for docker-compose-plugin (uses "docker compose" command)
+        if [[ "$package" == "docker-compose-plugin" ]]; then
+            if ! docker compose version &>/dev/null 2>&1; then
+                echo -e "  ${CROSS_MARK} ${package} - ${RED}NOT INSTALLED${NC}"
+                missing_packages+=("$package")
+                ((missing_count++)) || true
+                continue
+            fi
+        elif ! command -v "$cmd_name" &>/dev/null; then
             echo -e "  ${CROSS_MARK} ${package} - ${RED}NOT INSTALLED${NC}"
             missing_packages+=("$package")
             ((missing_count++)) || true
@@ -260,14 +268,14 @@ check_dependencies() {
                 fi
                 ;;
 
-            docker-compose)
-                if ! check_package_version "docker-compose" "$DOCKER_COMPOSE_MIN_VERSION"; then
+            docker-compose-plugin)
+                if ! check_package_version "docker-compose-plugin" "$DOCKER_COMPOSE_MIN_VERSION"; then
                     version_failed_packages+=("$package (minimum: $DOCKER_COMPOSE_MIN_VERSION)")
                     ((version_fail_count++)) || true
                     version_ok=0
                 else
                     local compose_version
-                    compose_version=$(docker-compose --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
+                    compose_version=$(docker compose version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
                     echo -e "  ${CHECK_MARK} ${package} - ${GREEN}installed${NC} (version: $compose_version)"
                 fi
                 ;;
@@ -301,24 +309,62 @@ check_dependencies() {
         echo -e "${GREEN}${CHECK_MARK} All dependencies are installed and meet version requirements${NC}"
         return 0
     else
-        echo -e "${RED}${CROSS_MARK} Dependency check failed:${NC}"
+        echo -e "${YELLOW}${WARNING_MARK} Dependency check found issues:${NC}"
+        echo ""
 
         if [[ $missing_count -gt 0 ]]; then
-            echo -e "${RED}  Missing packages ($missing_count):${NC}"
+            echo -e "${YELLOW}  Missing packages ($missing_count):${NC}"
             for pkg in "${missing_packages[@]}"; do
-                echo -e "${RED}    - $pkg${NC}"
+                echo -e "${YELLOW}    - $pkg${NC}"
             done
+            echo ""
         fi
 
         if [[ $version_fail_count -gt 0 ]]; then
-            echo -e "${RED}  Version requirements not met ($version_fail_count):${NC}"
+            echo -e "${YELLOW}  Version requirements not met ($version_fail_count):${NC}"
             for pkg in "${version_failed_packages[@]}"; do
-                echo -e "${RED}    - $pkg${NC}"
+                echo -e "${YELLOW}    - $pkg${NC}"
             done
+            echo ""
         fi
 
-        echo ""
-        return 1
+        # Interactive prompt to install missing packages
+        echo -e "${CYAN}These packages will be installed automatically in the next step.${NC}"
+
+        # Check for non-interactive mode via environment variable
+        if [[ "${VLESS_AUTO_INSTALL_DEPS:-}" == "yes" ]]; then
+            echo -e "${CYAN}Non-interactive mode: Auto-proceeding to installation${NC}"
+            echo ""
+            return 0
+        fi
+
+        echo -e "${YELLOW}Do you want to continue with automatic installation?${NC}"
+        echo -e "${CYAN}  [Y/n] (30s timeout, default=yes): ${NC}"
+
+        local user_response
+        if ! read -t 30 -r user_response; then
+            user_response="y"
+            echo ""
+            echo -e "${CYAN}Timeout reached, proceeding with installation${NC}"
+        fi
+
+        # Default to yes if empty
+        [[ -z "$user_response" ]] && user_response="y"
+
+        case "${user_response,,}" in
+            n|no)
+                echo -e "${RED}${CROSS_MARK} Installation cancelled by user${NC}"
+                echo -e "${YELLOW}To install dependencies manually, run:${NC}"
+                echo -e "${YELLOW}  sudo apt update && sudo apt install -y ${missing_packages[*]} ${version_failed_packages[*]}${NC}"
+                echo ""
+                return 1
+                ;;
+            *)
+                echo -e "${GREEN}Proceeding to automatic installation...${NC}"
+                echo ""
+                return 0
+                ;;
+        esac
     fi
 }
 
@@ -368,7 +414,17 @@ install_dependencies() {
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
 
-        if command -v "$cmd_name" &>/dev/null; then
+        # Special check for docker-compose-plugin
+        local is_installed=false
+        if [[ "$package" == "docker-compose-plugin" ]]; then
+            if docker compose version &>/dev/null 2>&1; then
+                is_installed=true
+            fi
+        elif command -v "$cmd_name" &>/dev/null; then
+            is_installed=true
+        fi
+
+        if [[ "$is_installed" == "true" ]]; then
             # Check version for specific packages
             case "$package" in
                 docker.io)
@@ -378,8 +434,8 @@ install_dependencies() {
                         continue
                     fi
                     ;;
-                docker-compose)
-                    if check_package_version "docker-compose" "$DOCKER_COMPOSE_MIN_VERSION"; then
+                docker-compose-plugin)
+                    if check_package_version "docker-compose-plugin" "$DOCKER_COMPOSE_MIN_VERSION"; then
                         echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
                         ((installed_count++)) || true
                         continue
