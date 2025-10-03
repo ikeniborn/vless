@@ -29,7 +29,7 @@
 # Required packages for VLESS+Reality system
 REQUIRED_PACKAGES=(
     "docker.io"
-    "docker-compose"
+    "docker-compose-plugin"
     "ufw"
     "jq"
     "qrencode"
@@ -137,22 +137,22 @@ check_package_version() {
             fi
             ;;
 
-        docker-compose)
-            # Get docker-compose version
-            if ! command -v docker-compose &>/dev/null; then
+        docker-compose-plugin)
+            # Get docker compose version (v2 uses "docker compose" command)
+            if ! docker compose version &>/dev/null 2>&1; then
                 return 1
             fi
 
             local compose_version
-            compose_version=$(docker-compose --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
+            compose_version=$(docker compose version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
 
             if [[ -z "$compose_version" ]]; then
-                echo -e "${YELLOW}WARNING: Cannot determine docker-compose version${NC}" >&2
+                echo -e "${YELLOW}WARNING: Cannot determine docker compose version${NC}" >&2
                 return 1
             fi
 
             if ! version_compare "$compose_version" "$min_version"; then
-                echo -e "${RED}ERROR: docker-compose version $compose_version is below minimum $min_version${NC}" >&2
+                echo -e "${RED}ERROR: docker compose version $compose_version is below minimum $min_version${NC}" >&2
                 return 1
             fi
             ;;
@@ -238,7 +238,15 @@ check_dependencies() {
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
 
-        if ! command -v "$cmd_name" &>/dev/null; then
+        # Special check for docker-compose-plugin (uses "docker compose" command)
+        if [[ "$package" == "docker-compose-plugin" ]]; then
+            if ! docker compose version &>/dev/null 2>&1; then
+                echo -e "  ${CROSS_MARK} ${package} - ${RED}NOT INSTALLED${NC}"
+                missing_packages+=("$package")
+                ((missing_count++)) || true
+                continue
+            fi
+        elif ! command -v "$cmd_name" &>/dev/null; then
             echo -e "  ${CROSS_MARK} ${package} - ${RED}NOT INSTALLED${NC}"
             missing_packages+=("$package")
             ((missing_count++)) || true
@@ -260,14 +268,14 @@ check_dependencies() {
                 fi
                 ;;
 
-            docker-compose)
-                if ! check_package_version "docker-compose" "$DOCKER_COMPOSE_MIN_VERSION"; then
+            docker-compose-plugin)
+                if ! check_package_version "docker-compose-plugin" "$DOCKER_COMPOSE_MIN_VERSION"; then
                     version_failed_packages+=("$package (minimum: $DOCKER_COMPOSE_MIN_VERSION)")
                     ((version_fail_count++)) || true
                     version_ok=0
                 else
                     local compose_version
-                    compose_version=$(docker-compose --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
+                    compose_version=$(docker compose version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -n1)
                     echo -e "  ${CHECK_MARK} ${package} - ${GREEN}installed${NC} (version: $compose_version)"
                 fi
                 ;;
@@ -406,7 +414,17 @@ install_dependencies() {
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
 
-        if command -v "$cmd_name" &>/dev/null; then
+        # Special check for docker-compose-plugin
+        local is_installed=false
+        if [[ "$package" == "docker-compose-plugin" ]]; then
+            if docker compose version &>/dev/null 2>&1; then
+                is_installed=true
+            fi
+        elif command -v "$cmd_name" &>/dev/null; then
+            is_installed=true
+        fi
+
+        if [[ "$is_installed" == "true" ]]; then
             # Check version for specific packages
             case "$package" in
                 docker.io)
@@ -416,8 +434,8 @@ install_dependencies() {
                         continue
                     fi
                     ;;
-                docker-compose)
-                    if check_package_version "docker-compose" "$DOCKER_COMPOSE_MIN_VERSION"; then
+                docker-compose-plugin)
+                    if check_package_version "docker-compose-plugin" "$DOCKER_COMPOSE_MIN_VERSION"; then
                         echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
                         ((installed_count++)) || true
                         continue
