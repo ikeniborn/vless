@@ -301,24 +301,62 @@ check_dependencies() {
         echo -e "${GREEN}${CHECK_MARK} All dependencies are installed and meet version requirements${NC}"
         return 0
     else
-        echo -e "${RED}${CROSS_MARK} Dependency check failed:${NC}"
+        echo -e "${YELLOW}${WARNING_MARK} Dependency check found issues:${NC}"
+        echo ""
 
         if [[ $missing_count -gt 0 ]]; then
-            echo -e "${RED}  Missing packages ($missing_count):${NC}"
+            echo -e "${YELLOW}  Missing packages ($missing_count):${NC}"
             for pkg in "${missing_packages[@]}"; do
-                echo -e "${RED}    - $pkg${NC}"
+                echo -e "${YELLOW}    - $pkg${NC}"
             done
+            echo ""
         fi
 
         if [[ $version_fail_count -gt 0 ]]; then
-            echo -e "${RED}  Version requirements not met ($version_fail_count):${NC}"
+            echo -e "${YELLOW}  Version requirements not met ($version_fail_count):${NC}"
             for pkg in "${version_failed_packages[@]}"; do
-                echo -e "${RED}    - $pkg${NC}"
+                echo -e "${YELLOW}    - $pkg${NC}"
             done
+            echo ""
         fi
 
-        echo ""
-        return 1
+        # Interactive prompt to install missing packages
+        echo -e "${CYAN}These packages will be installed automatically in the next step.${NC}"
+
+        # Check for non-interactive mode via environment variable
+        if [[ "${VLESS_AUTO_INSTALL_DEPS:-}" == "yes" ]]; then
+            echo -e "${CYAN}Non-interactive mode: Auto-proceeding to installation${NC}"
+            echo ""
+            return 0
+        fi
+
+        echo -e "${YELLOW}Do you want to continue with automatic installation?${NC}"
+        echo -e "${CYAN}  [Y/n] (30s timeout, default=yes): ${NC}"
+
+        local user_response
+        if ! read -t 30 -r user_response; then
+            user_response="y"
+            echo ""
+            echo -e "${CYAN}Timeout reached, proceeding with installation${NC}"
+        fi
+
+        # Default to yes if empty
+        [[ -z "$user_response" ]] && user_response="y"
+
+        case "${user_response,,}" in
+            n|no)
+                echo -e "${RED}${CROSS_MARK} Installation cancelled by user${NC}"
+                echo -e "${YELLOW}To install dependencies manually, run:${NC}"
+                echo -e "${YELLOW}  sudo apt update && sudo apt install -y ${missing_packages[*]} ${version_failed_packages[*]}${NC}"
+                echo ""
+                return 1
+                ;;
+            *)
+                echo -e "${GREEN}Proceeding to automatic installation...${NC}"
+                echo ""
+                return 0
+                ;;
+        esac
     fi
 }
 

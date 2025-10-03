@@ -710,9 +710,20 @@ cleanup_old_installation() {
 
     echo -e "${RED}${WARNING_MARK} This action is IRREVERSIBLE (unless you created a backup)${NC}"
     echo ""
-    echo -n -e "${YELLOW}Type 'yes' to confirm cleanup (or 'no' to cancel): ${NC}"
-    read -r confirmation
-    echo ""
+
+    # Check for non-interactive confirmation via environment variable
+    if [[ "${VLESS_CONFIRM_CLEANUP:-}" == "yes" ]]; then
+        confirmation="yes"
+        echo -e "${CYAN}Non-interactive mode: Auto-confirmed via VLESS_CONFIRM_CLEANUP${NC}"
+    else
+        echo -n -e "${YELLOW}Type 'yes' to confirm cleanup (30s timeout, default=no): ${NC}"
+        if ! read -t 30 -r confirmation; then
+            confirmation="no"
+            echo ""
+            echo -e "${CYAN}Input timeout reached, cleanup cancelled${NC}"
+        fi
+        echo ""
+    fi
 
     if [[ "$confirmation" != "yes" ]]; then
         echo -e "${CYAN}Cleanup cancelled by user${NC}"
@@ -929,9 +940,20 @@ restore_from_backup() {
 
     # USER CONFIRMATION
     echo -e "${YELLOW}${WARNING_MARK} This will restore the old installation${NC}"
-    echo -n -e "${YELLOW}Type 'yes' to confirm restoration: ${NC}"
-    read -r confirmation
-    echo ""
+
+    # Check for non-interactive confirmation via environment variable
+    if [[ "${VLESS_CONFIRM_RESTORE:-}" == "yes" ]]; then
+        confirmation="yes"
+        echo -e "${CYAN}Non-interactive mode: Auto-confirmed via VLESS_CONFIRM_RESTORE${NC}"
+    else
+        echo -n -e "${YELLOW}Type 'yes' to confirm restoration (30s timeout, default=no): ${NC}"
+        if ! read -t 30 -r confirmation; then
+            confirmation="no"
+            echo ""
+            echo -e "${CYAN}Input timeout reached, restoration cancelled${NC}"
+        fi
+        echo ""
+    fi
 
     if [[ "$confirmation" != "yes" ]]; then
         echo -e "${CYAN}Restoration cancelled by user${NC}"
