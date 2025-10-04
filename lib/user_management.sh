@@ -560,6 +560,23 @@ update_proxy_accounts() {
         return 1
     fi
 
+    # Add account to HTTP inbound (TASK-11.2) if it exists
+    if jq -e '.inbounds[] | select(.tag == "http-proxy")' "$temp_file" >/dev/null 2>&1; then
+        local temp_file2
+        temp_file2=$(mktemp)
+
+        if ! jq --argjson account "$account_json" \
+           '(.inbounds[] | select(.tag == "http-proxy") | .settings.accounts) += [$account]' \
+           "$temp_file" > "$temp_file2"; then
+            log_error "Failed to update HTTP proxy accounts"
+            rm -f "$temp_file" "$temp_file2"
+            return 1
+        fi
+
+        # Replace temp file
+        mv "$temp_file2" "$temp_file"
+    fi
+
     # Move temp file to config (atomic)
     if ! mv "$temp_file" "${XRAY_CONFIG}"; then
         log_error "Failed to save updated Xray config"
@@ -567,11 +584,27 @@ update_proxy_accounts() {
         return 1
     fi
 
-    # Verify update
+    # Verify update - check SOCKS5 (required) and HTTP (optional)
+    local socks5_ok=false
+    local http_ok=false
+
     if jq -e --arg user "$username" \
        '.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts[] | select(.user == $user)' \
        "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        socks5_ok=true
         log_success "User added to SOCKS5 proxy accounts"
+    fi
+
+    if jq -e '.inbounds[] | select(.tag == "http-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        if jq -e --arg user "$username" \
+           '.inbounds[] | select(.tag == "http-proxy") | .settings.accounts[] | select(.user == $user)' \
+           "${XRAY_CONFIG}" >/dev/null 2>&1; then
+            http_ok=true
+            log_success "User added to HTTP proxy accounts"
+        fi
+    fi
+
+    if $socks5_ok; then
         return 0
     else
         log_error "Failed to verify proxy account addition"

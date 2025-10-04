@@ -318,6 +318,33 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: generate_http_inbound_json
+# =============================================================================
+# Description: Generate HTTP proxy inbound configuration for Xray
+# Returns: JSON string for HTTP inbound (to be appended to inbounds array)
+# Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
+# =============================================================================
+generate_http_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "tag": "http-proxy",
+    "listen": "127.0.0.1",
+    "port": 8118,
+    "protocol": "http",
+    "settings": {
+      "accounts": [],
+      "allowTransparent": false,
+      "userLevel": 0
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+}
+
+# =============================================================================
 # FUNCTION: create_xray_config
 # =============================================================================
 # Description: Create Xray configuration file (xray_config.json)
@@ -372,7 +399,10 @@ create_xray_config() {
         "shortIds": ["${SHORT_ID}", ""]
       }
     }
-  }$(if [[ "$enable_proxy" == "true" ]]; then generate_socks5_inbound_json; fi)],
+  }$(if [[ "$enable_proxy" == "true" ]]; then
+    generate_socks5_inbound_json
+    generate_http_inbound_json
+fi)],
   "outbounds": [{
     "protocol": "freedom",
     "tag": "direct"
@@ -398,6 +428,7 @@ EOF
 
     if [[ "$enable_proxy" == "true" ]]; then
         echo "  ✓ SOCKS5 Proxy enabled (127.0.0.1:1080)"
+        echo "  ✓ HTTP Proxy enabled (127.0.0.1:8118)"
     fi
 
     echo -e "${GREEN}✓ Xray configuration created${NC}"
@@ -931,6 +962,7 @@ export -f create_directory_structure
 export -f generate_reality_keys
 export -f generate_short_id
 export -f generate_socks5_inbound_json
+export -f generate_http_inbound_json
 export -f create_xray_config
 export -f create_users_json
 export -f create_nginx_config
