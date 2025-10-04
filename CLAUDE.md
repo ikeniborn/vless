@@ -299,20 +299,25 @@ PHASE N CHECKPOINT:
 ## 6. PROJECT OVERVIEW
 
 **Project Name:** VLESS + Reality VPN Server
-**Version:** 1.4
+**Version:** 3.1 (with Dual Proxy Support)
 **Target Scale:** 10-50 concurrent users
 **Deployment:** Linux servers (Ubuntu 20.04+, Debian 10+)
-**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, Nginx
+**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, Nginx
 
 **Core Value Proposition:**
 - Deploy production-ready VPN in < 5 minutes
 - Zero manual configuration through intelligent automation
 - DPI-resistant via Reality protocol (TLS 1.3 masquerading)
+- **Dual proxy support (SOCKS5 + HTTP) with unified credentials**
+- **Multi-format config export (5 formats: SOCKS5, HTTP, VSCode, Docker, Bash)**
 - No domain/certificate management required
 - Coexists with Outline, Wireguard, other VPN services
 
 **Key Innovation:**
 Reality protocol "steals" TLS handshake from legitimate websites (google.com, microsoft.com), making VPN traffic mathematically indistinguishable from normal HTTPS. Deep Packet Inspection systems cannot detect the VPN.
+
+**Proxy Innovation (v3.1):**
+Localhost-only SOCKS5 and HTTP proxies accessible only after VPN connection. Single password for both proxies. Auto-generates 5 config file formats per user for seamless integration with IDEs, Docker, and shell environments.
 
 ---
 
@@ -358,6 +363,19 @@ Reality Settings:
   dest_default: "google.com:443"    # Masquerading target
   sni_extraction: "required"        # Must succeed
   validation_timeout: "10s"         # Max time for dest check
+
+Proxy Protocols (NEW in v3.1):
+  socks5:
+    port: 1080
+    listen: "127.0.0.1"             # Localhost-only
+    auth: "password"                # Required
+    udp: false                      # TCP only
+  http:
+    port: 8118
+    listen: "127.0.0.1"             # Localhost-only
+    auth: "password"                # Required
+    allowTransparent: false         # Security hardening
+    protocols: ["HTTP", "HTTPS"]    # Both supported
 ```
 
 ### Network Architecture
@@ -374,12 +392,15 @@ Ports:
   vless_default: 443
   vless_alternatives: [8443, 2053, 2083, 2087]
   nginx_internal: 8080              # Not exposed to host
+  socks5_proxy: 1080                # NEW: Localhost-only (127.0.0.1)
+  http_proxy: 8118                  # NEW: Localhost-only (127.0.0.1)
   port_detection: "automatic"       # ss -tulnp check
 
 Firewall (UFW):
   status_required: "active"
   docker_integration: "/etc/ufw/after.rules"
   rule_format: "allow ${VLESS_PORT}/tcp comment 'VLESS Reality VPN'"
+  proxy_ports_exposed: false        # NEW: Ports 1080/8118 NOT in docker-compose.yml
 ```
 
 ### Installation Path (HARDCODED)
@@ -396,11 +417,18 @@ Directory Structure:
 
 File Permissions:
   config.json:         "600"
-  users.json:          "600"
+  users.json:          "600"        # NEW: v1.1 with proxy_password field
   reality_keys.json:   "600"
   .env:                "600"
   docker-compose.yml:  "644"
   scripts/*.sh:        "755"
+
+Client Config Files (NEW in v3.1):
+  socks5_config.txt:       "600"
+  http_config.txt:         "600"
+  vscode_settings.json:    "600"
+  docker_daemon.json:      "600"
+  bash_exports.sh:         "700"    # Executable
 
 Symlinks:
   location: "/usr/local/bin/"
@@ -441,11 +469,20 @@ Symlinks:
 ```
 /opt/vless/                         # Created by installer
 ├── config/                         # 700, owner: root
-│   ├── config.json                 # 600 - Xray main config
-│   ├── users.json                  # 600 - User database
+│   ├── config.json                 # 600 - Xray main config (3 inbounds when proxy enabled)
+│   ├── users.json                  # 600 - User database (v1.1 with proxy_password)
 │   └── reality_keys.json           # 600 - X25519 key pair
 ├── data/                           # 700, user data
 │   ├── clients/                    # Per-user configs
+│   │   └── <username>/             # NEW: 8 files per user (3 VLESS + 5 proxy)
+│   │       ├── vless_config.json   # VLESS client config
+│   │       ├── vless_uri.txt       # VLESS connection string
+│   │       ├── qrcode.png          # QR code for mobile
+│   │       ├── socks5_config.txt   # NEW: SOCKS5 URI
+│   │       ├── http_config.txt     # NEW: HTTP URI
+│   │       ├── vscode_settings.json # NEW: VSCode proxy settings
+│   │       ├── docker_daemon.json  # NEW: Docker daemon config
+│   │       └── bash_exports.sh     # NEW: Bash environment variables
 │   └── backups/                    # Automatic backups
 ├── logs/                           # 755, log files
 ├── fake-site/                      # 755, Nginx configs
@@ -455,8 +492,8 @@ Symlinks:
 
 /usr/local/bin/                     # Symlinks (sudo-accessible)
 ├── vless-install
-├── vless-user
-├── vless-start / stop / restart / status / logs
+├── vless-user                      # NEW: Now supports show-proxy, reset-proxy-password
+├── vless-start / stop / restart / status / logs  # NEW: status shows proxy info
 ├── vless-update
 └── vless-uninstall
 ```
@@ -639,6 +676,91 @@ COMMIT
 ✓ Docker chains added to after.rules
 ✓ Containers can access Internet
 ✓ External connections work
+
+---
+
+### FR-012: Proxy Server Integration (CRITICAL - Priority 1) - NEW in v3.1
+
+**Requirement:** Dual proxy support (SOCKS5 + HTTP) with localhost-only binding
+
+**Implementation:**
+```yaml
+Proxy Configuration:
+  socks5:
+    port: 1080
+    listen: "127.0.0.1"             # NOT exposed to internet
+    auth: "password"                # Required
+    protocol: "socks"
+
+  http:
+    port: 8118
+    listen: "127.0.0.1"             # NOT exposed to internet
+    auth: "password"                # Required
+    protocol: "http"
+    allowTransparent: false
+
+Credential Management:
+  password_generation: "openssl rand -hex 8"  # 16 characters
+  password_storage: "users.json v1.1 (proxy_password field)"
+  single_password: true                        # Same for SOCKS5 + HTTP
+
+Config File Export (5 formats per user):
+  - socks5_config.txt        # SOCKS5 URI
+  - http_config.txt          # HTTP URI
+  - vscode_settings.json     # VSCode proxy settings
+  - docker_daemon.json       # Docker daemon config
+  - bash_exports.sh          # Environment variables (executable)
+```
+
+**Security Requirements:**
+```yaml
+Network Binding:
+  - Proxies bind ONLY to 127.0.0.1 (localhost)
+  - NOT accessible from external network
+  - Require VPN connection first (must connect via VLESS)
+  - Ports 1080/8118 NOT exposed in docker-compose.yml
+
+Authentication:
+  - Password required for both SOCKS5 and HTTP
+  - 16-character random hex passwords
+  - Stored in users.json with 600 permissions
+
+File Permissions:
+  - Config files (txt, json): 600 (owner read/write only)
+  - Bash script: 700 (owner read/write/execute)
+  - Client directory: 700 (owner access only)
+```
+
+**Workflow Integration:**
+```bash
+# User creation (auto-generates proxy password + configs)
+sudo vless-user add alice
+# Output: UUID + proxy password + 8 config files
+
+# Show proxy credentials
+sudo vless-user show-proxy alice
+# Output: SOCKS5/HTTP URIs + usage examples
+
+# Reset proxy password (regenerates all configs)
+sudo vless-user reset-proxy-password alice
+# Output: New password + updated config files
+
+# Service status (shows proxy info)
+sudo vless-status
+# Output: Proxy enabled/disabled + SOCKS5/HTTP details
+```
+
+**Acceptance Criteria:**
+✓ Proxies bind to 127.0.0.1 ONLY (not 0.0.0.0)
+✓ Password authentication enforced
+✓ Single password for both SOCKS5 and HTTP
+✓ 5 config file formats generated per user
+✓ Auto-generation on user creation
+✓ Auto-regeneration on password reset
+✓ Service status shows proxy info
+✓ Ports NOT exposed in docker-compose.yml
+✓ External access blocked (verifiable with nmap)
+✓ Backward compatible (VLESS-only mode works)
 
 ---
 
