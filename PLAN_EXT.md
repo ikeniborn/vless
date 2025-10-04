@@ -595,10 +595,14 @@ bash -n /opt/vless/data/clients/alice/bash_exports.sh
 
 ---
 
-### TASK-11.5: Proxy CLI Commands (6 hours)
+### TASK-11.5: Service Operations Update ✓ COMPLETED (2025-10-04)
 
 **Priority:** High
-**Files:** `lib/user_management.sh`, `/usr/local/bin/vless-user`
+**Files:** `lib/service_operations.sh` (added display_proxy_status function)
+**Actual Time:** ~20 minutes (94% time savings)
+**Workflow Doc:** `workflow/task_11_5/`
+
+**Note:** Functions `show_proxy_credentials()` and `reset_proxy_password()` were already implemented in TASK-11.3. This task only added proxy status display to `vless-status` command.
 
 **Implementation:**
 
