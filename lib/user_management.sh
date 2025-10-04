@@ -798,6 +798,12 @@ reset_proxy_password() {
         log_warning "Xray reload failed, but password was reset"
     fi
 
+    # Regenerate proxy configuration files with new password (TASK-11.4)
+    log_info "Regenerating proxy configuration files..."
+    if ! export_all_proxy_configs "$username" "$new_password"; then
+        log_warning "Failed to regenerate proxy configs"
+    fi
+
     echo ""
     echo "═══════════════════════════════════════════════════════"
     echo "  PROXY PASSWORD RESET SUCCESSFUL"
@@ -809,9 +815,228 @@ reset_proxy_password() {
     echo "SOCKS5: socks5://${username}:${new_password}@127.0.0.1:1080"
     echo "HTTP:   http://${username}:${new_password}@127.0.0.1:8118"
     echo ""
-    echo "NOTE: Update client configurations with new password"
+    echo "NOTE: Proxy config files updated in /opt/vless/data/clients/$username/"
     echo "═══════════════════════════════════════════════════════"
     echo ""
+
+    return 0
+}
+
+# ============================================================================
+# TASK-11.4: Proxy Configuration File Export
+# ============================================================================
+
+# =============================================================================
+# FUNCTION: export_socks5_config
+# =============================================================================
+# Description: Export SOCKS5 proxy configuration to file
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+# Returns: 0 on success, 1 on failure
+# Output: socks5_config.txt with SOCKS5 URI
+# Related: TASK-11.4 (Proxy Configuration Export)
+# =============================================================================
+export_socks5_config() {
+    local username="$1"
+    local password="$2"
+    local output_dir="${3:-${CLIENTS_DIR}/${username}}"
+
+    # Create directory if not exists
+    mkdir -p "$output_dir"
+    chmod 700 "$output_dir"
+
+    # Write SOCKS5 URI
+    echo "socks5://${username}:${password}@127.0.0.1:1080" \
+        > "$output_dir/socks5_config.txt"
+
+    chmod 600 "$output_dir/socks5_config.txt"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: export_http_config
+# =============================================================================
+# Description: Export HTTP proxy configuration to file
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+# Returns: 0 on success, 1 on failure
+# Output: http_config.txt with HTTP URI
+# Related: TASK-11.4 (Proxy Configuration Export)
+# =============================================================================
+export_http_config() {
+    local username="$1"
+    local password="$2"
+    local output_dir="${3:-${CLIENTS_DIR}/${username}}"
+
+    # Create directory if not exists
+    mkdir -p "$output_dir"
+    chmod 700 "$output_dir"
+
+    # Write HTTP URI
+    echo "http://${username}:${password}@127.0.0.1:8118" \
+        > "$output_dir/http_config.txt"
+
+    chmod 600 "$output_dir/http_config.txt"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: export_vscode_config
+# =============================================================================
+# Description: Export VSCode proxy settings to JSON file
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+# Returns: 0 on success, 1 on failure
+# Output: vscode_settings.json with VSCode proxy configuration
+# Related: TASK-11.4 (Proxy Configuration Export)
+# =============================================================================
+export_vscode_config() {
+    local username="$1"
+    local password="$2"
+    local output_dir="${3:-${CLIENTS_DIR}/${username}}"
+
+    # Create directory if not exists
+    mkdir -p "$output_dir"
+    chmod 700 "$output_dir"
+
+    # Write VSCode settings JSON
+    cat > "$output_dir/vscode_settings.json" <<EOF
+{
+  "http.proxy": "socks5://${username}:${password}@127.0.0.1:1080",
+  "http.proxyStrictSSL": false,
+  "http.proxySupport": "on"
+}
+EOF
+
+    chmod 600 "$output_dir/vscode_settings.json"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: export_docker_config
+# =============================================================================
+# Description: Export Docker daemon proxy configuration to JSON file
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+# Returns: 0 on success, 1 on failure
+# Output: docker_daemon.json with Docker proxy configuration
+# Related: TASK-11.4 (Proxy Configuration Export)
+# =============================================================================
+export_docker_config() {
+    local username="$1"
+    local password="$2"
+    local output_dir="${3:-${CLIENTS_DIR}/${username}}"
+
+    # Create directory if not exists
+    mkdir -p "$output_dir"
+    chmod 700 "$output_dir"
+
+    # Write Docker daemon config JSON
+    cat > "$output_dir/docker_daemon.json" <<EOF
+{
+  "proxies": {
+    "default": {
+      "httpProxy": "http://${username}:${password}@127.0.0.1:8118",
+      "httpsProxy": "http://${username}:${password}@127.0.0.1:8118",
+      "noProxy": "localhost,127.0.0.0/8"
+    }
+  }
+}
+EOF
+
+    chmod 600 "$output_dir/docker_daemon.json"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: export_bash_config
+# =============================================================================
+# Description: Export Bash proxy environment variables to shell script
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+# Returns: 0 on success, 1 on failure
+# Output: bash_exports.sh with proxy environment variables
+# Related: TASK-11.4 (Proxy Configuration Export)
+# =============================================================================
+export_bash_config() {
+    local username="$1"
+    local password="$2"
+    local output_dir="${3:-${CLIENTS_DIR}/${username}}"
+
+    # Create directory if not exists
+    mkdir -p "$output_dir"
+    chmod 700 "$output_dir"
+
+    # Write bash exports script
+    cat > "$output_dir/bash_exports.sh" <<EOF
+#!/bin/bash
+# VLESS Reality Proxy Configuration
+# Usage: source bash_exports.sh
+
+export http_proxy="http://${username}:${password}@127.0.0.1:8118"
+export https_proxy="http://${username}:${password}@127.0.0.1:8118"
+export HTTP_PROXY="\$http_proxy"
+export HTTPS_PROXY="\$https_proxy"
+export NO_PROXY="localhost,127.0.0.0/8"
+
+echo "Proxy environment variables set:"
+echo "  http_proxy=\$http_proxy"
+echo "  https_proxy=\$https_proxy"
+EOF
+
+    chmod 700 "$output_dir/bash_exports.sh"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: export_all_proxy_configs
+# =============================================================================
+# Description: Export all 5 proxy configuration files for a user
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password (optional, will read from users.json if not provided)
+# Returns: 0 on success, 1 on failure
+# Output: 5 proxy config files in /opt/vless/data/clients/$username/
+# Related: TASK-11.4 (Proxy Configuration Export)
+# =============================================================================
+export_all_proxy_configs() {
+    local username="$1"
+    local proxy_password="${2:-}"
+
+    # If password not provided, read from users.json
+    if [[ -z "$proxy_password" ]]; then
+        proxy_password=$(jq -r ".users[] | select(.username == \"$username\") | .proxy_password" "$USERS_JSON" 2>/dev/null)
+
+        if [[ -z "$proxy_password" || "$proxy_password" == "null" ]]; then
+            log_warning "No proxy password found for user '$username'"
+            log_info "Skipping proxy config export (proxy may not be enabled)"
+            return 0
+        fi
+    fi
+
+    local output_dir="${CLIENTS_DIR}/${username}"
+
+    log_info "Exporting proxy configurations for user '$username'..."
+
+    # Export all 5 config files
+    export_socks5_config "$username" "$proxy_password" "$output_dir" || return 1
+    export_http_config "$username" "$proxy_password" "$output_dir" || return 1
+    export_vscode_config "$username" "$proxy_password" "$output_dir" || return 1
+    export_docker_config "$username" "$proxy_password" "$output_dir" || return 1
+    export_bash_config "$username" "$proxy_password" "$output_dir" || return 1
+
+    log_success "Proxy configs exported to: $output_dir/"
+    log_info "Files: socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh"
 
     return 0
 }
@@ -922,6 +1147,11 @@ create_user() {
         echo ""
         log_warning "QR code generator not available. Install qrencode: apt-get install qrencode"
         echo ""
+    fi
+
+    # Step 10: Export proxy configuration files (TASK-11.4)
+    if ! export_all_proxy_configs "$username" "$proxy_password"; then
+        log_warning "Failed to export proxy configs (continuing anyway)"
     fi
 
     return 0
