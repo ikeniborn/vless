@@ -56,7 +56,8 @@
    - 4.6 [Docker Compose Setup](#46-docker-compose-setup)
    - 4.7 [Operations and Management](#47-operations-and-management)
    - 4.8 [Client Configuration Export](#48-client-configuration-export)
-   - 4.9 [Requirements Summary](#49-requirements-summary)
+   - 4.9 [Security and Accessibility](#49-security-and-accessibility)
+   - 4.10 [Proxy Server Support](#410-proxy-server-support)
 
 5. [Non-Functional Requirements](#5-non-functional-requirements)
    - 5.1 [Performance Requirements](#51-performance-requirements)
@@ -2428,11 +2429,15 @@ flowchart TD
 
 ### 6.2 User Management Workflows
 
-**Add User:** `sudo vless-user add <username>` → UUID + shortId generated → Config updated → Xray reloaded → QR displayed (< 5 sec)
+**Add User:** `sudo vless-user add <username>` → UUID + shortId + proxy password generated → Config updated (3 inbounds) → Xray reloaded → 8 config files created → QR code and proxy credentials displayed (< 6 sec)
 
 **List Users:** `sudo vless-user list` → Table: username, UUID (first 8), shortId, created, status
 
-**Show User:** `sudo vless-user show <username>` → Full config + QR code + file locations
+**Show User:** `sudo vless-user show <username>` → Full VLESS config + QR code + file locations
+
+**Show Proxy:** `sudo vless-user show <username> --proxy` → SOCKS5 and HTTP proxy credentials + connection strings
+
+**Reset Proxy Password:** `sudo vless-user proxy-reset <username>` → New password generated → Config updated → New credentials displayed
 
 **Remove User:** `sudo vless-user remove <username>` → Confirmation → User removed → Config archived
 
@@ -2706,12 +2711,13 @@ server {
 
 | Criterion | Target | Weight | Measurement |
 |-----------|--------|--------|-------------|
-| Installation Time | < 5 min | 20% | Time to first user ready |
-| User Creation | < 5 sec | 25% | Command to QR display |
-| DPI Masquerading | 100% | 20% | Traffic analysis |
-| Multi-VPN Compatibility | Zero conflicts | 15% | Coexistence verified |
-| Update Preservation | 100% | 10% | Users survive update |
-| CLI Intuitiveness | 8/10 | 10% | User survey |
+| Installation Time | < 5 min | 18% | Time to first user ready |
+| User Creation | < 6 sec | 22% | Command to QR + proxy configs display |
+| DPI Masquerading | 100% | 18% | Traffic analysis |
+| Proxy Functionality | 100% | 12% | SOCKS5/HTTP accessibility through VPN |
+| Multi-VPN Compatibility | Zero conflicts | 12% | Coexistence verified |
+| Update Preservation | 100% | 10% | Users + proxy passwords survive update |
+| CLI Intuitiveness | 8/10 | 8% | User survey |
 
 **Overall Success:** ≥ 85% weighted score
 
@@ -2720,9 +2726,11 @@ server {
 1. Fresh installation < 5 minutes
 2. Conflict detection (Outline + VLESS coexist)
 3. DPI resistance (Wireshark analysis)
-4. 50 users < 5 sec average creation
+4. 50 users < 6 sec average creation (with proxy configs)
 5. Fake-site masquerading (browser + nmap)
-6. Update preservation (10 users survive update)
+6. Update preservation (10 users + proxy passwords survive update)
+7. Proxy accessibility (SOCKS5 1080, HTTP 8118 work through VPN tunnel)
+8. Proxy security (ports not exposed externally, authentication required)
 
 ---
 
@@ -2746,6 +2754,8 @@ server {
 
 - **VLESS:** VMess-Less lightweight VPN protocol
 - **Reality:** TLS 1.3 masquerading technology
+- **SOCKS5:** Socket Secure version 5 proxy protocol (RFC 1928) for TCP traffic proxying with authentication
+- **HTTP Proxy:** Application-layer proxy server for HTTP/HTTPS traffic forwarding
 - **X25519:** Elliptic curve Diffie-Hellman for forward secrecy
 - **SNI:** Server Name Indication (TLS extension)
 - **Dest:** Destination site for Reality masquerading
@@ -2753,6 +2763,8 @@ server {
 - **Fake-site:** Nginx reverse proxy for traffic camouflage
 - **DPI:** Deep Packet Inspection
 - **UFW:** Uncomplicated Firewall
+- **Localhost Binding:** Network service bound to 127.0.0.1 (accessible only from same machine)
+- **Proxy Password:** Auto-generated 16-character password for SOCKS5/HTTP proxy authentication
 
 ### 12.2 References
 
