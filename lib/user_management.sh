@@ -613,6 +613,210 @@ update_proxy_accounts() {
 }
 
 # ============================================================================
+# TASK-11.3: Proxy Password Management
+# ============================================================================
+
+# =============================================================================
+# FUNCTION: show_proxy_credentials
+# =============================================================================
+# Description: Display proxy credentials for a user
+# Arguments:
+#   $1 - username
+# Returns: 0 on success, 1 on failure
+# Related: TASK-11.3 (Proxy Password Management)
+# =============================================================================
+show_proxy_credentials() {
+    local username="$1"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Get proxy password from users.json
+    local proxy_password
+    proxy_password=$(jq -r ".users[] | select(.username == \"$username\") | .proxy_password" "$USERS_JSON" 2>/dev/null)
+
+    if [[ -z "$proxy_password" || "$proxy_password" == "null" ]]; then
+        log_warning "User '$username' does not have proxy credentials"
+        log_info "Proxy support may not be enabled for this installation"
+        return 1
+    fi
+
+    # Display credentials
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  PROXY CREDENTIALS: $username"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "Username: $username"
+    echo "Password: $proxy_password"
+    echo ""
+    echo "─────────────────────────────────────────────────────"
+    echo "SOCKS5 Proxy:"
+    echo "  Host:     127.0.0.1"
+    echo "  Port:     1080"
+    echo "  URI:      socks5://${username}:${proxy_password}@127.0.0.1:1080"
+    echo ""
+    echo "HTTP Proxy:"
+    echo "  Host:     127.0.0.1"
+    echo "  Port:     8118"
+    echo "  URI:      http://${username}:${proxy_password}@127.0.0.1:8118"
+    echo ""
+    echo "─────────────────────────────────────────────────────"
+    echo "Usage Examples:"
+    echo ""
+    echo "  curl --socks5 ${username}:${proxy_password}@127.0.0.1:1080 https://ifconfig.me"
+    echo "  curl --proxy http://${username}:${proxy_password}@127.0.0.1:8118 https://ifconfig.me"
+    echo ""
+    echo "VSCode (settings.json):"
+    echo "  \"http.proxy\": \"http://${username}:${proxy_password}@127.0.0.1:8118\""
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: reset_proxy_password
+# =============================================================================
+# Description: Reset proxy password for a user
+# Arguments:
+#   $1 - username
+# Returns: 0 on success, 1 on failure
+# Related: TASK-11.3 (Proxy Password Management)
+# =============================================================================
+reset_proxy_password() {
+    local username="$1"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Check if user has proxy password
+    local old_password
+    old_password=$(jq -r ".users[] | select(.username == \"$username\") | .proxy_password" "$USERS_JSON" 2>/dev/null)
+
+    if [[ -z "$old_password" || "$old_password" == "null" ]]; then
+        log_error "User '$username' does not have proxy credentials"
+        log_info "Proxy support may not be enabled for this installation"
+        return 1
+    fi
+
+    log_info "Resetting proxy password for user: $username"
+
+    # Generate new password
+    local new_password
+    new_password=$(generate_proxy_password)
+    if [[ -z "$new_password" ]]; then
+        log_error "Failed to generate new password"
+        return 1
+    fi
+
+    log_success "Generated new password: $new_password"
+
+    # Update users.json with file locking
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    (
+        flock -x 200
+
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Update proxy_password field
+        if ! jq ".users |= map(if .username == \"$username\" then .proxy_password = \"$new_password\" else . end)" \
+           "$USERS_JSON" > "$temp_file"; then
+            log_error "Failed to update users.json"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Validate JSON
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+        chmod 600 "$USERS_JSON"
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "Updated users.json"
+
+    # Update Xray config (remove old account, add new one)
+    # First, remove old accounts
+    if jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_info "Updating proxy accounts in Xray config..."
+
+        local temp_file
+        temp_file=$(mktemp)
+
+        # Remove user from SOCKS5
+        if ! jq "(.inbounds[] | select(.tag == \"socks5-proxy\") | .settings.accounts) |= map(select(.user != \"$username\"))" \
+           "${XRAY_CONFIG}" > "$temp_file"; then
+            log_error "Failed to remove old SOCKS5 account"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Remove user from HTTP (if exists)
+        if jq -e '.inbounds[] | select(.tag == "http-proxy")' "$temp_file" >/dev/null 2>&1; then
+            local temp_file2
+            temp_file2=$(mktemp)
+
+            if ! jq "(.inbounds[] | select(.tag == \"http-proxy\") | .settings.accounts) |= map(select(.user != \"$username\"))" \
+               "$temp_file" > "$temp_file2"; then
+                log_error "Failed to remove old HTTP account"
+                rm -f "$temp_file" "$temp_file2"
+                return 1
+            fi
+
+            mv "$temp_file2" "$temp_file"
+        fi
+
+        # Save intermediate state
+        mv "$temp_file" "${XRAY_CONFIG}"
+    fi
+
+    # Add new account with new password
+    if ! update_proxy_accounts "$username" "$new_password"; then
+        log_error "Failed to add new proxy accounts"
+        return 1
+    fi
+
+    # Reload Xray
+    log_info "Reloading Xray configuration..."
+    if ! reload_xray; then
+        log_warning "Xray reload failed, but password was reset"
+    fi
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  PROXY PASSWORD RESET SUCCESSFUL"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "Username: $username"
+    echo "New Password: $new_password"
+    echo ""
+    echo "SOCKS5: socks5://${username}:${new_password}@127.0.0.1:1080"
+    echo "HTTP:   http://${username}:${new_password}@127.0.0.1:8118"
+    echo ""
+    echo "NOTE: Update client configurations with new password"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
 # TASK-6.1: User Creation Workflow
 # ============================================================================
 
