@@ -126,6 +126,35 @@ generate_uuid() {
     return 1
 }
 
+# =============================================================================
+# FUNCTION: generate_proxy_password
+# =============================================================================
+# Description:
+#   Generate secure 16-character hexadecimal password for proxy authentication.
+#   Used for SOCKS5 and HTTP proxy user authentication.
+#
+# Arguments: None
+#
+# Returns:
+#   Stdout: 16-character hexadecimal password (lowercase)
+#   Exit:   0 on success, 1 on failure
+#
+# Example:
+#   password=$(generate_proxy_password)
+#   # Output: a1b2c3d4e5f67890
+#
+# Related: TASK-11.1 (SOCKS5 Proxy), TASK-11.2 (HTTP Proxy)
+# =============================================================================
+generate_proxy_password() {
+    if ! command -v openssl &>/dev/null; then
+        log_error "openssl not found - required for password generation"
+        return 1
+    fi
+
+    # Generate 8 random bytes and convert to 16 hex characters
+    openssl rand -hex 8
+}
+
 # ============================================================================
 # Username Validation
 # ============================================================================
@@ -212,6 +241,7 @@ get_user_info() {
 add_user_to_json() {
     local username="$1"
     local uuid="$2"
+    local proxy_password="${3:-}"  # Optional proxy password (TASK-11.1)
 
     log_info "Adding user to database..."
 
@@ -240,13 +270,27 @@ add_user_to_json() {
         # Create temporary file in same directory (atomic mv requires same filesystem)
         local temp_file="${USERS_JSON}.tmp.$$"
 
+        # Build user object based on whether proxy_password is provided
+        local user_obj
+        if [[ -n "$proxy_password" ]]; then
+            user_obj="{
+                \"username\": \"$username\",
+                \"uuid\": \"$uuid\",
+                \"proxy_password\": \"$proxy_password\",
+                \"created\": \"$(date -Iseconds)\",
+                \"created_timestamp\": $(date +%s)
+            }"
+        else
+            user_obj="{
+                \"username\": \"$username\",
+                \"uuid\": \"$uuid\",
+                \"created\": \"$(date -Iseconds)\",
+                \"created_timestamp\": $(date +%s)
+            }"
+        fi
+
         # Add user to JSON
-        jq ".users += [{
-            \"username\": \"$username\",
-            \"uuid\": \"$uuid\",
-            \"created\": \"$(date -Iseconds)\",
-            \"created_timestamp\": $(date +%s)
-        }]" "$USERS_JSON" > "$temp_file"
+        jq --argjson user "$user_obj" '.users += [$user]' "$USERS_JSON" > "$temp_file"
 
         # Verify JSON is valid
         if ! jq empty "$temp_file" 2>/dev/null; then
@@ -471,6 +515,71 @@ generate_vless_uri() {
 }
 
 # ============================================================================
+# Proxy Account Management (TASK-11.1, TASK-11.2)
+# ============================================================================
+
+# =============================================================================
+# FUNCTION: update_proxy_accounts
+# =============================================================================
+# Description: Add user to SOCKS5/HTTP proxy accounts in xray_config.json
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+# Returns: 0 on success, 1 on failure
+# Related: TASK-11.1 (SOCKS5), TASK-11.2 (HTTP)
+# =============================================================================
+update_proxy_accounts() {
+    local username="$1"
+    local proxy_password="$2"
+
+    # Check if SOCKS5 proxy inbound exists
+    if ! jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_info "Proxy support not enabled, skipping proxy account configuration"
+        return 0
+    fi
+
+    log_info "Adding user to proxy accounts..."
+
+    # Create account object
+    local account_json
+    account_json=$(jq -n \
+        --arg user "$username" \
+        --arg pass "$proxy_password" \
+        '{user: $user, pass: $pass}')
+
+    # Use temporary file for atomic update
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Add account to SOCKS5 inbound
+    if ! jq --argjson account "$account_json" \
+       '(.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts) += [$account]' \
+       "${XRAY_CONFIG}" > "$temp_file"; then
+        log_error "Failed to update SOCKS5 proxy accounts"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Move temp file to config (atomic)
+    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+        log_error "Failed to save updated Xray config"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Verify update
+    if jq -e --arg user "$username" \
+       '.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts[] | select(.user == $user)' \
+       "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_success "User added to SOCKS5 proxy accounts"
+        return 0
+    else
+        log_error "Failed to verify proxy account addition"
+        return 1
+    fi
+}
+
+# ============================================================================
 # TASK-6.1: User Creation Workflow
 # ============================================================================
 
@@ -501,6 +610,15 @@ create_user() {
     fi
     log_success "Generated UUID: $uuid"
 
+    # Step 3.5: Generate proxy password (TASK-11.1)
+    local proxy_password
+    proxy_password=$(generate_proxy_password)
+    if [[ -z "$proxy_password" ]]; then
+        log_error "Failed to generate proxy password"
+        return 1
+    fi
+    log_success "Generated proxy password: $proxy_password"
+
     # Step 4: Create user directory
     local user_dir="${CLIENTS_DIR}/${username}"
     if ! mkdir -p "$user_dir"; then
@@ -510,20 +628,26 @@ create_user() {
     chmod 700 "$user_dir"
     log_success "Created user directory: $user_dir"
 
-    # Step 5: Add user to users.json (atomic)
-    if ! add_user_to_json "$username" "$uuid"; then
+    # Step 5: Add user to users.json (atomic) with proxy password
+    if ! add_user_to_json "$username" "$uuid" "$proxy_password"; then
         # Cleanup on failure
         rm -rf "$user_dir"
         return 1
     fi
 
-    # Step 6: Add client to Xray configuration
+    # Step 6: Add client to Xray configuration (VLESS)
     if ! add_client_to_xray "$username" "$uuid"; then
         # Rollback: remove from users.json
         log_warning "Rolling back user creation..."
         remove_user_from_json "$username"
         rm -rf "$user_dir"
         return 1
+    fi
+
+    # Step 6.5: Add user to proxy accounts (TASK-11.1)
+    if ! update_proxy_accounts "$username" "$proxy_password"; then
+        log_warning "Failed to add user to proxy accounts (continuing anyway)"
+        # Don't fail completely - proxy is optional feature
     fi
 
     # Step 7: Reload Xray

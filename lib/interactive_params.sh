@@ -21,6 +21,7 @@ export REALITY_DEST=""
 export REALITY_DEST_PORT=""
 export VLESS_PORT=""
 export DOCKER_SUBNET=""
+export ENABLE_PROXY=""
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -85,7 +86,13 @@ collect_parameters() {
         return 1
     }
 
-    # Step 4: Confirm all parameters
+    # Step 4: Enable proxy support
+    select_proxy_enable || {
+        echo -e "${RED}Failed to configure proxy settings${NC}" >&2
+        return 1
+    }
+
+    # Step 5: Confirm all parameters
     confirm_parameters || {
         echo -e "${YELLOW}Configuration cancelled by user${NC}"
         return 1
@@ -544,6 +551,68 @@ find_free_subnet() {
 }
 
 # =============================================================================
+# FUNCTION: select_proxy_enable
+# =============================================================================
+# Description: Prompt user to enable SOCKS5/HTTP proxy support
+# Sets: ENABLE_PROXY
+# Returns: 0 on success, 1 on failure
+# Related: TASK-11.1 (SOCKS5), TASK-11.2 (HTTP)
+# =============================================================================
+select_proxy_enable() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}[4/4] Proxy Support Configuration${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Enable SOCKS5 and HTTP proxy support?"
+    echo ""
+    echo -e "${YELLOW}What are proxies?${NC}"
+    echo "Proxies allow applications (VSCode, Docker, Git, terminal tools) to route"
+    echo "traffic through your VPN connection without connecting to the VPN directly."
+    echo ""
+    echo -e "${YELLOW}How does it work?${NC}"
+    echo "• Proxy servers bind to 127.0.0.1 (localhost only)"
+    echo "• Accessible ONLY through the VPN tunnel (not exposed to Internet)"
+    echo "• Each user gets unique password for authentication"
+    echo ""
+    echo -e "${YELLOW}What will be enabled:${NC}"
+    echo "• SOCKS5 Proxy: Port 1080 (password auth, TCP only)"
+    echo "• HTTP Proxy:   Port 8118 (password auth, HTTP/HTTPS)"
+    echo ""
+    echo -e "${YELLOW}Configuration files per user:${NC}"
+    echo "• 3 VLESS configs (JSON, URI, QR code)"
+    echo "• 5 proxy configs (SOCKS5, HTTP, VSCode, Docker, Bash)"
+    echo ""
+
+    local choice
+    while true; do
+        read -rp "Enable proxy support? [y/N] (default: N): " choice
+        choice="${choice:-n}"  # Default to 'n'
+
+        case "${choice,,}" in
+            y|yes)
+                ENABLE_PROXY="true"
+                echo -e "${GREEN}✓ Proxy support ENABLED${NC}"
+                echo "  Users will receive 8 config files (3 VLESS + 5 proxy)"
+                break
+                ;;
+            n|no)
+                ENABLE_PROXY="false"
+                echo -e "${YELLOW}⊗ Proxy support DISABLED${NC}"
+                echo "  Users will receive 3 VLESS config files only"
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid input. Please enter 'y' or 'n'${NC}"
+                ;;
+        esac
+    done
+
+    export ENABLE_PROXY
+    echo ""
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: confirm_parameters
 # =============================================================================
 # Description: Display all collected parameters and ask for confirmation
@@ -560,6 +629,7 @@ confirm_parameters() {
     echo -e "  ${YELLOW}Destination Site:${NC}    ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo -e "  ${YELLOW}VLESS Port:${NC}          ${VLESS_PORT}"
     echo -e "  ${YELLOW}Docker Subnet:${NC}       ${DOCKER_SUBNET}"
+    echo -e "  ${YELLOW}Proxy Support:${NC}       $(if [[ "$ENABLE_PROXY" == "true" ]]; then echo -e "${GREEN}Enabled${NC}"; else echo -e "${YELLOW}Disabled${NC}"; fi)"
     echo ""
 
     local confirm

@@ -98,8 +98,8 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 4: Create Xray configuration
-    create_xray_config || {
+    # Step 4: Create Xray configuration (with optional proxy support)
+    create_xray_config "${ENABLE_PROXY:-false}" || {
         echo -e "${RED}Failed to create Xray configuration${NC}" >&2
         return 1
     }
@@ -290,13 +290,46 @@ generate_short_id() {
 }
 
 # =============================================================================
+# FUNCTION: generate_socks5_inbound_json
+# =============================================================================
+# Description: Generate SOCKS5 proxy inbound configuration for Xray
+# Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
+# Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
+# =============================================================================
+generate_socks5_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "tag": "socks5-proxy",
+    "listen": "127.0.0.1",
+    "port": 1080,
+    "protocol": "socks",
+    "settings": {
+      "auth": "password",
+      "accounts": [],
+      "udp": false,
+      "ip": "127.0.0.1"
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+}
+
+# =============================================================================
 # FUNCTION: create_xray_config
 # =============================================================================
 # Description: Create Xray configuration file (xray_config.json)
 # Uses: PRIVATE_KEY, SHORT_ID, REALITY_DEST, REALITY_DEST_PORT, VLESS_PORT
+# Arguments:
+#   $1 - enable_proxy (optional): "true" to enable SOCKS5/HTTP proxy support
+#                                 "false" (default) for VLESS only
 # Returns: 0 on success, 1 on failure
+# Updated: TASK-11.1 - Added proxy support parameter
 # =============================================================================
 create_xray_config() {
+    local enable_proxy="${1:-false}"
     echo -e "${CYAN}[4/12] Creating Xray configuration...${NC}"
 
     # Validate required variables
@@ -339,7 +372,7 @@ create_xray_config() {
         "shortIds": ["${SHORT_ID}", ""]
       }
     }
-  }],
+  }$(if [[ "$enable_proxy" == "true" ]]; then generate_socks5_inbound_json; fi)],
   "outbounds": [{
     "protocol": "freedom",
     "tag": "direct"
@@ -352,10 +385,20 @@ EOF
         return 1
     fi
 
+    # Validate JSON syntax
+    if ! jq empty "${XRAY_CONFIG}" 2>/dev/null; then
+        echo -e "${RED}Invalid JSON in ${XRAY_CONFIG}${NC}" >&2
+        return 1
+    fi
+
     echo "  ✓ Configuration file: ${XRAY_CONFIG}"
     echo "  ✓ Listen port: ${VLESS_PORT}"
     echo "  ✓ Destination: ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo "  ✓ Fallback to Nginx configured"
+
+    if [[ "$enable_proxy" == "true" ]]; then
+        echo "  ✓ SOCKS5 Proxy enabled (127.0.0.1:1080)"
+    fi
 
     echo -e "${GREEN}✓ Xray configuration created${NC}"
     return 0
@@ -887,6 +930,7 @@ export -f orchestrate_installation
 export -f create_directory_structure
 export -f generate_reality_keys
 export -f generate_short_id
+export -f generate_socks5_inbound_json
 export -f create_xray_config
 export -f create_users_json
 export -f create_nginx_config
