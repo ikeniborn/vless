@@ -300,14 +300,14 @@ generate_socks5_inbound_json() {
     cat <<'EOF'
   ,{
     "tag": "socks5-proxy",
-    "listen": "127.0.0.1",
+    "listen": "0.0.0.0",
     "port": 1080,
     "protocol": "socks",
     "settings": {
       "auth": "password",
       "accounts": [],
       "udp": false,
-      "ip": "127.0.0.1"
+      "ip": "0.0.0.0"
     },
     "sniffing": {
       "enabled": true,
@@ -328,7 +328,7 @@ generate_http_inbound_json() {
     cat <<'EOF'
   ,{
     "tag": "http-proxy",
-    "listen": "127.0.0.1",
+    "listen": "0.0.0.0",
     "port": 8118,
     "protocol": "http",
     "settings": {
@@ -427,8 +427,12 @@ EOF
     echo "  ✓ Fallback to Nginx configured"
 
     if [[ "$enable_proxy" == "true" ]]; then
-        echo "  ✓ SOCKS5 Proxy enabled (127.0.0.1:1080)"
-        echo "  ✓ HTTP Proxy enabled (127.0.0.1:8118)"
+        local server_ip
+        server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP")
+        echo "  ✓ SOCKS5 Proxy enabled (0.0.0.0:1080) - PUBLIC ACCESS"
+        echo "  ✓ HTTP Proxy enabled (0.0.0.0:8118) - PUBLIC ACCESS"
+        echo "  ⚠️  External URI: socks5://user:pass@${server_ip}:1080"
+        echo "  ⚠️  WARNING: Proxy accessible from internet"
     fi
 
     echo -e "${GREEN}✓ Xray configuration created${NC}"
@@ -653,6 +657,10 @@ EOF
 create_env_file() {
     echo -e "${CYAN}[8/12] Creating environment file...${NC}"
 
+    # Detect external server IP
+    local server_ip
+    server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP_NOT_DETECTED")
+
     cat > "${ENV_FILE}" <<EOF
 # VLESS Reality VPN Environment Variables
 # Generated: $(date -Iseconds)
@@ -663,6 +671,9 @@ REALITY_DEST=${REALITY_DEST}
 REALITY_DEST_PORT=${REALITY_DEST_PORT}
 VLESS_PORT=${VLESS_PORT}
 DOCKER_SUBNET=${DOCKER_SUBNET}
+
+# Server Information (v3.2 - for public proxy configs)
+SERVER_IP=${server_ip}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}

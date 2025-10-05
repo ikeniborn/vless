@@ -58,6 +58,7 @@ fi
 [[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
 [[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${VLESS_HOME}/data/users.json"
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
+[[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${VLESS_HOME}/.env"
 [[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
 [[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_users.lock"
 
@@ -130,18 +131,18 @@ generate_uuid() {
 # FUNCTION: generate_proxy_password
 # =============================================================================
 # Description:
-#   Generate secure 16-character hexadecimal password for proxy authentication.
+#   Generate secure 32-character hexadecimal password for proxy authentication.
 #   Used for SOCKS5 and HTTP proxy user authentication.
 #
 # Arguments: None
 #
 # Returns:
-#   Stdout: 16-character hexadecimal password (lowercase)
+#   Stdout: 32-character hexadecimal password (lowercase)
 #   Exit:   0 on success, 1 on failure
 #
 # Example:
 #   password=$(generate_proxy_password)
-#   # Output: a1b2c3d4e5f67890
+#   # Output: a1b2c3d4e5f67890a1b2c3d4e5f67890 (32 characters)
 #
 # Related: TASK-11.1 (SOCKS5 Proxy), TASK-11.2 (HTTP Proxy)
 # =============================================================================
@@ -151,8 +152,8 @@ generate_proxy_password() {
         return 1
     fi
 
-    # Generate 8 random bytes and convert to 16 hex characters
-    openssl rand -hex 8
+    # Generate 16 random bytes and convert to 32 hex characters (v3.2 security enhancement)
+    openssl rand -hex 16
 }
 
 # ============================================================================
@@ -644,34 +645,40 @@ show_proxy_credentials() {
         return 1
     fi
 
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
     # Display credentials
     echo ""
     echo "═══════════════════════════════════════════════════════"
-    echo "  PROXY CREDENTIALS: $username"
+    echo "  PROXY CREDENTIALS: $username (v3.2 - PUBLIC ACCESS)"
     echo "═══════════════════════════════════════════════════════"
     echo ""
     echo "Username: $username"
     echo "Password: $proxy_password"
     echo ""
+    echo "⚠️  WARNING: Proxy accessible from public internet"
+    echo ""
     echo "─────────────────────────────────────────────────────"
     echo "SOCKS5 Proxy:"
-    echo "  Host:     127.0.0.1"
+    echo "  Host:     ${server_ip}"
     echo "  Port:     1080"
-    echo "  URI:      socks5://${username}:${proxy_password}@127.0.0.1:1080"
+    echo "  URI:      socks5://${username}:${proxy_password}@${server_ip}:1080"
     echo ""
     echo "HTTP Proxy:"
-    echo "  Host:     127.0.0.1"
+    echo "  Host:     ${server_ip}"
     echo "  Port:     8118"
-    echo "  URI:      http://${username}:${proxy_password}@127.0.0.1:8118"
+    echo "  URI:      http://${username}:${proxy_password}@${server_ip}:8118"
     echo ""
     echo "─────────────────────────────────────────────────────"
     echo "Usage Examples:"
     echo ""
-    echo "  curl --socks5 ${username}:${proxy_password}@127.0.0.1:1080 https://ifconfig.me"
-    echo "  curl --proxy http://${username}:${proxy_password}@127.0.0.1:8118 https://ifconfig.me"
+    echo "  curl --socks5 ${username}:${proxy_password}@${server_ip}:1080 https://ifconfig.me"
+    echo "  curl --proxy http://${username}:${proxy_password}@${server_ip}:8118 https://ifconfig.me"
     echo ""
     echo "VSCode (settings.json):"
-    echo "  \"http.proxy\": \"http://${username}:${proxy_password}@127.0.0.1:8118\""
+    echo "  \"http.proxy\": \"socks5://${username}:${proxy_password}@${server_ip}:1080\""
     echo "═══════════════════════════════════════════════════════"
     echo ""
 
@@ -804,16 +811,22 @@ reset_proxy_password() {
         log_warning "Failed to regenerate proxy configs"
     fi
 
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
     echo ""
     echo "═══════════════════════════════════════════════════════"
-    echo "  PROXY PASSWORD RESET SUCCESSFUL"
+    echo "  PROXY PASSWORD RESET SUCCESSFUL (v3.2)"
     echo "═══════════════════════════════════════════════════════"
     echo ""
     echo "Username: $username"
     echo "New Password: $new_password"
     echo ""
-    echo "SOCKS5: socks5://${username}:${new_password}@127.0.0.1:1080"
-    echo "HTTP:   http://${username}:${new_password}@127.0.0.1:8118"
+    echo "⚠️  WARNING: Proxy accessible from public internet"
+    echo ""
+    echo "SOCKS5: socks5://${username}:${new_password}@${server_ip}:1080"
+    echo "HTTP:   http://${username}:${new_password}@${server_ip}:8118"
     echo ""
     echo "NOTE: Proxy config files updated in /opt/vless/data/clients/$username/"
     echo "═══════════════════════════════════════════════════════"
@@ -825,6 +838,35 @@ reset_proxy_password() {
 # ============================================================================
 # TASK-11.4: Proxy Configuration File Export
 # ============================================================================
+
+# =============================================================================
+# FUNCTION: get_server_ip
+# =============================================================================
+# Description: Get external server IP address from ENV_FILE or auto-detect
+# Returns: IP address string or "SERVER_IP_NOT_DETECTED" fallback
+# Related: v3.2 Public Proxy Support
+# =============================================================================
+get_server_ip() {
+    local server_ip
+
+    # Try reading from ENV_FILE first (preferred method)
+    if [[ -f "$ENV_FILE" ]]; then
+        server_ip=$(grep "^SERVER_IP=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+    fi
+
+    # Fallback: auto-detect if not in ENV_FILE or if empty
+    if [[ -z "$server_ip" || "$server_ip" == "SERVER_IP_NOT_DETECTED" ]]; then
+        server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null)
+    fi
+
+    # Final fallback
+    if [[ -z "$server_ip" ]]; then
+        server_ip="SERVER_IP_NOT_DETECTED"
+        log_warning "Failed to detect server IP address"
+    fi
+
+    echo "$server_ip"
+}
 
 # =============================================================================
 # FUNCTION: export_socks5_config
@@ -847,8 +889,12 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Write SOCKS5 URI
-    echo "socks5://${username}:${password}@127.0.0.1:1080" \
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
+    # Write SOCKS5 URI with public IP
+    echo "socks5://${username}:${password}@${server_ip}:1080" \
         > "$output_dir/socks5_config.txt"
 
     chmod 600 "$output_dir/socks5_config.txt"
@@ -876,8 +922,12 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Write HTTP URI
-    echo "http://${username}:${password}@127.0.0.1:8118" \
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
+    # Write HTTP URI with public IP
+    echo "http://${username}:${password}@${server_ip}:8118" \
         > "$output_dir/http_config.txt"
 
     chmod 600 "$output_dir/http_config.txt"
@@ -905,10 +955,14 @@ export_vscode_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Write VSCode settings JSON
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
+    # Write VSCode settings JSON with public IP
     cat > "$output_dir/vscode_settings.json" <<EOF
 {
-  "http.proxy": "socks5://${username}:${password}@127.0.0.1:1080",
+  "http.proxy": "socks5://${username}:${password}@${server_ip}:1080",
   "http.proxyStrictSSL": false,
   "http.proxySupport": "on"
 }
@@ -939,13 +993,17 @@ export_docker_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Write Docker daemon config JSON
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
+    # Write Docker daemon config JSON with public IP
     cat > "$output_dir/docker_daemon.json" <<EOF
 {
   "proxies": {
     "default": {
-      "httpProxy": "http://${username}:${password}@127.0.0.1:8118",
-      "httpsProxy": "http://${username}:${password}@127.0.0.1:8118",
+      "httpProxy": "http://${username}:${password}@${server_ip}:8118",
+      "httpsProxy": "http://${username}:${password}@${server_ip}:8118",
       "noProxy": "localhost,127.0.0.0/8"
     }
   }
@@ -977,19 +1035,23 @@ export_bash_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Write bash exports script
+    # Get server IP (v3.2 - public proxy support)
+    local server_ip
+    server_ip=$(get_server_ip)
+
+    # Write bash exports script with public IP
     cat > "$output_dir/bash_exports.sh" <<EOF
 #!/bin/bash
-# VLESS Reality Proxy Configuration
+# VLESS Reality Proxy Configuration (v3.2 - Public Access)
 # Usage: source bash_exports.sh
 
-export http_proxy="http://${username}:${password}@127.0.0.1:8118"
-export https_proxy="http://${username}:${password}@127.0.0.1:8118"
+export http_proxy="http://${username}:${password}@${server_ip}:8118"
+export https_proxy="http://${username}:${password}@${server_ip}:8118"
 export HTTP_PROXY="\$http_proxy"
 export HTTPS_PROXY="\$https_proxy"
 export NO_PROXY="localhost,127.0.0.0/8"
 
-echo "Proxy environment variables set:"
+echo "Proxy environment variables set (v3.2 - Public Access):"
 echo "  http_proxy=\$http_proxy"
 echo "  https_proxy=\$https_proxy"
 EOF
