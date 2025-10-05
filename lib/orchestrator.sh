@@ -666,6 +666,20 @@ EOF
 create_docker_compose() {
     echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
 
+    # v3.2: Determine ports based on ENABLE_PUBLIC_PROXY flag
+    local ports_section
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.2: Public proxy mode - expose ports 1080 and 8118
+        ports_section="    ports:
+      - \"${VLESS_PORT}:${VLESS_PORT}\"
+      - \"1080:1080\"
+      - \"8118:8118\""
+    else
+        # VLESS-only mode - no proxy ports exposed
+        ports_section="    ports:
+      - \"${VLESS_PORT}:${VLESS_PORT}\""
+    fi
+
     # Create docker-compose.yml
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
 version: '3.8'
@@ -683,8 +697,7 @@ services:
       start_period: 10s
     networks:
       - ${DOCKER_NETWORK_NAME}
-    ports:
-      - "${VLESS_PORT}:${VLESS_PORT}"
+${ports_section}
     volumes:
       - ${CONFIG_DIR}:/etc/xray:ro
       - ${LOGS_DIR}:/var/log/xray
@@ -740,6 +753,15 @@ EOF
     echo "  ✓ Nginx image: ${NGINX_IMAGE}"
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
+
+    # v3.2: Show exposed ports based on mode
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo "  ✓ Mode: PUBLIC PROXY (v3.2)"
+        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS), 1080 (SOCKS5), 8118 (HTTP)"
+    else
+        echo "  ✓ Mode: VLESS-only"
+        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS)"
+    fi
 
     echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
     return 0
