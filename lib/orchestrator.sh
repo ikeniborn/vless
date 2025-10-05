@@ -440,6 +440,68 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: configure_proxy_firewall_rules
+# =============================================================================
+# Description: Open UFW ports for public proxy access with rate limiting
+# Arguments:
+#   None (uses global ENABLE_PUBLIC_PROXY variable)
+# Returns: 0 on success, 1 on failure
+# Related: v3.2 Public Proxy Support - TASK-2.2
+# =============================================================================
+configure_proxy_firewall_rules() {
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
+        echo "  ℹ️  Public proxy disabled, skipping firewall rules"
+        return 0
+    fi
+
+    echo -e "${CYAN}Configuring firewall for public proxy...${NC}"
+
+    # Ensure UFW is active
+    if ! ufw status | grep -q "Status: active"; then
+        echo -e "${RED}UFW is not active${NC}" >&2
+        return 1
+    fi
+
+    # Check if SOCKS5 port rule already exists
+    if ! ufw status numbered | grep -q "1080/tcp"; then
+        echo "  Adding SOCKS5 port (1080/tcp) with rate limiting..."
+        if ! ufw limit 1080/tcp comment 'VLESS SOCKS5 Proxy (rate-limited)'; then
+            echo -e "${RED}Failed to add SOCKS5 firewall rule${NC}" >&2
+            return 1
+        fi
+        echo -e "${GREEN}  ✓ SOCKS5 port opened with rate limiting${NC}"
+    else
+        echo "  ✓ SOCKS5 port already open"
+    fi
+
+    # Check if HTTP port rule already exists
+    if ! ufw status numbered | grep -q "8118/tcp"; then
+        echo "  Adding HTTP port (8118/tcp) with rate limiting..."
+        if ! ufw limit 8118/tcp comment 'VLESS HTTP Proxy (rate-limited)'; then
+            echo -e "${RED}Failed to add HTTP firewall rule${NC}" >&2
+            return 1
+        fi
+        echo -e "${GREEN}  ✓ HTTP port opened with rate limiting${NC}"
+    else
+        echo "  ✓ HTTP port already open"
+    fi
+
+    # Reload UFW to apply rules
+    echo "  Reloading UFW..."
+    if ! ufw reload &>/dev/null; then
+        echo -e "${YELLOW}Warning: Failed to reload UFW${NC}"
+    fi
+
+    echo -e "${GREEN}✓ Firewall configured for public proxy${NC}"
+    echo ""
+    echo "Active proxy ports:"
+    ufw status numbered | grep -E "(1080|8118)/tcp" || true
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: create_users_json
 # =============================================================================
 # Description: Create empty users.json file
@@ -583,6 +645,12 @@ services:
     image: ${XRAY_IMAGE}
     container_name: ${XRAY_CONTAINER_NAME}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 1080 && nc -z 127.0.0.1 8118 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - ${DOCKER_NETWORK_NAME}
     ports:
@@ -975,6 +1043,7 @@ export -f generate_short_id
 export -f generate_socks5_inbound_json
 export -f generate_http_inbound_json
 export -f create_xray_config
+export -f configure_proxy_firewall_rules
 export -f create_users_json
 export -f create_nginx_config
 export -f create_docker_compose

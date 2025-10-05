@@ -35,9 +35,17 @@ REQUIRED_PACKAGES=(
     "qrencode"
     "curl"
     "openssl"
+    "netcat-openbsd"  # v3.2: For Docker healthchecks
 )
+
+# Optional packages (installed only if ENABLE_PUBLIC_PROXY=true)
+OPTIONAL_PACKAGES=(
+    "fail2ban"  # v3.2: Brute-force protection for public proxy
+)
+
 # Ensure it's properly declared as array for export
 declare -ga REQUIRED_PACKAGES
+declare -ga OPTIONAL_PACKAGES
 
 # Minimum version requirements
 readonly DOCKER_MIN_VERSION="20.10"
@@ -485,6 +493,25 @@ install_dependencies() {
             ((failed_count++)) || true
         fi
     done
+
+    # Install optional packages (v3.2 - fail2ban for public proxy)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo ""
+        echo -e "${CYAN}Installing optional packages for public proxy...${NC}"
+
+        for package in "${OPTIONAL_PACKAGES[@]}"; do
+            if command -v fail2ban-server &>/dev/null 2>&1; then
+                echo -e "  ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
+            else
+                echo -e "  Installing $package..."
+                if install_package "$package"; then
+                    echo -e "  ${CHECK_MARK} $package - ${GREEN}installed successfully${NC}"
+                else
+                    echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (will be handled by fail2ban_setup.sh)${NC}"
+                fi
+            fi
+        done
+    fi
 
     echo ""
     echo -e "${BLUE}Installation Summary:${NC}"
