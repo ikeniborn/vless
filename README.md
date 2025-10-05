@@ -1,6 +1,6 @@
 # VLESS Reality VPN Deployment System
 
-**Version**: 3.1
+**Version**: 3.2
 **Status**: Production Ready
 **License**: MIT
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP)**, and defense-in-depth security hardening.
+Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP)** with optional public internet access, and defense-in-depth security hardening including fail2ban integration.
 
 ---
 
@@ -19,7 +19,7 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to
 - **One-Command Installation**: Complete setup in < 5 minutes
 - **Automated Dependency Management**: Docker, UFW, jq, qrencode auto-install
 - **Reality Protocol**: TLS 1.3 masquerading for undetectable VPN traffic
-- **Dual Proxy Support**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with unified credentials
+- **Dual Proxy Support**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with public internet access option (v3.2)
 - **User Management**: Create/remove users in < 5 seconds with UUID generation
 - **Multi-Format Config Export**: 5 proxy config formats (SOCKS5, HTTP, VSCode, Docker, Bash)
 - **QR Code Generation**: 400x400px PNG + ANSI terminal variants
@@ -32,8 +32,12 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to
 
 - Defense-in-depth firewall (UFW + iptables)
 - Container security (capability dropping, read-only root, no-new-privileges)
-- **Localhost-only Proxy Binding**: Proxies accessible only through VPN tunnel (127.0.0.1)
-- **Strong Password Generation**: 16-character random passwords for proxy authentication
+- **Public Proxy Mode** (v3.2): Optional internet-accessible SOCKS5/HTTP proxies with advanced protection:
+  - **Fail2ban Integration**: Automatic IP banning after 5 failed authentication attempts (1-hour ban)
+  - **UFW Rate Limiting**: 10 connections per minute per IP
+  - **Enhanced Passwords**: 32-character random passwords (2^128 entropy vs 2^64 in v3.1)
+  - **Docker Healthchecks**: Automated container health monitoring
+- **VLESS-Only Mode** (default): Traditional VPN-only deployment, no proxy exposure
 - File permission hardening (least privilege principle: 600 for configs, 700 for scripts)
 - Automated security auditing
 - SSH rate limiting (brute force protection)
@@ -64,7 +68,9 @@ sudo ./install.sh
 # 1. Select destination site (google.com, microsoft.com, etc.)
 # 2. Choose VLESS port (443 or custom)
 # 3. Select Docker subnet (auto-detected)
-# 4. Enable proxy support? [y/N] ← NEW: Enable SOCKS5 + HTTP proxies
+# 4. Enable public proxy access? [y/N] ← v3.2: Public SOCKS5 + HTTP proxies
+#    - Choose 'y' for internet-accessible proxies (fail2ban, rate limiting enabled)
+#    - Choose 'N' for VLESS-only mode (default, safer)
 ```
 
 ### Create First User (<5 seconds)
@@ -82,6 +88,77 @@ sudo vless add-user alice
 #   - socks5_config.txt, http_config.txt (Proxy URIs)
 #   - vscode_settings.json, docker_daemon.json, bash_exports.sh
 ```
+
+---
+
+## Security Warnings (v3.2 Public Proxy Mode)
+
+⚠️ **IMPORTANT**: If you enable public proxy access during installation, please review these security considerations:
+
+### When to Use Public Proxy Mode
+
+✅ **Recommended for:**
+- Private VPS with trusted users only
+- Development and testing environments
+- Users who cannot install VPN clients (restrictive networks, mobile devices)
+- Scenarios requiring proxy WITHOUT VPN connection
+
+❌ **NOT recommended for:**
+- Shared hosting environments
+- Servers without DDoS protection
+- Compliance-sensitive deployments (GDPR, HIPAA, etc.)
+- Untrusted or open networks
+
+### Automatic Security Measures (v3.2)
+
+When you enable public proxy mode, the installer automatically configures:
+
+1. **Fail2ban Protection**
+   - Monitors Xray authentication logs
+   - Bans IP after 5 failed attempts
+   - Ban duration: 1 hour
+   - Check status: `sudo fail2ban-client status vless-socks5`
+
+2. **UFW Rate Limiting**
+   - Limits connections to 10 per minute per IP
+   - Applies to ports 1080 (SOCKS5) and 8118 (HTTP)
+   - Prevents connection flood attacks
+
+3. **Enhanced Authentication**
+   - 32-character passwords (vs 16 in v3.1)
+   - Hexadecimal format (128-bit entropy)
+   - Unique credentials per user
+
+4. **Container Monitoring**
+   - Docker healthchecks every 30 seconds
+   - Auto-restart on failure (3 retries)
+
+### Manual Security Hardening (Optional)
+
+For maximum security, consider these additional steps:
+
+```bash
+# 1. Enable automatic security updates
+sudo apt install unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades
+
+# 2. Monitor fail2ban logs
+sudo journalctl -u fail2ban -f
+
+# 3. Review banned IPs weekly
+sudo fail2ban-client status vless-socks5
+sudo fail2ban-client status vless-http
+
+# 4. Rotate credentials every 3-6 months
+vless reset-proxy-password <username>
+
+# 5. Monitor Xray logs for suspicious activity
+vless logs | grep "authentication failed"
+```
+
+### Migration from v3.1 to v3.2
+
+See [MIGRATION_v3.1_to_v3.2.md](MIGRATION_v3.1_to_v3.2.md) for detailed upgrade instructions.
 
 ---
 
