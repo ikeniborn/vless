@@ -37,6 +37,9 @@ users.json
 *.pem
 qr_codes/
 
+# Proxy credentials (init_claude script)
+scripts/.claude_proxy_credentials
+
 # Docker
 docker-compose.override.yml
 

@@ -678,7 +678,8 @@ show_proxy_credentials() {
     echo "  curl --proxy http://${username}:${proxy_password}@${server_ip}:8118 https://ifconfig.me"
     echo ""
     echo "VSCode (settings.json):"
-    echo "  \"http.proxy\": \"socks5://${username}:${proxy_password}@${server_ip}:1080\""
+    echo "  \"http.proxy\": \"http://${server_ip}:8118\","
+    echo "  \"http.proxyAuthorization\": \"$(echo -n "${username}:${proxy_password}" | base64)\""
     echo "═══════════════════════════════════════════════════════"
     echo ""
 
@@ -959,10 +960,17 @@ export_vscode_config() {
     local server_ip
     server_ip=$(get_server_ip)
 
-    # Write VSCode settings JSON with public IP
+    # Generate base64 encoded credentials for VSCode proxyAuthorization
+    # VSCode does not support credentials in http.proxy URL, requires separate auth header
+    local auth_base64
+    auth_base64=$(echo -n "${username}:${password}" | base64)
+
+    # Write VSCode settings JSON with HTTP proxy and base64 auth
+    # Note: Using HTTP proxy (port 8118) instead of SOCKS5 for better VSCode compatibility
     cat > "$output_dir/vscode_settings.json" <<EOF
 {
-  "http.proxy": "socks5://${username}:${password}@${server_ip}:1080",
+  "http.proxy": "http://${server_ip}:8118",
+  "http.proxyAuthorization": "${auth_base64}",
   "http.proxyStrictSSL": false,
   "http.proxySupport": "on"
 }
