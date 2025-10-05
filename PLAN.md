@@ -1,11 +1,13 @@
 # VLESS REALITY Deployment System - Implementation Plan
 
-**Project:** VLESS + Reality VPN Deployment System with Integrated Proxy Support
-**Version:** 4.0
-**Status:** Ready for Implementation (Updated with Proxy Integration)
-**Estimated Duration:** 6 weeks (234 hours)
-**Date:** 2025-10-04
-**Based on PRD:** v1.1 (2025-10-03)
+**Project:** VLESS + Reality VPN Deployment System with Public Proxy Support
+**Version:** 3.2
+**Status:** In Progress (Migration to Public Proxy)
+**Estimated Duration:** 6 weeks + 2 weeks (migration v3.1→v3.2)
+**Date:** 2025-10-05
+**Based on PRD:** v3.2 (2025-10-04)
+**Previous Version:** v3.1 (localhost-only proxy)
+**Current Branch:** `proxy-public`
 
 ---
 
@@ -99,17 +101,18 @@ Production-grade CLI-based VLESS+Reality VPN deployment system with integrated S
 
 ---
 
-### Week 5: Proxy Server Integration (40 hours) - **NEW**
-**Epic:** EPIC-11
+### Week 5: Proxy Server Integration (40 hours) - ✅ **COMPLETED**
+**Epic:** EPIC-11 (v3.1 - localhost-only proxy)
+**Status:** ✅ COMPLETED (2025-10-03)
 
 **Deliverables:**
-- SOCKS5 proxy inbound (127.0.0.1:1080, password auth)
-- HTTP proxy inbound (127.0.0.1:8118, password auth)
-- Proxy password generation and management
-- 5 additional client config formats (SOCKS5, HTTP, VSCode, Docker, Bash)
-- Proxy CLI commands (vless-user show --proxy, proxy-reset)
+- ✅ SOCKS5 proxy inbound (127.0.0.1:1080, password auth)
+- ✅ HTTP proxy inbound (127.0.0.1:8118, password auth)
+- ✅ Proxy password generation (16 chars) and management
+- ✅ 5 additional client config formats (SOCKS5, HTTP, VSCode, Docker, Bash)
+- ✅ Proxy CLI commands (vless-user show-proxy, reset-proxy-password)
 
-**Milestone:** All 8 config files generated per user, proxies accessible through VPN tunnel
+**Milestone:** ✅ All 8 config files generated per user, proxies accessible through VPN tunnel
 
 ---
 
@@ -124,6 +127,25 @@ Production-grade CLI-based VLESS+Reality VPN deployment system with integrated S
 - Security audit (nmap, wireshark, proxy port isolation)
 
 **Milestone:** ≥85% weighted success score achieved
+
+---
+
+### Week 7-8: Public Proxy Migration (16 hours) - 🚧 **IN PROGRESS**
+**Epic:** EPIC-12 (v3.1→v3.2 - public proxy migration)
+**Status:** 🚧 IN PROGRESS
+**Branch:** `proxy-public`
+
+**Deliverables:**
+- ⏳ Public proxy binding (0.0.0.0:1080, 0.0.0.0:8118)
+- ⏳ Enhanced password security (32 chars)
+- ⏳ Fail2ban integration (brute-force protection)
+- ⏳ UFW firewall rules (rate limiting 10/min)
+- ⏳ Updated config export (SERVER_IP instead of 127.0.0.1)
+- ⏳ Interactive installation prompt (enable public proxy?)
+- ⏳ Docker healthchecks (SOCKS5/HTTP monitoring)
+- ⏳ Security testing (port scanning, fail2ban, rate limiting)
+
+**Milestone:** ⏳ Public proxy accessible with fail2ban + rate limiting, all security tests passed
 
 ---
 
@@ -297,35 +319,118 @@ Production-grade CLI-based VLESS+Reality VPN deployment system with integrated S
 
 ---
 
-### EPIC-11: Proxy Server Integration (40 hours) - **NEW** - **CRITICAL**
+### EPIC-11: Proxy Server Integration (40 hours) - **COMPLETED** ✅
 **Priority:** Critical | **Complexity:** High
+**Status:** ✅ COMPLETED (2025-10-03) - v3.1 (localhost-only)
 
 **Tasks:**
-1. TASK-11.1: SOCKS5 proxy inbound configuration (8h)
-2. TASK-11.2: HTTP proxy inbound configuration (8h)
-3. TASK-11.3: Proxy password generation and storage (4h)
-4. TASK-11.4: Proxy configuration export (8 files per user) (8h)
-5. TASK-11.5: Proxy CLI commands (show --proxy, proxy-reset) (6h)
-6. TASK-11.6: Update Xray config with 3 inbounds (4h)
-7. TASK-11.7: Proxy functionality testing (2h)
+1. TASK-11.1: SOCKS5 proxy inbound configuration (8h) ✅ COMPLETED
+2. TASK-11.2: HTTP proxy inbound configuration (8h) ✅ COMPLETED
+3. TASK-11.3: Proxy password generation and storage (4h) ✅ COMPLETED
+4. TASK-11.4: Proxy configuration export (8 files per user) (8h) ✅ COMPLETED
+5. TASK-11.5: Proxy CLI commands (show-proxy, reset-proxy-password) (6h) ✅ COMPLETED
+6. TASK-11.6: Update Xray config with 3 inbounds (4h) ✅ COMPLETED
+7. TASK-11.7: Proxy functionality testing (2h) ✅ COMPLETED
 
 **Dependencies:** EPIC-3 (Xray configuration), EPIC-6 (User management) complete
 
-**Implementation:**
-- lib/proxy_management.sh (new file, ~600 lines estimated)
-- Update lib/user_management.sh (add proxy_password generation)
-- Update lib/qr_generator.sh (add proxy config export)
+**Implementation Files (v3.1):**
+- lib/orchestrator.sh (SOCKS5/HTTP inbound generation)
+- lib/user_management.sh (proxy password generation, config export)
+- scripts/vless-user (show-proxy, reset-proxy-password commands)
 
-**New Requirements from PRD v1.1:**
-- FR-022: SOCKS5 Proxy Inbound (127.0.0.1:1080, password auth, TCP only)
-- FR-023: HTTP Proxy Inbound (127.0.0.1:8118, password auth, HTTP/HTTPS)
-- FR-024: Proxy Configuration Management (8 config files per user)
+**Delivered Requirements from PRD v3.1:**
+- FR-022: SOCKS5 Proxy Inbound (127.0.0.1:1080, password auth, TCP only) ✅
+- FR-023: HTTP Proxy Inbound (127.0.0.1:8118, password auth, HTTP/HTTPS) ✅
+- FR-024: Proxy Configuration Management (8 config files per user) ✅
 
-**Security Considerations:**
-- Localhost-only binding (127.0.0.1) - NOT exposed to internet
-- Individual password per user (auto-generated 16 chars)
-- Accessible only through established VPN tunnel
-- UFW does NOT expose ports 1080/8118
+**v3.1 Security Implementation:**
+- Localhost-only binding (127.0.0.1) - NOT exposed to internet ✅
+- Individual password per user (auto-generated 16 chars) ✅
+- Accessible only through established VPN tunnel ✅
+- UFW does NOT expose ports 1080/8118 ✅
+
+**Note:** This EPIC delivered v3.1 (localhost-only proxy). Migration to v3.2 (public proxy) is covered in EPIC-12.
+
+---
+
+### EPIC-12: Public Proxy Migration (v3.1→v3.2) (16 hours) - **NEW** - **IN PROGRESS** 🚧
+**Priority:** Critical | **Complexity:** High
+**Status:** 🚧 IN PROGRESS
+**Branch:** `proxy-public`
+**Target Date:** 2025-10-10
+
+**Overview:**
+Migrate from localhost-only proxy (127.0.0.1) to publicly accessible proxy (0.0.0.0) with mandatory security hardening.
+
+**⚠️ BREAKING CHANGES:**
+- All v3.1 proxy configs become invalid
+- Proxies exposed to internet (requires fail2ban + rate limiting)
+- Password length: 16 → 32 characters
+
+**Tasks (from PLAN_FIX.md):**
+
+**PHASE 1: Core Proxy Changes (4-6h)**
+1. TASK-12.1: Update proxy inbound binding (1h) - Change listen 127.0.0.1→0.0.0.0
+2. TASK-12.2: Enhance password generation (30min) - 16→32 chars (openssl rand -hex 16)
+3. TASK-12.3: Update config export functions (2h) - Replace 127.0.0.1 with SERVER_IP
+4. TASK-12.4: Update display functions (30min) - Show "PUBLIC ACCESS" warnings
+
+**PHASE 2: Security Hardening (4-6h)**
+5. TASK-12.5: Create fail2ban module (3h) - lib/fail2ban_setup.sh (~150 lines)
+6. TASK-12.6: Update UFW firewall rules (1h) - Add ports 1080, 8118 with rate limiting
+7. TASK-12.7: Add Docker healthchecks (1h) - SOCKS5/HTTP port monitoring
+8. TASK-12.8: Update dependencies (30min) - Add fail2ban, netcat
+
+**PHASE 3: Installation Flow (2-3h)**
+9. TASK-12.9: Add interactive prompt (1h) - "Enable public proxy? [y/N]"
+10. TASK-12.10: Conditional proxy activation (1h) - ENABLE_PUBLIC_PROXY flag
+11. TASK-12.11: Integration with install.sh (30min) - Source fail2ban module
+
+**PHASE 4: Testing & Documentation (2-3h)**
+12. TASK-12.12: Integration tests (1h) - Public access, fail2ban, rate limiting
+13. TASK-12.13: Security tests (1h) - Port scanning, password strength, nmap
+14. TASK-12.14: Update documentation (1h) - README, CLAUDE.md, migration guide
+
+**Dependencies:** EPIC-11 complete (v3.1 proxy foundation)
+
+**New Requirements from PRD v3.2:**
+- FR-001: Public Proxy Binding (0.0.0.0:1080, 0.0.0.0:8118) ⏳ IN PROGRESS
+- FR-002: Enhanced Password Security (32 chars) ⏳ IN PROGRESS
+- FR-003: Fail2ban Integration (mandatory) ⏳ IN PROGRESS
+- FR-004: UFW Firewall Rules (rate limiting) ⏳ IN PROGRESS
+- FR-005: Updated Config File Export (SERVER_IP) ⏳ IN PROGRESS
+- FR-006: Hybrid Mode Installation (interactive prompt) ⏳ IN PROGRESS
+- FR-007: Healthchecks (Docker healthcheck) ⏳ IN PROGRESS
+
+**Security Implementation (v3.2):**
+- Public binding (0.0.0.0) - EXPOSED to internet ⚠️
+- Fail2ban protection (5 retries → 1h ban) 🛡️
+- UFW rate limiting (10 conn/min per IP) 🛡️
+- 32-character passwords (hex) 🛡️
+- Ports 1080/8118 exposed in UFW ⚠️
+
+**Files Modified (v3.1→v3.2):**
+- lib/orchestrator.sh (~15 lines) - Proxy listen binding
+- lib/user_management.sh (~20 lines) - Password gen + config export
+- lib/interactive_params.sh (~30 lines) - Public proxy prompt
+- lib/fail2ban_setup.sh (~150 lines) - NEW module
+- lib/dependencies.sh (~5 lines) - Add fail2ban
+- install.sh (~10 lines) - Conditional fail2ban setup
+
+**Testing Checklist:**
+- [ ] Public proxy accessible externally (Test Case 1)
+- [ ] Fail2ban blocks after 5 failures (Test Case 2)
+- [ ] Rate limiting blocks excess connections (Test Case 3)
+- [ ] No `127.0.0.1` in client configs (Test Case 4)
+- [ ] Only ports 443, 1080, 8118 open (Test Case 5)
+- [ ] Password length = 32 (Test Case 6)
+
+**Rollback Plan:**
+1. Restore backup from `/tmp/vless_backup_<timestamp>/`
+2. Close UFW ports: `ufw delete allow 1080/tcp; ufw delete allow 8118/tcp`
+3. Uninstall fail2ban: `systemctl stop fail2ban; apt remove -y fail2ban`
+4. Restore v3.1 configs with `127.0.0.1` binding
 
 ---
 
