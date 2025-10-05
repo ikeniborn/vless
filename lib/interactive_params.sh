@@ -22,6 +22,7 @@ export REALITY_DEST_PORT=""
 export VLESS_PORT=""
 export DOCKER_SUBNET=""
 export ENABLE_PROXY=""
+export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -86,8 +87,8 @@ collect_parameters() {
         return 1
     }
 
-    # Step 4: Enable proxy support
-    select_proxy_enable || {
+    # Step 4: Enable public proxy support (v3.2)
+    prompt_enable_public_proxy || {
         echo -e "${RED}Failed to configure proxy settings${NC}" >&2
         return 1
     }
@@ -629,7 +630,16 @@ confirm_parameters() {
     echo -e "  ${YELLOW}Destination Site:${NC}    ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo -e "  ${YELLOW}VLESS Port:${NC}          ${VLESS_PORT}"
     echo -e "  ${YELLOW}Docker Subnet:${NC}       ${DOCKER_SUBNET}"
-    echo -e "  ${YELLOW}Proxy Support:${NC}       $(if [[ "$ENABLE_PROXY" == "true" ]]; then echo -e "${GREEN}Enabled${NC}"; else echo -e "${YELLOW}Disabled${NC}"; fi)"
+
+    # v3.2: Display proxy mode more clearly
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}PUBLIC PROXY MODE (v3.2)${NC}"
+        echo -e "                       ${YELLOW}⚠️  Ports 1080, 8118 exposed${NC}"
+    elif [[ "$ENABLE_PROXY" == "true" ]]; then
+        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Enabled (localhost only)${NC}"
+    else
+        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${YELLOW}VLESS-ONLY MODE${NC}"
+    fi
     echo ""
 
     local confirm
@@ -656,6 +666,112 @@ confirm_parameters() {
 }
 
 # =============================================================================
+# FUNCTION: prompt_enable_public_proxy
+# =============================================================================
+# Description: Ask user if they want to enable public proxy access
+# Sets: ENABLE_PUBLIC_PROXY (true/false)
+# Returns: 0 always
+# Related: v3.2 Public Proxy Support - TASK-3.1
+# =============================================================================
+prompt_enable_public_proxy() {
+    echo ""
+    echo "═════════════════════════════════════════════════════"
+    echo "  PROXY CONFIGURATION (v3.2)"
+    echo "═════════════════════════════════════════════════════"
+    echo ""
+    echo "VLESS Reality supports dual proxy modes:"
+    echo ""
+    echo "1. VLESS-ONLY MODE (default, safer):"
+    echo "   - Only VLESS VPN available"
+    echo "   - No SOCKS5/HTTP proxies"
+    echo "   - Best for VPN-only use cases"
+    echo ""
+    echo "2. PUBLIC PROXY MODE (v3.2 feature):"
+    echo "   - SOCKS5 + HTTP proxies accessible from internet"
+    echo "   - No VPN client required"
+    echo "   - Requires fail2ban and rate limiting"
+    echo ""
+    echo -e "${YELLOW}⚠️  WARNING: Public proxy exposes ports 1080 and 8118${NC}"
+    echo -e "${YELLOW}⚠️  to the internet. Ensure your server can handle${NC}"
+    echo -e "${YELLOW}⚠️  potential abuse and DDoS attempts.${NC}"
+    echo ""
+    echo "Security measures (auto-configured if YES):"
+    echo "  ✓ Fail2ban (ban after 5 failed auth attempts)"
+    echo "  ✓ UFW rate limiting (10 connections/min per IP)"
+    echo "  ✓ 32-character passwords (vs 16 in v3.1)"
+    echo ""
+
+    local response
+    while true; do
+        read -r -p "Enable public proxy access? [y/N]: " response
+        response=${response,,}  # Convert to lowercase
+
+        case "$response" in
+            y|yes)
+                echo ""
+                echo -e "${YELLOW}⚠️  FINAL CONFIRMATION ⚠️${NC}"
+                echo ""
+                echo "You are about to enable PUBLIC INTERNET access to"
+                echo "SOCKS5 (port 1080) and HTTP (port 8118) proxies."
+                echo ""
+                echo "This means ANYONE on the internet can ATTEMPT to"
+                echo "connect to your proxy (authentication still required)."
+                echo ""
+                echo "Recommended for:"
+                echo "  ✓ Private VPS with trusted users"
+                echo "  ✓ Development/testing environments"
+                echo "  ✓ Users who cannot install VPN clients"
+                echo ""
+                echo "NOT recommended for:"
+                echo "  ✗ Shared hosting environments"
+                echo "  ✗ Servers with weak DDoS protection"
+                echo "  ✗ Compliance-sensitive deployments"
+                echo ""
+
+                local confirm
+                read -r -p "Proceed with public proxy? [y/N]: " confirm
+                confirm=${confirm,,}
+
+                if [[ "$confirm" == "y" || "$confirm" == "yes" ]]; then
+                    ENABLE_PUBLIC_PROXY="true"
+                    ENABLE_PROXY="true"  # Also enable proxy in general
+                    echo ""
+                    echo -e "${GREEN}✓ Public proxy mode enabled${NC}"
+                    echo ""
+                    echo "Next steps:"
+                    echo "  1. Fail2ban will be installed"
+                    echo "  2. UFW ports 1080, 8118 will be opened"
+                    echo "  3. All passwords will be 32 characters"
+                    echo ""
+                    break
+                else
+                    echo ""
+                    echo "Public proxy canceled, falling back to VLESS-only mode"
+                    ENABLE_PUBLIC_PROXY="false"
+                    ENABLE_PROXY="false"
+                    break
+                fi
+                ;;
+            n|no|"")
+                ENABLE_PUBLIC_PROXY="false"
+                ENABLE_PROXY="false"
+                echo ""
+                echo -e "${GREEN}✓ VLESS-only mode (no public proxy)${NC}"
+                echo ""
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid response. Please enter 'y' or 'n'${NC}"
+                ;;
+        esac
+    done
+
+    export ENABLE_PUBLIC_PROXY
+    export ENABLE_PROXY
+    return 0
+}
+
+# =============================================================================
 # MODULE INITIALIZATION
 # =============================================================================
 
@@ -670,3 +786,4 @@ export -f select_docker_subnet
 export -f scan_docker_networks
 export -f find_free_subnet
 export -f confirm_parameters
+export -f prompt_enable_public_proxy
