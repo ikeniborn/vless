@@ -99,7 +99,8 @@ orchestrate_installation() {
     }
 
     # Step 4: Create Xray configuration (with optional proxy support)
-    create_xray_config "${ENABLE_PROXY:-false}" || {
+    # v3.2: Use ENABLE_PUBLIC_PROXY to determine if proxy inbounds should be created
+    create_xray_config "${ENABLE_PUBLIC_PROXY:-false}" || {
         echo -e "${RED}Failed to create Xray configuration${NC}" >&2
         return 1
     }
@@ -134,11 +135,40 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 9.5: Setup fail2ban (v3.2 - conditional on ENABLE_PUBLIC_PROXY)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo ""
+        echo -e "${CYAN}[9.5/12] Setting up fail2ban for public proxy protection...${NC}"
+
+        # Source fail2ban module
+        if [[ -f "${SCRIPT_DIR}/lib/fail2ban_setup.sh" ]]; then
+            source "${SCRIPT_DIR}/lib/fail2ban_setup.sh"
+        fi
+
+        if ! setup_fail2ban_for_proxy; then
+            echo -e "${RED}Failed to setup fail2ban${NC}" >&2
+            echo -e "${YELLOW}WARNING: Public proxy will be less secure without fail2ban${NC}"
+            echo -e "${YELLOW}Continue installation? [y/N]: ${NC}" >&2
+            read -r response
+            if [[ "${response,,}" != "y" && "${response,,}" != "yes" ]]; then
+                return 1
+            fi
+        fi
+    fi
+
     # Step 10: Configure UFW firewall
     configure_ufw || {
         echo -e "${RED}Failed to configure UFW${NC}" >&2
         return 1
     }
+
+    # Step 10.5: Configure proxy firewall rules (v3.2 - conditional on ENABLE_PUBLIC_PROXY)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        configure_proxy_firewall_rules || {
+            echo -e "${RED}Failed to configure proxy firewall rules${NC}" >&2
+            return 1
+        }
+    fi
 
     # Step 11: Deploy containers
     deploy_containers || {
