@@ -35,12 +35,13 @@ REQUIRED_PACKAGES=(
     "qrencode"
     "curl"
     "openssl"
-    "netcat-openbsd"  # v3.2: For Docker healthchecks
 )
 
-# Optional packages (installed only if ENABLE_PUBLIC_PROXY=true)
+# Optional packages (non-critical, system works without them)
+# v3.2: netcat for healthchecks, fail2ban for public proxy protection
 OPTIONAL_PACKAGES=(
-    "fail2ban"  # v3.2: Brute-force protection for public proxy
+    "netcat-openbsd"  # For Docker healthchecks (fallback: netcat-traditional, ncat)
+    "fail2ban"        # Brute-force protection for public proxy
 )
 
 # Ensure it's properly declared as array for export
@@ -421,6 +422,7 @@ install_dependencies() {
         # Check if already installed
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
+        [[ "$package" == "netcat-openbsd" ]] && cmd_name="nc"
 
         # Special check for docker-compose-plugin
         local is_installed=false
@@ -494,24 +496,57 @@ install_dependencies() {
         fi
     done
 
-    # Install optional packages (v3.2 - fail2ban for public proxy)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo ""
-        echo -e "${CYAN}Installing optional packages for public proxy...${NC}"
+    # Install optional packages (v3.2)
+    echo ""
+    echo -e "${CYAN}Installing optional packages...${NC}"
 
-        for package in "${OPTIONAL_PACKAGES[@]}"; do
-            if command -v fail2ban-server &>/dev/null 2>&1; then
-                echo -e "  ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
+    for package in "${OPTIONAL_PACKAGES[@]}"; do
+        # Skip fail2ban if public proxy not enabled
+        if [[ "$package" == "fail2ban" && "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
+            echo -e "  ${YELLOW}⊗${NC} $package - skipped (public proxy not enabled)"
+            continue
+        fi
+
+        # Map package name to command name
+        local opt_cmd="$package"
+        [[ "$package" == "netcat-openbsd" ]] && opt_cmd="nc"
+        [[ "$package" == "fail2ban" ]] && opt_cmd="fail2ban-server"
+
+        # Check if already installed
+        if command -v "$opt_cmd" &>/dev/null 2>&1; then
+            echo -e "  ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
+            continue
+        fi
+
+        # Try to install
+        echo -e "  Installing $package..."
+        if install_package "$package"; then
+            if command -v "$opt_cmd" &>/dev/null 2>&1; then
+                echo -e "  ${CHECK_MARK} $package - ${GREEN}installed successfully${NC}"
             else
-                echo -e "  Installing $package..."
-                if install_package "$package"; then
-                    echo -e "  ${CHECK_MARK} $package - ${GREEN}installed successfully${NC}"
-                else
-                    echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (will be handled by fail2ban_setup.sh)${NC}"
-                fi
+                echo -e "  ${YELLOW}${WARNING_MARK} $package - installed but command not found${NC}"
             fi
-        done
-    fi
+        else
+            # Handle fallbacks for specific packages
+            if [[ "$package" == "netcat-openbsd" ]]; then
+                echo -e "  ${YELLOW}${WARNING_MARK} netcat-openbsd not available, trying alternatives...${NC}"
+
+                # Try netcat-traditional
+                if install_package "netcat-traditional" 2>/dev/null; then
+                    echo -e "  ${CHECK_MARK} netcat-traditional - ${GREEN}installed as fallback${NC}"
+                # Try ncat (from nmap package)
+                elif command -v ncat &>/dev/null 2>&1; then
+                    echo -e "  ${CHECK_MARK} ncat - ${GREEN}already available${NC}"
+                else
+                    echo -e "  ${YELLOW}${WARNING_MARK} No netcat variant available (healthchecks will be disabled)${NC}"
+                fi
+            elif [[ "$package" == "fail2ban" ]]; then
+                echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (will be handled by fail2ban_setup.sh)${NC}"
+            else
+                echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (non-critical)${NC}"
+            fi
+        fi
+    done
 
     echo ""
     echo -e "${BLUE}Installation Summary:${NC}"
