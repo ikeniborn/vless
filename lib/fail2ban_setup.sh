@@ -234,7 +234,7 @@ verify_fail2ban_jails() {
 setup_fail2ban_for_proxy() {
     echo ""
     echo "═════════════════════════════════════════════════════"
-    echo "  FAIL2BAN SETUP (v3.2 - Public Proxy Protection)"
+    echo "  FAIL2BAN SETUP (v3.3 - TLS Public Proxy Protection)"
     echo "═════════════════════════════════════════════════════"
     echo ""
 

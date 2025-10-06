@@ -532,12 +532,21 @@ EOF
     echo "  ✓ Fallback to Nginx configured"
 
     if [[ "$enable_proxy" == "true" ]]; then
-        local server_ip
-        server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP")
-        echo "  ✓ SOCKS5 Proxy enabled (0.0.0.0:1080) - PUBLIC ACCESS"
-        echo "  ✓ HTTP Proxy enabled (0.0.0.0:8118) - PUBLIC ACCESS"
-        echo "  ⚠️  External URI: socks5://user:pass@${server_ip}:1080"
-        echo "  ⚠️  WARNING: Proxy accessible from internet"
+        if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+            # v3.3: TLS-encrypted public proxy
+            local domain="${DOMAIN:-SERVER_DOMAIN}"
+            echo "  ✓ SOCKS5 Proxy (0.0.0.0:1080) - TLS-ENCRYPTED PUBLIC ACCESS"
+            echo "  ✓ HTTP Proxy (0.0.0.0:8118) - TLS-ENCRYPTED PUBLIC ACCESS"
+            echo "  ✓ TLS Certificate: ${domain}"
+            echo "  ⚠️  SOCKS5 URI: socks5s://user:pass@${domain}:1080"
+            echo "  ⚠️  HTTP URI: https://user:pass@${domain}:8118"
+            echo "  ⚠️  WARNING: Proxies require TLS-capable clients (v3.3)"
+        else
+            # v3.1: Localhost-only proxy (no TLS needed)
+            echo "  ✓ SOCKS5 Proxy (127.0.0.1:1080) - LOCALHOST ONLY"
+            echo "  ✓ HTTP Proxy (127.0.0.1:8118) - LOCALHOST ONLY"
+            echo "  ℹ️  Access via VPN connection only"
+        fi
     fi
 
     echo -e "${GREEN}✓ Xray configuration created${NC}"
