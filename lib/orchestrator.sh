@@ -328,8 +328,12 @@ generate_short_id() {
 # Note: v3.3 - TLS encryption mandatory when ENABLE_PUBLIC_PROXY=true
 # =============================================================================
 generate_socks5_inbound_json() {
-    # Check if TLS is required (public proxy mode)
-    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+    # v3.4: Three-tier proxy configuration
+    # 1. Public + TLS: 0.0.0.0 with TLS encryption (socks5s://)
+    # 2. Public + Plaintext: 0.0.0.0 without TLS (socks5://)
+    # 3. Localhost only: 127.0.0.1 without TLS (socks5://)
+
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
         # v3.3: TLS-encrypted SOCKS5 (socks5s://)
         cat <<EOF
   ,{
@@ -355,6 +359,26 @@ generate_socks5_inbound_json() {
         ],
         "alpn": ["h2", "http/1.1"]
       }
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+    elif [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "false" ]]; then
+        # v3.4: Plaintext SOCKS5 on public interface (socks5://)
+        cat <<'EOF'
+  ,{
+    "tag": "socks5-proxy",
+    "listen": "0.0.0.0",
+    "port": 1080,
+    "protocol": "socks",
+    "settings": {
+      "auth": "password",
+      "accounts": [],
+      "udp": false,
+      "ip": "0.0.0.0"
     },
     "sniffing": {
       "enabled": true,
@@ -394,8 +418,12 @@ EOF
 # Note: v3.3 - TLS encryption mandatory when ENABLE_PUBLIC_PROXY=true
 # =============================================================================
 generate_http_inbound_json() {
-    # Check if TLS is required (public proxy mode)
-    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+    # v3.4: Three-tier proxy configuration
+    # 1. Public + TLS: 0.0.0.0 with TLS encryption (https://)
+    # 2. Public + Plaintext: 0.0.0.0 without TLS (http://)
+    # 3. Localhost only: 127.0.0.1 without TLS (http://)
+
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
         # v3.3: TLS-encrypted HTTP (https://)
         cat <<EOF
   ,{
@@ -420,6 +448,25 @@ generate_http_inbound_json() {
         ],
         "alpn": ["h2", "http/1.1"]
       }
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+    elif [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "false" ]]; then
+        # v3.4: Plaintext HTTP on public interface (http://)
+        cat <<'EOF'
+  ,{
+    "tag": "http-proxy",
+    "listen": "0.0.0.0",
+    "port": 8118,
+    "protocol": "http",
+    "settings": {
+      "accounts": [],
+      "allowTransparent": false,
+      "userLevel": 0
     },
     "sniffing": {
       "enabled": true,
@@ -750,22 +797,30 @@ EOF
 create_docker_compose() {
     echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
 
-    # v3.2: Determine ports based on ENABLE_PUBLIC_PROXY flag
+    # v3.4: Determine ports and volumes based on proxy mode and TLS
     local ports_section
     local volumes_section
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.2/v3.3: Public proxy mode - expose ports 1080 and 8118
+        # v3.2/v3.3/v3.4: Public proxy mode - expose ports 1080 and 8118
         ports_section="    ports:
       - \"${VLESS_PORT}:${VLESS_PORT}\"
       - \"1080:1080\"
       - \"8118:8118\""
 
-        # v3.3: Add Let's Encrypt certificate volume mount
-        volumes_section="    volumes:
+        # v3.4: Conditionally add Let's Encrypt certificate volume mount
+        if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+            # v3.3/v3.4: TLS mode - mount certificates
+            volumes_section="    volumes:
       - ${CONFIG_DIR}:/etc/xray:ro
       - ${LOGS_DIR}:/var/log/xray
       - /etc/letsencrypt:/certs:ro"
+        else
+            # v3.4: Plaintext mode - no certificates
+            volumes_section="    volumes:
+      - ${CONFIG_DIR}:/etc/xray:ro
+      - ${LOGS_DIR}:/var/log/xray"
+        fi
     else
         # VLESS-only mode - no proxy ports exposed, no cert volume
         ports_section="    ports:
@@ -846,10 +901,17 @@ EOF
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
 
-    # v3.2: Show exposed ports based on mode
+    # v3.4: Show exposed ports based on mode
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo "  ✓ Mode: PUBLIC PROXY (v3.2)"
-        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS), 1080 (SOCKS5), 8118 (HTTP)"
+        if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+            echo "  ✓ Mode: PUBLIC PROXY with TLS (v3.3/v3.4)"
+            echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS), 1080 (SOCKS5s), 8118 (HTTPS)"
+            echo "  ✓ TLS certificates: /etc/letsencrypt mounted"
+        else
+            echo "  ✓ Mode: PUBLIC PROXY (plaintext) (v3.4)"
+            echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS), 1080 (SOCKS5), 8118 (HTTP)"
+            echo "  ⚠️  WARNING: Proxy credentials NOT encrypted!"
+        fi
     else
         echo "  ✓ Mode: VLESS-only"
         echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS)"
@@ -887,9 +949,10 @@ DOCKER_SUBNET=${DOCKER_SUBNET}
 # Server Information (v3.2 - for public proxy configs)
 SERVER_IP=${server_ip}
 
-# Proxy Configuration (v3.3)
+# Proxy Configuration (v3.4)
 ENABLE_PROXY=${ENABLE_PROXY:-false}
 ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
+ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}

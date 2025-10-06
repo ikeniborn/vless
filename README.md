@@ -1,6 +1,6 @@
 # VLESS Reality VPN Deployment System
 
-**Version**: 3.3
+**Version**: 3.4
 **Status**: Production Ready
 **License**: MIT
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP) with mandatory TLS encryption** for public access (v3.3), Let's Encrypt certificate automation, and defense-in-depth security hardening including fail2ban integration.
+Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP) with optional TLS encryption** for public access (v3.4), Let's Encrypt certificate automation, and defense-in-depth security hardening including fail2ban integration.
 
 ---
 
@@ -19,10 +19,10 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to
 - **One-Command Installation**: Complete setup in < 5 minutes
 - **Automated Dependency Management**: Docker, UFW, certbot, jq, qrencode auto-install
 - **Reality Protocol**: TLS 1.3 masquerading for undetectable VPN traffic
-- **Dual Proxy Support (v3.3)**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with:
-  - **Mandatory TLS 1.3 encryption** for public access
-  - **Let's Encrypt certificates** with auto-renewal
-  - **Domain-based URIs** (socks5s://, https://)
+- **Dual Proxy Support (v3.4)**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with:
+  - **Optional TLS 1.3 encryption** for public access (recommended)
+  - **Let's Encrypt certificates** with auto-renewal (when TLS enabled)
+  - **Flexible deployment**: TLS (socks5s://, https://) or plaintext (socks5://, http://)
 - **User Management**: Create/remove users in < 5 seconds with UUID generation
 - **Multi-Format Config Export**: 6 proxy config formats (SOCKS5, HTTP, VSCode, Docker, Bash, Git)
 - **QR Code Generation**: 400x400px PNG + ANSI terminal variants
@@ -35,14 +35,15 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to
 
 - Defense-in-depth firewall (UFW + iptables)
 - Container security (capability dropping, read-only root, no-new-privileges)
-- **Public Proxy Mode (v3.3)**: Internet-accessible SOCKS5/HTTP proxies with production-grade security:
-  - **TLS 1.3 Encryption**: Mandatory encryption via Let's Encrypt certificates
-  - **Certificate Auto-Renewal**: Automated certificate renewal (cron-based, twice daily)
-  - **Fail2ban Integration**: Automatic IP banning after 5 failed authentication attempts (1-hour ban)
-  - **UFW Rate Limiting**: 10 connections per minute per IP
+- **Public Proxy Mode (v3.4)**: Internet-accessible SOCKS5/HTTP proxies with production-grade security:
+  - **Optional TLS 1.3 Encryption**: Encryption via Let's Encrypt certificates (recommended for production)
+  - **Plaintext Mode**: Available for development/testing (⚠️ credentials not encrypted)
+  - **Certificate Auto-Renewal**: Automated certificate renewal when TLS enabled (cron-based, twice daily)
+  - **Fail2ban Integration**: Automatic IP banning after 5 failed authentication attempts (1-hour ban, all modes)
+  - **UFW Rate Limiting**: 10 connections per minute per IP (public proxy only)
   - **Enhanced Passwords**: 32-character random passwords (2^128 entropy)
   - **Docker Healthchecks**: Automated container health monitoring
-  - **Domain Validation**: DNS checks before certificate issuance
+  - **Domain Validation**: DNS checks before certificate issuance (TLS mode only)
 - **VLESS-Only Mode** (default): Traditional VPN-only deployment, no proxy exposure
 - File permission hardening (least privilege principle: 600 for configs, 700 for scripts)
 - Automated security auditing
@@ -75,11 +76,14 @@ sudo ./install.sh
 # 1. Select destination site (google.com, microsoft.com, etc.)
 # 2. Choose VLESS port (443 or custom)
 # 3. Select Docker subnet (auto-detected)
-# 4. Enable public proxy access? [y/N] ← v3.3: TLS-encrypted SOCKS5 + HTTP proxies
-#    - Choose 'y' for internet-accessible proxies (requires domain, Let's Encrypt cert)
-#    - Choose 'N' for VLESS-only mode (default, no domain required)
-# 5. If 'y': Enter domain name (e.g., vpn.example.com)
-# 6. If 'y': Enter email for Let's Encrypt notifications
+# 4. Enable public proxy access? [y/N] ← v3.4: SOCKS5 + HTTP proxies
+#    - Choose 'y' for internet-accessible proxies
+#    - Choose 'N' for VLESS-only mode (default)
+# 5. If 'y': Enable TLS encryption for proxy? [Y/n] ← v3.4: NEW
+#    - Choose 'Y' for TLS (requires domain, Let's Encrypt cert) - RECOMMENDED
+#    - Choose 'n' for plaintext (development/testing ONLY) - ⚠️ INSECURE
+# 6. If TLS enabled: Enter domain name (e.g., vpn.example.com)
+# 7. If TLS enabled: Enter email for Let's Encrypt notifications
 ```
 
 ### Create First User (<5 seconds)
@@ -100,19 +104,43 @@ sudo vless add-user alice
 
 ---
 
-## Security Notes (v3.3 Public Proxy Mode)
+## Security Notes (v3.4 Public Proxy Mode)
 
-✅ **v3.3 NOW PRODUCTION-READY**: Public proxy mode now uses mandatory TLS 1.3 encryption via Let's Encrypt certificates.
+**v3.4 introduces optional TLS encryption** for public proxy mode:
+- **WITH TLS (v3.3/v3.4)**: Production-ready with Let's Encrypt certificates (recommended)
+- **WITHOUT TLS (v3.4)**: Plaintext mode for development/testing ONLY
+
+### Proxy Encryption Modes
+
+#### 1. Public Proxy WITH TLS (Recommended)
+✅ **Production-ready** - Credentials encrypted end-to-end
+- Protocols: `socks5s://`, `https://`
+- Requires: Domain name + Let's Encrypt certificate
+- Security: TLS 1.3 encryption, fail2ban, rate limiting
+- Use case: Private VPS with trusted users
+
+#### 2. Public Proxy WITHOUT TLS (Plaintext - Development Only)
+⚠️ **NOT PRODUCTION-READY** - Credentials transmitted in plaintext!
+- Protocols: `socks5://`, `http://`
+- Requires: No domain, no certificates
+- Security: Fail2ban, rate limiting, password auth
+- ⚠️ **WARNING**: Passwords visible to network observers!
+- Use case: Localhost-only, trusted networks, development/testing
 
 ### When to Use Public Proxy Mode
 
-✅ **Recommended for:**
+✅ **TLS Mode Recommended for:**
 - Private VPS with trusted users only
-- Development and testing environments
+- Production deployments
 - Users who cannot install VPN clients (restrictive networks, mobile devices)
 - Scenarios requiring proxy WITHOUT VPN connection
 
-❌ **NOT recommended for:**
+❌ **Plaintext Mode ONLY for:**
+- Development and testing environments
+- Localhost-only access (no internet exposure)
+- Trusted private networks (LAN)
+
+❌ **NOT recommended for ANY public proxy:**
 - Shared hosting environments
 - Servers without DDoS protection
 - Compliance-sensitive deployments (GDPR, HIPAA, etc.)

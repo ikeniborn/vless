@@ -398,15 +398,17 @@ add_client_to_xray() {
     # Validate with xray -test (if container is running)
     # Note: Container has read-only filesystem, so we validate by mounting the file
     if docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
-        # Check if public proxy mode with TLS is enabled (requires certificate mounting)
+        # Check if public proxy mode with TLS is enabled (requires certificate mounting) - v3.4
         local enable_public_proxy="false"
+        local enable_proxy_tls="false"
         if [[ -f "$ENV_FILE" ]]; then
             enable_public_proxy=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" | cut -d'=' -f2 || echo "false")
+            enable_proxy_tls=$(grep -E "^ENABLE_PROXY_TLS=" "$ENV_FILE" | cut -d'=' -f2 || echo "false")
         fi
 
         # Build docker run command with conditional certificate mounting
         local docker_cmd="docker run --rm -v $temp_file:/tmp/test_config.json:ro"
-        if [[ "$enable_public_proxy" == "true" ]] && [[ -d "/etc/letsencrypt" ]]; then
+        if [[ "$enable_public_proxy" == "true" ]] && [[ "$enable_proxy_tls" == "true" ]] && [[ -d "/etc/letsencrypt" ]]; then
             docker_cmd="$docker_cmd -v /etc/letsencrypt:/certs:ro"
         fi
         docker_cmd="$docker_cmd ${XRAY_IMAGE:-teddysun/xray:24.11.30} xray -test -config=/tmp/test_config.json"
@@ -459,15 +461,17 @@ remove_client_from_xray() {
 
     # Validate with xray -test (if container is running)
     if docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
-        # Check if public proxy mode with TLS is enabled (requires certificate mounting)
+        # Check if public proxy mode with TLS is enabled (requires certificate mounting) - v3.4
         local enable_public_proxy="false"
+        local enable_proxy_tls="false"
         if [[ -f "$ENV_FILE" ]]; then
             enable_public_proxy=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" | cut -d'=' -f2 || echo "false")
+            enable_proxy_tls=$(grep -E "^ENABLE_PROXY_TLS=" "$ENV_FILE" | cut -d'=' -f2 || echo "false")
         fi
 
         # Build docker run command with conditional certificate mounting
         local docker_cmd="docker run --rm -v $temp_file:/tmp/test_config.json:ro"
-        if [[ "$enable_public_proxy" == "true" ]] && [[ -d "/etc/letsencrypt" ]]; then
+        if [[ "$enable_public_proxy" == "true" ]] && [[ "$enable_proxy_tls" == "true" ]] && [[ -d "/etc/letsencrypt" ]]; then
             docker_cmd="$docker_cmd -v /etc/letsencrypt:/certs:ro"
         fi
         docker_cmd="$docker_cmd ${XRAY_IMAGE:-teddysun/xray:24.11.30} xray -test -config=/tmp/test_config.json"
@@ -933,18 +937,22 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Determine URI scheme and host based on mode (v3.3)
+    # Determine URI scheme and host based on mode (v3.4)
     local scheme="socks5"
     local host
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.3: Public proxy with TLS encryption
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # v3.3/v3.4: Public proxy with TLS encryption
         scheme="socks5s"  # SOCKS5 over TLS
         host="${DOMAIN}"  # Use domain for TLS certificate validation
+    elif [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "false" ]]; then
+        # v3.4: Public proxy without TLS (plaintext)
+        scheme="socks5"
+        host=$(get_server_ip)
     else
         # v3.1: Localhost-only, no TLS
         scheme="socks5"
-        host=$(get_server_ip)
+        host="127.0.0.1"
     fi
 
     # Write SOCKS5 URI
@@ -977,18 +985,22 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Determine URI scheme and host based on mode (v3.3)
+    # Determine URI scheme and host based on mode (v3.4)
     local scheme="http"
     local host
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.3: Public proxy with TLS encryption
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # v3.3/v3.4: Public proxy with TLS encryption
         scheme="https"  # HTTP over TLS
         host="${DOMAIN}"  # Use domain for TLS certificate validation
+    elif [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "false" ]]; then
+        # v3.4: Public proxy without TLS (plaintext)
+        scheme="http"
+        host=$(get_server_ip)
     else
         # v3.1: Localhost-only, no TLS
         scheme="http"
-        host=$(get_server_ip)
+        host="127.0.0.1"
     fi
 
     # Write HTTP URI
@@ -1184,20 +1196,24 @@ export_git_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Determine proxy URL based on mode (v3.3)
+    # Determine proxy URL based on mode (v3.4)
     local socks_proxy
     local http_proxy
+    local server_ip
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.3: Public proxy with TLS encryption
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # v3.3/v3.4: Public proxy with TLS encryption
         socks_proxy="socks5s://${username}:${password}@${DOMAIN}:1080"
         http_proxy="https://${username}:${password}@${DOMAIN}:8118"
-    else
-        # v3.1: Localhost-only, no TLS
-        local server_ip
+    elif [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "false" ]]; then
+        # v3.4: Public proxy without TLS (plaintext)
         server_ip=$(get_server_ip)
         socks_proxy="socks5://${username}:${password}@${server_ip}:1080"
         http_proxy="http://${username}:${password}@${server_ip}:8118"
+    else
+        # v3.1: Localhost-only, no TLS
+        socks_proxy="socks5://${username}:${password}@127.0.0.1:1080"
+        http_proxy="http://${username}:${password}@127.0.0.1:8118"
     fi
 
     # Write Git config instructions
@@ -1260,19 +1276,22 @@ export_all_proxy_configs() {
     local username="$1"
     local proxy_password="${2:-}"
 
-    # Load environment variables from .env file (v3.3 TLS support)
+    # Load environment variables from .env file (v3.4 TLS support)
     # Required for export functions to determine protocol (socks5/socks5s, http/https)
     if [[ -f "$ENV_FILE" ]]; then
         # Export variables so they're available in export_* functions
         export ENABLE_PUBLIC_PROXY=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+        export ENABLE_PROXY_TLS=$(grep -E "^ENABLE_PROXY_TLS=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
         export DOMAIN=$(grep -E "^DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
 
         # Set defaults if not found in .env
         [[ -z "$ENABLE_PUBLIC_PROXY" ]] && export ENABLE_PUBLIC_PROXY="false"
+        [[ -z "$ENABLE_PROXY_TLS" ]] && export ENABLE_PROXY_TLS="false"
         [[ -z "$DOMAIN" ]] && export DOMAIN=""
     else
         # .env file not found, use defaults (no TLS)
         export ENABLE_PUBLIC_PROXY="false"
+        export ENABLE_PROXY_TLS="false"
         export DOMAIN=""
     fi
 

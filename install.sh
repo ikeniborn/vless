@@ -324,8 +324,8 @@ main() {
     collect_parameters
     print_success "Parameters collected"
 
-    # Step 7.5: Acquire TLS certificate (v3.3) - only if public proxy enabled
-    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+    # Step 7.5: Acquire TLS certificate (v3.4) - only if public proxy + TLS enabled
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
         print_message "${COLOR_BLUE}" "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         print_message "${COLOR_BLUE}" "  TLS CERTIFICATE ACQUISITION (v3.3)"
         print_message "${COLOR_BLUE}" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -412,10 +412,10 @@ main() {
     verify_installation
     print_success "Installation verified"
 
-    # Step 9.5: Save version file (v3.3)
-    echo "3.3" > "${INSTALL_ROOT}/.version"
+    # Step 9.5: Save version file (v3.4)
+    echo "3.4" > "${INSTALL_ROOT}/.version"
     chmod 644 "${INSTALL_ROOT}/.version"
-    print_message "${COLOR_CYAN}" "Version file saved: v3.3"
+    print_message "${COLOR_CYAN}" "Version file saved: v3.4"
 
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"

@@ -23,6 +23,7 @@ export VLESS_PORT=""
 export DOCKER_SUBNET=""
 export ENABLE_PROXY=""
 export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
+export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/false)
 export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
 export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 
@@ -95,8 +96,8 @@ collect_parameters() {
         return 1
     }
 
-    # Step 4.5: Prompt for domain and email (v3.3) - only if public proxy enabled
-    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+    # Step 4.5: Prompt for domain and email (v3.4) - only if public proxy + TLS enabled
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
         prompt_domain_email || {
             echo -e "${RED}Failed to configure TLS certificate settings${NC}" >&2
             return 1
@@ -641,15 +642,22 @@ confirm_parameters() {
     echo -e "  ${YELLOW}VLESS Port:${NC}          ${VLESS_PORT}"
     echo -e "  ${YELLOW}Docker Subnet:${NC}       ${DOCKER_SUBNET}"
 
-    # v3.2: Display proxy mode more clearly
+    # v3.4: Display proxy mode with TLS status
     if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
-        echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (TLS encrypted)${NC}"
-        # v3.3: Display domain and email if set
-        if [[ -n "$DOMAIN" ]]; then
-            echo -e "  ${YELLOW}TLS Domain:${NC}          ${DOMAIN}"
-        fi
-        if [[ -n "$EMAIL" ]]; then
-            echo -e "  ${YELLOW}TLS Email:${NC}           ${EMAIL}"
+        if [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
+            echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Public (TLS encrypted)${NC}"
+            echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (socks5s://, https://)${NC}"
+            # v3.3: Display domain and email if set
+            if [[ -n "$DOMAIN" ]]; then
+                echo -e "  ${YELLOW}TLS Domain:${NC}          ${DOMAIN}"
+            fi
+            if [[ -n "$EMAIL" ]]; then
+                echo -e "  ${YELLOW}TLS Email:${NC}           ${EMAIL}"
+            fi
+        else
+            echo -e "  ${YELLOW}Proxy Mode:${NC}          ${RED}Public (PLAINTEXT)${NC}"
+            echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (socks5://, http://)${NC}"
+            echo -e "  ${RED}⚠️  WARNING: Credentials NOT encrypted!${NC}"
         fi
     elif [[ "$ENABLE_PROXY" == "true" ]]; then
         echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Enabled (localhost only)${NC}"
@@ -916,10 +924,92 @@ prompt_enable_public_proxy() {
                     echo ""
                     echo -e "${GREEN}✓ Public proxy mode enabled${NC}"
                     echo ""
+
+                    # v3.4: Ask about TLS encryption
+                    echo "═════════════════════════════════════════════════════"
+                    echo "  TLS ENCRYPTION FOR PUBLIC PROXY"
+                    echo "═════════════════════════════════════════════════════"
+                    echo ""
+                    echo "Choose proxy encryption mode:"
+                    echo ""
+                    echo "1. WITH TLS ENCRYPTION (recommended, requires domain):"
+                    echo "   - Protocols: socks5s://, https://"
+                    echo "   - Let's Encrypt certificates (free, auto-renewal)"
+                    echo "   - Traffic encrypted end-to-end"
+                    echo "   - Requires: domain name + DNS configuration"
+                    echo ""
+                    echo "2. WITHOUT TLS (plaintext, no domain required):"
+                    echo "   - Protocols: socks5://, http://"
+                    echo "   - No certificates needed"
+                    echo "   - ⚠️  Credentials transmitted in plaintext"
+                    echo "   - ⚠️  Suitable only for trusted networks"
+                    echo ""
+
+                    local tls_response
+                    while true; do
+                        read -r -p "Enable TLS encryption? [Y/n]: " tls_response
+                        tls_response=${tls_response,,}  # Convert to lowercase
+                        tls_response=${tls_response:-y}  # Default to 'y'
+
+                        case "$tls_response" in
+                            y|yes)
+                                ENABLE_PROXY_TLS="true"
+                                echo ""
+                                echo -e "${GREEN}✓ TLS encryption enabled${NC}"
+                                echo ""
+                                echo "Requirements:"
+                                echo "  - Domain name pointing to this server"
+                                echo "  - Port 80 accessible (for ACME challenge)"
+                                echo "  - Valid email for Let's Encrypt"
+                                echo ""
+                                echo "You will be prompted for domain and email next."
+                                echo ""
+                                break
+                                ;;
+                            n|no)
+                                ENABLE_PROXY_TLS="false"
+                                echo ""
+                                echo -e "${YELLOW}⚠️  TLS encryption DISABLED${NC}"
+                                echo ""
+                                echo -e "${RED}WARNING: Proxy credentials will be transmitted in PLAINTEXT!${NC}"
+                                echo ""
+                                echo "This mode is suitable ONLY for:"
+                                echo "  - Development/testing environments"
+                                echo "  - Trusted private networks"
+                                echo "  - Localhost-only access"
+                                echo ""
+                                echo "DO NOT use for production or untrusted networks!"
+                                echo ""
+
+                                local plaintext_confirm
+                                read -r -p "Continue with plaintext proxy? [y/N]: " plaintext_confirm
+                                plaintext_confirm=${plaintext_confirm,,}
+
+                                if [[ "$plaintext_confirm" == "y" || "$plaintext_confirm" == "yes" ]]; then
+                                    echo ""
+                                    echo -e "${YELLOW}✓ Plaintext proxy mode confirmed${NC}"
+                                    echo ""
+                                    break
+                                else
+                                    echo ""
+                                    echo "Plaintext mode canceled. Choose TLS encryption instead."
+                                    echo ""
+                                    continue
+                                fi
+                                ;;
+                            *)
+                                echo -e "${RED}Invalid response. Please enter 'y' or 'n'${NC}"
+                                ;;
+                        esac
+                    done
+
                     echo "Next steps:"
                     echo "  1. Fail2ban will be installed"
                     echo "  2. UFW ports 1080, 8118 will be opened"
                     echo "  3. All passwords will be 32 characters"
+                    if [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
+                        echo "  4. Let's Encrypt certificate will be acquired"
+                    fi
                     echo ""
                     break
                 else
@@ -927,12 +1017,14 @@ prompt_enable_public_proxy() {
                     echo "Public proxy canceled, falling back to VLESS-only mode"
                     ENABLE_PUBLIC_PROXY="false"
                     ENABLE_PROXY="false"
+                    ENABLE_PROXY_TLS="false"
                     break
                 fi
                 ;;
             n|no|"")
                 ENABLE_PUBLIC_PROXY="false"
                 ENABLE_PROXY="false"
+                ENABLE_PROXY_TLS="false"
                 echo ""
                 echo -e "${GREEN}✓ VLESS-only mode (no public proxy)${NC}"
                 echo ""
@@ -946,6 +1038,7 @@ prompt_enable_public_proxy() {
 
     export ENABLE_PUBLIC_PROXY
     export ENABLE_PROXY
+    export ENABLE_PROXY_TLS
     return 0
 }
 

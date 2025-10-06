@@ -328,4 +328,110 @@ EOF
     return 0
 }
 
+#==============================================================================
+# FUNCTION: cleanup_certificates
+# PURPOSE: Remove Let's Encrypt certificates and cron jobs (v3.4)
+# USAGE: cleanup_certificates [domain]
+# ARGS: domain (optional) - specific domain to remove, or all if not specified
+# RETURNS: 0 on success, 1 on failure
+# CALLED WHEN: Switching from TLS to plaintext mode, or during uninstallation
+#==============================================================================
+cleanup_certificates() {
+    local domain="${1:-}"
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Certificate Cleanup (v3.4)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Step 1: Remove cron job
+    local cron_file="/etc/cron.d/certbot-vless-renew"
+    if [[ -f "$cron_file" ]]; then
+        echo "Removing auto-renewal cron job..."
+        rm -f "$cron_file"
+        echo -e "${GREEN}✅ Cron job removed: $cron_file${NC}"
+    else
+        echo "ℹ  Cron job not found (already removed or never created)"
+    fi
+    echo ""
+
+    # Step 2: Remove certificates
+    if [[ -n "$domain" ]]; then
+        # Remove specific domain
+        echo "Removing certificates for domain: $domain"
+        echo ""
+
+        local cert_path="/etc/letsencrypt/live/$domain"
+        local renewal_conf="/etc/letsencrypt/renewal/$domain.conf"
+        local archive_path="/etc/letsencrypt/archive/$domain"
+
+        if [[ -d "$cert_path" ]]; then
+            rm -rf "$cert_path"
+            echo -e "${GREEN}✅ Certificate directory removed: $cert_path${NC}"
+        else
+            echo "ℹ  Certificate directory not found: $cert_path"
+        fi
+
+        if [[ -f "$renewal_conf" ]]; then
+            rm -f "$renewal_conf"
+            echo -e "${GREEN}✅ Renewal config removed: $renewal_conf${NC}"
+        else
+            echo "ℹ  Renewal config not found: $renewal_conf"
+        fi
+
+        if [[ -d "$archive_path" ]]; then
+            rm -rf "$archive_path"
+            echo -e "${GREEN}✅ Certificate archive removed: $archive_path${NC}"
+        else
+            echo "ℹ  Certificate archive not found: $archive_path"
+        fi
+    else
+        # Remove all VLESS-related certificates (scan for certificates)
+        echo "Scanning for VLESS certificates..."
+        echo ""
+
+        if [[ -d "/etc/letsencrypt/live" ]]; then
+            local found_certs=0
+            for cert_dir in /etc/letsencrypt/live/*/; do
+                # Skip README
+                [[ "$(basename "$cert_dir")" == "README" ]] && continue
+
+                local cert_domain=$(basename "$cert_dir")
+                echo "Found certificate: $cert_domain"
+
+                # Ask user for confirmation
+                local confirm
+                read -rp "Remove certificate for $cert_domain? [y/N]: " confirm
+                confirm=${confirm,,}
+
+                if [[ "$confirm" == "y" || "$confirm" == "yes" ]]; then
+                    rm -rf "/etc/letsencrypt/live/$cert_domain"
+                    rm -f "/etc/letsencrypt/renewal/$cert_domain.conf"
+                    rm -rf "/etc/letsencrypt/archive/$cert_domain"
+                    echo -e "${GREEN}✅ Removed certificates for $cert_domain${NC}"
+                    found_certs=1
+                else
+                    echo "ℹ  Skipped $cert_domain"
+                fi
+                echo ""
+            done
+
+            if [[ $found_certs -eq 0 ]]; then
+                echo "ℹ  No certificates found to remove"
+            fi
+        else
+            echo "ℹ  /etc/letsencrypt/live directory not found"
+        fi
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}✅ Certificate cleanup completed${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    return 0
+}
+
 # End of certbot_setup.sh
