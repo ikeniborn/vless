@@ -349,8 +349,8 @@ generate_socks5_inbound_json() {
       "tlsSettings": {
         "certificates": [
           {
-            "certificateFile": "/etc/xray/certs/live/${DOMAIN}/fullchain.pem",
-            "keyFile": "/etc/xray/certs/live/${DOMAIN}/privkey.pem"
+            "certificateFile": "/certs/live/${DOMAIN}/fullchain.pem",
+            "keyFile": "/certs/live/${DOMAIN}/privkey.pem"
           }
         ],
         "alpn": ["h2", "http/1.1"]
@@ -414,8 +414,8 @@ generate_http_inbound_json() {
       "tlsSettings": {
         "certificates": [
           {
-            "certificateFile": "/etc/xray/certs/live/${DOMAIN}/fullchain.pem",
-            "keyFile": "/etc/xray/certs/live/${DOMAIN}/privkey.pem"
+            "certificateFile": "/certs/live/${DOMAIN}/fullchain.pem",
+            "keyFile": "/certs/live/${DOMAIN}/privkey.pem"
           }
         ],
         "alpn": ["h2", "http/1.1"]
@@ -765,7 +765,7 @@ create_docker_compose() {
         volumes_section="    volumes:
       - ${CONFIG_DIR}:/etc/xray:ro
       - ${LOGS_DIR}:/var/log/xray
-      - /etc/letsencrypt:/etc/xray/certs:ro"
+      - /etc/letsencrypt:/certs:ro"
     else
         # VLESS-only mode - no proxy ports exposed, no cert volume
         ports_section="    ports:

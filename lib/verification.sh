@@ -707,9 +707,9 @@ validate_mandatory_tls() {
     if [[ ! -f "$compose_file" ]]; then
         log_error "    ✗ Docker Compose file not found: $compose_file"
         validation_failed=1
-    elif ! grep -q "/etc/letsencrypt:/etc/xray/certs:ro" "$compose_file" 2>/dev/null; then
+    elif ! grep -q "/etc/letsencrypt:/certs:ro" "$compose_file" 2>/dev/null; then
         log_error "    ✗ Certificate volume mount not configured"
-        log_error "    Expected: /etc/letsencrypt:/etc/xray/certs:ro"
+        log_error "    Expected: /etc/letsencrypt:/certs:ro"
         validation_failed=1
     else
         log_success "    ✓ Certificate volume mount configured"
@@ -720,7 +720,7 @@ validate_mandatory_tls() {
     local cert_path
     cert_path=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .streamSettings.tlsSettings.certificates[0].certificateFile // "not_found"' "$config_file" 2>/dev/null)
 
-    if [[ "$cert_path" == "not_found" ]] || [[ ! "$cert_path" =~ /etc/xray/certs/live/.*/fullchain\.pem ]]; then
+    if [[ "$cert_path" == "not_found" ]] || [[ ! "$cert_path" =~ /certs/live/.*/fullchain\.pem ]]; then
         log_error "    ✗ Invalid certificate path in config"
         log_error "    Found: $cert_path"
         validation_failed=1
@@ -774,7 +774,7 @@ test_xray_config() {
 
     # Add certificate volume if public proxy enabled
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        volume_args="$volume_args -v /etc/letsencrypt:/etc/xray/certs:ro"
+        volume_args="$volume_args -v /etc/letsencrypt:/certs:ro"
     fi
 
     # Run xray test
