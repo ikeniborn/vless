@@ -51,12 +51,12 @@ ${CYAN}User Management:${NC}
   show-user <username>      Show user details and connection info
   regenerate <username>     Regenerate config files (v3.3 migration)
 
-${CYAN}IP Whitelist Management (v3.5):${NC}
-  show-allowed-ips <user>           Show allowed IPs for user
-  set-allowed-ips <user> <ips>      Set allowed IPs (comma-separated)
-  add-allowed-ip <user> <ip>        Add IP to whitelist
-  remove-allowed-ip <user> <ip>     Remove IP from whitelist
-  reset-allowed-ips <user>          Reset to localhost only
+${CYAN}Proxy IP Whitelist (v3.6 - Server-Level):${NC}
+  show-proxy-ips                    Show allowed IPs for proxy access
+  set-proxy-ips <ips>               Set allowed IPs (comma-separated)
+  add-proxy-ip <ip>                 Add IP to proxy whitelist
+  remove-proxy-ip <ip>              Remove IP from proxy whitelist
+  reset-proxy-ips                   Reset to localhost only
 
 ${CYAN}Service Operations:${NC}
   status                    Show service status
@@ -77,8 +77,8 @@ ${CYAN}Information:${NC}
 ${CYAN}Examples:${NC}
   sudo vless add-user alice
   sudo vless list-users
-  sudo vless show-allowed-ips alice
-  sudo vless set-allowed-ips alice 127.0.0.1,10.0.0.0/24
+  sudo vless show-proxy-ips
+  sudo vless set-proxy-ips 127.0.0.1,10.0.0.0/24
   sudo vless status
   sudo vless logs xray
 
@@ -92,6 +92,7 @@ source_modules() {
     local modules=(
         "user_management.sh"
         "qr_generator.sh"
+        "proxy_whitelist.sh"
     )
 
     for module in "${modules[@]}"; do
@@ -163,62 +164,52 @@ main() {
             regenerate_configs "$1"
             ;;
 
-        show-allowed-ips|show-ips)
+        show-proxy-ips)
+            check_root
+            source_modules
+            show_proxy_allowed_ips
+            ;;
+
+        set-proxy-ips)
             check_root
             if [[ $# -eq 0 ]]; then
-                echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless show-allowed-ips <username>" >&2
+                echo -e "${RED}Error: IP list required${NC}" >&2
+                echo "Usage: vless set-proxy-ips <ip1,ip2,...>" >&2
+                echo "Example: vless set-proxy-ips 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
                 exit 1
             fi
             source_modules
-            show_allowed_ips "$1"
+            set_proxy_allowed_ips "$1"
             ;;
 
-        set-allowed-ips|set-ips)
-            check_root
-            if [[ $# -lt 2 ]]; then
-                echo -e "${RED}Error: Username and IP list required${NC}" >&2
-                echo "Usage: vless set-allowed-ips <username> <ip1,ip2,...>" >&2
-                echo "Example: vless set-allowed-ips alice 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
-                exit 1
-            fi
-            source_modules
-            set_allowed_ips "$1" "$2"
-            ;;
-
-        add-allowed-ip|add-ip)
-            check_root
-            if [[ $# -lt 2 ]]; then
-                echo -e "${RED}Error: Username and IP address required${NC}" >&2
-                echo "Usage: vless add-allowed-ip <username> <ip>" >&2
-                echo "Example: vless add-allowed-ip alice 192.168.1.5" >&2
-                exit 1
-            fi
-            source_modules
-            add_allowed_ip "$1" "$2"
-            ;;
-
-        remove-allowed-ip|remove-ip)
-            check_root
-            if [[ $# -lt 2 ]]; then
-                echo -e "${RED}Error: Username and IP address required${NC}" >&2
-                echo "Usage: vless remove-allowed-ip <username> <ip>" >&2
-                echo "Example: vless remove-allowed-ip alice 192.168.1.5" >&2
-                exit 1
-            fi
-            source_modules
-            remove_allowed_ip "$1" "$2"
-            ;;
-
-        reset-allowed-ips|reset-ips)
+        add-proxy-ip)
             check_root
             if [[ $# -eq 0 ]]; then
-                echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless reset-allowed-ips <username>" >&2
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: vless add-proxy-ip <ip>" >&2
+                echo "Example: vless add-proxy-ip 192.168.1.5" >&2
                 exit 1
             fi
             source_modules
-            reset_allowed_ips "$1"
+            add_proxy_allowed_ip "$1"
+            ;;
+
+        remove-proxy-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: vless remove-proxy-ip <ip>" >&2
+                echo "Example: vless remove-proxy-ip 192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            remove_proxy_allowed_ip "$1"
+            ;;
+
+        reset-proxy-ips)
+            check_root
+            source_modules
+            reset_proxy_allowed_ips
             ;;
 
         status)

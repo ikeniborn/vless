@@ -111,6 +111,12 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 5.5: Initialize proxy_allowed_ips.json (v3.6 - server-level IP whitelist)
+    init_proxy_allowed_ips || {
+        echo -e "${RED}Failed to initialize proxy IP whitelist${NC}" >&2
+        return 1
+    }
+
     # Step 6: Create Nginx configuration
     create_nginx_config || {
         echo -e "${RED}Failed to create Nginx configuration${NC}" >&2
@@ -322,18 +328,35 @@ generate_short_id() {
 # =============================================================================
 # FUNCTION: generate_routing_json
 # =============================================================================
-# Description: Generate routing rules for IP-based access control (v3.5)
+# Description: Generate routing rules for server-level IP whitelisting (v3.6)
 # Returns: JSON string for routing section
 # Logic:
-#   - For each user: allow connections from their allowed_ips
+#   - Read allowed IPs from proxy_allowed_ips.json (server-level)
+#   - Allow connections from whitelisted IPs to proxy ports
 #   - Block all other connections to proxy ports
-# Related: v3.5 IP Whitelisting Feature
+# Related: v3.6 Server-Level IP Whitelisting
+# Note: NO per-user IP filtering (user field doesn't work for HTTP/SOCKS5)
 # =============================================================================
 generate_routing_json() {
-    # Check if users.json exists
-    if [[ ! -f "/opt/vless/data/users.json" ]]; then
-        # No users yet, return minimal routing
-        cat <<'EOF'
+    local proxy_ips_file="/opt/vless/config/proxy_allowed_ips.json"
+    local allowed_ips='["127.0.0.1"]'  # Default: localhost only
+
+    # Check if proxy_allowed_ips.json exists
+    if [[ -f "$proxy_ips_file" ]]; then
+        # Read allowed IPs from file
+        allowed_ips=$(jq -c '.allowed_ips // ["127.0.0.1"]' "$proxy_ips_file" 2>/dev/null)
+
+        # Validate JSON
+        if [[ -z "$allowed_ips" ]] || ! echo "$allowed_ips" | jq empty 2>/dev/null; then
+            # Fallback to localhost if file is corrupted
+            allowed_ips='["127.0.0.1"]'
+        fi
+    fi
+
+    # Generate routing configuration with server-level IP whitelist
+    # Rule 1: Allow whitelisted IPs to access proxy ports
+    # Rule 2: Block all other connections to proxy ports (blackhole)
+    cat <<EOF
 ,
   "routing": {
     "domainStrategy": "AsIs",
@@ -341,51 +364,9 @@ generate_routing_json() {
       {
         "type": "field",
         "inboundTag": ["socks5-proxy", "http-proxy"],
-        "outboundTag": "blocked"
-      }
-    ]
-  }
-EOF
-        return 0
-    fi
-
-    # Read users and build routing rules
-    local rules=""
-    local users_count=0
-
-    # Parse users.json and generate rules
-    while IFS= read -r user_data; do
-        local username=$(echo "$user_data" | jq -r '.username')
-        local allowed_ips=$(echo "$user_data" | jq -c '.allowed_ips // ["127.0.0.1"]')
-
-        # Skip if no username (shouldn't happen)
-        [[ -z "$username" || "$username" == "null" ]] && continue
-
-        # Generate rule for this user
-        if [[ $users_count -gt 0 ]]; then
-            rules="${rules},"
-        fi
-
-        # Use username as email for matching (Xray requires email format)
-        # Email format: username@vless.local (same as in VLESS clients)
-        rules="${rules}
-      {
-        \"type\": \"field\",
-        \"inboundTag\": [\"socks5-proxy\", \"http-proxy\"],
-        \"user\": [\"${username}@vless.local\"],
-        \"source\": ${allowed_ips},
-        \"outboundTag\": \"direct\"
-      }"
-
-        ((users_count++))
-    done < <(jq -c '.users[]' /opt/vless/data/users.json 2>/dev/null)
-
-    # Generate final routing configuration
-    cat <<EOF
-,
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [${rules},
+        "source": ${allowed_ips},
+        "outboundTag": "direct"
+      },
       {
         "type": "field",
         "inboundTag": ["socks5-proxy", "http-proxy"],
@@ -787,6 +768,60 @@ EOF
     echo "  ✓ Initial state: empty (0 users)"
 
     echo -e "${GREEN}✓ Users database created${NC}"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: init_proxy_allowed_ips
+# =============================================================================
+# Description: Initialize proxy_allowed_ips.json with default localhost-only access
+# Returns: 0 on success, 1 on failure
+# Related: v3.6 Server-Level IP Whitelisting
+# =============================================================================
+init_proxy_allowed_ips() {
+    echo -e "${CYAN}[5.5/13] Initializing proxy IP whitelist...${NC}"
+
+    local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
+
+    # Create proxy_allowed_ips.json with localhost-only default
+    cat > "$proxy_ips_file" <<'EOF'
+{
+  "allowed_ips": ["127.0.0.1"],
+  "metadata": {
+    "created": "",
+    "last_modified": "",
+    "description": "Server-level IP whitelist for proxy access (v3.6)"
+  }
+}
+EOF
+
+    # Set timestamps
+    local timestamp
+    timestamp=$(date -Iseconds)
+
+    # Use temporary file for atomic update
+    local temp_file
+    temp_file=$(mktemp)
+
+    jq ".metadata.created = \"${timestamp}\" | .metadata.last_modified = \"${timestamp}\"" \
+       "$proxy_ips_file" > "$temp_file" && mv "$temp_file" "$proxy_ips_file"
+
+    if [[ ! -f "$proxy_ips_file" ]]; then
+        echo -e "${RED}Failed to create ${proxy_ips_file}${NC}" >&2
+        return 1
+    fi
+
+    # Set permissions (600 - root only)
+    chmod 600 "$proxy_ips_file" || {
+        echo -e "${RED}Failed to set permissions on ${proxy_ips_file}${NC}" >&2
+        return 1
+    }
+
+    echo "  ✓ Proxy IP whitelist: $proxy_ips_file"
+    echo "  ✓ Default: localhost only (127.0.0.1)"
+    echo "  ✓ Manage with: vless {show|set|add|remove|reset}-proxy-ips"
+
+    echo -e "${GREEN}✓ Proxy IP whitelist initialized${NC}"
     return 0
 }
 
@@ -1269,6 +1304,7 @@ install_cli_tools() {
     local lib_modules=(
         "user_management.sh"
         "qr_generator.sh"
+        "proxy_whitelist.sh"
     )
 
     for module in "${lib_modules[@]}"; do

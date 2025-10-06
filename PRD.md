@@ -34,7 +34,7 @@
 - **VLESS Reality VPN:** DPI-resistant VPN tunnel
 - **Dual Proxy Modes:** SOCKS5 (1080) + HTTP (8118)
 - **TLS Encryption:** Optional TLS 1.3 via Let's Encrypt (recommended for production)
-- **IP Whitelisting:** Per-user IP-based access control (NEW in v3.5)
+- **IP Whitelisting:** Server-level IP-based access control (UPDATED in v3.6)
 - **Multi-Format Configs:** 6 auto-generated config files per user
 
 ---
@@ -125,7 +125,7 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 | **VPN Required** | YES | NO | NO | NO |
 | **Encryption** | N/A | ✅ TLS 1.3 (mandatory) | ✅ TLS 1.3 (optional) | ✅ TLS 1.3 (optional) |
 | **Certificate** | N/A | Let's Encrypt | Let's Encrypt (optional) | Let's Encrypt (optional) |
-| **IP Whitelisting** | ❌ None | ❌ None | ❌ None | ✅ **Per-user** |
+| **IP Whitelisting** | ❌ None | ❌ None | ❌ None | ✅ **Server-level** |
 | **Password Length** | 16 chars | 32 chars | 32 chars | 32 chars |
 | **Fail2ban** | Optional | Mandatory | Mandatory | Mandatory |
 | **Rate Limiting** | N/A | UFW 10/min | UFW 10/min | UFW 10/min |
@@ -268,35 +268,39 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 
 ---
 
-### FR-IP-001: Per-User IP-Based Access Control (v3.5 - NEW)
+### FR-IP-001: Server-Level IP-Based Access Control (v3.6 - UPDATED)
 
-**Requirement:** System MUST support per-user IP whitelisting for proxy access using Xray routing rules.
+**Requirement:** System MUST support server-level IP whitelisting for proxy access using Xray routing rules.
+
+> **Breaking Change from v3.5:** Migrated from per-user to server-level due to protocol limitation - HTTP/SOCKS5 protocols don't provide user identifiers in Xray routing context. The `user` field only works for VLESS protocol.
 
 **Acceptance Criteria:**
-- [ ] `users.json` includes `allowed_ips` field (default: `["127.0.0.1"]`)
-- [ ] New users default to localhost-only access
+- [ ] `proxy_allowed_ips.json` created in `/opt/vless/config/` (default: `["127.0.0.1"]`)
+- [ ] New installations default to localhost-only access
 - [ ] IP validation supports IPv4, IPv6, and CIDR notation
-- [ ] Xray routing rules generated dynamically per user
-- [ ] 5 CLI commands for IP management implemented
+- [ ] Xray routing rules generated dynamically (server-level)
+- [ ] 5 CLI commands for server-level IP management implemented
 - [ ] Changes applied via container reload (< 3 seconds)
-- [ ] Routing matches: `user` (email) + `source` (IP array)
+- [ ] Routing matches: `source` (IP array) ONLY - no `user` field
 - [ ] Unmatched connections routed to `blackhole` outbound
-- [ ] README documentation includes use cases and examples
+- [ ] README documentation includes migration guide from v3.5
+- [ ] Migration script `migrate_proxy_ips.sh` included
 
 **Technical Implementation:**
 
-**users.json v1.2 Structure:**
+**proxy_allowed_ips.json Structure (NEW in v3.6):**
 ```json
 {
-  "username": "alice",
-  "uuid": "...",
-  "proxy_password": "...",
   "allowed_ips": ["127.0.0.1", "203.0.113.45", "10.0.0.0/24"],
-  "created": "2025-10-06T12:00:00Z"
+  "metadata": {
+    "created": "2025-10-06T12:00:00Z",
+    "last_modified": "2025-10-06T14:30:00Z",
+    "description": "Server-level IP whitelist for proxy access (v3.6)"
+  }
 }
 ```
 
-**Xray Routing Rules (auto-generated):**
+**Xray Routing Rules (auto-generated - server-level):**
 ```json
 {
   "routing": {
@@ -304,7 +308,6 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
       {
         "type": "field",
         "inboundTag": ["socks5-proxy", "http-proxy"],
-        "user": ["alice@vless.local"],
         "source": ["127.0.0.1", "203.0.113.45", "10.0.0.0/24"],
         "outboundTag": "direct"
       },
@@ -318,13 +321,15 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 }
 ```
 
-**CLI Commands:**
+**Key Difference:** NO `user` field in routing rules - only `source` (IPs). This works for HTTP/SOCKS5 protocols.
+
+**CLI Commands (v3.6 - server-level):**
 ```bash
-vless show-allowed-ips <user>           # Display allowed IPs
-vless set-allowed-ips <user> <ips>      # Set complete IP list (comma-separated)
-vless add-allowed-ip <user> <ip>        # Add single IP (no duplicates)
-vless remove-allowed-ip <user> <ip>     # Remove IP (min 1 required)
-vless reset-allowed-ips <user>          # Reset to 127.0.0.1
+vless show-proxy-ips                    # Display server-level whitelist
+vless set-proxy-ips <ips>               # Set complete IP list (comma-separated)
+vless add-proxy-ip <ip>                 # Add single IP (no duplicates)
+vless remove-proxy-ip <ip>              # Remove IP (min 1 required)
+vless reset-proxy-ips                   # Reset to 127.0.0.1
 ```
 
 **IP Validation:**
@@ -333,29 +338,50 @@ vless reset-allowed-ips <user>          # Reset to 127.0.0.1
 - IPv6: `2001:db8::1`
 - IPv6 CIDR: `2001:db8::/32` (prefix 0-128)
 
-**Routing Evaluation:**
-1. User connects to SOCKS5/HTTP proxy
-2. Xray matches user by email (`alice@vless.local`)
-3. Xray checks source IP against `allowed_ips`
-4. If match → `direct` outbound (allowed)
-5. If no match → `blackhole` outbound (blocked)
-6. Catch-all rule blocks all other proxy connections
+**Routing Evaluation (v3.6):**
+1. User connects to SOCKS5/HTTP proxy with credentials
+2. Xray checks source IP against server-level whitelist
+3. If match → `direct` outbound (allowed)
+4. If no match → `blackhole` outbound (blocked)
+5. Catch-all rule blocks all other proxy connections
 
 **Use Cases:**
-1. **Fixed IPs**: Restrict to office/home static IPs
+1. **Fixed Network**: Restrict to office/home network ranges
 2. **VPN-Only**: Allow only 10.0.0.0/8 (after VLESS connection)
-3. **Multi-Region**: Whitelist 3 office locations (CIDR ranges)
-4. **Development**: Localhost-only for test accounts
-5. **Compliance**: Enforce IP-based access policies
+3. **Multi-Location**: Whitelist multiple office locations (CIDR ranges)
+4. **Private Deployment**: Localhost-only for local development
+5. **Compliance**: Enforce IP-based access policies (organization-wide)
 
 **Security Notes:**
+- Server-level whitelist applies to ALL proxy users
+- Individual user IP restrictions NOT supported (protocol limitation)
+- Use separate VPN instances for different IP requirements
 - IP whitelisting is NOT a password replacement
 - Defense-in-depth: IP + password + fail2ban
 - IPs can be spoofed in cloud environments
 - Effective for fixed IPs (residential ISPs, data centers)
-- Less effective for mobile users (use VPN-only mode)
 
-**User Story:** As a security administrator, I want to restrict proxy access to specific office IP ranges so that only employees from authorized locations can use the proxy.
+**Migration from v3.5 to v3.6:**
+
+**Automatic Migration Script:**
+```bash
+sudo /opt/vless/scripts/migrate_proxy_ips.sh
+```
+
+Script performs:
+1. Collects all unique IPs from `users.json` `allowed_ips` fields
+2. Creates `proxy_allowed_ips.json` with collected IPs
+3. Regenerates routing rules (server-level, no `user` field)
+4. Reloads Xray container
+5. Optionally removes `allowed_ips` field from users (cleanup)
+
+**Breaking Changes:**
+- ❌ Per-user commands removed: `show-allowed-ips`, `set-allowed-ips`, etc.
+- ✅ Server-level commands added: `show-proxy-ips`, `set-proxy-ips`, etc.
+- ❌ `allowed_ips` field in `users.json` deprecated
+- ✅ New file: `/opt/vless/config/proxy_allowed_ips.json`
+
+**User Story:** As a network administrator, I want to restrict proxy access to authorized IP ranges so that only connections from approved networks can use the proxy service, applying the same restrictions to all users.
 
 ---
 
