@@ -1,10 +1,10 @@
-# Product Requirements Document (PRD) v3.3
+# Product Requirements Document (PRD) v3.5
 
-**Project:** VLESS + Reality VPN Server with Secure Public Proxy Support
-**Version:** 3.3
-**Date:** 2025-10-05
-**Status:** Draft
-**Previous Version:** 3.2 (public proxy without TLS - **SECURITY VULNERABILITY**)
+**Project:** VLESS + Reality VPN Server with Secure Public Proxy & IP Access Control
+**Version:** 3.5
+**Date:** 2025-10-06
+**Status:** Production Ready
+**Previous Version:** 3.4 (optional TLS for public proxy)
 
 ---
 
@@ -12,6 +12,8 @@
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 3.5 | 2025-10-06 | System | **IP-based access control**: Per-user IP whitelisting for proxy servers |
+| 3.4 | 2025-10-05 | System | **Optional TLS**: Made TLS encryption optional (plaintext mode for dev/testing) |
 | 3.3 | 2025-10-05 | System | **CRITICAL SECURITY FIX:** Mandatory TLS encryption for public proxies via Let's Encrypt |
 | 3.2 | 2025-10-04 | System | Public proxy support (SECURITY ISSUE: no encryption) |
 | 3.1 | 2025-10-03 | System | Dual proxy support (SOCKS5 + HTTP, localhost-only) |
@@ -21,48 +23,78 @@
 
 ## Executive Summary
 
-### Critical Security Issue in v3.2
+### Current Version: v3.5 (Production Ready)
 
-**🚨 VULNERABILITY IDENTIFIED:** v3.2 exposes SOCKS5 (port 1080) and HTTP (port 8118) proxies on `0.0.0.0` **WITHOUT encryption**.
+**Latest Updates:**
+- ✅ **v3.5 (2025-10-06)**: Per-user IP-based access control for proxy servers
+- ✅ **v3.4 (2025-10-05)**: Optional TLS encryption (plaintext mode for dev/testing)
+- ✅ **v3.3 (2025-10-05)**: Mandatory TLS encryption for public proxies
 
-**Impact:**
-- ❌ User credentials transmitted in plaintext
-- ❌ All proxy traffic visible to MITM attackers
-- ❌ Password authentication bypassed via network sniffing
-- ❌ Fail2ban ineffective against passive eavesdropping
-
-**Risk Level:** **CRITICAL** - Production deployment NOT RECOMMENDED
+**System Capabilities:**
+- **VLESS Reality VPN:** DPI-resistant VPN tunnel
+- **Dual Proxy Modes:** SOCKS5 (1080) + HTTP (8118)
+- **TLS Encryption:** Optional TLS 1.3 via Let's Encrypt (recommended for production)
+- **IP Whitelisting:** Per-user IP-based access control (NEW in v3.5)
+- **Multi-Format Configs:** 6 auto-generated config files per user
 
 ---
 
-### What Changed in v3.3
+### What's New in v3.5
 
-**PRIMARY GOAL:** Eliminate v3.2 security vulnerability by adding **mandatory TLS encryption** to all public proxy inbounds.
+**PRIMARY FEATURE:** Per-user IP-based access control using Xray routing rules.
 
-**Key Changes:**
+**Key Capabilities:**
 
-| Component | v3.2 (Vulnerable) | v3.3 (Secure) |
-|-----------|-------------------|---------------|
-| **SOCKS5 Proxy** | Plain TCP on 0.0.0.0:1080 | TLS 1.3 encrypted (socks5s://) |
-| **HTTP Proxy** | Plain HTTP on 0.0.0.0:8118 | HTTPS encrypted |
-| **Certificates** | N/A | Let's Encrypt (auto-managed) |
-| **Client URIs** | `socks5://user:pass@server:1080` | `socks5s://user:pass@server:1080` |
-| **Client URIs** | `http://user:pass@server:8118` | `https://user:pass@server:8118` |
-| **Security Level** | ❌ Plaintext credentials | ✅ TLS 1.3 encrypted tunnel |
+| Feature | Description | Benefit |
+|---------|-------------|---------|
+| **Per-User IP Lists** | Each user has individual allowed_ips array | Granular access control |
+| **Multiple IP Formats** | IPv4, IPv6, CIDR notation | Flexible configuration |
+| **Default Security** | New users: 127.0.0.1 only | Prevents accidental exposure |
+| **Application-Level** | Xray routing rules | Zero performance overhead |
+| **Zero Downtime** | Updates via container reload | < 3 seconds |
 
-**New Features:**
-- ✅ **TLS Encryption:** Mandatory for SOCKS5 and HTTP proxies (Xray `streamSettings.security="tls"`)
-- ✅ **Let's Encrypt Integration:** Automated certificate acquisition via certbot
-- ✅ **Auto-Renewal:** Certbot cron job updates certificates every 60-80 days
-- ✅ **Zero Manual Intervention:** Deploy hook auto-restarts Xray after cert renewal
-- ✅ **Client Compatibility:** VSCode (HTTPS proxy native) and Git (socks5s:// native)
-- ✅ **Trusted Certificates:** No SSL warnings (Let's Encrypt publicly trusted)
+**New CLI Commands (5):**
+```bash
+vless show-allowed-ips <user>           # Display user's IP whitelist
+vless set-allowed-ips <user> <ips>      # Set complete IP list
+vless add-allowed-ip <user> <ip>        # Add single IP
+vless remove-allowed-ip <user> <ip>     # Remove IP
+vless reset-allowed-ips <user>          # Reset to localhost
+```
 
-**Migration Impact:**
-- ⚠️ **BREAKING CHANGE:** All v3.2 proxy configs become invalid
-- ⚠️ **Domain Required:** Must have domain pointing to server IP for Let's Encrypt
-- ⚠️ **Config Regeneration:** Users must regenerate all 5 proxy config formats
-- ✅ **No Impact on VLESS:** VPN functionality unchanged
+**Use Cases:**
+1. **Fixed IPs**: Restrict access to office/home static IPs
+2. **VPN-Only**: Allow only VPN-connected clients (10.0.0.0/8)
+3. **Multi-Region Teams**: Whitelist multiple office locations
+4. **Development**: Localhost-only for test accounts
+5. **Compliance**: Enforce IP-based policies
+
+**Technical Implementation:**
+- `users.json v1.2`: Added `allowed_ips` field (default: `["127.0.0.1"]`)
+- `orchestrator.sh`: `generate_routing_json()` creates per-user routing rules
+- `user_management.sh`: 6 IP management functions with validation
+- Routing: `user` (email) + `source` (IPs) → `direct` or `blackhole` outbound
+
+---
+
+### v3.4 Key Changes
+
+**PRIMARY CHANGE:** Made TLS encryption **optional** for public proxy mode.
+
+**Deployment Modes:**
+
+| Mode | Encryption | Use Case | Production Ready |
+|------|------------|----------|------------------|
+| **TLS Mode** | TLS 1.3 (socks5s://, https://) | Production | ✅ YES |
+| **Plaintext Mode** | None (socks5://, http://) | Dev/Testing | ⚠️ NO |
+| **Localhost Mode** | N/A (127.0.0.1 only) | VPN-only | ✅ YES |
+
+**Installation Flow:**
+1. Enable public proxy? [y/N]
+2. If yes: Enable TLS encryption? [Y/n]
+3. If TLS: Domain + email for Let's Encrypt
+
+**Rationale:** Allow development/testing without domain requirements while maintaining production security option.
 
 ---
 
@@ -87,18 +119,21 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 
 ### 1.3 Key Differentiators
 
-| Feature | v3.1 | v3.2 (Vulnerable) | v3.3 (Secure) |
-|---------|------|-------------------|---------------|
-| Proxy Access | Localhost (127.0.0.1) | Public (0.0.0.0) | Public (0.0.0.0) |
-| VPN Required | YES | NO | NO |
-| **Encryption** | N/A | ❌ **NONE** | ✅ **TLS 1.3** |
-| **Certificate** | N/A | ❌ None | ✅ **Let's Encrypt** |
-| Password Length | 16 chars | 32 chars | 32 chars |
-| Fail2ban | Optional | Mandatory (public only) | Mandatory (all proxy modes) |
-| Rate Limiting | N/A | UFW 10/min | UFW 10/min |
-| Firewall Ports | 443 only | 443 + 1080 + 8118 | 443 + 1080 + 8118 + **80 (temp)** |
-| Config URIs | `socks5://...@127.0.0.1:1080` | `socks5://...@server:1080` | `socks5s://...@server:1080` |
-| **Security Level** | Low (localhost) | ❌ **CRITICAL RISK** | ✅ **Production-Ready** |
+| Feature | v3.1 | v3.3 | v3.4 | v3.5 |
+|---------|------|------|------|------|
+| **Proxy Access** | Localhost | Public (0.0.0.0) | Public (optional) | Public (optional) |
+| **VPN Required** | YES | NO | NO | NO |
+| **Encryption** | N/A | ✅ TLS 1.3 (mandatory) | ✅ TLS 1.3 (optional) | ✅ TLS 1.3 (optional) |
+| **Certificate** | N/A | Let's Encrypt | Let's Encrypt (optional) | Let's Encrypt (optional) |
+| **IP Whitelisting** | ❌ None | ❌ None | ❌ None | ✅ **Per-user** |
+| **Password Length** | 16 chars | 32 chars | 32 chars | 32 chars |
+| **Fail2ban** | Optional | Mandatory | Mandatory | Mandatory |
+| **Rate Limiting** | N/A | UFW 10/min | UFW 10/min | UFW 10/min |
+| **Firewall Ports** | 443 only | 443+1080+8118+80 | 443+1080+8118+(80) | 443+1080+8118+(80) |
+| **Config URIs** | socks5://127.0.0.1 | socks5s://domain | socks5[s]://host | socks5[s]://host |
+| **Default Access** | Localhost | Public | Public | **Localhost** |
+| **Access Control** | None | Password only | Password only | Password + **IP whitelist** |
+| **Security Level** | Low | High | High | **Very High** |
 
 ---
 
@@ -230,6 +265,97 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 ```
 
 **User Story:** As a system administrator, I want certbot to automatically obtain certificates during installation so that I don't need to manually configure TLS.
+
+---
+
+### FR-IP-001: Per-User IP-Based Access Control (v3.5 - NEW)
+
+**Requirement:** System MUST support per-user IP whitelisting for proxy access using Xray routing rules.
+
+**Acceptance Criteria:**
+- [ ] `users.json` includes `allowed_ips` field (default: `["127.0.0.1"]`)
+- [ ] New users default to localhost-only access
+- [ ] IP validation supports IPv4, IPv6, and CIDR notation
+- [ ] Xray routing rules generated dynamically per user
+- [ ] 5 CLI commands for IP management implemented
+- [ ] Changes applied via container reload (< 3 seconds)
+- [ ] Routing matches: `user` (email) + `source` (IP array)
+- [ ] Unmatched connections routed to `blackhole` outbound
+- [ ] README documentation includes use cases and examples
+
+**Technical Implementation:**
+
+**users.json v1.2 Structure:**
+```json
+{
+  "username": "alice",
+  "uuid": "...",
+  "proxy_password": "...",
+  "allowed_ips": ["127.0.0.1", "203.0.113.45", "10.0.0.0/24"],
+  "created": "2025-10-06T12:00:00Z"
+}
+```
+
+**Xray Routing Rules (auto-generated):**
+```json
+{
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["socks5-proxy", "http-proxy"],
+        "user": ["alice@vless.local"],
+        "source": ["127.0.0.1", "203.0.113.45", "10.0.0.0/24"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["socks5-proxy", "http-proxy"],
+        "outboundTag": "blocked"
+      }
+    ]
+  }
+}
+```
+
+**CLI Commands:**
+```bash
+vless show-allowed-ips <user>           # Display allowed IPs
+vless set-allowed-ips <user> <ips>      # Set complete IP list (comma-separated)
+vless add-allowed-ip <user> <ip>        # Add single IP (no duplicates)
+vless remove-allowed-ip <user> <ip>     # Remove IP (min 1 required)
+vless reset-allowed-ips <user>          # Reset to 127.0.0.1
+```
+
+**IP Validation:**
+- IPv4: `192.168.1.100` (octets 0-255)
+- IPv4 CIDR: `10.0.0.0/24` (prefix 0-32)
+- IPv6: `2001:db8::1`
+- IPv6 CIDR: `2001:db8::/32` (prefix 0-128)
+
+**Routing Evaluation:**
+1. User connects to SOCKS5/HTTP proxy
+2. Xray matches user by email (`alice@vless.local`)
+3. Xray checks source IP against `allowed_ips`
+4. If match → `direct` outbound (allowed)
+5. If no match → `blackhole` outbound (blocked)
+6. Catch-all rule blocks all other proxy connections
+
+**Use Cases:**
+1. **Fixed IPs**: Restrict to office/home static IPs
+2. **VPN-Only**: Allow only 10.0.0.0/8 (after VLESS connection)
+3. **Multi-Region**: Whitelist 3 office locations (CIDR ranges)
+4. **Development**: Localhost-only for test accounts
+5. **Compliance**: Enforce IP-based access policies
+
+**Security Notes:**
+- IP whitelisting is NOT a password replacement
+- Defense-in-depth: IP + password + fail2ban
+- IPs can be spoofed in cloud environments
+- Effective for fixed IPs (residential ISPs, data centers)
+- Less effective for mobile users (use VPN-only mode)
+
+**User Story:** As a security administrator, I want to restrict proxy access to specific office IP ranges so that only employees from authorized locations can use the proxy.
 
 ---
 
