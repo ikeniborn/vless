@@ -1260,6 +1260,22 @@ export_all_proxy_configs() {
     local username="$1"
     local proxy_password="${2:-}"
 
+    # Load environment variables from .env file (v3.3 TLS support)
+    # Required for export functions to determine protocol (socks5/socks5s, http/https)
+    if [[ -f "$ENV_FILE" ]]; then
+        # Export variables so they're available in export_* functions
+        export ENABLE_PUBLIC_PROXY=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+        export DOMAIN=$(grep -E "^DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+
+        # Set defaults if not found in .env
+        [[ -z "$ENABLE_PUBLIC_PROXY" ]] && export ENABLE_PUBLIC_PROXY="false"
+        [[ -z "$DOMAIN" ]] && export DOMAIN=""
+    else
+        # .env file not found, use defaults (no TLS)
+        export ENABLE_PUBLIC_PROXY="false"
+        export DOMAIN=""
+    fi
+
     # If password not provided, read from users.json
     if [[ -z "$proxy_password" ]]; then
         proxy_password=$(jq -r ".users[] | select(.username == \"$username\") | .proxy_password" "$USERS_JSON" 2>/dev/null)
