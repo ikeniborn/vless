@@ -58,6 +58,12 @@ ${CYAN}Proxy IP Whitelist (v3.6 - Server-Level):${NC}
   remove-proxy-ip <ip>              Remove IP from proxy whitelist
   reset-proxy-ips                   Reset to localhost only
 
+${CYAN}UFW Firewall Rules (v4.0 - Host-Level):${NC}
+  show-ufw-ips                      Show UFW proxy whitelist rules
+  add-ufw-ip <ip>                   Add IP to UFW whitelist
+  remove-ufw-ip <ip>                Remove IP from UFW whitelist
+  reset-ufw-ips                     Remove all UFW proxy rules
+
 ${CYAN}Service Operations:${NC}
   status                    Show service status
   start                     Start VLESS services
@@ -93,6 +99,7 @@ source_modules() {
         "user_management.sh"
         "qr_generator.sh"
         "proxy_whitelist.sh"
+        "ufw_whitelist.sh"
     )
 
     for module in "${modules[@]}"; do
@@ -210,6 +217,42 @@ main() {
             check_root
             source_modules
             reset_proxy_allowed_ips
+            ;;
+
+        show-ufw-ips)
+            check_root
+            source_modules
+            show_ufw_proxy_ips
+            ;;
+
+        add-ufw-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: vless add-ufw-ip <ip>" >&2
+                echo "Example: vless add-ufw-ip 192.168.1.100" >&2
+                exit 1
+            fi
+            source_modules
+            add_ufw_proxy_rule "$1"
+            ;;
+
+        remove-ufw-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: vless remove-ufw-ip <ip>" >&2
+                echo "Example: vless remove-ufw-ip 192.168.1.100" >&2
+                exit 1
+            fi
+            source_modules
+            remove_ufw_proxy_rule "$1"
+            ;;
+
+        reset-ufw-ips)
+            check_root
+            source_modules
+            reset_ufw_proxy_ips
             ;;
 
         status)

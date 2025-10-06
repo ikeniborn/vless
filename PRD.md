@@ -1,10 +1,10 @@
-# Product Requirements Document (PRD) v3.5
+# Product Requirements Document (PRD) v4.0
 
 **Project:** VLESS + Reality VPN Server with Secure Public Proxy & IP Access Control
-**Version:** 3.5
+**Version:** 4.0
 **Date:** 2025-10-06
-**Status:** Production Ready
-**Previous Version:** 3.4 (optional TLS for public proxy)
+**Status:** In Development
+**Previous Version:** 3.6 (server-level IP whitelisting)
 
 ---
 
@@ -12,6 +12,8 @@
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 4.0 | 2025-10-06 | System | **stunnel integration**: TLS termination via stunnel + template-based configuration |
+| 3.6 | 2025-10-06 | System | **Server-level IP whitelist**: Migration from per-user to server-level proxy access control |
 | 3.5 | 2025-10-06 | System | **IP-based access control**: Per-user IP whitelisting for proxy servers |
 | 3.4 | 2025-10-05 | System | **Optional TLS**: Made TLS encryption optional (plaintext mode for dev/testing) |
 | 3.3 | 2025-10-05 | System | **CRITICAL SECURITY FIX:** Mandatory TLS encryption for public proxies via Let's Encrypt |
@@ -23,9 +25,11 @@
 
 ## Executive Summary
 
-### Current Version: v3.5 (Production Ready)
+### Current Version: v4.0 (In Development)
 
 **Latest Updates:**
+- 🚧 **v4.0 (2025-10-06)**: stunnel TLS termination + template-based configuration architecture
+- ✅ **v3.6 (2025-10-06)**: Server-level IP whitelist (migration from v3.5 per-user)
 - ✅ **v3.5 (2025-10-06)**: Per-user IP-based access control for proxy servers
 - ✅ **v3.4 (2025-10-05)**: Optional TLS encryption (plaintext mode for dev/testing)
 - ✅ **v3.3 (2025-10-05)**: Mandatory TLS encryption for public proxies
@@ -33,9 +37,63 @@
 **System Capabilities:**
 - **VLESS Reality VPN:** DPI-resistant VPN tunnel
 - **Dual Proxy Modes:** SOCKS5 (1080) + HTTP (8118)
-- **TLS Encryption:** Optional TLS 1.3 via Let's Encrypt (recommended for production)
-- **IP Whitelisting:** Server-level IP-based access control (UPDATED in v3.6)
+- **TLS Termination:** stunnel handles TLS 1.3 encryption (NEW in v4.0)
+- **Template-Based Configs:** Xray, stunnel, docker-compose use templates (NEW in v4.0)
+- **IP Whitelisting:** Server-level + optional UFW firewall rules (ENHANCED in v4.0)
 - **Multi-Format Configs:** 6 auto-generated config files per user
+
+---
+
+### What's New in v4.0
+
+**PRIMARY FEATURE:** stunnel-based TLS termination + template-based configuration architecture.
+
+**Key Architectural Changes:**
+
+| Component | v3.x | v4.0 | Benefit |
+|-----------|------|------|---------|
+| **TLS Handling** | Xray streamSettings | stunnel (separate container) | Separation of concerns |
+| **Proxy Ports** | 1080/8118 (TLS in Xray) | 1080/8118 (stunnel) → 10800/18118 (Xray plaintext) | Simpler Xray config |
+| **Configuration** | Inline heredocs in scripts | Template files with variable substitution | Easier to maintain |
+| **IP Whitelisting** | Xray routing only | Xray routing + optional UFW | Defense-in-depth |
+
+**New CLI Commands (4):**
+```bash
+vless add-ufw-ip <ip>             # Add IP to UFW whitelist for proxy ports
+vless remove-ufw-ip <ip>          # Remove IP from UFW whitelist
+vless show-ufw-ips                # Display UFW proxy rules
+vless reset-ufw-ips               # Remove all UFW proxy rules
+```
+
+**Architecture Overview:**
+```
+Client → stunnel (TLS termination, ports 1080/8118)
+       → Xray (plaintext proxy, localhost 10800/18118)
+       → Internet
+```
+
+**Technical Implementation:**
+- **NEW:** `templates/stunnel.conf.template` - stunnel configuration with TLS 1.3
+- **NEW:** `templates/xray_config.json.template` - Xray configuration (future)
+- **NEW:** `templates/docker-compose.yml.template` - Docker Compose (future)
+- **NEW:** `lib/stunnel_setup.sh` - stunnel initialization module
+- **NEW:** `lib/ufw_whitelist.sh` - UFW-based IP whitelisting
+- **MODIFIED:** `lib/orchestrator.sh` - removed TLS from Xray inbounds, added stunnel service
+- **MODIFIED:** `lib/user_management.sh` - updated client config URIs
+
+**Benefits:**
+1. **Mature TLS Stack:** stunnel has 20+ years of production stability
+2. **Simpler Xray Config:** No TLS complexity in Xray, focus on proxy logic
+3. **Better Debugging:** Separate logs for TLS (stunnel) vs proxy (Xray)
+4. **Template-Based:** All configs generated from templates, easier to version and review
+5. **Optional UFW:** Host-level firewall rules for additional security layer
+6. **Defense-in-Depth:** Multiple security layers (stunnel TLS + Xray auth + UFW + fail2ban)
+
+**Migration from v3.x:**
+- Existing installations will be migrated automatically during update
+- Client configs remain compatible (same ports, same URIs)
+- Zero downtime migration (rolling restart)
+- Backward compatibility maintained
 
 ---
 
@@ -139,7 +197,161 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 
 ## 2. Functional Requirements
 
-### FR-TLS-001: TLS Encryption для SOCKS5 Inbound (CRITICAL - NEW)
+### FR-STUNNEL-001: stunnel TLS Termination (CRITICAL - NEW in v4.0)
+
+**Requirement:** TLS termination MUST be handled by stunnel (separate container) instead of Xray streamSettings.
+
+**Architecture:**
+```
+Client → stunnel (TLS 1.3, ports 1080/8118)
+       → Xray (plaintext, localhost 10800/18118)
+       → Internet
+```
+
+**Acceptance Criteria:**
+- [ ] stunnel container runs and listens on 0.0.0.0:1080 and 0.0.0.0:8118
+- [ ] Xray inbounds changed to localhost:10800 (SOCKS5) and localhost:18118 (HTTP)
+- [ ] No TLS streamSettings in Xray config (plaintext inbounds only)
+- [ ] stunnel uses Let's Encrypt certificates (same as v3.x)
+- [ ] TLS 1.3 only (SSLv2/v3, TLSv1/1.1/1.2 disabled)
+- [ ] Strong cipher suites: TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256
+- [ ] Client connections work identically to v3.x (same URIs, same ports)
+- [ ] stunnel logs separate from Xray logs
+- [ ] Docker network handles stunnel ↔ Xray communication
+
+**Technical Implementation:**
+
+**stunnel.conf:**
+```ini
+[socks5-tls]
+accept = 0.0.0.0:1080
+connect = vless_xray:10800
+cert = /certs/live/${DOMAIN}/fullchain.pem
+key = /certs/live/${DOMAIN}/privkey.pem
+sslVersion = TLSv1.3
+ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+
+[http-tls]
+accept = 0.0.0.0:8118
+connect = vless_xray:18118
+cert = /certs/live/${DOMAIN}/fullchain.pem
+key = /certs/live/${DOMAIN}/privkey.pem
+sslVersion = TLSv1.3
+```
+
+**Xray config (SOCKS5 inbound):**
+```json
+{
+  "tag": "socks5-plaintext",
+  "listen": "127.0.0.1",
+  "port": 10800,
+  "protocol": "socks",
+  "settings": {
+    "auth": "password",
+    "accounts": [{"user": "username", "pass": "password"}],
+    "udp": false
+  }
+}
+```
+
+**docker-compose.yml (NEW service):**
+```yaml
+stunnel:
+  image: dweomer/stunnel:latest
+  container_name: vless_stunnel
+  ports:
+    - "1080:1080"
+    - "8118:8118"
+  volumes:
+    - ./config/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+    - ./certs:/certs:ro
+    - ./logs/stunnel:/var/log/stunnel
+  networks:
+    - vless_reality_net
+  restart: unless-stopped
+  depends_on:
+    - xray
+```
+
+**Benefits:**
+1. Separation of concerns: stunnel = TLS, Xray = proxy logic
+2. Mature TLS stack (stunnel has 20+ years production use)
+3. Simpler Xray configuration (no TLS complexity)
+4. Better debugging (separate logs)
+5. Easier certificate management
+6. Performance: stunnel optimized specifically for TLS termination
+
+**User Story:** As a system administrator, I want TLS termination in a dedicated component so that Xray configuration is simpler and debugging is easier.
+
+---
+
+### FR-TEMPLATE-001: Template-Based Configuration (HIGH - NEW in v4.0)
+
+**Requirement:** All configuration files (Xray, stunnel, docker-compose) MUST be generated from templates with variable substitution.
+
+**Rationale:**
+- Reduces code complexity in orchestrator.sh (no large heredocs)
+- Easier to review and modify configurations
+- Better version control (config changes visible in git diff)
+- Enables reusability across installations
+- Simplifies testing (templates can be validated independently)
+
+**Acceptance Criteria:**
+- [ ] `templates/` directory created with all configuration templates
+- [ ] Templates use clear variable syntax (e.g., `${DOMAIN}`, `${VLESS_PORT}`)
+- [ ] Variable substitution via `envsubst` or equivalent
+- [ ] Templates include comments explaining each section
+- [ ] orchestrator.sh generates configs from templates (not inline heredocs)
+- [ ] All templates validated for syntax before deployment
+- [ ] Template changes can be applied without modifying scripts
+
+**Required Templates:**
+
+| Template File | Purpose | Variables |
+|---------------|---------|-----------|
+| `stunnel.conf.template` | stunnel TLS configuration | `${DOMAIN}` |
+| `xray_config.json.template` | Xray full configuration | `${VLESS_PORT}`, `${DOMAIN}`, `${DEST_SITE}` |
+| `docker-compose.yml.template` | Container orchestration | `${VLESS_PORT}`, `${DOMAIN}`, `${ENABLE_PUBLIC_PROXY}` |
+
+**Technical Implementation:**
+
+**Example: templates/stunnel.conf.template**
+```ini
+# stunnel Configuration for ${DOMAIN}
+[socks5-tls]
+accept = 0.0.0.0:1080
+connect = vless_xray:10800
+cert = /certs/live/${DOMAIN}/fullchain.pem
+key = /certs/live/${DOMAIN}/privkey.pem
+```
+
+**Example: Generation in orchestrator.sh**
+```bash
+# OLD (v3.x): Inline heredoc
+cat > stunnel.conf <<EOF
+[socks5-tls]
+accept = 0.0.0.0:1080
+...
+EOF
+
+# NEW (v4.0): Template substitution
+export DOMAIN="example.com"
+envsubst '${DOMAIN}' < templates/stunnel.conf.template > config/stunnel.conf
+```
+
+**Benefits:**
+1. Cleaner script code (orchestrator.sh reduced by ~30%)
+2. Easier configuration reviews (separate files)
+3. Better version control (config changes isolated)
+4. Reusability (templates can be shared across projects)
+5. Independent testing (validate templates separately)
+6. Documentation (templates self-documenting with comments)
+
+**User Story:** As a developer, I want configuration templates so that I can review and modify configs without touching installation scripts.
+
+---
+
+### FR-TLS-001: TLS Encryption для SOCKS5 Inbound (DEPRECATED in v4.0 - See FR-STUNNEL-001)
 
 **Requirement:** SOCKS5 proxy MUST use TLS 1.3 encryption with Let's Encrypt certificates.
 

@@ -937,25 +937,23 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Determine URI scheme and host based on mode (v3.4)
+    # v4.0: stunnel-based TLS termination
+    # Architecture: Client → stunnel (TLS) → Xray (plaintext)
+    # IMPORTANT: stunnel ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
     local scheme="socks5"
     local host
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # v3.3/v3.4: Public proxy with TLS encryption
-        scheme="socks5s"  # SOCKS5 over TLS
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v4.0: Public proxy with stunnel TLS termination
+        scheme="socks5s"  # SOCKS5 over TLS (stunnel handles TLS)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
-    elif [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "false" ]]; then
-        # v3.4: Public proxy without TLS (plaintext)
-        scheme="socks5"
-        host=$(get_server_ip)
     else
-        # v3.1: Localhost-only, no TLS
+        # Localhost-only, no TLS
         scheme="socks5"
         host="127.0.0.1"
     fi
 
-    # Write SOCKS5 URI
+    # Write SOCKS5 URI (port 1080 exposed by stunnel, not Xray)
     echo "${scheme}://${username}:${password}@${host}:1080" \
         > "$output_dir/socks5_config.txt"
 
@@ -985,25 +983,23 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Determine URI scheme and host based on mode (v3.4)
+    # v4.0: stunnel-based TLS termination
+    # Architecture: Client → stunnel (TLS) → Xray (plaintext)
+    # IMPORTANT: stunnel ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
     local scheme="http"
     local host
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # v3.3/v3.4: Public proxy with TLS encryption
-        scheme="https"  # HTTP over TLS
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v4.0: Public proxy with stunnel TLS termination
+        scheme="https"  # HTTP over TLS (stunnel handles TLS)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
-    elif [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "false" ]]; then
-        # v3.4: Public proxy without TLS (plaintext)
-        scheme="http"
-        host=$(get_server_ip)
     else
-        # v3.1: Localhost-only, no TLS
+        # Localhost-only, no TLS
         scheme="http"
         host="127.0.0.1"
     fi
 
-    # Write HTTP URI
+    # Write HTTP URI (port 8118 exposed by stunnel, not Xray)
     echo "${scheme}://${username}:${password}@${host}:8118" \
         > "$output_dir/http_config.txt"
 

@@ -1,14 +1,33 @@
 # VLESS Reality VPN Deployment System
 
-**Version**: 3.5
-**Status**: Production Ready
+**Version**: 4.0
+**Status**: In Development
 **License**: MIT
 
 ---
 
 ## Overview
 
-Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP) with optional TLS encryption** for public access (v3.4), Let's Encrypt certificate automation, and defense-in-depth security hardening including fail2ban integration.
+Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP) with stunnel TLS termination** (v4.0), template-based configuration architecture, multi-layer IP whitelisting (Xray + UFW), Let's Encrypt certificate automation, and defense-in-depth security hardening including fail2ban integration.
+
+### What's New in v4.0
+
+**Primary Feature:** stunnel-based TLS termination + template-based configuration architecture
+
+**Key Changes:**
+- **stunnel TLS Termination**: Dedicated stunnel container handles TLS 1.3 encryption, separating concerns from Xray
+- **Template-Based Configs**: All configurations (Xray, stunnel, docker-compose) generated from templates
+- **Simpler Xray Config**: Xray focuses on proxy logic (localhost plaintext inbounds), no TLS complexity
+- **UFW Integration**: Optional host-level firewall rules for proxy ports (defense-in-depth)
+- **Mature TLS Stack**: stunnel has 20+ years production stability
+- **Better Debugging**: Separate logs for TLS (stunnel) vs proxy (Xray)
+
+**Architecture:**
+```
+Client → stunnel (TLS 1.3, ports 1080/8118)
+       → Xray (plaintext, localhost 10800/18118)
+       → Internet
+```
 
 ---
 
@@ -19,36 +38,43 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to
 - **One-Command Installation**: Complete setup in < 5 minutes
 - **Automated Dependency Management**: Docker, UFW, certbot, jq, qrencode auto-install
 - **Reality Protocol**: TLS 1.3 masquerading for undetectable VPN traffic
-- **Dual Proxy Support (v3.4)**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with:
-  - **Optional TLS 1.3 encryption** for public access (recommended)
-  - **Let's Encrypt certificates** with auto-renewal (when TLS enabled)
-  - **Flexible deployment**: TLS (socks5s://, https://) or plaintext (socks5://, http://)
-- **Proxy IP Whitelist (v3.6)**: Server-level IP-based access control with:
-  - **Xray routing rules** for application-level filtering
+- **Dual Proxy Support (v4.0)**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with:
+  - **stunnel TLS Termination**: Dedicated container for TLS 1.3 encryption
+  - **Let's Encrypt certificates** with auto-renewal
+  - **Always encrypted**: TLS mandatory for public proxy mode
+  - **Client URIs**: `socks5s://user:pass@domain:1080` and `https://user:pass@domain:8118`
+- **Multi-Layer IP Whitelisting (v4.0)**: Defense-in-depth access control with:
+  - **Xray routing rules** (v3.6): Application-level filtering via proxy_allowed_ips.json
+  - **UFW firewall rules** (v4.0 NEW): Host-level filtering for proxy ports
   - **Multiple IP formats**: Individual IPs, CIDR ranges, IPv4/IPv6
   - **Default security**: Localhost-only access for new users
   - **Zero downtime**: Updates apply immediately via container reload
+- **Template-Based Configuration (v4.0 NEW)**: Clean separation of configs from scripts
+  - **Xray config**: Generated from template with variable substitution
+  - **stunnel config**: Template-based with domain variable
+  - **docker-compose**: Dynamic service composition based on mode
 - **User Management**: Create/remove users in < 5 seconds with UUID generation
 - **Multi-Format Config Export**: 6 proxy config formats (SOCKS5, HTTP, VSCode, Docker, Bash, Git)
 - **QR Code Generation**: 400x400px PNG + ANSI terminal variants
 - **Service Operations**: Start/stop/restart with zero-downtime reloads
 - **Security Hardening**: CIS Docker Benchmark compliance, defense-in-depth
 - **Automated Updates**: Configuration-preserving system updates with breaking change warnings
-- **Comprehensive Logging**: ERROR/WARN/INFO filtering with real-time streaming
+- **Comprehensive Logging**: ERROR/WARN/INFO filtering with real-time streaming + separate stunnel logs
 
 ### Security Features
 
-- Defense-in-depth firewall (UFW + iptables)
+- **Multi-Layer Firewalling (v4.0)**: Defense-in-depth with UFW + Xray routing + stunnel
 - Container security (capability dropping, read-only root, no-new-privileges)
-- **Public Proxy Mode (v3.4)**: Internet-accessible SOCKS5/HTTP proxies with production-grade security:
-  - **Optional TLS 1.3 Encryption**: Encryption via Let's Encrypt certificates (recommended for production)
-  - **Plaintext Mode**: Available for development/testing (⚠️ credentials not encrypted)
-  - **Certificate Auto-Renewal**: Automated certificate renewal when TLS enabled (cron-based, twice daily)
-  - **Fail2ban Integration**: Automatic IP banning after 5 failed authentication attempts (1-hour ban, all modes)
-  - **UFW Rate Limiting**: 10 connections per minute per IP (public proxy only)
+- **Public Proxy Mode (v4.0)**: Internet-accessible SOCKS5/HTTP proxies with production-grade security:
+  - **Mandatory TLS 1.3 Encryption**: stunnel handles TLS termination (always encrypted)
+  - **Certificate Auto-Renewal**: Automated Let's Encrypt renewal (cron-based, twice daily)
+  - **Fail2ban Integration**: Automatic IP banning after 5 failed authentication attempts (1-hour ban)
+  - **UFW Rate Limiting**: 10 connections per minute per IP (host firewall)
+  - **Xray IP Whitelist**: Application-level filtering (proxy_allowed_ips.json)
   - **Enhanced Passwords**: 32-character random passwords (2^128 entropy)
-  - **Docker Healthchecks**: Automated container health monitoring
-  - **Domain Validation**: DNS checks before certificate issuance (TLS mode only)
+  - **Docker Healthchecks**: Automated container health monitoring (Xray + stunnel)
+  - **Domain Validation**: DNS checks before certificate issuance
+  - **Separation of Concerns**: stunnel (TLS) + Xray (auth) + UFW (firewall)
 - **VLESS-Only Mode** (default): Traditional VPN-only deployment, no proxy exposure
 - File permission hardening (least privilege principle: 600 for configs, 700 for scripts)
 - Automated security auditing
@@ -81,14 +107,11 @@ sudo ./install.sh
 # 1. Select destination site (google.com, microsoft.com, etc.)
 # 2. Choose VLESS port (443 or custom)
 # 3. Select Docker subnet (auto-detected)
-# 4. Enable public proxy access? [y/N] ← v3.4: SOCKS5 + HTTP proxies
-#    - Choose 'y' for internet-accessible proxies
+# 4. Enable public proxy access? [y/N] ← v4.0: SOCKS5 + HTTP with stunnel TLS
+#    - Choose 'y' for internet-accessible proxies (TLS always enabled)
 #    - Choose 'N' for VLESS-only mode (default)
-# 5. If 'y': Enable TLS encryption for proxy? [Y/n] ← v3.4: NEW
-#    - Choose 'Y' for TLS (requires domain, Let's Encrypt cert) - RECOMMENDED
-#    - Choose 'n' for plaintext (development/testing ONLY) - ⚠️ INSECURE
-# 6. If TLS enabled: Enter domain name (e.g., vpn.example.com)
-# 7. If TLS enabled: Enter email for Let's Encrypt notifications
+# 5. If 'y': Enter domain name (e.g., vpn.example.com) - REQUIRED for TLS
+# 6. If 'y': Enter email for Let's Encrypt notifications
 ```
 
 ### Create First User (<5 seconds)

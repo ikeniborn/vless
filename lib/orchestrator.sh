@@ -383,74 +383,22 @@ EOF
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
 # Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
 # Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
-# Note: v3.3 - TLS encryption mandatory when ENABLE_PUBLIC_PROXY=true
+# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
 # =============================================================================
 generate_socks5_inbound_json() {
-    # v3.4: Three-tier proxy configuration
-    # 1. Public + TLS: 0.0.0.0 with TLS encryption (socks5s://)
-    # 2. Public + Plaintext: 0.0.0.0 without TLS (socks5://)
-    # 3. Localhost only: 127.0.0.1 without TLS (socks5://)
+    # v4.0: stunnel-based TLS termination
+    # Architecture: Client → stunnel (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
+    #
+    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:10800)
+    # - stunnel container exposes public port 1080 with TLS encryption
+    # - Xray handles authentication (username/password MANDATORY)
+    # - No TLS streamSettings in Xray config (handled by stunnel)
 
-    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
-        # v3.3: TLS-encrypted SOCKS5 (socks5s://)
-        cat <<EOF
-  ,{
-    "tag": "socks5-proxy",
-    "listen": "0.0.0.0",
-    "port": 1080,
-    "protocol": "socks",
-    "settings": {
-      "auth": "password",
-      "accounts": [],
-      "udp": false,
-      "ip": "0.0.0.0"
-    },
-    "streamSettings": {
-      "network": "tcp",
-      "security": "tls",
-      "tlsSettings": {
-        "certificates": [
-          {
-            "certificateFile": "/certs/live/${DOMAIN}/fullchain.pem",
-            "keyFile": "/certs/live/${DOMAIN}/privkey.pem"
-          }
-        ],
-        "alpn": ["h2", "http/1.1"]
-      }
-    },
-    "sniffing": {
-      "enabled": true,
-      "destOverride": ["http", "tls"]
-    }
-  }
-EOF
-    elif [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "false" ]]; then
-        # v3.4: Plaintext SOCKS5 on public interface (socks5://)
-        cat <<'EOF'
-  ,{
-    "tag": "socks5-proxy",
-    "listen": "0.0.0.0",
-    "port": 1080,
-    "protocol": "socks",
-    "settings": {
-      "auth": "password",
-      "accounts": [],
-      "udp": false,
-      "ip": "0.0.0.0"
-    },
-    "sniffing": {
-      "enabled": true,
-      "destOverride": ["http", "tls"]
-    }
-  }
-EOF
-    else
-        # v3.1: Localhost-only SOCKS5 (no TLS)
-        cat <<'EOF'
+    cat <<'EOF'
   ,{
     "tag": "socks5-proxy",
     "listen": "127.0.0.1",
-    "port": 1080,
+    "port": 10800,
     "protocol": "socks",
     "settings": {
       "auth": "password",
@@ -464,7 +412,6 @@ EOF
     }
   }
 EOF
-    fi
 }
 
 # =============================================================================
@@ -473,72 +420,22 @@ EOF
 # Description: Generate HTTP proxy inbound configuration for Xray
 # Returns: JSON string for HTTP inbound (to be appended to inbounds array)
 # Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
-# Note: v3.3 - TLS encryption mandatory when ENABLE_PUBLIC_PROXY=true
+# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
 # =============================================================================
 generate_http_inbound_json() {
-    # v3.4: Three-tier proxy configuration
-    # 1. Public + TLS: 0.0.0.0 with TLS encryption (https://)
-    # 2. Public + Plaintext: 0.0.0.0 without TLS (http://)
-    # 3. Localhost only: 127.0.0.1 without TLS (http://)
+    # v4.0: stunnel-based TLS termination
+    # Architecture: Client → stunnel (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
+    #
+    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:18118)
+    # - stunnel container exposes public port 8118 with TLS encryption
+    # - Xray handles authentication (username/password MANDATORY)
+    # - No TLS streamSettings in Xray config (handled by stunnel)
 
-    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
-        # v3.3: TLS-encrypted HTTP (https://)
-        cat <<EOF
-  ,{
-    "tag": "http-proxy",
-    "listen": "0.0.0.0",
-    "port": 8118,
-    "protocol": "http",
-    "settings": {
-      "accounts": [],
-      "allowTransparent": false,
-      "userLevel": 0
-    },
-    "streamSettings": {
-      "network": "tcp",
-      "security": "tls",
-      "tlsSettings": {
-        "certificates": [
-          {
-            "certificateFile": "/certs/live/${DOMAIN}/fullchain.pem",
-            "keyFile": "/certs/live/${DOMAIN}/privkey.pem"
-          }
-        ],
-        "alpn": ["h2", "http/1.1"]
-      }
-    },
-    "sniffing": {
-      "enabled": true,
-      "destOverride": ["http", "tls"]
-    }
-  }
-EOF
-    elif [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "false" ]]; then
-        # v3.4: Plaintext HTTP on public interface (http://)
-        cat <<'EOF'
-  ,{
-    "tag": "http-proxy",
-    "listen": "0.0.0.0",
-    "port": 8118,
-    "protocol": "http",
-    "settings": {
-      "accounts": [],
-      "allowTransparent": false,
-      "userLevel": 0
-    },
-    "sniffing": {
-      "enabled": true,
-      "destOverride": ["http", "tls"]
-    }
-  }
-EOF
-    else
-        # v3.1: Localhost-only HTTP (no TLS)
-        cat <<'EOF'
+    cat <<'EOF'
   ,{
     "tag": "http-proxy",
     "listen": "127.0.0.1",
-    "port": 8118,
+    "port": 18118,
     "protocol": "http",
     "settings": {
       "accounts": [],
@@ -551,7 +448,6 @@ EOF
     }
   }
 EOF
-    fi
 }
 
 # =============================================================================
@@ -917,38 +813,60 @@ EOF
 create_docker_compose() {
     echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
 
-    # v3.4: Determine ports and volumes based on proxy mode and TLS
-    local ports_section
-    local volumes_section
+    # v4.0: stunnel-based TLS termination
+    # - Xray: ALWAYS only exposes VLESS port to host (1080/8118 NOT exposed)
+    # - stunnel: Exposes 1080/8118 when ENABLE_PUBLIC_PROXY=true
+    # - Architecture: Client → stunnel (TLS) → Xray (plaintext localhost)
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.2/v3.3/v3.4: Public proxy mode - expose ports 1080 and 8118
-        ports_section="    ports:
-      - \"${VLESS_PORT}:${VLESS_PORT}\"
-      - \"1080:1080\"
-      - \"8118:8118\""
-
-        # v3.4: Conditionally add Let's Encrypt certificate volume mount
-        if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-            # v3.3/v3.4: TLS mode - mount certificates
-            volumes_section="    volumes:
-      - ${CONFIG_DIR}:/etc/xray:ro
-      - ${LOGS_DIR}:/var/log/xray
-      - /etc/letsencrypt:/certs:ro"
-        else
-            # v3.4: Plaintext mode - no certificates
-            volumes_section="    volumes:
-      - ${CONFIG_DIR}:/etc/xray:ro
-      - ${LOGS_DIR}:/var/log/xray"
-        fi
-    else
-        # VLESS-only mode - no proxy ports exposed, no cert volume
-        ports_section="    ports:
+    # Xray ports (VLESS only, proxy ports NOT exposed to host)
+    local xray_ports="    ports:
       - \"${VLESS_PORT}:${VLESS_PORT}\""
 
-        volumes_section="    volumes:
+    # Xray volumes (no certs needed, stunnel handles TLS)
+    local xray_volumes="    volumes:
       - ${CONFIG_DIR}:/etc/xray:ro
       - ${LOGS_DIR}:/var/log/xray"
+
+    # Xray healthcheck (check localhost proxy ports 10800/18118)
+    local xray_healthcheck="    healthcheck:
+      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 10800 && nc -z 127.0.0.1 18118 || exit 1\"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s"
+
+    # stunnel service (optional, only when ENABLE_PUBLIC_PROXY=true)
+    local stunnel_service=""
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        stunnel_service="
+  stunnel:
+    image: dweomer/stunnel:latest
+    container_name: vless_stunnel
+    restart: unless-stopped
+    ports:
+      - \"1080:1080\"
+      - \"8118:8118\"
+    volumes:
+      - ${CONFIG_DIR}/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+      - /etc/letsencrypt:/certs:ro
+      - ${LOGS_DIR}/stunnel:/var/log/stunnel
+    networks:
+      - ${DOCKER_NETWORK_NAME}
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - xray
+    healthcheck:
+      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 1080 && nc -z 127.0.0.1 8118 || exit 1\"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+"
     fi
 
     # Create docker-compose.yml
@@ -958,16 +876,11 @@ services:
     image: ${XRAY_IMAGE}
     container_name: ${XRAY_CONTAINER_NAME}
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 1080 && nc -z 127.0.0.1 8118 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+${xray_healthcheck}
     networks:
       - ${DOCKER_NETWORK_NAME}
-${ports_section}
-${volumes_section}
+${xray_ports}
+${xray_volumes}
     cap_drop:
       - ALL
     cap_add:
@@ -1004,7 +917,7 @@ ${volumes_section}
       - /var/run
     depends_on:
       - xray
-
+${stunnel_service}
 networks:
   ${DOCKER_NETWORK_NAME}:
     external: true
@@ -1021,20 +934,16 @@ EOF
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
 
-    # v3.4: Show exposed ports based on mode
+    # v4.0: Show architecture based on mode
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-            echo "  ✓ Mode: PUBLIC PROXY with TLS (v3.3/v3.4)"
-            echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS), 1080 (SOCKS5s), 8118 (HTTPS)"
-            echo "  ✓ TLS certificates: /etc/letsencrypt mounted"
-        else
-            echo "  ✓ Mode: PUBLIC PROXY (plaintext) (v3.4)"
-            echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS), 1080 (SOCKS5), 8118 (HTTP)"
-            echo "  ⚠️  WARNING: Proxy credentials NOT encrypted!"
-        fi
+        echo "  ✓ Mode: PUBLIC PROXY with stunnel TLS (v4.0)"
+        echo "  ✓ stunnel: Exposed ports 1080 (SOCKS5s), 8118 (HTTPS) with TLS 1.3"
+        echo "  ✓ Xray: Localhost ports 10800 (SOCKS5), 18118 (HTTP) - plaintext"
+        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to stunnel"
+        echo "  ✓ Architecture: Client → stunnel (TLS) → Xray (auth) → Internet"
     else
         echo "  ✓ Mode: VLESS-only"
-        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS)"
+        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS Reality)"
     fi
 
     echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
