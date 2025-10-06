@@ -248,6 +248,8 @@ check_dependencies() {
         # Check if command exists
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
+        [[ "$package" == "fail2ban" ]] && cmd_name="fail2ban-client"
+        [[ "$package" == "dnsutils" ]] && cmd_name="dig"
 
         # Special check for docker-compose-plugin (uses "docker compose" command)
         if [[ "$package" == "docker-compose-plugin" ]]; then
