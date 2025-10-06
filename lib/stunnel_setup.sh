@@ -243,7 +243,9 @@ setup_stunnel_logging() {
 #
 verify_certificates() {
     local domain="$1"
-    local cert_dir="${INSTALL_ROOT}/certs/live/${domain}"
+    # Certificates are always in /etc/letsencrypt on the host
+    # Docker mounts /etc/letsencrypt:/certs:ro for containers
+    local cert_dir="/etc/letsencrypt/live/${domain}"
 
     log_stunnel_info "Verifying certificates for ${domain}..."
 
@@ -346,7 +348,7 @@ ${CYAN}stunnel Configuration Summary:${NC}
   Domain:         ${domain}
   Config:         ${STUNNEL_CONFIG}
   Logs:           ${STUNNEL_LOG_DIR}
-  Certificates:   ${INSTALL_ROOT}/certs/live/${domain}/
+  Certificates:   /etc/letsencrypt/live/${domain}/
 
 ${CYAN}TLS Services:${NC}
   SOCKS5:         0.0.0.0:1080 → vless_xray:10800 (TLS termination)
