@@ -35,16 +35,15 @@ REQUIRED_PACKAGES=(
     "qrencode"
     "curl"
     "openssl"
+    "fail2ban"        # v3.3: Brute-force protection (all proxy modes)
+    "certbot"         # v3.3: Let's Encrypt client for TLS certificates
+    "dnsutils"        # v3.3: DNS tools (dig) for certificate validation
 )
 
 # Optional packages (non-critical, system works without them)
-# v3.2: netcat for healthchecks, fail2ban for public proxy protection
-# v3.3: certbot for Let's Encrypt TLS certificates (public proxy only)
+# v3.3: netcat for Docker healthchecks (has fallbacks)
 OPTIONAL_PACKAGES=(
     "netcat-openbsd"  # For Docker healthchecks (fallback: netcat-traditional, ncat)
-    "fail2ban"        # Brute-force protection for public proxy
-    "certbot"         # Let's Encrypt client for TLS certificates (v3.3 public proxy)
-    "dnsutils"        # DNS tools (dig) for certificate validation
 )
 
 # Ensure it's properly declared as array for export
@@ -426,6 +425,8 @@ install_dependencies() {
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
         [[ "$package" == "netcat-openbsd" ]] && cmd_name="nc"
+        [[ "$package" == "fail2ban" ]] && cmd_name="fail2ban-server"
+        [[ "$package" == "dnsutils" ]] && cmd_name="dig"
 
         # Special check for docker-compose-plugin
         local is_installed=false
@@ -504,16 +505,9 @@ install_dependencies() {
     echo -e "${CYAN}Installing optional packages...${NC}"
 
     for package in "${OPTIONAL_PACKAGES[@]}"; do
-        # Skip fail2ban if proxy not enabled (v3.3 - for all proxy modes)
-        if [[ "$package" == "fail2ban" && "${ENABLE_PROXY:-false}" != "true" ]]; then
-            echo -e "  ${YELLOW}⊗${NC} $package - skipped (proxy not enabled)"
-            continue
-        fi
-
         # Map package name to command name
         local opt_cmd="$package"
         [[ "$package" == "netcat-openbsd" ]] && opt_cmd="nc"
-        [[ "$package" == "fail2ban" ]] && opt_cmd="fail2ban-server"
 
         # Check if already installed
         if command -v "$opt_cmd" &>/dev/null 2>&1; then
