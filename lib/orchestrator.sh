@@ -778,8 +778,6 @@ create_docker_compose() {
 
     # Create docker-compose.yml
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
-version: '3.8'
-
 services:
   xray:
     image: ${XRAY_IMAGE}

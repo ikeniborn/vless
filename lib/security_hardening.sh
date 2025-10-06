@@ -163,8 +163,8 @@ harden_file_permissions() {
 # Returns:
 #   0 if secure, 1 if issues found
 #######################################
-verify_file_permissions() {
-    log_info "Verifying file permissions..."
+audit_file_permissions() {
+    log_info "Auditing file permissions..."
 
     local issues=0
 
@@ -528,7 +528,7 @@ security_audit() {
 
     # Section 1: File Permissions
     echo "┌─ File Permissions ───────────────────────────────────────┐"
-    if verify_file_permissions; then
+    if audit_file_permissions; then
         echo -e "  Status: \033[32m✓ PASS\033[0m"
     else
         echo -e "  Status: \033[31m✗ FAIL\033[0m"
