@@ -170,6 +170,7 @@ source_libraries() {
         "verification.sh"
         "security_hardening.sh"
         "certbot_setup.sh"
+        "stunnel_setup.sh"
     )
 
     # Check if lib directory exists

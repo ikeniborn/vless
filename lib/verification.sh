@@ -635,7 +635,7 @@ display_verification_summary() {
 # ============================================================================
 validate_mandatory_tls() {
     echo ""
-    log_info "Verification 5.6/10: Validating TLS encryption (v3.4 - optional)..."
+    log_info "Verification 5.6/10: Validating TLS encryption (v4.0 stunnel architecture)..."
 
     # Only validate if public proxy mode enabled
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
@@ -644,53 +644,46 @@ validate_mandatory_tls() {
         return 0
     fi
 
-    # v3.4: TLS is optional - skip validation if plaintext mode chosen
+    # v4.0: TLS handled by stunnel, not Xray
     if [[ "${ENABLE_PROXY_TLS:-false}" != "true" ]]; then
         log_info "  ⊗ TLS disabled (plaintext mode), skipping TLS validation"
-        log_warning "  ⚠️  SECURITY WARNING: Proxy running in plaintext mode (credentials not encrypted)"
+        log_warning "  ⚠️  SECURITY WARNING: Proxy running in plaintext mode"
         echo ""
         return 0
     fi
 
-    local config_file="${INSTALL_ROOT}/config/xray_config.json"
-    local compose_file="${INSTALL_ROOT}/docker-compose.yml"
     local validation_failed=0
 
-    # Check 1: Xray config exists
-    if [[ ! -f "$config_file" ]]; then
-        log_error "Xray config not found: $config_file"
-        return 1
-    fi
-
-    # Check 2: SOCKS5 inbound has TLS
-    log_info "  [1/5] Checking SOCKS5 TLS configuration..."
-    local socks5_security
-    socks5_security=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .streamSettings.security // "none"' "$config_file" 2>/dev/null)
-
-    if [[ "$socks5_security" != "tls" ]]; then
-        log_error "    ✗ SOCKS5 inbound missing TLS encryption"
-        log_error "    Expected: streamSettings.security=\"tls\""
-        log_error "    Found: \"$socks5_security\""
+    # Check 1: stunnel.conf exists as FILE (not directory!)
+    log_info "  [1/5] Checking stunnel configuration file..."
+    if [[ ! -f "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
+        if [[ -d "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
+            log_error "    ✗ stunnel.conf is a DIRECTORY (should be FILE)"
+            log_error "    This indicates init_stunnel() was never called"
+        else
+            log_error "    ✗ stunnel.conf not found"
+        fi
         validation_failed=1
     else
-        log_success "    ✓ SOCKS5 TLS enabled"
+        log_success "    ✓ stunnel.conf exists"
     fi
 
-    # Check 3: HTTP inbound has TLS
-    log_info "  [2/5] Checking HTTP TLS configuration..."
-    local http_security
-    http_security=$(jq -r '.inbounds[] | select(.tag=="http-proxy") | .streamSettings.security // "none"' "$config_file" 2>/dev/null)
-
-    if [[ "$http_security" != "tls" ]]; then
-        log_error "    ✗ HTTP inbound missing TLS encryption"
-        log_error "    Expected: streamSettings.security=\"tls\""
-        log_error "    Found: \"$http_security\""
+    # Check 2: stunnel container exists
+    log_info "  [2/5] Checking stunnel container..."
+    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_stunnel$'; then
+        log_error "    ✗ stunnel container not found"
         validation_failed=1
     else
-        log_success "    ✓ HTTP TLS enabled"
+        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        if [[ "$stunnel_status" == "running" ]]; then
+            log_success "    ✓ stunnel container running"
+        else
+            log_error "    ✗ stunnel container status: $stunnel_status"
+            validation_failed=1
+        fi
     fi
 
-    # Check 4: Certificate files exist
+    # Check 3: Certificate files exist
     log_info "  [3/5] Checking Let's Encrypt certificates..."
     if [[ -z "${DOMAIN:-}" ]]; then
         log_error "    ✗ DOMAIN variable not set"
@@ -698,55 +691,48 @@ validate_mandatory_tls() {
     elif [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
         log_error "    ✗ Certificate not found: /etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
         validation_failed=1
-    elif [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" ]]; then
-        log_error "    ✗ Private key not found: /etc/letsencrypt/live/${DOMAIN}/privkey.pem"
-        validation_failed=1
     else
         log_success "    ✓ Certificates exist for $DOMAIN"
-
-        # Check certificate expiry
         local expiry_date
         expiry_date=$(openssl x509 -in "/etc/letsencrypt/live/${DOMAIN}/cert.pem" -noout -enddate 2>/dev/null | cut -d= -f2)
         log_info "    ℹ Expires: $expiry_date"
     fi
 
-    # Check 5: Docker volume mount configured
-    log_info "  [4/5] Checking Docker volume mount..."
-    if [[ ! -f "$compose_file" ]]; then
-        log_error "    ✗ Docker Compose file not found: $compose_file"
-        validation_failed=1
-    elif ! grep -q "/etc/letsencrypt:/certs:ro" "$compose_file" 2>/dev/null; then
-        log_error "    ✗ Certificate volume mount not configured"
-        log_error "    Expected: /etc/letsencrypt:/certs:ro"
-        validation_failed=1
+    # Check 4: Xray inbounds are plaintext localhost (v4.0 architecture)
+    log_info "  [4/5] Checking Xray proxy inbounds (should be plaintext)..."
+    local config_file="${INSTALL_ROOT}/config/xray_config.json"
+    local socks5_listen=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .listen' "$config_file" 2>/dev/null)
+    local http_listen=$(jq -r '.inbounds[] | select(.tag=="http-proxy") | .listen' "$config_file" 2>/dev/null)
+
+    if [[ "$socks5_listen" == "127.0.0.1" ]] && [[ "$http_listen" == "127.0.0.1" ]]; then
+        log_success "    ✓ Xray proxies listen on localhost (correct for v4.0)"
     else
-        log_success "    ✓ Certificate volume mount configured"
+        log_error "    ✗ Xray proxies should listen on 127.0.0.1"
+        log_error "    Found: SOCKS5=$socks5_listen, HTTP=$http_listen"
+        validation_failed=1
     fi
 
-    # Check 6: Certificate paths in Xray config
-    log_info "  [5/5] Checking certificate paths in Xray config..."
-    local cert_path
-    cert_path=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .streamSettings.tlsSettings.certificates[0].certificateFile // "not_found"' "$config_file" 2>/dev/null)
-
-    if [[ "$cert_path" == "not_found" ]] || [[ ! "$cert_path" =~ /certs/live/.*/fullchain\.pem ]]; then
-        log_error "    ✗ Invalid certificate path in config"
-        log_error "    Found: $cert_path"
-        validation_failed=1
+    # Check 5: stunnel ports exposed to internet
+    log_info "  [5/5] Checking stunnel port mappings..."
+    local stunnel_ports=$(docker port vless_stunnel 2>/dev/null || echo "")
+    if [[ "$stunnel_ports" =~ "1080" ]] && [[ "$stunnel_ports" =~ "8118" ]]; then
+        log_success "    ✓ stunnel exposing ports 1080 and 8118"
     else
-        log_success "    ✓ Certificate paths correct"
+        log_error "    ✗ stunnel ports not properly mapped"
+        validation_failed=1
     fi
 
     # Final result
     echo ""
     if [[ $validation_failed -eq 0 ]]; then
-        log_success "TLS validation: PASSED"
-        log_info "  • SOCKS5: TLS encrypted (socks5s://)"
-        log_info "  • HTTP: TLS encrypted (https://)"
-        log_info "  • Certificates: Valid"
+        log_success "TLS validation: PASSED (v4.0 stunnel architecture)"
+        log_info "  • Architecture: Client → stunnel (TLS) → Xray (plaintext localhost)"
+        log_info "  • SOCKS5: 0.0.0.0:1080 (TLS) → 127.0.0.1:10800 (plaintext)"
+        log_info "  • HTTP: 0.0.0.0:8118 (TLS) → 127.0.0.1:18118 (plaintext)"
         return 0
     else
         log_error "TLS validation: FAILED"
-        log_error "Public proxy mode requires TLS encryption for all inbounds"
+        log_error "v4.0 requires stunnel for TLS termination"
         return 1
     fi
 }

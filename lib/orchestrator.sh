@@ -123,6 +123,24 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 6.5: Initialize stunnel TLS termination (v4.0)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        echo ""
+        echo -e "${CYAN}[6.5/12] Initializing stunnel TLS termination...${NC}"
+
+        # Define required variables for stunnel_setup.sh
+        export TEMPLATE_DIR="${SCRIPT_DIR}/templates"
+        export LOG_DIR="${LOGS_DIR}"
+
+        # stunnel_setup.sh is already sourced by install.sh
+        # Call init_stunnel with domain
+        if ! init_stunnel "${DOMAIN}"; then
+            echo -e "${RED}Failed to initialize stunnel${NC}" >&2
+            echo -e "${YELLOW}TLS termination configuration failed${NC}" >&2
+            return 1
+        fi
+    fi
+
     # Step 7: Create docker-compose.yml
     create_docker_compose || {
         echo -e "${RED}Failed to create docker-compose.yml${NC}" >&2
