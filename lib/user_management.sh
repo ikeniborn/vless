@@ -1690,6 +1690,105 @@ list_users() {
 # ============================================================================
 
 # =============================================================================
+# FUNCTION: regenerate_routing_rules
+# =============================================================================
+# Description: Regenerate Xray routing rules based on users.json allowed_ips
+# Arguments: None
+# Returns: 0 on success, 1 on failure
+# Related: v3.5 IP-based access control
+# Note: Reads users.json, updates xray_config.json routing section, reloads Xray
+# =============================================================================
+regenerate_routing_rules() {
+    local xray_config="${XRAY_CONFIG}"
+
+    # Check if users.json exists
+    if [[ ! -f "$USERS_JSON" ]]; then
+        log_warning "users.json not found, no routing rules to generate"
+        return 0
+    fi
+
+    # Check if xray_config.json exists
+    if [[ ! -f "$xray_config" ]]; then
+        log_error "Xray config not found: $xray_config"
+        return 1
+    fi
+
+    log_info "Regenerating routing rules from users.json..."
+
+    # Build routing rules JSON
+    local rules_json="[]"
+    local users_count=0
+
+    # Parse users.json and generate per-user rules
+    while IFS= read -r user_data; do
+        local username=$(echo "$user_data" | jq -r '.username')
+        local allowed_ips=$(echo "$user_data" | jq -c '.allowed_ips // ["127.0.0.1"]')
+
+        # Skip if no username
+        [[ -z "$username" || "$username" == "null" ]] && continue
+
+        # Build rule for this user (email format: username@vless.local)
+        local user_rule=$(jq -n \
+            --arg user "${username}@vless.local" \
+            --argjson source "$allowed_ips" \
+            '{
+                type: "field",
+                inboundTag: ["socks5-proxy", "http-proxy"],
+                user: [$user],
+                source: $source,
+                outboundTag: "direct"
+            }')
+
+        # Add to rules array
+        rules_json=$(echo "$rules_json" | jq --argjson rule "$user_rule" '. += [$rule]')
+        ((users_count++))
+    done < <(jq -c '.users[]' "$USERS_JSON" 2>/dev/null)
+
+    # Add catch-all block rule
+    local block_rule=$(jq -n '{
+        type: "field",
+        inboundTag: ["socks5-proxy", "http-proxy"],
+        outboundTag: "blocked"
+    }')
+    rules_json=$(echo "$rules_json" | jq --argjson rule "$block_rule" '. += [$rule]')
+
+    # Build complete routing object
+    local routing_json=$(jq -n \
+        --argjson rules "$rules_json" \
+        '{
+            domainStrategy: "AsIs",
+            rules: $rules
+        }')
+
+    # Create backup
+    cp "$xray_config" "${xray_config}.bak.$$"
+
+    # Update routing section in xray_config.json
+    local temp_file="${xray_config}.tmp.$$"
+    if ! jq --argjson routing "$routing_json" '.routing = $routing' "$xray_config" > "$temp_file"; then
+        log_error "Failed to update routing rules in Xray config"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Validate JSON
+    if ! jq empty "$temp_file" 2>/dev/null; then
+        log_error "Generated invalid Xray configuration"
+        rm -f "$temp_file"
+        mv "${xray_config}.bak.$$" "$xray_config"
+        return 1
+    fi
+
+    # Apply changes
+    mv "$temp_file" "$xray_config"
+    rm -f "${xray_config}.bak.$$"
+
+    log_success "Routing rules regenerated ($users_count users)"
+
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: validate_ip
 # =============================================================================
 # Description: Validate IP address format (IPv4, IPv6, CIDR notation)
@@ -1880,21 +1979,19 @@ set_allowed_ips() {
 
     log_success "Updated users.json"
 
-    # Regenerate Xray config with new routing rules
-    log_info "Regenerating Xray configuration..."
-
-    # Source orchestrator to get config generation functions
-    if [[ -f "${SCRIPT_DIR}/orchestrator.sh" ]]; then
-        # Reload Xray to apply routing changes
-        if ! reload_xray; then
-            log_warning "Xray reload failed, changes may not be applied"
-            return 1
-        fi
-
-        log_success "Xray configuration reloaded with new IP whitelist"
-    else
-        log_warning "Orchestrator not found, manual Xray reload required"
+    # Regenerate routing rules in xray_config.json
+    if ! regenerate_routing_rules; then
+        log_error "Failed to regenerate routing rules"
+        return 1
     fi
+
+    # Reload Xray to apply changes
+    if ! reload_xray; then
+        log_warning "Xray reload failed, changes may not be applied"
+        return 1
+    fi
+
+    log_success "Xray configuration reloaded with new IP whitelist"
 
     # Display updated IPs
     echo ""
@@ -1983,6 +2080,12 @@ add_allowed_ip() {
     ) 200>"$LOCK_FILE"
 
     log_success "IP added to allowed list"
+
+    # Regenerate routing rules in xray_config.json
+    if ! regenerate_routing_rules; then
+        log_error "Failed to regenerate routing rules"
+        return 1
+    fi
 
     # Reload Xray to apply routing changes
     if ! reload_xray; then
@@ -2085,6 +2188,12 @@ remove_allowed_ip() {
 
     log_success "IP removed from allowed list"
 
+    # Regenerate routing rules in xray_config.json
+    if ! regenerate_routing_rules; then
+        log_error "Failed to regenerate routing rules"
+        return 1
+    fi
+
     # Reload Xray to apply routing changes
     if ! reload_xray; then
         log_warning "Xray reload failed, changes may not be applied"
@@ -2161,6 +2270,12 @@ reset_allowed_ips() {
     ) 200>"$LOCK_FILE"
 
     log_success "Allowed IPs reset to default"
+
+    # Regenerate routing rules in xray_config.json
+    if ! regenerate_routing_rules; then
+        log_error "Failed to regenerate routing rules"
+        return 1
+    fi
 
     # Reload Xray to apply routing changes
     if ! reload_xray; then
@@ -2256,6 +2371,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f export_git_config
     export -f export_all_proxy_configs
     export -f get_server_ip
+    export -f regenerate_routing_rules
     export -f validate_ip
     export -f get_allowed_ips
     export -f set_allowed_ips
