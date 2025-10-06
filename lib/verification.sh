@@ -635,11 +635,19 @@ display_verification_summary() {
 # ============================================================================
 validate_mandatory_tls() {
     echo ""
-    log_info "Verification 5.6/10: Validating mandatory TLS encryption (v3.3)..."
+    log_info "Verification 5.6/10: Validating TLS encryption (v3.4 - optional)..."
 
     # Only validate if public proxy mode enabled
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
         log_info "  ⊗ Public proxy disabled, skipping TLS validation"
+        echo ""
+        return 0
+    fi
+
+    # v3.4: TLS is optional - skip validation if plaintext mode chosen
+    if [[ "${ENABLE_PROXY_TLS:-false}" != "true" ]]; then
+        log_info "  ⊗ TLS disabled (plaintext mode), skipping TLS validation"
+        log_warning "  ⚠️  SECURITY WARNING: Proxy running in plaintext mode (credentials not encrypted)"
         echo ""
         return 0
     fi
