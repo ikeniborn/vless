@@ -251,6 +251,136 @@ Just use the VLESS connection from the QR code, no additional proxy configuratio
 
 ---
 
+## Testing Proxy Setup
+
+After creating a user, test that proxy servers are working correctly:
+
+### 1. Get Proxy Credentials
+
+```bash
+# View generated proxy configurations
+ls -la /opt/vless/data/clients/YOUR_USERNAME/
+
+# Get SOCKS5 URI
+cat /opt/vless/data/clients/YOUR_USERNAME/socks5_config.txt
+# Example: socks5s://user:password@vpn.example.com:1080
+
+# Get HTTP URI
+cat /opt/vless/data/clients/YOUR_USERNAME/http_config.txt
+# Example: https://user:password@vpn.example.com:8118
+```
+
+### 2. Test SOCKS5 Proxy (TLS)
+
+```bash
+# Test with curl (using credentials from socks5_config.txt)
+curl -s --socks5 user:password@vpn.example.com:1080 https://ifconfig.me
+
+# Should display your SERVER's public IP address
+# If it shows your local IP, proxy is NOT working
+```
+
+### 3. Test HTTP Proxy (TLS)
+
+```bash
+# Test with curl (using credentials from http_config.txt)
+curl -s --proxy https://user:password@vpn.example.com:8118 https://ifconfig.me
+
+# Should display your SERVER's public IP address
+```
+
+### 4. Verify TLS Encryption
+
+```bash
+# Check that ports are listening with TLS
+sudo netstat -tlnp | grep -E ':(1080|8118)'
+# Should show: 0.0.0.0:1080 and 0.0.0.0:8118 (public mode)
+# or: 127.0.0.1:1080 and 127.0.0.1:8118 (localhost mode)
+
+# Check Xray logs for TLS handshakes
+sudo vless logs xray | grep -i "tls"
+```
+
+### 5. Test from Different Locations
+
+```bash
+# From your local machine (replace with actual values):
+PROXY_USER="your-username"
+PROXY_PASS="your-password"
+PROXY_DOMAIN="vpn.example.com"
+
+# SOCKS5 test
+curl -s --socks5 ${PROXY_USER}:${PROXY_PASS}@${PROXY_DOMAIN}:1080 https://ifconfig.me
+
+# HTTP test
+curl -s --proxy https://${PROXY_USER}:${PROXY_PASS}@${PROXY_DOMAIN}:8118 https://ifconfig.me
+
+# Test with different site
+curl -s --proxy https://${PROXY_USER}:${PROXY_PASS}@${PROXY_DOMAIN}:8118 https://api.ipify.org
+```
+
+### 6. Troubleshooting
+
+**Problem: Connection refused**
+```bash
+# Check if containers are running
+sudo docker ps | grep vless
+
+# Check if ports are open in firewall (public mode)
+sudo ufw status | grep -E '1080|8118'
+
+# Check Xray logs
+sudo vless logs xray --tail 50
+```
+
+**Problem: Authentication failed**
+```bash
+# Verify password is correct
+cat /opt/vless/data/clients/YOUR_USERNAME/socks5_config.txt
+
+# Check fail2ban didn't block your IP
+sudo fail2ban-client status vless-socks5
+sudo fail2ban-client status vless-http
+
+# Unban if needed
+sudo fail2ban-client set vless-socks5 unbanip YOUR_IP
+```
+
+**Problem: Shows local IP instead of server IP**
+```bash
+# Proxy not routing correctly - check Xray config
+sudo cat /opt/vless/config/xray_config.json | jq '.inbounds[1,2]'
+
+# Restart services
+sudo vless restart
+```
+
+### 7. Integration Tests
+
+```bash
+# Test with environment variables (bash_exports.sh)
+source /opt/vless/data/clients/YOUR_USERNAME/bash_exports.sh
+curl -s https://ifconfig.me
+# Should use proxy automatically
+
+# Test with Git
+git config --global http.proxy $(cat /opt/vless/data/clients/YOUR_USERNAME/socks5_config.txt)
+git clone https://github.com/torvalds/linux.git --depth 1
+# Should download through proxy
+
+# Clean up
+git config --global --unset http.proxy
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+```
+
+**Expected Results:**
+- ✓ Both SOCKS5 and HTTP proxies return **server's public IP**
+- ✓ TLS handshakes visible in logs (public mode)
+- ✓ No authentication errors
+- ✓ Fail2ban shows 0 banned IPs initially
+
+---
+
 ## Architecture
 
 - **Protocols**:
