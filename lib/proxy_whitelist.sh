@@ -36,12 +36,12 @@
 set -euo pipefail
 
 # ============================================================================
-# Global Variables
+# Global Variables (conditional to avoid conflicts when sourced by CLI)
 # ============================================================================
 
 readonly PROXY_IPS_FILE="/opt/vless/config/proxy_allowed_ips.json"
-readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
-readonly LOCK_FILE="/var/lock/vless_proxy_ips.lock"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
+[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_proxy_ips.lock"
 
 # Colors for output
 readonly RED='\033[0;31m'

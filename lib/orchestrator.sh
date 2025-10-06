@@ -50,12 +50,12 @@ readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="vless_xray"
 readonly NGINX_CONTAINER_NAME="vless_nginx"
 
-# Configuration files
-readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
-readonly USERS_JSON="${DATA_DIR}/users.json"
+# Configuration files (conditional to avoid conflicts when sourced by CLI)
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
+[[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${DATA_DIR}/users.json"
 readonly DOCKER_COMPOSE_FILE="${INSTALL_ROOT}/docker-compose.yml"
 readonly NGINX_CONFIG="${FAKESITE_DIR}/default.conf"
-readonly ENV_FILE="${INSTALL_ROOT}/.env"
+[[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${INSTALL_ROOT}/.env"
 
 # UFW configuration
 readonly UFW_AFTER_RULES="/etc/ufw/after.rules"
