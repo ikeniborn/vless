@@ -643,8 +643,7 @@ confirm_parameters() {
 
     # v3.2: Display proxy mode more clearly
     if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
-        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}PUBLIC PROXY MODE (v3.3 with TLS)${NC}"
-        echo -e "                       ${YELLOW}⚠️  Ports 1080, 8118 exposed (TLS encrypted)${NC}"
+        echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (TLS encrypted)${NC}"
         # v3.3: Display domain and email if set
         if [[ -n "$DOMAIN" ]]; then
             echo -e "  ${YELLOW}TLS Domain:${NC}          ${DOMAIN}"
