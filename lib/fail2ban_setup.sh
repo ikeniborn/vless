@@ -23,16 +23,12 @@
 
 set -euo pipefail
 
-# Import colors (if available)
-if [[ -f "$(dirname "${BASH_SOURCE[0]}")/colors.sh" ]]; then
-    source "$(dirname "${BASH_SOURCE[0]}")/colors.sh"
-else
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-fi
+# Color codes for output (only define if not already set to avoid readonly conflicts)
+[[ -z "${RED:-}" ]] && RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && YELLOW='\033[0;33m'
+[[ -z "${CYAN:-}" ]] && CYAN='\033[0;36m'
+[[ -z "${NC:-}" ]] && NC='\033[0m'
 
 # =============================================================================
 # FUNCTION: check_fail2ban_installed
