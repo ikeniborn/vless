@@ -13,19 +13,42 @@
 
 set -euo pipefail
 
-# Source dependencies
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Color codes for output (only define if not already set)
+[[ -z "${RED:-}" ]] && RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && BLUE='\033[0;34m'
+[[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
-# Source required modules
-source "${SCRIPT_DIR}/logger.sh"
+# Logging Functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $*" >&2
+}
+
+log_success() {
+    echo -e "${GREEN}[✓]${NC} $*" >&2
+}
+
+log_warning() {
+    echo -e "${YELLOW}[⚠]${NC} $*" >&2
+}
+
+log_warn() {
+    log_warning "$@"
+}
+
+log_error() {
+    echo -e "${RED}[✗]${NC} $*" >&2
+}
+
+log_debug() {
+    echo -e "${BLUE}[DEBUG]${NC} $*" >&2
+}
 
 # Configuration paths
+# Note: CONFIG_DIR, DATA_DIR, KEYS_DIR, LOGS_DIR are defined as readonly in orchestrator.sh
+# We only define paths not available from orchestrator
 INSTALL_DIR="/opt/vless"
-CONFIG_DIR="${INSTALL_DIR}/config"
-DATA_DIR="${INSTALL_DIR}/data"
-KEYS_DIR="${INSTALL_DIR}/keys"
-LOGS_DIR="${INSTALL_DIR}/logs"
 BACKUP_DIR="${INSTALL_DIR}/backups"
 
 # Security configuration
