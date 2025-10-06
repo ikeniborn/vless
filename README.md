@@ -1,6 +1,6 @@
 # VLESS Reality VPN Deployment System
 
-**Version**: 3.4
+**Version**: 3.5
 **Status**: Production Ready
 **License**: MIT
 
@@ -23,6 +23,11 @@ Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to
   - **Optional TLS 1.3 encryption** for public access (recommended)
   - **Let's Encrypt certificates** with auto-renewal (when TLS enabled)
   - **Flexible deployment**: TLS (socks5s://, https://) or plaintext (socks5://, http://)
+- **IP Whitelist Management (v3.5)**: Per-user IP-based access control with:
+  - **Xray routing rules** for application-level filtering
+  - **Multiple IP formats**: Individual IPs, CIDR ranges, IPv4/IPv6
+  - **Default security**: Localhost-only access for new users
+  - **Zero downtime**: Updates apply immediately via container reload
 - **User Management**: Create/remove users in < 5 seconds with UUID generation
 - **Multi-Format Config Export**: 6 proxy config formats (SOCKS5, HTTP, VSCode, Docker, Bash, Git)
 - **QR Code Generation**: 400x400px PNG + ANSI terminal variants
@@ -226,6 +231,13 @@ vless list-users                       # List all users
 vless show-proxy <username>            # Show SOCKS5/HTTP credentials
 vless reset-proxy-password <username>  # Reset proxy password (regenerates configs)
 vless regenerate <username>            # Regenerate config files (v3.3 migration)
+
+# IP Whitelist Management (v3.5)
+vless show-allowed-ips <username>                  # Show allowed source IPs
+vless set-allowed-ips <username> <ip1,ip2,...>     # Set allowed IPs (comma-separated)
+vless add-allowed-ip <username> <ip>               # Add IP to whitelist
+vless remove-allowed-ip <username> <ip>            # Remove IP from whitelist
+vless reset-allowed-ips <username>                 # Reset to localhost only
 ```
 
 ### Service Operations
@@ -406,6 +418,264 @@ unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 - ✓ TLS handshakes visible in logs (public mode)
 - ✓ No authentication errors
 - ✓ Fail2ban shows 0 banned IPs initially
+
+---
+
+## IP Whitelist Management (v3.5)
+
+**New in v3.5**: Per-user IP-based access control for proxy servers. Restrict proxy access to specific source IP addresses using Xray routing rules.
+
+### Overview
+
+IP whitelisting allows you to control which source IP addresses can connect to the proxy server using each user's credentials. This provides an additional security layer on top of password authentication.
+
+**Key Features:**
+- **Per-user granularity**: Each user has their own allowed IP list
+- **Multiple IP formats**: Supports individual IPs, CIDR ranges, IPv4/IPv6
+- **Default security**: New users default to localhost-only access (`127.0.0.1`)
+- **Application-level filtering**: Xray routing rules enforce restrictions
+- **Zero downtime**: IP list updates apply immediately via container reload
+
+### Use Cases
+
+1. **Fixed client IPs**: Restrict access to specific office/home IPs
+2. **VPN-only access**: Allow only VPN-connected clients (`10.0.0.0/8`)
+3. **Multi-location teams**: Whitelist multiple office locations
+4. **Development/staging**: Restrict test accounts to developer IPs
+5. **Compliance requirements**: Enforce IP-based access policies
+
+### Quick Start
+
+```bash
+# Show default IPs for user (127.0.0.1 by default)
+sudo vless show-allowed-ips alice
+
+# Allow access from specific IP
+sudo vless set-allowed-ips alice 203.0.113.45
+
+# Allow access from multiple IPs and CIDR ranges
+sudo vless set-allowed-ips alice 127.0.0.1,203.0.113.45,10.0.0.0/24,192.168.1.100
+
+# Add additional IP to existing list
+sudo vless add-allowed-ip alice 198.51.100.10
+
+# Remove specific IP
+sudo vless remove-allowed-ip alice 203.0.113.45
+
+# Reset to localhost only
+sudo vless reset-allowed-ips alice
+```
+
+### Supported IP Formats
+
+```bash
+# Individual IPv4
+vless set-allowed-ips alice 192.168.1.100
+
+# IPv4 CIDR range
+vless set-allowed-ips alice 10.0.0.0/24          # 10.0.0.1 - 10.0.0.254
+vless set-allowed-ips alice 172.16.0.0/16        # 172.16.0.1 - 172.16.255.254
+
+# IPv6
+vless set-allowed-ips alice 2001:db8::1
+
+# IPv6 CIDR range
+vless set-allowed-ips alice 2001:db8::/32
+
+# Multiple IPs (comma-separated)
+vless set-allowed-ips alice 127.0.0.1,203.0.113.45,10.0.0.0/24
+```
+
+### Common Scenarios
+
+#### Scenario 1: Home + Office Access
+
+```bash
+# User works from home (static IP) and office (fixed IP range)
+sudo vless set-allowed-ips alice 203.0.113.45,198.51.100.0/24
+
+# Verify
+sudo vless show-allowed-ips alice
+```
+
+#### Scenario 2: VPN-Only Access
+
+```bash
+# Only allow connections after VPN connection (via VLESS)
+# Assuming your VPN assigns 10.x.x.x addresses
+sudo vless set-allowed-ips alice 10.0.0.0/8
+
+# Now user must:
+# 1. Connect to VLESS VPN first (gets IP like 10.8.0.2)
+# 2. Then use SOCKS5/HTTP proxy through the VPN tunnel
+```
+
+#### Scenario 3: Multi-Region Team
+
+```bash
+# Allow access from 3 office locations
+sudo vless set-allowed-ips dev-team \
+  198.51.100.0/24,\      # US office
+  203.0.113.0/24,\       # EU office
+  192.0.2.0/24           # Asia office
+```
+
+#### Scenario 4: Development Account (Localhost Only)
+
+```bash
+# Restrict test account to localhost (default behavior)
+sudo vless reset-allowed-ips test-user
+
+# Output: Allowed IPs reset to 127.0.0.1 (localhost only)
+```
+
+#### Scenario 5: Dynamic IP Workaround
+
+```bash
+# For users with dynamic IPs, use larger CIDR range
+# Example: ISP assigns IPs in 203.0.112.0/22 range
+sudo vless set-allowed-ips alice 203.0.112.0/22
+
+# Or: Allow entire country IP blocks (use caution!)
+# Consult IP geolocation databases for country ranges
+```
+
+### How It Works
+
+IP whitelisting uses **Xray routing rules** to filter proxy connections at the application level:
+
+1. **User connects** to SOCKS5/HTTP proxy with credentials
+2. **Xray matches** the user (email format: `alice@vless.local`)
+3. **Xray checks** source IP against user's `allowed_ips` array
+4. **If match**: Connection routed to `direct` outbound (allowed)
+5. **If no match**: Connection routed to `blackhole` outbound (blocked)
+
+**Technical Details:**
+- Routing rules stored in `xray_config.json` (auto-generated)
+- IP list stored in `users.json` (field: `allowed_ips`)
+- Changes applied via Xray container reload (< 3 seconds)
+- Evaluation order: Per-user rules first, catch-all block last
+
+### Viewing Current Configuration
+
+```bash
+# Check user's allowed IPs
+sudo vless show-allowed-ips alice
+
+# Output:
+# ═══════════════════════════════════════════════════════
+#   ALLOWED IPS: alice
+# ═══════════════════════════════════════════════════════
+#
+# User: alice
+#
+# Allowed Source IPs:
+#   • 127.0.0.1
+#   • 203.0.113.45
+#   • 10.0.0.0/24
+#
+# ═══════════════════════════════════════════════════════
+#
+# These IPs can connect to the proxy server using this user's credentials.
+# Connections from other IPs will be blocked.
+
+# View routing rules in Xray config
+sudo jq '.routing.rules' /opt/vless/config/xray_config.json
+```
+
+### Best Practices
+
+1. **Start restrictive**: Begin with localhost-only (`127.0.0.1`), add IPs as needed
+2. **Use CIDR notation**: For IP ranges (office networks, VPN subnets)
+3. **Document IP sources**: Maintain a spreadsheet mapping IPs to locations/users
+4. **Review quarterly**: Remove stale IPs from departing employees/changed locations
+5. **Combine with fail2ban**: IP whitelist + password + fail2ban = defense-in-depth
+6. **Test before deployment**: Verify new IPs before removing old ones
+7. **Monitor logs**: Check Xray logs for blocked connection attempts
+
+### Security Considerations
+
+**IP Whitelist is NOT a replacement for strong passwords:**
+- IPs can be spoofed (especially in cloud environments)
+- IP whitelist adds a layer, but passwords remain critical
+- Always use 32-character random passwords (auto-generated)
+
+**When IP whitelisting is effective:**
+- ✅ Fixed office/home IPs (residential ISPs, data centers)
+- ✅ Private VPN subnets (10.x.x.x, 172.16.x.x, 192.168.x.x)
+- ✅ Cloud provider IP ranges (AWS, GCP, Azure)
+
+**When IP whitelisting is less effective:**
+- ⚠️ Mobile users with dynamic IPs (use large CIDR or VPN-only mode)
+- ⚠️ Users behind CGNAT (multiple users share same public IP)
+- ⚠️ Compromised networks (attacker inside allowed network)
+
+### Troubleshooting
+
+**Problem: Connection blocked after setting allowed IPs**
+```bash
+# Check current IP list
+sudo vless show-allowed-ips alice
+
+# Verify your source IP
+curl -s https://ifconfig.me
+
+# Add your IP if missing
+sudo vless add-allowed-ip alice $(curl -s https://ifconfig.me)
+
+# Check Xray logs for blocks
+sudo vless logs xray | grep "rejected"
+```
+
+**Problem: User reports intermittent access**
+```bash
+# Likely cause: Dynamic IP changing
+# Solution 1: Use CIDR range for ISP block
+sudo vless set-allowed-ips alice 203.0.112.0/22
+
+# Solution 2: VPN-only mode
+sudo vless set-allowed-ips alice 10.0.0.0/8
+```
+
+**Problem: Need to temporarily disable IP filtering**
+```bash
+# Allow all IPs (NOT recommended for production)
+# Use 0.0.0.0/0 for IPv4, ::/0 for IPv6
+sudo vless set-allowed-ips alice 0.0.0.0/0
+
+# Better: Use localhost + user's current IP
+sudo vless set-allowed-ips alice 127.0.0.1,$(curl -s https://ifconfig.me)
+```
+
+### Technical Implementation
+
+**Files Modified:**
+- `lib/user_management.sh`: IP management functions (`set_allowed_ips`, `add_allowed_ip`, etc.)
+- `lib/orchestrator.sh`: Routing rule generation (`generate_routing_json`)
+- `cli/vless`: CLI command handlers
+- `data/users.json`: User data with `allowed_ips` field
+
+**Example `users.json` entry:**
+```json
+{
+  "username": "alice",
+  "uuid": "12345678-1234-1234-1234-123456789012",
+  "proxy_password": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "allowed_ips": ["127.0.0.1", "203.0.113.45", "10.0.0.0/24"],
+  "created": "2025-10-06T12:00:00Z"
+}
+```
+
+**Example Xray routing rule:**
+```json
+{
+  "type": "field",
+  "inboundTag": ["socks5-proxy", "http-proxy"],
+  "user": ["alice@vless.local"],
+  "source": ["127.0.0.1", "203.0.113.45", "10.0.0.0/24"],
+  "outboundTag": "direct"
+}
+```
 
 ---
 

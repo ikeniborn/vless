@@ -51,6 +51,13 @@ ${CYAN}User Management:${NC}
   show-user <username>      Show user details and connection info
   regenerate <username>     Regenerate config files (v3.3 migration)
 
+${CYAN}IP Whitelist Management (v3.5):${NC}
+  show-allowed-ips <user>           Show allowed IPs for user
+  set-allowed-ips <user> <ips>      Set allowed IPs (comma-separated)
+  add-allowed-ip <user> <ip>        Add IP to whitelist
+  remove-allowed-ip <user> <ip>     Remove IP from whitelist
+  reset-allowed-ips <user>          Reset to localhost only
+
 ${CYAN}Service Operations:${NC}
   status                    Show service status
   start                     Start VLESS services
@@ -70,6 +77,8 @@ ${CYAN}Information:${NC}
 ${CYAN}Examples:${NC}
   sudo vless add-user alice
   sudo vless list-users
+  sudo vless show-allowed-ips alice
+  sudo vless set-allowed-ips alice 127.0.0.1,10.0.0.0/24
   sudo vless status
   sudo vless logs xray
 
@@ -152,6 +161,64 @@ main() {
             fi
             source_modules
             regenerate_configs "$1"
+            ;;
+
+        show-allowed-ips|show-ips)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: vless show-allowed-ips <username>" >&2
+                exit 1
+            fi
+            source_modules
+            show_allowed_ips "$1"
+            ;;
+
+        set-allowed-ips|set-ips)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: Username and IP list required${NC}" >&2
+                echo "Usage: vless set-allowed-ips <username> <ip1,ip2,...>" >&2
+                echo "Example: vless set-allowed-ips alice 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            set_allowed_ips "$1" "$2"
+            ;;
+
+        add-allowed-ip|add-ip)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: Username and IP address required${NC}" >&2
+                echo "Usage: vless add-allowed-ip <username> <ip>" >&2
+                echo "Example: vless add-allowed-ip alice 192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            add_allowed_ip "$1" "$2"
+            ;;
+
+        remove-allowed-ip|remove-ip)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: Username and IP address required${NC}" >&2
+                echo "Usage: vless remove-allowed-ip <username> <ip>" >&2
+                echo "Example: vless remove-allowed-ip alice 192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            remove_allowed_ip "$1" "$2"
+            ;;
+
+        reset-allowed-ips|reset-ips)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: vless reset-allowed-ips <username>" >&2
+                exit 1
+            fi
+            source_modules
+            reset_allowed_ips "$1"
             ;;
 
         status)

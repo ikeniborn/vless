@@ -320,6 +320,83 @@ generate_short_id() {
 }
 
 # =============================================================================
+# FUNCTION: generate_routing_json
+# =============================================================================
+# Description: Generate routing rules for IP-based access control (v3.5)
+# Returns: JSON string for routing section
+# Logic:
+#   - For each user: allow connections from their allowed_ips
+#   - Block all other connections to proxy ports
+# Related: v3.5 IP Whitelisting Feature
+# =============================================================================
+generate_routing_json() {
+    # Check if users.json exists
+    if [[ ! -f "/opt/vless/data/users.json" ]]; then
+        # No users yet, return minimal routing
+        cat <<'EOF'
+,
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["socks5-proxy", "http-proxy"],
+        "outboundTag": "blocked"
+      }
+    ]
+  }
+EOF
+        return 0
+    fi
+
+    # Read users and build routing rules
+    local rules=""
+    local users_count=0
+
+    # Parse users.json and generate rules
+    while IFS= read -r user_data; do
+        local username=$(echo "$user_data" | jq -r '.username')
+        local allowed_ips=$(echo "$user_data" | jq -c '.allowed_ips // ["127.0.0.1"]')
+
+        # Skip if no username (shouldn't happen)
+        [[ -z "$username" || "$username" == "null" ]] && continue
+
+        # Generate rule for this user
+        if [[ $users_count -gt 0 ]]; then
+            rules="${rules},"
+        fi
+
+        # Use username as email for matching (Xray requires email format)
+        # Email format: username@vless.local (same as in VLESS clients)
+        rules="${rules}
+      {
+        \"type\": \"field\",
+        \"inboundTag\": [\"socks5-proxy\", \"http-proxy\"],
+        \"user\": [\"${username}@vless.local\"],
+        \"source\": ${allowed_ips},
+        \"outboundTag\": \"direct\"
+      }"
+
+        ((users_count++))
+    done < <(jq -c '.users[]' /opt/vless/data/users.json 2>/dev/null)
+
+    # Generate final routing configuration
+    cat <<EOF
+,
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [${rules},
+      {
+        "type": "field",
+        "inboundTag": ["socks5-proxy", "http-proxy"],
+        "outboundTag": "blocked"
+      }
+    ]
+  }
+EOF
+}
+
+# =============================================================================
 # FUNCTION: generate_socks5_inbound_json
 # =============================================================================
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
@@ -555,10 +632,18 @@ create_xray_config() {
     generate_socks5_inbound_json
     generate_http_inbound_json
 fi)],
-  "outbounds": [{
-    "protocol": "freedom",
-    "tag": "direct"
-  }]
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "blocked"
+    }
+  ]$(if [[ "$enable_proxy" == "true" ]]; then
+    generate_routing_json
+fi)
 }
 EOF
 

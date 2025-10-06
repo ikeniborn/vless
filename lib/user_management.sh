@@ -272,12 +272,14 @@ add_user_to_json() {
         local temp_file="${USERS_JSON}.tmp.$$"
 
         # Build user object based on whether proxy_password is provided
+        # v3.5: Added allowed_ips for IP-based access control (default: localhost only)
         local user_obj
         if [[ -n "$proxy_password" ]]; then
             user_obj="{
                 \"username\": \"$username\",
                 \"uuid\": \"$uuid\",
                 \"proxy_password\": \"$proxy_password\",
+                \"allowed_ips\": [\"127.0.0.1\"],
                 \"created\": \"$(date -Iseconds)\",
                 \"created_timestamp\": $(date +%s)
             }"
@@ -285,6 +287,7 @@ add_user_to_json() {
             user_obj="{
                 \"username\": \"$username\",
                 \"uuid\": \"$uuid\",
+                \"allowed_ips\": [\"127.0.0.1\"],
                 \"created\": \"$(date -Iseconds)\",
                 \"created_timestamp\": $(date +%s)
             }"
@@ -1683,6 +1686,548 @@ list_users() {
 }
 
 # ============================================================================
+# TASK-12.1: IP Whitelist Management (v3.5)
+# ============================================================================
+
+# =============================================================================
+# FUNCTION: validate_ip
+# =============================================================================
+# Description: Validate IP address format (IPv4, IPv6, CIDR notation)
+# Arguments:
+#   $1 - IP address or CIDR range to validate
+# Returns: 0 if valid, 1 if invalid
+# Examples:
+#   validate_ip "192.168.1.1"          -> valid
+#   validate_ip "10.0.0.0/24"          -> valid (CIDR)
+#   validate_ip "2001:db8::1"          -> valid (IPv6)
+#   validate_ip "invalid"              -> invalid
+# Related: v3.5 IP-based access control
+# =============================================================================
+validate_ip() {
+    local ip="$1"
+
+    # Check if empty
+    if [[ -z "$ip" ]]; then
+        log_error "IP address cannot be empty"
+        return 1
+    fi
+
+    # IPv4 with optional CIDR (e.g., 192.168.1.1 or 192.168.1.0/24)
+    local ipv4_regex='^([0-9]{1,3}\.){3}[0-9]{1,3}(\/[0-9]{1,2})?$'
+
+    # IPv6 with optional CIDR (simplified check)
+    local ipv6_regex='^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(\/[0-9]{1,3})?$'
+
+    if [[ "$ip" =~ $ipv4_regex ]]; then
+        # Validate IPv4 octets (0-255)
+        local ip_part="${ip%%/*}"  # Remove CIDR if present
+        IFS='.' read -ra OCTETS <<< "$ip_part"
+
+        for octet in "${OCTETS[@]}"; do
+            if [[ $octet -gt 255 ]]; then
+                log_error "Invalid IPv4 address: $ip (octet > 255)"
+                return 1
+            fi
+        done
+
+        # Validate CIDR prefix if present
+        if [[ "$ip" == *"/"* ]]; then
+            local prefix="${ip##*/}"
+            if [[ $prefix -lt 0 ]] || [[ $prefix -gt 32 ]]; then
+                log_error "Invalid IPv4 CIDR prefix: /$prefix (must be 0-32)"
+                return 1
+            fi
+        fi
+
+        return 0
+    elif [[ "$ip" =~ $ipv6_regex ]]; then
+        # Basic IPv6 validation (full validation is complex)
+        # Validate CIDR prefix if present
+        if [[ "$ip" == *"/"* ]]; then
+            local prefix="${ip##*/}"
+            if [[ $prefix -lt 0 ]] || [[ $prefix -gt 128 ]]; then
+                log_error "Invalid IPv6 CIDR prefix: /$prefix (must be 0-128)"
+                return 1
+            fi
+        fi
+
+        return 0
+    else
+        log_error "Invalid IP address format: $ip"
+        log_info "Supported formats:"
+        log_info "  - IPv4: 192.168.1.1"
+        log_info "  - IPv4 CIDR: 10.0.0.0/24"
+        log_info "  - IPv6: 2001:db8::1"
+        log_info "  - IPv6 CIDR: 2001:db8::/32"
+        return 1
+    fi
+}
+
+# =============================================================================
+# FUNCTION: get_allowed_ips
+# =============================================================================
+# Description: Get allowed IPs for a user
+# Arguments:
+#   $1 - username
+# Returns: 0 on success, 1 on failure
+# Output: JSON array of allowed IPs to stdout
+# Related: v3.5 IP-based access control
+# =============================================================================
+get_allowed_ips() {
+    local username="$1"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Get allowed_ips from users.json
+    local allowed_ips
+    allowed_ips=$(jq -r ".users[] | select(.username == \"$username\") | .allowed_ips // [\"127.0.0.1\"]" "$USERS_JSON" 2>/dev/null)
+
+    if [[ -z "$allowed_ips" || "$allowed_ips" == "null" ]]; then
+        # Default to localhost if field doesn't exist
+        echo '["127.0.0.1"]'
+        return 0
+    fi
+
+    echo "$allowed_ips"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: set_allowed_ips
+# =============================================================================
+# Description: Set allowed IPs for a user (replaces existing list)
+# Arguments:
+#   $1 - username
+#   $2 - comma-separated list of IPs (e.g., "127.0.0.1,10.0.0.0/24,192.168.1.5")
+# Returns: 0 on success, 1 on failure
+# Related: v3.5 IP-based access control
+# =============================================================================
+set_allowed_ips() {
+    local username="$1"
+    local ips_csv="$2"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Parse comma-separated IPs into array
+    IFS=',' read -ra ips_array <<< "$ips_csv"
+
+    # Validate all IPs before making changes
+    log_info "Validating IP addresses..."
+    local valid_ips=()
+    for ip in "${ips_array[@]}"; do
+        # Trim whitespace
+        ip=$(echo "$ip" | xargs)
+
+        if validate_ip "$ip"; then
+            valid_ips+=("$ip")
+            log_success "Valid: $ip"
+        else
+            log_error "Validation failed for: $ip"
+            return 1
+        fi
+    done
+
+    # Ensure at least one IP
+    if [[ ${#valid_ips[@]} -eq 0 ]]; then
+        log_error "At least one IP address is required"
+        return 1
+    fi
+
+    # Build JSON array
+    local json_array
+    json_array=$(printf '%s\n' "${valid_ips[@]}" | jq -R . | jq -s .)
+
+    log_info "Updating allowed IPs for user: $username"
+
+    # Update users.json with file locking
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    (
+        flock -x 200
+
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Update allowed_ips field
+        if ! jq ".users |= map(if .username == \"$username\" then .allowed_ips = $json_array else . end)" \
+           "$USERS_JSON" > "$temp_file"; then
+            log_error "Failed to update users.json"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Validate JSON
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+        chmod 600 "$USERS_JSON"
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "Updated users.json"
+
+    # Regenerate Xray config with new routing rules
+    log_info "Regenerating Xray configuration..."
+
+    # Source orchestrator to get config generation functions
+    if [[ -f "${SCRIPT_DIR}/orchestrator.sh" ]]; then
+        # Reload Xray to apply routing changes
+        if ! reload_xray; then
+            log_warning "Xray reload failed, changes may not be applied"
+            return 1
+        fi
+
+        log_success "Xray configuration reloaded with new IP whitelist"
+    else
+        log_warning "Orchestrator not found, manual Xray reload required"
+    fi
+
+    # Display updated IPs
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  ALLOWED IPS UPDATED: $username"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "User: $username"
+    echo "Allowed IPs:"
+    for ip in "${valid_ips[@]}"; do
+        echo "  • $ip"
+    done
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: add_allowed_ip
+# =============================================================================
+# Description: Add a single IP to user's allowed list (without duplicates)
+# Arguments:
+#   $1 - username
+#   $2 - IP address to add
+# Returns: 0 on success, 1 on failure
+# Related: v3.5 IP-based access control
+# =============================================================================
+add_allowed_ip() {
+    local username="$1"
+    local new_ip="$2"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Validate IP format
+    if ! validate_ip "$new_ip"; then
+        return 1
+    fi
+
+    # Get current allowed IPs
+    local current_ips
+    current_ips=$(get_allowed_ips "$username")
+
+    # Check if IP already exists
+    if echo "$current_ips" | jq -e --arg ip "$new_ip" 'index($ip) != null' >/dev/null 2>&1; then
+        log_warning "IP '$new_ip' already in allowed list for user '$username'"
+        return 0
+    fi
+
+    log_info "Adding IP to allowed list: $new_ip"
+
+    # Update users.json with file locking
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    (
+        flock -x 200
+
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Add IP to allowed_ips array
+        if ! jq ".users |= map(if .username == \"$username\" then .allowed_ips += [\"$new_ip\"] else . end)" \
+           "$USERS_JSON" > "$temp_file"; then
+            log_error "Failed to update users.json"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Validate JSON
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+        chmod 600 "$USERS_JSON"
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "IP added to allowed list"
+
+    # Reload Xray to apply routing changes
+    if ! reload_xray; then
+        log_warning "Xray reload failed, changes may not be applied"
+        return 1
+    fi
+
+    log_success "Xray configuration reloaded"
+
+    # Display updated list
+    local updated_ips
+    updated_ips=$(get_allowed_ips "$username")
+
+    echo ""
+    log_success "IP '$new_ip' added to allowed list for user '$username'"
+    echo ""
+    echo "Current allowed IPs:"
+    echo "$updated_ips" | jq -r '.[]' | while read -r ip; do
+        echo "  • $ip"
+    done
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: remove_allowed_ip
+# =============================================================================
+# Description: Remove a specific IP from user's allowed list
+# Arguments:
+#   $1 - username
+#   $2 - IP address to remove
+# Returns: 0 on success, 1 on failure
+# Note: Will not remove the last IP (ensures at least localhost remains)
+# Related: v3.5 IP-based access control
+# =============================================================================
+remove_allowed_ip() {
+    local username="$1"
+    local remove_ip="$2"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Get current allowed IPs
+    local current_ips
+    current_ips=$(get_allowed_ips "$username")
+
+    # Check if IP exists in list
+    if ! echo "$current_ips" | jq -e --arg ip "$remove_ip" 'index($ip) != null' >/dev/null 2>&1; then
+        log_error "IP '$remove_ip' not found in allowed list for user '$username'"
+        return 1
+    fi
+
+    # Check if this is the last IP
+    local ip_count
+    ip_count=$(echo "$current_ips" | jq 'length')
+
+    if [[ $ip_count -le 1 ]]; then
+        log_error "Cannot remove last IP address"
+        log_info "At least one IP must remain in the allowed list"
+        log_info "Use 'reset-allowed-ips' to reset to localhost only"
+        return 1
+    fi
+
+    log_info "Removing IP from allowed list: $remove_ip"
+
+    # Update users.json with file locking
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    (
+        flock -x 200
+
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Remove IP from allowed_ips array
+        if ! jq ".users |= map(if .username == \"$username\" then .allowed_ips = (.allowed_ips - [\"$remove_ip\"]) else . end)" \
+           "$USERS_JSON" > "$temp_file"; then
+            log_error "Failed to update users.json"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Validate JSON
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+        chmod 600 "$USERS_JSON"
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "IP removed from allowed list"
+
+    # Reload Xray to apply routing changes
+    if ! reload_xray; then
+        log_warning "Xray reload failed, changes may not be applied"
+        return 1
+    fi
+
+    log_success "Xray configuration reloaded"
+
+    # Display updated list
+    local updated_ips
+    updated_ips=$(get_allowed_ips "$username")
+
+    echo ""
+    log_success "IP '$remove_ip' removed from allowed list for user '$username'"
+    echo ""
+    echo "Remaining allowed IPs:"
+    echo "$updated_ips" | jq -r '.[]' | while read -r ip; do
+        echo "  • $ip"
+    done
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: reset_allowed_ips
+# =============================================================================
+# Description: Reset allowed IPs to default (localhost only)
+# Arguments:
+#   $1 - username
+# Returns: 0 on success, 1 on failure
+# Related: v3.5 IP-based access control
+# =============================================================================
+reset_allowed_ips() {
+    local username="$1"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    log_info "Resetting allowed IPs to default (localhost only)"
+
+    # Update users.json with file locking
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    (
+        flock -x 200
+
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Reset allowed_ips to default
+        if ! jq ".users |= map(if .username == \"$username\" then .allowed_ips = [\"127.0.0.1\"] else . end)" \
+           "$USERS_JSON" > "$temp_file"; then
+            log_error "Failed to update users.json"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Validate JSON
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+        chmod 600 "$USERS_JSON"
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "Allowed IPs reset to default"
+
+    # Reload Xray to apply routing changes
+    if ! reload_xray; then
+        log_warning "Xray reload failed, changes may not be applied"
+        return 1
+    fi
+
+    log_success "Xray configuration reloaded"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  ALLOWED IPS RESET: $username"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "User: $username"
+    echo "Allowed IPs: 127.0.0.1 (localhost only)"
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: show_allowed_ips
+# =============================================================================
+# Description: Display user's allowed IPs in human-readable format
+# Arguments:
+#   $1 - username
+# Returns: 0 on success, 1 on failure
+# Related: v3.5 IP-based access control
+# =============================================================================
+show_allowed_ips() {
+    local username="$1"
+
+    # Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Get allowed IPs
+    local allowed_ips
+    allowed_ips=$(get_allowed_ips "$username")
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  ALLOWED IPS: $username"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "User: $username"
+    echo ""
+    echo "Allowed Source IPs:"
+    echo "$allowed_ips" | jq -r '.[]' | while read -r ip; do
+        echo "  • $ip"
+    done
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "These IPs can connect to the proxy server using this user's credentials."
+    echo "Connections from other IPs will be blocked."
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
 # Export Functions
 # ============================================================================
 
@@ -1711,6 +2256,13 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f export_git_config
     export -f export_all_proxy_configs
     export -f get_server_ip
+    export -f validate_ip
+    export -f get_allowed_ips
+    export -f set_allowed_ips
+    export -f add_allowed_ip
+    export -f remove_allowed_ip
+    export -f reset_allowed_ips
+    export -f show_allowed_ips
     export -f log_info
     export -f log_success
     export -f log_warning
