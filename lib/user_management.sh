@@ -494,18 +494,20 @@ remove_client_from_xray() {
 reload_xray() {
     log_info "Reloading Xray configuration..."
 
+    local compose_dir="/opt/vless"
+
     if ! docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
         log_warning "Xray container is not running, skipping reload"
         return 0
     fi
 
-    # Send HUP signal to Xray process for graceful reload
-    if docker exec "$XRAY_CONTAINER" killall -HUP xray 2>/dev/null; then
-        log_success "Xray configuration reloaded"
+    # Try graceful reload via HUP signal first (using docker compose)
+    if (cd "$compose_dir" && docker compose kill -s HUP xray) 2>/dev/null; then
+        log_success "Xray configuration reloaded (HUP signal)"
         return 0
     else
         log_warning "Failed to send HUP signal, restarting container..."
-        if docker restart "$XRAY_CONTAINER" &>/dev/null; then
+        if (cd "$compose_dir" && docker compose restart xray) 2>/dev/null; then
             log_success "Xray container restarted"
             return 0
         else

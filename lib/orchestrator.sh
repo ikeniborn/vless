@@ -1117,7 +1117,7 @@ install_cli_tools() {
         return 1
     }
 
-    # Copy lib modules to installation
+    # Copy lib modules to installation (required for CLI to function)
     local lib_modules=(
         "user_management.sh"
         "qr_generator.sh"
@@ -1126,8 +1126,17 @@ install_cli_tools() {
     for module in "${lib_modules[@]}"; do
         if [[ -f "${project_root}/lib/${module}" ]]; then
             cp "${project_root}/lib/${module}" "${INSTALL_ROOT}/lib/" || {
-                echo -e "${YELLOW}  ⚠ Warning: Failed to copy ${module}${NC}"
+                echo -e "${RED}Failed to copy ${module}${NC}" >&2
+                return 1
             }
+            chmod 644 "${INSTALL_ROOT}/lib/${module}" || {
+                echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
+                return 1
+            }
+            echo "  ✓ Copied ${module} to ${INSTALL_ROOT}/lib/"
+        else
+            echo -e "${RED}Required module not found: ${module}${NC}" >&2
+            return 1
         fi
     done
 

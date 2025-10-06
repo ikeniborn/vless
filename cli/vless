@@ -162,28 +162,28 @@ main() {
         start)
             check_root
             echo "Starting VLESS services..."
-            docker-compose -f "${INSTALL_ROOT}/docker-compose.yml" up -d
+            (cd "${INSTALL_ROOT}" && docker compose up -d)
             ;;
 
         stop)
             check_root
             echo "Stopping VLESS services..."
-            docker-compose -f "${INSTALL_ROOT}/docker-compose.yml" down
+            (cd "${INSTALL_ROOT}" && docker compose down)
             ;;
 
         restart)
             check_root
             echo "Restarting VLESS services..."
-            docker-compose -f "${INSTALL_ROOT}/docker-compose.yml" restart
+            (cd "${INSTALL_ROOT}" && docker compose restart)
             ;;
 
         logs)
             check_root
             local service="${1:-}"
             if [[ -z "$service" ]] || [[ "$service" == "all" ]]; then
-                docker-compose -f "${INSTALL_ROOT}/docker-compose.yml" logs -f --tail=100
+                (cd "${INSTALL_ROOT}" && docker compose logs -f --tail=100)
             else
-                docker-compose -f "${INSTALL_ROOT}/docker-compose.yml" logs -f --tail=100 "$service"
+                (cd "${INSTALL_ROOT}" && docker compose logs -f --tail=100 "$service")
             fi
             ;;
 
