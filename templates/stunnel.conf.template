@@ -18,12 +18,9 @@ output = /var/log/stunnel/stunnel.log
 debug = 5
 syslog = no
 
-# Security options
-options = NO_SSLv2
-options = NO_SSLv3
-options = NO_TLSv1
-options = NO_TLSv1.1
-options = NO_TLSv1.2
+# Security options (OpenSSL 3.x compatibility)
+# Note: SSLv2, SSLv3, TLSv1.0, TLSv1.1, TLSv1.2 are disabled by default in OpenSSL 3.x
+# Only TLSv1.3 will be used (via sslVersion = TLSv1.3 in service sections)
 
 # TLS 1.3 only cipher suites (strongest)
 ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
