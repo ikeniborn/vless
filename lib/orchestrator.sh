@@ -858,6 +858,7 @@ create_docker_compose() {
     image: dweomer/stunnel:latest
     container_name: vless_stunnel
     restart: unless-stopped
+    command: stunnel /etc/stunnel/stunnel.conf
     ports:
       - \"1080:1080\"
       - \"8118:8118\"
