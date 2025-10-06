@@ -60,7 +60,6 @@ sessionCacheSize = 1000
 sessionCacheTimeout = 300
 
 # Connection options
-libwrap = no
 TIMEOUTbusy = 300
 TIMEOUTclose = 10
 TIMEOUTconnect = 10
@@ -91,7 +90,6 @@ sessionCacheSize = 1000
 sessionCacheTimeout = 300
 
 # Connection options
-libwrap = no
 TIMEOUTbusy = 300
 TIMEOUTclose = 10
 TIMEOUTconnect = 10
