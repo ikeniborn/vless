@@ -100,6 +100,8 @@ verify_installation() {
     verify_docker_network
     verify_containers
     verify_xray_config
+    test_xray_config
+    validate_mandatory_tls
     verify_ufw_rules
     verify_container_internet
     verify_port_listening
@@ -438,7 +440,7 @@ verify_xray_config() {
 # ============================================================================
 
 verify_ufw_rules() {
-    log_info "Verification 6/8: Checking UFW firewall rules..."
+    log_info "Verification 6/10: Checking UFW firewall rules..."
 
     # Check if UFW is installed and active
     if ! command -v ufw &>/dev/null; then
@@ -499,7 +501,7 @@ verify_ufw_rules() {
 # ============================================================================
 
 verify_container_internet() {
-    log_info "Verification 7/8: Testing container internet connectivity..."
+    log_info "Verification 7/10: Testing container internet connectivity..."
 
     # Test connectivity from xray container
     if docker exec vless_xray ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
@@ -544,7 +546,7 @@ verify_container_internet() {
 # ============================================================================
 
 verify_port_listening() {
-    log_info "Verification 8/8: Checking port listening status..."
+    log_info "Verification 8/10: Checking port listening status..."
 
     local vless_port=$(jq -r '.inbounds[0].port' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "443")
 
@@ -621,6 +623,176 @@ display_verification_summary() {
 }
 
 # ============================================================================
+# FUNCTION: validate_mandatory_tls
+# ============================================================================
+# Description: Validate TLS configuration for public proxy mode (v3.3)
+# Checks:
+#   - streamSettings.security="tls" for SOCKS5/HTTP inbounds
+#   - Certificate files exist and accessible
+#   - Docker volume mount configured
+# Returns: 0 if valid, 1 if validation fails
+# Related: TASK-2.4 (v3.3 TLS Validation)
+# ============================================================================
+validate_mandatory_tls() {
+    echo ""
+    log_info "Verification 5.6/10: Validating mandatory TLS encryption (v3.3)..."
+
+    # Only validate if public proxy mode enabled
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
+        log_info "  ⊗ Public proxy disabled, skipping TLS validation"
+        echo ""
+        return 0
+    fi
+
+    local config_file="${INSTALL_ROOT}/config/xray_config.json"
+    local compose_file="${INSTALL_ROOT}/docker-compose.yml"
+    local validation_failed=0
+
+    # Check 1: Xray config exists
+    if [[ ! -f "$config_file" ]]; then
+        log_error "Xray config not found: $config_file"
+        return 1
+    fi
+
+    # Check 2: SOCKS5 inbound has TLS
+    log_info "  [1/5] Checking SOCKS5 TLS configuration..."
+    local socks5_security
+    socks5_security=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .streamSettings.security // "none"' "$config_file" 2>/dev/null)
+
+    if [[ "$socks5_security" != "tls" ]]; then
+        log_error "    ✗ SOCKS5 inbound missing TLS encryption"
+        log_error "    Expected: streamSettings.security=\"tls\""
+        log_error "    Found: \"$socks5_security\""
+        validation_failed=1
+    else
+        log_success "    ✓ SOCKS5 TLS enabled"
+    fi
+
+    # Check 3: HTTP inbound has TLS
+    log_info "  [2/5] Checking HTTP TLS configuration..."
+    local http_security
+    http_security=$(jq -r '.inbounds[] | select(.tag=="http-proxy") | .streamSettings.security // "none"' "$config_file" 2>/dev/null)
+
+    if [[ "$http_security" != "tls" ]]; then
+        log_error "    ✗ HTTP inbound missing TLS encryption"
+        log_error "    Expected: streamSettings.security=\"tls\""
+        log_error "    Found: \"$http_security\""
+        validation_failed=1
+    else
+        log_success "    ✓ HTTP TLS enabled"
+    fi
+
+    # Check 4: Certificate files exist
+    log_info "  [3/5] Checking Let's Encrypt certificates..."
+    if [[ -z "${DOMAIN:-}" ]]; then
+        log_error "    ✗ DOMAIN variable not set"
+        validation_failed=1
+    elif [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+        log_error "    ✗ Certificate not found: /etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+        validation_failed=1
+    elif [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" ]]; then
+        log_error "    ✗ Private key not found: /etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+        validation_failed=1
+    else
+        log_success "    ✓ Certificates exist for $DOMAIN"
+
+        # Check certificate expiry
+        local expiry_date
+        expiry_date=$(openssl x509 -in "/etc/letsencrypt/live/${DOMAIN}/cert.pem" -noout -enddate 2>/dev/null | cut -d= -f2)
+        log_info "    ℹ Expires: $expiry_date"
+    fi
+
+    # Check 5: Docker volume mount configured
+    log_info "  [4/5] Checking Docker volume mount..."
+    if [[ ! -f "$compose_file" ]]; then
+        log_error "    ✗ Docker Compose file not found: $compose_file"
+        validation_failed=1
+    elif ! grep -q "/etc/letsencrypt:/etc/xray/certs:ro" "$compose_file" 2>/dev/null; then
+        log_error "    ✗ Certificate volume mount not configured"
+        log_error "    Expected: /etc/letsencrypt:/etc/xray/certs:ro"
+        validation_failed=1
+    else
+        log_success "    ✓ Certificate volume mount configured"
+    fi
+
+    # Check 6: Certificate paths in Xray config
+    log_info "  [5/5] Checking certificate paths in Xray config..."
+    local cert_path
+    cert_path=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .streamSettings.tlsSettings.certificates[0].certificateFile // "not_found"' "$config_file" 2>/dev/null)
+
+    if [[ "$cert_path" == "not_found" ]] || [[ ! "$cert_path" =~ /etc/xray/certs/live/.*/fullchain\.pem ]]; then
+        log_error "    ✗ Invalid certificate path in config"
+        log_error "    Found: $cert_path"
+        validation_failed=1
+    else
+        log_success "    ✓ Certificate paths correct"
+    fi
+
+    # Final result
+    echo ""
+    if [[ $validation_failed -eq 0 ]]; then
+        log_success "TLS validation: PASSED"
+        log_info "  • SOCKS5: TLS encrypted (socks5s://)"
+        log_info "  • HTTP: TLS encrypted (https://)"
+        log_info "  • Certificates: Valid"
+        return 0
+    else
+        log_error "TLS validation: FAILED"
+        log_error "Public proxy mode requires TLS encryption for all inbounds"
+        return 1
+    fi
+}
+
+# ============================================================================
+# FUNCTION: test_xray_config
+# ============================================================================
+# Description: Test Xray configuration for syntax and validity
+# Uses: xray run -test command
+# Returns: 0 if valid, 1 if test fails
+# Related: TASK-2.5 (v3.3 Config Test)
+# ============================================================================
+test_xray_config() {
+    echo ""
+    log_info "Verification 5.5/10: Testing Xray configuration..."
+
+    local config_file="${INSTALL_ROOT}/config/xray_config.json"
+
+    # Check 1: JSON syntax validation
+    log_info "  [1/2] Validating JSON syntax..."
+    if ! jq empty "$config_file" 2>/dev/null; then
+        log_error "    ✗ Invalid JSON syntax in $config_file"
+        log_error "    Run: jq . $config_file"
+        return 1
+    fi
+    log_success "    ✓ JSON syntax valid"
+
+    # Check 2: Xray test mode
+    log_info "  [2/2] Running Xray configuration test..."
+
+    # Prepare volume mounts for test
+    local volume_args="-v ${INSTALL_ROOT}/config:/etc/xray:ro"
+
+    # Add certificate volume if public proxy enabled
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        volume_args="$volume_args -v /etc/letsencrypt:/etc/xray/certs:ro"
+    fi
+
+    # Run xray test
+    local test_output
+    if test_output=$(docker run --rm $volume_args "${XRAY_IMAGE}" xray run -test -c /etc/xray/xray_config.json 2>&1); then
+        log_success "    ✓ Xray configuration test passed"
+        return 0
+    else
+        log_error "    ✗ Xray configuration test failed"
+        log_error "Test output:"
+        echo "$test_output" | while IFS= read -r line; do
+            log_error "    $line"
+        done
+        return 1
+    fi
+}
+
+# ============================================================================
 # Export Functions
 # ============================================================================
 
@@ -637,6 +809,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f verify_container_internet
     export -f verify_port_listening
     export -f display_verification_summary
+    export -f validate_mandatory_tls
+    export -f test_xray_config
     export -f log_info
     export -f log_success
     export -f log_warning

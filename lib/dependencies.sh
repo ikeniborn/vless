@@ -39,9 +39,12 @@ REQUIRED_PACKAGES=(
 
 # Optional packages (non-critical, system works without them)
 # v3.2: netcat for healthchecks, fail2ban for public proxy protection
+# v3.3: certbot for Let's Encrypt TLS certificates (public proxy only)
 OPTIONAL_PACKAGES=(
     "netcat-openbsd"  # For Docker healthchecks (fallback: netcat-traditional, ncat)
     "fail2ban"        # Brute-force protection for public proxy
+    "certbot"         # Let's Encrypt client for TLS certificates (v3.3 public proxy)
+    "dnsutils"        # DNS tools (dig) for certificate validation
 )
 
 # Ensure it's properly declared as array for export

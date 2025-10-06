@@ -776,6 +776,97 @@ generate_security_report() {
 }
 
 #######################################
+# TASK-1.3: Port 80 Management for ACME
+# (NEW in v3.3 for Let's Encrypt)
+#######################################
+
+#######################################
+# Open port 80 for ACME HTTP-01 challenge
+# Temporarily allows HTTP traffic for Let's Encrypt validation
+# Globals:
+#   None
+# Arguments:
+#   None
+# Returns:
+#   0 on success, 1 on failure
+#######################################
+open_port_80_for_acme() {
+    log_info "Opening port 80 for ACME HTTP-01 challenge..."
+
+    # Check if UFW is active
+    if ! ufw status | grep -q "Status: active"; then
+        log_error "UFW is not active. Enable UFW first: sudo ufw enable"
+        return 1
+    fi
+
+    # Check if port 80 is already open
+    if ufw status numbered | grep -q "80/tcp.*ALLOW"; then
+        log_warn "Port 80 is already open (existing UFW rule)"
+        return 0
+    fi
+
+    # Check if port 80 is occupied by another service
+    if ss -tulnp | grep -q ":80 "; then
+        local process_info=$(lsof -i :80 2>/dev/null | tail -n +2 | head -1 || echo "Unknown process")
+        log_warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log_warn "WARNING: Port 80 is currently occupied"
+        log_warn "Process: $process_info"
+        log_warn ""
+        log_warn "ACME HTTP-01 challenge requires port 80 to be available."
+        log_warn "The challenge may fail if the port cannot be freed."
+        log_warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        read -p "Continue anyway and try to open port 80? (yes/no): " confirm
+
+        if [[ "$confirm" != "yes" ]]; then
+            log_info "Aborted by user"
+            return 1
+        fi
+    fi
+
+    # Open port 80 with UFW
+    if ufw allow 80/tcp comment 'ACME HTTP-01 challenge (temporary)'; then
+        ufw reload >/dev/null 2>&1
+        log_success "Port 80 opened for ACME challenge"
+        return 0
+    else
+        log_error "Failed to open port 80"
+        return 1
+    fi
+}
+
+#######################################
+# Close port 80 after ACME challenge
+# Removes temporary HTTP access after certificate acquisition
+# Globals:
+#   None
+# Arguments:
+#   None
+# Returns:
+#   0 on success, 1 on failure (non-critical)
+#######################################
+close_port_80_after_acme() {
+    log_info "Closing port 80 after ACME challenge..."
+
+    # Check if UFW rule exists
+    if ! ufw status numbered | grep -q "80/tcp.*ACME"; then
+        log_warn "Port 80 ACME rule not found (already closed?)"
+        return 0
+    fi
+
+    # Delete UFW rule for port 80
+    if ufw delete allow 80/tcp >/dev/null 2>&1; then
+        ufw reload >/dev/null 2>&1
+        log_success "Port 80 closed"
+        return 0
+    else
+        log_warn "Failed to close port 80 automatically"
+        log_warn "Manual cleanup: sudo ufw delete allow 80/tcp"
+        return 1
+    fi
+}
+
+#######################################
 # Main execution check
 #######################################
 
@@ -785,4 +876,4 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exit 1
 fi
 
-log_debug "Security hardening module loaded"
+log_debug "Security hardening module loaded (v3.3 with ACME port management)"

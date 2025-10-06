@@ -49,6 +49,7 @@ ${CYAN}User Management:${NC}
   remove-user <username>    Remove an existing user
   list-users                List all users
   show-user <username>      Show user details and connection info
+  regenerate <username>     Regenerate config files (v3.3 migration)
 
 ${CYAN}Service Operations:${NC}
   status                    Show service status
@@ -142,6 +143,17 @@ main() {
             get_user_info "$1"
             ;;
 
+        regenerate|regen)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: vless regenerate <username>" >&2
+                exit 1
+            fi
+            source_modules
+            regenerate_configs "$1"
+            ;;
+
         status)
             check_root
             docker ps --filter "name=vless" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
@@ -179,6 +191,103 @@ main() {
             check_root
             echo "Testing Xray configuration..."
             docker exec vless_xray xray -test -config=/etc/xray/xray_config.json
+            ;;
+
+        update|upgrade)
+            check_root
+            # Detect current version
+            local current_version=""
+            if [[ -f "${INSTALL_ROOT}/.version" ]]; then
+                current_version=$(cat "${INSTALL_ROOT}/.version")
+            elif grep -q "ENABLE_PUBLIC_PROXY" "${INSTALL_ROOT}/.env" 2>/dev/null; then
+                current_version="3.2"
+            else
+                current_version="3.1"
+            fi
+
+            echo ""
+            echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║            VLESS Reality VPN - Update Check                ║${NC}"
+            echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            echo -e "Current Version: ${YELLOW}${current_version:-unknown}${NC}"
+            echo -e "Target Version:  ${GREEN}3.3${NC}"
+            echo ""
+
+            # Show breaking change warning for v3.2 → v3.3 migration
+            if [[ "$current_version" == "3.2" ]]; then
+                echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${RED}║   ⚠️  CRITICAL: BREAKING CHANGES IN v3.3                   ║${NC}"
+                echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+                echo ""
+                echo -e "${YELLOW}v3.2 → v3.3 Migration includes breaking changes:${NC}"
+                echo ""
+                echo "1. ${RED}Proxy URIs Changed:${NC}"
+                echo "   v3.2: socks5://user:pass@IP:1080 (plaintext)"
+                echo "   v3.3: socks5s://user:pass@DOMAIN:1080 (TLS encrypted)"
+                echo ""
+                echo "2. ${RED}Domain Required:${NC}"
+                echo "   v3.3 requires a domain name for TLS certificates"
+                echo "   IP-based configs will NOT work"
+                echo ""
+                echo "3. ${RED}Client Config Migration:${NC}"
+                echo "   All client proxy configs must be regenerated"
+                echo "   Use: sudo vless regenerate <username>"
+                echo ""
+                echo "4. ${RED}Security Critical:${NC}"
+                echo "   v3.2 transmitted credentials in PLAINTEXT"
+                echo "   v3.3 enforces TLS 1.3 encryption"
+                echo ""
+                echo -e "${CYAN}📖 Migration Guide:${NC}"
+                echo "   ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
+                echo ""
+                echo -e "${YELLOW}Required Actions Before Update:${NC}"
+                echo "  1. Read migration guide: less ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
+                echo "  2. Prepare domain name (DNS A record pointing to server)"
+                echo "  3. Backup configs: sudo vless backup"
+                echo "  4. Test on staging environment first (recommended)"
+                echo ""
+                echo -e "${RED}⚠️  DO NOT proceed without reading migration guide${NC}"
+                echo ""
+                echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
+                echo ""
+                read -p "Have you read the migration guide and are ready to proceed? (yes/no): " confirm
+
+                if [[ "$confirm" != "yes" ]]; then
+                    echo ""
+                    echo -e "${YELLOW}Update cancelled. Please read migration guide first.${NC}"
+                    echo ""
+                    exit 0
+                fi
+            fi
+
+            echo ""
+            echo -e "${YELLOW}Update functionality not yet implemented.${NC}"
+            echo ""
+            echo "To update manually:"
+            echo "  1. Backup: sudo vless backup"
+            echo "  2. Pull latest: git pull origin master"
+            echo "  3. Re-run installer: sudo bash install.sh"
+            echo ""
+            echo "For v3.2 → v3.3 migration:"
+            echo "  1. Follow: ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
+            echo "  2. Regenerate configs: sudo vless regenerate <username>"
+            echo ""
+            ;;
+
+        backup)
+            check_root
+            local backup_dir="${INSTALL_ROOT}/backup"
+            local backup_file="${backup_dir}/vless_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+
+            mkdir -p "$backup_dir"
+
+            echo "Creating backup..."
+            tar -czf "$backup_file" \
+                -C "${INSTALL_ROOT}" \
+                config/ data/ .env docker-compose.yml 2>/dev/null
+
+            echo -e "${GREEN}✓ Backup created: ${backup_file}${NC}"
             ;;
 
         info)

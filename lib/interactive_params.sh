@@ -23,6 +23,8 @@ export VLESS_PORT=""
 export DOCKER_SUBNET=""
 export ENABLE_PROXY=""
 export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
+export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
+export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -92,6 +94,14 @@ collect_parameters() {
         echo -e "${RED}Failed to configure proxy settings${NC}" >&2
         return 1
     }
+
+    # Step 4.5: Prompt for domain and email (v3.3) - only if public proxy enabled
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+        prompt_domain_email || {
+            echo -e "${RED}Failed to configure TLS certificate settings${NC}" >&2
+            return 1
+        }
+    fi
 
     # Step 5: Confirm all parameters
     confirm_parameters || {
@@ -633,8 +643,15 @@ confirm_parameters() {
 
     # v3.2: Display proxy mode more clearly
     if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
-        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}PUBLIC PROXY MODE (v3.2)${NC}"
-        echo -e "                       ${YELLOW}⚠️  Ports 1080, 8118 exposed${NC}"
+        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}PUBLIC PROXY MODE (v3.3 with TLS)${NC}"
+        echo -e "                       ${YELLOW}⚠️  Ports 1080, 8118 exposed (TLS encrypted)${NC}"
+        # v3.3: Display domain and email if set
+        if [[ -n "$DOMAIN" ]]; then
+            echo -e "  ${YELLOW}TLS Domain:${NC}          ${DOMAIN}"
+        fi
+        if [[ -n "$EMAIL" ]]; then
+            echo -e "  ${YELLOW}TLS Email:${NC}           ${EMAIL}"
+        fi
     elif [[ "$ENABLE_PROXY" == "true" ]]; then
         echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Enabled (localhost only)${NC}"
     else
@@ -663,6 +680,167 @@ confirm_parameters() {
                 ;;
         esac
     done
+}
+
+# =============================================================================
+# FUNCTION: prompt_domain_email
+# =============================================================================
+# Description: Prompt for domain and email for Let's Encrypt (v3.3)
+# Required for: TLS certificate acquisition via certbot
+# Sets: DOMAIN, EMAIL
+# Returns: 0 on success, 1 on failure
+# Related: TASK-1.7 (v3.3 TLS Enhancement)
+# =============================================================================
+prompt_domain_email() {
+    echo ""
+    echo "═════════════════════════════════════════════════════"
+    echo "  TLS CERTIFICATE CONFIGURATION (v3.3)"
+    echo "═════════════════════════════════════════════════════"
+    echo ""
+    echo "Public proxy mode requires TLS encryption via Let's Encrypt."
+    echo ""
+    echo -e "${YELLOW}Requirements:${NC}"
+    echo "  ✓ A domain name pointing to this server"
+    echo "  ✓ DNS A record configured (domain → server IP)"
+    echo "  ✓ Port 80 accessible (temporary, for ACME challenge)"
+    echo "  ✓ Valid email for renewal notifications"
+    echo ""
+    echo -e "${YELLOW}What happens:${NC}"
+    echo "  1. DNS validation (domain must point to this server)"
+    echo "  2. Let's Encrypt certificate acquisition (ACME HTTP-01)"
+    echo "  3. Auto-renewal setup (twice daily checks)"
+    echo "  4. TLS encryption enabled for SOCKS5/HTTP proxies"
+    echo ""
+
+    # Prompt for domain
+    local server_ip
+    server_ip=$(get_server_public_ip)
+
+    echo -e "${CYAN}Server Public IP: ${server_ip}${NC}"
+    echo ""
+
+    local domain_input
+    while true; do
+        read -rp "Enter your domain name (e.g., vpn.example.com): " domain_input
+
+        # Validate domain format
+        if [[ -z "$domain_input" ]]; then
+            echo -e "${RED}Domain cannot be empty${NC}"
+            continue
+        fi
+
+        # Basic domain format validation (alphanumeric, dots, hyphens)
+        if [[ ! "$domain_input" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+            echo -e "${RED}Invalid domain format${NC}"
+            echo "Valid examples: vpn.example.com, server1.mydomain.org"
+            continue
+        fi
+
+        # Validate DNS points to server
+        echo ""
+        echo -e "${CYAN}Validating DNS...${NC}"
+
+        local dns_ip
+        dns_ip=$(dig +short "$domain_input" A | head -1)
+
+        if [[ -z "$dns_ip" ]]; then
+            echo -e "${RED}✗ DNS resolution failed${NC}"
+            echo "Domain '$domain_input' does not resolve to an IP address"
+            echo ""
+            echo "Fix steps:"
+            echo "  1. Configure DNS A record: $domain_input → $server_ip"
+            echo "  2. Wait for DNS propagation (1-48 hours)"
+            echo "  3. Verify: dig +short $domain_input"
+            echo ""
+            read -rp "Try another domain? [Y/n]: " retry
+            retry=${retry:-Y}
+            [[ "$retry" =~ ^[Yy]$ ]] && continue || return 1
+        fi
+
+        if [[ "$dns_ip" != "$server_ip" ]]; then
+            echo -e "${YELLOW}⚠ DNS mismatch${NC}"
+            echo "Domain resolves to:  $dns_ip"
+            echo "Expected:            $server_ip"
+            echo ""
+            echo "Options:"
+            echo "  1. Update DNS A record to point to $server_ip"
+            echo "  2. Continue anyway (certificate acquisition will fail)"
+            echo "  3. Try another domain"
+            echo ""
+            read -rp "Continue with mismatched DNS? [y/N]: " continue_mismatch
+            continue_mismatch=${continue_mismatch,,}
+
+            if [[ "$continue_mismatch" == "y" || "$continue_mismatch" == "yes" ]]; then
+                echo -e "${YELLOW}⚠ Proceeding with DNS mismatch (expect cert failure)${NC}"
+                DOMAIN="$domain_input"
+                break
+            else
+                continue
+            fi
+        fi
+
+        # DNS validation successful
+        echo -e "${GREEN}✓ DNS validated successfully${NC}"
+        echo "  Domain: $domain_input"
+        echo "  Resolves to: $dns_ip"
+        echo ""
+        DOMAIN="$domain_input"
+        break
+    done
+
+    # Prompt for email
+    echo ""
+    local email_input
+    while true; do
+        read -rp "Enter email for Let's Encrypt notifications: " email_input
+
+        # Validate email format
+        if [[ -z "$email_input" ]]; then
+            echo -e "${RED}Email cannot be empty${NC}"
+            continue
+        fi
+
+        # Basic email validation (RFC 5322 simplified)
+        if [[ ! "$email_input" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            echo -e "${RED}Invalid email format${NC}"
+            echo "Valid examples: admin@example.com, user@domain.org"
+            continue
+        fi
+
+        EMAIL="$email_input"
+        echo -e "${GREEN}✓ Email validated${NC}"
+        echo ""
+        break
+    done
+
+    export DOMAIN
+    export EMAIL
+
+    echo -e "${GREEN}✓ Domain and email configured${NC}"
+    echo "  Domain: $DOMAIN"
+    echo "  Email:  $EMAIL"
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: get_server_public_ip
+# =============================================================================
+# Description: Get server's public IP address
+# Returns: Public IP address as string, or "Unable to detect" on failure
+# =============================================================================
+get_server_public_ip() {
+    local ip
+
+    # Try multiple methods to get public IP
+    ip=$(curl -s -4 ifconfig.me 2>/dev/null) || \
+    ip=$(curl -s -4 icanhazip.com 2>/dev/null) || \
+    ip=$(curl -s -4 api.ipify.org 2>/dev/null) || \
+    ip=$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null) || \
+    ip="Unable to detect"
+
+    echo "$ip"
 }
 
 # =============================================================================
@@ -786,4 +964,6 @@ export -f select_docker_subnet
 export -f scan_docker_networks
 export -f find_free_subnet
 export -f confirm_parameters
+export -f prompt_domain_email
+export -f get_server_public_ip
 export -f prompt_enable_public_proxy

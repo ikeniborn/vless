@@ -168,6 +168,8 @@ source_libraries() {
         "sudoers_info.sh"
         "orchestrator.sh"
         "verification.sh"
+        "security_hardening.sh"
+        "certbot_setup.sh"
     )
 
     # Check if lib directory exists
@@ -322,6 +324,79 @@ main() {
     collect_parameters
     print_success "Parameters collected"
 
+    # Step 7.5: Acquire TLS certificate (v3.3) - only if public proxy enabled
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+        print_message "${COLOR_BLUE}" "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_message "${COLOR_BLUE}" "  TLS CERTIFICATE ACQUISITION (v3.3)"
+        print_message "${COLOR_BLUE}" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        # Get server public IP for DNS validation
+        local server_ip
+        server_ip=$(get_server_public_ip)
+
+        # 1. Validate DNS
+        print_message "${COLOR_CYAN}" "[1/6] Validating DNS configuration..."
+        if ! validate_domain_dns "$DOMAIN" "$server_ip"; then
+            print_error "DNS validation failed. Certificate acquisition aborted."
+            print_message "${COLOR_YELLOW}" "Fix DNS configuration and retry installation."
+            exit 1
+        fi
+
+        # 2. Install certbot
+        print_message "${COLOR_CYAN}" "[2/6] Installing certbot..."
+        if ! install_certbot; then
+            print_error "Certbot installation failed"
+            exit 1
+        fi
+
+        # 3. Open port 80 for ACME challenge
+        print_message "${COLOR_CYAN}" "[3/6] Opening port 80 for ACME HTTP-01 challenge..."
+        if ! open_port_80_for_acme; then
+            print_error "Failed to open port 80"
+            exit 1
+        fi
+
+        # 4. Obtain certificate
+        print_message "${COLOR_CYAN}" "[4/6] Obtaining Let's Encrypt certificate..."
+        print_message "${COLOR_YELLOW}" "  This may take 30-60 seconds..."
+        if ! obtain_certificate "$DOMAIN" "$EMAIL"; then
+            print_error "Certificate acquisition failed"
+            # Attempt to close port 80 even on failure
+            close_port_80_after_acme || true
+            exit 1
+        fi
+
+        # 5. Close port 80
+        print_message "${COLOR_CYAN}" "[5/6] Closing port 80..."
+        if ! close_port_80_after_acme; then
+            print_warning "Failed to close port 80 automatically"
+            print_message "${COLOR_YELLOW}" "  You may need to manually close it: sudo ufw delete allow 80/tcp"
+        fi
+
+        # 6. Setup auto-renewal cron job
+        print_message "${COLOR_CYAN}" "[6/6] Setting up certificate auto-renewal..."
+        if ! setup_renewal_cron; then
+            print_warning "Failed to setup auto-renewal cron"
+            print_message "${COLOR_YELLOW}" "  You may need to configure it manually"
+        fi
+
+        # Install deploy hook script
+        print_message "${COLOR_CYAN}" "Installing certificate renewal deploy hook..."
+        if [[ -f "${SCRIPT_DIR}/scripts/vless-cert-renew" ]]; then
+            cp "${SCRIPT_DIR}/scripts/vless-cert-renew" /usr/local/bin/vless-cert-renew
+            chmod 755 /usr/local/bin/vless-cert-renew
+            print_success "Deploy hook installed"
+        else
+            print_warning "Deploy hook script not found, skipping"
+        fi
+
+        print_success "TLS certificate acquisition complete"
+        print_message "${COLOR_GREEN}" "  Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+        print_message "${COLOR_GREEN}" "  Auto-renewal: Enabled (twice daily)"
+        echo ""
+    fi
+
     # Step 8: Orchestrate installation (THIS creates /opt/vless and copies files)
     print_step 8 "Orchestrating installation"
     print_message "${COLOR_BLUE}" "  → Creating /opt/vless directory structure"
@@ -336,6 +411,11 @@ main() {
     print_step 9 "Verifying installation"
     verify_installation
     print_success "Installation verified"
+
+    # Step 9.5: Save version file (v3.3)
+    echo "3.3" > "${INSTALL_ROOT}/.version"
+    chmod 644 "${INSTALL_ROOT}/.version"
+    print_message "${COLOR_CYAN}" "Version file saved: v3.3"
 
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"

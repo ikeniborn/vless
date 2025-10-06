@@ -880,6 +880,7 @@ get_server_ip() {
 # Returns: 0 on success, 1 on failure
 # Output: socks5_config.txt with SOCKS5 URI
 # Related: TASK-11.4 (Proxy Configuration Export)
+# Note: v3.3 - Uses socks5s:// (TLS) for public proxy, socks5:// for localhost
 # =============================================================================
 export_socks5_config() {
     local username="$1"
@@ -890,12 +891,22 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Get server IP (v3.2 - public proxy support)
-    local server_ip
-    server_ip=$(get_server_ip)
+    # Determine URI scheme and host based on mode (v3.3)
+    local scheme="socks5"
+    local host
 
-    # Write SOCKS5 URI with public IP
-    echo "socks5://${username}:${password}@${server_ip}:1080" \
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.3: Public proxy with TLS encryption
+        scheme="socks5s"  # SOCKS5 over TLS
+        host="${DOMAIN}"  # Use domain for TLS certificate validation
+    else
+        # v3.1: Localhost-only, no TLS
+        scheme="socks5"
+        host=$(get_server_ip)
+    fi
+
+    # Write SOCKS5 URI
+    echo "${scheme}://${username}:${password}@${host}:1080" \
         > "$output_dir/socks5_config.txt"
 
     chmod 600 "$output_dir/socks5_config.txt"
@@ -913,6 +924,7 @@ export_socks5_config() {
 # Returns: 0 on success, 1 on failure
 # Output: http_config.txt with HTTP URI
 # Related: TASK-11.4 (Proxy Configuration Export)
+# Note: v3.3 - Uses https:// (TLS) for public proxy, http:// for localhost
 # =============================================================================
 export_http_config() {
     local username="$1"
@@ -923,12 +935,22 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Get server IP (v3.2 - public proxy support)
-    local server_ip
-    server_ip=$(get_server_ip)
+    # Determine URI scheme and host based on mode (v3.3)
+    local scheme="http"
+    local host
 
-    # Write HTTP URI with public IP
-    echo "http://${username}:${password}@${server_ip}:8118" \
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.3: Public proxy with TLS encryption
+        scheme="https"  # HTTP over TLS
+        host="${DOMAIN}"  # Use domain for TLS certificate validation
+    else
+        # v3.1: Localhost-only, no TLS
+        scheme="http"
+        host=$(get_server_ip)
+    fi
+
+    # Write HTTP URI
+    echo "${scheme}://${username}:${password}@${host}:8118" \
         > "$output_dir/http_config.txt"
 
     chmod 600 "$output_dir/http_config.txt"
@@ -956,9 +978,19 @@ export_vscode_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Get server IP (v3.2 - public proxy support)
-    local server_ip
-    server_ip=$(get_server_ip)
+    # Determine proxy URL based on mode (v3.3)
+    local proxy_url
+    local strict_ssl="false"
+
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.3: Public proxy with TLS encryption
+        proxy_url="https://${DOMAIN}:8118"
+        strict_ssl="true"  # Validate TLS certificate
+    else
+        # v3.1: Localhost-only, no TLS
+        proxy_url="http://$(get_server_ip):8118"
+        strict_ssl="false"
+    fi
 
     # Generate base64 encoded credentials for VSCode proxyAuthorization
     # VSCode does not support credentials in http.proxy URL, requires separate auth header
@@ -969,9 +1001,9 @@ export_vscode_config() {
     # Note: Using HTTP proxy (port 8118) instead of SOCKS5 for better VSCode compatibility
     cat > "$output_dir/vscode_settings.json" <<EOF
 {
-  "http.proxy": "http://${server_ip}:8118",
+  "http.proxy": "${proxy_url}",
   "http.proxyAuthorization": "${auth_base64}",
-  "http.proxyStrictSSL": false,
+  "http.proxyStrictSSL": ${strict_ssl},
   "http.proxySupport": "on"
 }
 EOF
@@ -1001,17 +1033,26 @@ export_docker_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Get server IP (v3.2 - public proxy support)
-    local server_ip
-    server_ip=$(get_server_ip)
+    # Determine proxy URL based on mode (v3.3)
+    local proxy_url
 
-    # Write Docker daemon config JSON with public IP
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.3: Public proxy with TLS encryption
+        proxy_url="https://${username}:${password}@${DOMAIN}:8118"
+    else
+        # v3.1: Localhost-only, no TLS
+        local server_ip
+        server_ip=$(get_server_ip)
+        proxy_url="http://${username}:${password}@${server_ip}:8118"
+    fi
+
+    # Write Docker daemon config JSON
     cat > "$output_dir/docker_daemon.json" <<EOF
 {
   "proxies": {
     "default": {
-      "httpProxy": "http://${username}:${password}@${server_ip}:8118",
-      "httpsProxy": "http://${username}:${password}@${server_ip}:8118",
+      "httpProxy": "${proxy_url}",
+      "httpsProxy": "${proxy_url}",
       "noProxy": "localhost,127.0.0.0/8"
     }
   }
@@ -1043,23 +1084,35 @@ export_bash_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Get server IP (v3.2 - public proxy support)
-    local server_ip
-    server_ip=$(get_server_ip)
+    # Determine proxy URL based on mode (v3.3)
+    local proxy_url
+    local mode_label
 
-    # Write bash exports script with public IP
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.3: Public proxy with TLS encryption
+        proxy_url="https://${username}:${password}@${DOMAIN}:8118"
+        mode_label="v3.3 - Public Access with TLS"
+    else
+        # v3.1: Localhost-only, no TLS
+        local server_ip
+        server_ip=$(get_server_ip)
+        proxy_url="http://${username}:${password}@${server_ip}:8118"
+        mode_label="v3.1 - Localhost Only"
+    fi
+
+    # Write bash exports script
     cat > "$output_dir/bash_exports.sh" <<EOF
 #!/bin/bash
-# VLESS Reality Proxy Configuration (v3.2 - Public Access)
+# VLESS Reality Proxy Configuration (${mode_label})
 # Usage: source bash_exports.sh
 
-export http_proxy="http://${username}:${password}@${server_ip}:8118"
-export https_proxy="http://${username}:${password}@${server_ip}:8118"
+export http_proxy="${proxy_url}"
+export https_proxy="${proxy_url}"
 export HTTP_PROXY="\$http_proxy"
 export HTTPS_PROXY="\$https_proxy"
 export NO_PROXY="localhost,127.0.0.0/8"
 
-echo "Proxy environment variables set (v3.2 - Public Access):"
+echo "Proxy environment variables set (${mode_label}):"
 echo "  http_proxy=\$http_proxy"
 echo "  https_proxy=\$https_proxy"
 EOF
@@ -1069,14 +1122,96 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: export_git_config
+# =============================================================================
+# Description: Export Git proxy configuration instructions to text file
+# Arguments:
+#   $1 - username
+#   $2 - proxy_password
+#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+# Returns: 0 on success, 1 on failure
+# Output: git_config.txt with Git proxy setup commands
+# Related: TASK-3.6 (v3.3 Git Config)
+# =============================================================================
+export_git_config() {
+    local username="$1"
+    local password="$2"
+    local output_dir="${3:-${CLIENTS_DIR}/${username}}"
+
+    # Create directory if not exists
+    mkdir -p "$output_dir"
+    chmod 700 "$output_dir"
+
+    # Determine proxy URL based on mode (v3.3)
+    local socks_proxy
+    local http_proxy
+
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v3.3: Public proxy with TLS encryption
+        socks_proxy="socks5s://${username}:${password}@${DOMAIN}:1080"
+        http_proxy="https://${username}:${password}@${DOMAIN}:8118"
+    else
+        # v3.1: Localhost-only, no TLS
+        local server_ip
+        server_ip=$(get_server_ip)
+        socks_proxy="socks5://${username}:${password}@${server_ip}:1080"
+        http_proxy="http://${username}:${password}@${server_ip}:8118"
+    fi
+
+    # Write Git config instructions
+    cat > "$output_dir/git_config.txt" <<EOF
+# Git Proxy Configuration
+# VLESS Reality VPN - Git Setup Instructions
+
+## Option 1: SOCKS5 Proxy (Recommended)
+# Configure Git to use SOCKS5 proxy for all operations:
+git config --global http.proxy ${socks_proxy}
+git config --global https.proxy ${socks_proxy}
+
+# Or for a specific repository:
+cd /path/to/repo
+git config http.proxy ${socks_proxy}
+git config https.proxy ${socks_proxy}
+
+## Option 2: HTTP Proxy
+# Alternatively, use HTTP proxy:
+git config --global http.proxy ${http_proxy}
+git config --global https.proxy ${http_proxy}
+
+## Remove Proxy Configuration
+# To remove proxy settings:
+git config --global --unset http.proxy
+git config --global --unset https.proxy
+
+## Verify Configuration
+# Check current Git proxy settings:
+git config --global --get http.proxy
+git config --global --get https.proxy
+
+## Test Git Operations
+# Test cloning a repository:
+git clone https://github.com/torvalds/linux.git
+
+## Notes:
+# - SOCKS5 proxy is recommended for better performance
+# - Use --global flag for system-wide configuration
+# - Use repository-specific config for selective proxy usage
+# - Git proxy works for both HTTP and SSH protocols when using http.proxy
+EOF
+
+    chmod 600 "$output_dir/git_config.txt"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: export_all_proxy_configs
 # =============================================================================
-# Description: Export all 5 proxy configuration files for a user
+# Description: Export all 6 proxy configuration files for a user (v3.3)
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password (optional, will read from users.json if not provided)
 # Returns: 0 on success, 1 on failure
-# Output: 5 proxy config files in /opt/vless/data/clients/$username/
+# Output: 6 proxy config files in /opt/vless/data/clients/$username/
 # Related: TASK-11.4 (Proxy Configuration Export)
 # =============================================================================
 export_all_proxy_configs() {
@@ -1098,15 +1233,162 @@ export_all_proxy_configs() {
 
     log_info "Exporting proxy configurations for user '$username'..."
 
-    # Export all 5 config files
+    # Export all 6 config files (v3.3)
     export_socks5_config "$username" "$proxy_password" "$output_dir" || return 1
     export_http_config "$username" "$proxy_password" "$output_dir" || return 1
     export_vscode_config "$username" "$proxy_password" "$output_dir" || return 1
     export_docker_config "$username" "$proxy_password" "$output_dir" || return 1
     export_bash_config "$username" "$proxy_password" "$output_dir" || return 1
+    export_git_config "$username" "$proxy_password" "$output_dir" || return 1
 
     log_success "Proxy configs exported to: $output_dir/"
-    log_info "Files: socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh"
+    log_info "Files: socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh, git_config.txt"
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: regenerate_configs (v3.3)
+# =============================================================================
+# Description: Regenerate all proxy configuration files for existing user
+#              Useful for v3.2 → v3.3 migration (IP → domain, plaintext → TLS)
+# Arguments:
+#   $1 - username
+# Returns: 0 on success, 1 on failure
+# Related: TASK-5.2 (v3.3 Migration Support)
+# =============================================================================
+regenerate_configs() {
+    local username="$1"
+
+    echo ""
+    log_info "Regenerating configurations for user: $username"
+    echo ""
+
+    # Step 1: Validate user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Step 2: Get user data from users.json
+    local user_info
+    user_info=$(get_user_info "$username")
+    if [[ -z "$user_info" ]]; then
+        log_error "Failed to retrieve user information"
+        return 1
+    fi
+
+    local uuid
+    local proxy_password
+
+    uuid=$(echo "$user_info" | jq -r '.uuid')
+    proxy_password=$(echo "$user_info" | jq -r '.proxy_password // empty')
+
+    log_success "Retrieved user data:"
+    log_info "  UUID: $uuid"
+    if [[ -n "$proxy_password" ]]; then
+        log_info "  Proxy password: [exists]"
+    else
+        log_warning "  Proxy password: [not set - proxy may not be enabled]"
+    fi
+
+    # Step 3: Regenerate VLESS configuration
+    local user_dir="${CLIENTS_DIR}/${username}"
+    mkdir -p "$user_dir"
+    chmod 700 "$user_dir"
+
+    log_info "Regenerating VLESS configuration..."
+
+    # Generate VLESS URI
+    local vless_uri
+    vless_uri=$(generate_vless_uri "$username" "$uuid")
+
+    # Save VLESS URI
+    echo "$vless_uri" > "${user_dir}/vless_uri.txt"
+    chmod 600 "${user_dir}/vless_uri.txt"
+    log_success "VLESS URI updated"
+
+    # Generate QR code if qrencode available
+    if command -v qrencode &>/dev/null; then
+        qrencode -o "${user_dir}/vless_qr.png" -t PNG -s 10 "$vless_uri" 2>/dev/null
+        chmod 600 "${user_dir}/vless_qr.png"
+        log_success "QR code regenerated"
+    else
+        log_warning "qrencode not available - QR code not generated"
+    fi
+
+    # Step 4: Regenerate proxy configurations (if proxy enabled)
+    if [[ -n "$proxy_password" ]]; then
+        log_info "Regenerating proxy configurations..."
+
+        if ! export_all_proxy_configs "$username" "$proxy_password"; then
+            log_error "Failed to regenerate proxy configs"
+            return 1
+        fi
+
+        log_success "Proxy configs regenerated (6 files)"
+    else
+        log_info "Proxy not enabled, skipping proxy config regeneration"
+    fi
+
+    # Step 5: Display summary
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  CONFIGURATION REGENERATION COMPLETE"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "User:      $username"
+    echo "UUID:      $uuid"
+    echo "Directory: $user_dir"
+    echo ""
+
+    if [[ -n "$proxy_password" ]]; then
+        # Determine mode
+        local mode_label="Localhost Only"
+        local host
+
+        if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+            mode_label="Public Access with TLS"
+            host="${DOMAIN}"
+        else
+            host=$(get_server_ip)
+        fi
+
+        echo "Proxy Mode: $mode_label"
+        echo ""
+        echo "VLESS Config Files:"
+        echo "  • vless_uri.txt"
+        if [[ -f "${user_dir}/vless_qr.png" ]]; then
+            echo "  • vless_qr.png"
+        fi
+        echo ""
+        echo "Proxy Config Files (v3.3):"
+        echo "  • socks5_config.txt"
+        echo "  • http_config.txt"
+        echo "  • vscode_settings.json"
+        echo "  • docker_daemon.json"
+        echo "  • bash_exports.sh"
+        echo "  • git_config.txt"
+        echo ""
+        echo "Proxy URIs:"
+        if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+            echo "  SOCKS5: socks5s://${username}:${proxy_password}@${host}:1080"
+            echo "  HTTP:   https://${username}:${proxy_password}@${host}:8118"
+        else
+            echo "  SOCKS5: socks5://${username}:${proxy_password}@${host}:1080"
+            echo "  HTTP:   http://${username}:${proxy_password}@${host}:8118"
+        fi
+    else
+        echo "Files:"
+        echo "  • vless_uri.txt"
+        if [[ -f "${user_dir}/vless_qr.png" ]]; then
+            echo "  • vless_qr.png"
+        fi
+    fi
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
 
     return 0
 }
@@ -1337,12 +1619,21 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f get_user_info
     export -f validate_username
     export -f generate_uuid
+    export -f regenerate_configs
     export -f add_user_to_json
     export -f remove_user_from_json
     export -f add_client_to_xray
     export -f remove_client_from_xray
     export -f reload_xray
     export -f generate_vless_uri
+    export -f export_socks5_config
+    export -f export_http_config
+    export -f export_vscode_config
+    export -f export_docker_config
+    export -f export_bash_config
+    export -f export_git_config
+    export -f export_all_proxy_configs
+    export -f get_server_ip
     export -f log_info
     export -f log_success
     export -f log_warning
@@ -1373,13 +1664,21 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         list|ls)
             list_users
             ;;
+        regenerate|regen)
+            if [[ -z "${2:-}" ]]; then
+                log_error "Usage: $0 regenerate <username>"
+                exit 1
+            fi
+            regenerate_configs "$2"
+            ;;
         *)
-            echo "Usage: $0 {create|remove|list} [username]"
+            echo "Usage: $0 {create|remove|list|regenerate} [username]"
             echo ""
             echo "Commands:"
-            echo "  create <username>  - Create new VPN user"
-            echo "  remove <username>  - Remove existing user"
-            echo "  list               - List all users"
+            echo "  create <username>     - Create new VPN user"
+            echo "  remove <username>     - Remove existing user"
+            echo "  list                  - List all users"
+            echo "  regenerate <username> - Regenerate config files (v3.3 migration)"
             echo ""
             exit 1
             ;;

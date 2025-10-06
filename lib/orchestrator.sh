@@ -325,9 +325,13 @@ generate_short_id() {
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
 # Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
 # Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
+# Note: v3.3 - TLS encryption mandatory when ENABLE_PUBLIC_PROXY=true
 # =============================================================================
 generate_socks5_inbound_json() {
-    cat <<'EOF'
+    # Check if TLS is required (public proxy mode)
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+        # v3.3: TLS-encrypted SOCKS5 (socks5s://)
+        cat <<EOF
   ,{
     "tag": "socks5-proxy",
     "listen": "0.0.0.0",
@@ -339,12 +343,46 @@ generate_socks5_inbound_json() {
       "udp": false,
       "ip": "0.0.0.0"
     },
+    "streamSettings": {
+      "network": "tcp",
+      "security": "tls",
+      "tlsSettings": {
+        "certificates": [
+          {
+            "certificateFile": "/etc/xray/certs/live/${DOMAIN}/fullchain.pem",
+            "keyFile": "/etc/xray/certs/live/${DOMAIN}/privkey.pem"
+          }
+        ],
+        "alpn": ["h2", "http/1.1"]
+      }
+    },
     "sniffing": {
       "enabled": true,
       "destOverride": ["http", "tls"]
     }
   }
 EOF
+    else
+        # v3.1: Localhost-only SOCKS5 (no TLS)
+        cat <<'EOF'
+  ,{
+    "tag": "socks5-proxy",
+    "listen": "127.0.0.1",
+    "port": 1080,
+    "protocol": "socks",
+    "settings": {
+      "auth": "password",
+      "accounts": [],
+      "udp": false,
+      "ip": "127.0.0.1"
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+    fi
 }
 
 # =============================================================================
@@ -353,12 +391,48 @@ EOF
 # Description: Generate HTTP proxy inbound configuration for Xray
 # Returns: JSON string for HTTP inbound (to be appended to inbounds array)
 # Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
+# Note: v3.3 - TLS encryption mandatory when ENABLE_PUBLIC_PROXY=true
 # =============================================================================
 generate_http_inbound_json() {
-    cat <<'EOF'
+    # Check if TLS is required (public proxy mode)
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+        # v3.3: TLS-encrypted HTTP (https://)
+        cat <<EOF
   ,{
     "tag": "http-proxy",
     "listen": "0.0.0.0",
+    "port": 8118,
+    "protocol": "http",
+    "settings": {
+      "accounts": [],
+      "allowTransparent": false,
+      "userLevel": 0
+    },
+    "streamSettings": {
+      "network": "tcp",
+      "security": "tls",
+      "tlsSettings": {
+        "certificates": [
+          {
+            "certificateFile": "/etc/xray/certs/live/${DOMAIN}/fullchain.pem",
+            "keyFile": "/etc/xray/certs/live/${DOMAIN}/privkey.pem"
+          }
+        ],
+        "alpn": ["h2", "http/1.1"]
+      }
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+    else
+        # v3.1: Localhost-only HTTP (no TLS)
+        cat <<'EOF'
+  ,{
+    "tag": "http-proxy",
+    "listen": "127.0.0.1",
     "port": 8118,
     "protocol": "http",
     "settings": {
@@ -372,6 +446,7 @@ generate_http_inbound_json() {
     }
   }
 EOF
+    fi
 }
 
 # =============================================================================
@@ -668,16 +743,28 @@ create_docker_compose() {
 
     # v3.2: Determine ports based on ENABLE_PUBLIC_PROXY flag
     local ports_section
+    local volumes_section
+
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.2: Public proxy mode - expose ports 1080 and 8118
+        # v3.2/v3.3: Public proxy mode - expose ports 1080 and 8118
         ports_section="    ports:
       - \"${VLESS_PORT}:${VLESS_PORT}\"
       - \"1080:1080\"
       - \"8118:8118\""
+
+        # v3.3: Add Let's Encrypt certificate volume mount
+        volumes_section="    volumes:
+      - ${CONFIG_DIR}:/etc/xray:ro
+      - ${LOGS_DIR}:/var/log/xray
+      - /etc/letsencrypt:/etc/xray/certs:ro"
     else
-        # VLESS-only mode - no proxy ports exposed
+        # VLESS-only mode - no proxy ports exposed, no cert volume
         ports_section="    ports:
       - \"${VLESS_PORT}:${VLESS_PORT}\""
+
+        volumes_section="    volumes:
+      - ${CONFIG_DIR}:/etc/xray:ro
+      - ${LOGS_DIR}:/var/log/xray"
     fi
 
     # Create docker-compose.yml
@@ -698,9 +785,7 @@ services:
     networks:
       - ${DOCKER_NETWORK_NAME}
 ${ports_section}
-    volumes:
-      - ${CONFIG_DIR}:/etc/xray:ro
-      - ${LOGS_DIR}:/var/log/xray
+${volumes_section}
     cap_drop:
       - ALL
     cap_add:
