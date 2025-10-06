@@ -46,6 +46,9 @@ readonly COLOR_RESET='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
+# Export paths for modules (required by stunnel_setup.sh)
+export TEMPLATE_DIR="${SCRIPT_DIR}/templates"
+
 # Total installation steps
 readonly TOTAL_STEPS=10
 
@@ -198,6 +201,12 @@ source_libraries() {
             print_error "Failed to source module: ${module}"
             exit 1
         }
+
+        # After sourcing orchestrator.sh, export paths for subsequent modules (stunnel_setup.sh)
+        if [[ "$module" == "orchestrator.sh" ]]; then
+            export CONFIG_DIR
+            export LOG_DIR="${LOGS_DIR}"
+        fi
     done
 
     print_success "All library modules loaded successfully"

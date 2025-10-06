@@ -128,11 +128,8 @@ orchestrate_installation() {
         echo ""
         echo -e "${CYAN}[6.5/12] Initializing stunnel TLS termination...${NC}"
 
-        # Define required variables for stunnel_setup.sh
-        export TEMPLATE_DIR="${SCRIPT_DIR}/templates"
-        export LOG_DIR="${LOGS_DIR}"
-
         # stunnel_setup.sh is already sourced by install.sh
+        # Required variables (TEMPLATE_DIR, CONFIG_DIR, LOG_DIR) exported by install.sh
         # Call init_stunnel with domain
         if ! init_stunnel "${DOMAIN}"; then
             echo -e "${RED}Failed to initialize stunnel${NC}" >&2
