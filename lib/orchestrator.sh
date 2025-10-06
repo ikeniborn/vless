@@ -889,6 +889,10 @@ DOCKER_SUBNET=${DOCKER_SUBNET}
 # Server Information (v3.2 - for public proxy configs)
 SERVER_IP=${server_ip}
 
+# Proxy Configuration (v3.3)
+ENABLE_PROXY=${ENABLE_PROXY:-false}
+ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
+
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
 SHORT_ID=${SHORT_ID}
@@ -902,6 +906,10 @@ NGINX_IMAGE=${NGINX_IMAGE}
 INSTALL_ROOT=${INSTALL_ROOT}
 CONFIG_DIR=${CONFIG_DIR}
 DATA_DIR=${DATA_DIR}
+
+# TLS Certificate Configuration (v3.3 - for public proxy mode)
+DOMAIN=${DOMAIN:-}
+EMAIL=${EMAIL:-}
 EOF
 
     if [[ ! -f "${ENV_FILE}" ]]; then
