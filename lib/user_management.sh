@@ -398,10 +398,24 @@ add_client_to_xray() {
     # Validate with xray -test (if container is running)
     # Note: Container has read-only filesystem, so we validate by mounting the file
     if docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
-        # Validate by running xray with mounted config file
-        if ! docker run --rm -v "$temp_file:/tmp/test_config.json:ro" "${XRAY_IMAGE:-teddysun/xray:latest}" \
-            xray -test -config=/tmp/test_config.json &>/dev/null; then
-            log_error "Xray configuration validation failed"
+        # Check if public proxy mode with TLS is enabled (requires certificate mounting)
+        local enable_public_proxy="false"
+        if [[ -f "$ENV_FILE" ]]; then
+            enable_public_proxy=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" | cut -d'=' -f2 || echo "false")
+        fi
+
+        # Build docker run command with conditional certificate mounting
+        local docker_cmd="docker run --rm -v $temp_file:/tmp/test_config.json:ro"
+        if [[ "$enable_public_proxy" == "true" ]] && [[ -d "/etc/letsencrypt" ]]; then
+            docker_cmd="$docker_cmd -v /etc/letsencrypt:/certs:ro"
+        fi
+        docker_cmd="$docker_cmd ${XRAY_IMAGE:-teddysun/xray:24.11.30} xray -test -config=/tmp/test_config.json"
+
+        # Validate configuration and capture output
+        local validation_output
+        if ! validation_output=$($docker_cmd 2>&1); then
+            log_error "Xray configuration validation failed:"
+            echo "$validation_output" >&2
             rm -f "$temp_file"
             mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
             return 1
@@ -441,6 +455,32 @@ remove_client_from_xray() {
         rm -f "$temp_file"
         mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
         return 1
+    fi
+
+    # Validate with xray -test (if container is running)
+    if docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
+        # Check if public proxy mode with TLS is enabled (requires certificate mounting)
+        local enable_public_proxy="false"
+        if [[ -f "$ENV_FILE" ]]; then
+            enable_public_proxy=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" | cut -d'=' -f2 || echo "false")
+        fi
+
+        # Build docker run command with conditional certificate mounting
+        local docker_cmd="docker run --rm -v $temp_file:/tmp/test_config.json:ro"
+        if [[ "$enable_public_proxy" == "true" ]] && [[ -d "/etc/letsencrypt" ]]; then
+            docker_cmd="$docker_cmd -v /etc/letsencrypt:/certs:ro"
+        fi
+        docker_cmd="$docker_cmd ${XRAY_IMAGE:-teddysun/xray:24.11.30} xray -test -config=/tmp/test_config.json"
+
+        # Validate configuration and capture output
+        local validation_output
+        if ! validation_output=$($docker_cmd 2>&1); then
+            log_error "Xray configuration validation failed:"
+            echo "$validation_output" >&2
+            rm -f "$temp_file"
+            mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+            return 1
+        fi
     fi
 
     # Apply configuration
