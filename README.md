@@ -118,20 +118,21 @@ sudo vless add-user alice
 - Compliance-sensitive deployments (GDPR, HIPAA, etc.)
 - Untrusted or open networks
 
-### Automatic Security Measures (v3.2)
+### Automatic Security Measures
 
-When you enable public proxy mode, the installer automatically configures:
+When you enable proxy mode (localhost-only or public), the installer automatically configures:
 
-1. **Fail2ban Protection**
+1. **Fail2ban Protection** (v3.3 - all proxy modes)
    - Monitors Xray authentication logs
-   - Bans IP after 5 failed attempts
+   - Bans IP after 5 failed attempts (localhost via VPN, public from internet)
    - Ban duration: 1 hour
+   - Protects against brute-force attacks in both modes
    - Check status: `sudo fail2ban-client status vless-socks5`
 
-2. **UFW Rate Limiting**
+2. **UFW Rate Limiting** (public proxy mode only)
    - Limits connections to 10 per minute per IP
    - Applies to ports 1080 (SOCKS5) and 8118 (HTTP)
-   - Prevents connection flood attacks
+   - Prevents connection flood attacks from internet
 
 3. **Enhanced Authentication**
    - 32-character passwords (vs 16 in v3.1)

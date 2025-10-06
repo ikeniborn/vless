@@ -135,10 +135,10 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 9.5: Setup fail2ban (v3.2 - conditional on ENABLE_PUBLIC_PROXY)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+    # Step 9.5: Setup fail2ban (v3.3 - for all proxy modes: localhost + public)
+    if [[ "${ENABLE_PROXY:-false}" == "true" ]]; then
         echo ""
-        echo -e "${CYAN}[9.5/12] Setting up fail2ban for public proxy protection...${NC}"
+        echo -e "${CYAN}[9.5/12] Setting up fail2ban for proxy protection...${NC}"
 
         # Source fail2ban module
         if [[ -f "${SCRIPT_DIR}/lib/fail2ban_setup.sh" ]]; then
@@ -147,7 +147,7 @@ orchestrate_installation() {
 
         if ! setup_fail2ban_for_proxy; then
             echo -e "${RED}Failed to setup fail2ban${NC}" >&2
-            echo -e "${YELLOW}WARNING: Public proxy will be less secure without fail2ban${NC}"
+            echo -e "${YELLOW}WARNING: Proxy will be less secure without fail2ban protection${NC}"
             echo -e "${YELLOW}Continue installation? [y/N]: ${NC}" >&2
             read -r response
             if [[ "${response,,}" != "y" && "${response,,}" != "yes" ]]; then

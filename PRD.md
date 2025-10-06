@@ -94,7 +94,7 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 | **Encryption** | N/A | ❌ **NONE** | ✅ **TLS 1.3** |
 | **Certificate** | N/A | ❌ None | ✅ **Let's Encrypt** |
 | Password Length | 16 chars | 32 chars | 32 chars |
-| Fail2ban | Optional | Mandatory | Mandatory |
+| Fail2ban | Optional | Mandatory (public only) | Mandatory (all proxy modes) |
 | Rate Limiting | N/A | UFW 10/min | UFW 10/min |
 | Firewall Ports | 443 only | 443 + 1080 + 8118 | 443 + 1080 + 8118 + **80 (temp)** |
 | Config URIs | `socks5://...@127.0.0.1:1080` | `socks5://...@server:1080` | `socks5s://...@server:1080` |
@@ -442,18 +442,23 @@ sudo docker logs vless-reality | grep "SOCKS"
 
 ---
 
-### FR-FAIL2BAN-001: Fail2ban Integration (CRITICAL - UNCHANGED from v3.2)
+### FR-FAIL2BAN-001: Fail2ban Integration (CRITICAL - ENHANCED in v3.3)
 
-**Requirement:** Fail2ban MUST protect proxy ports from brute-force attacks.
+**Requirement:** Fail2ban MUST protect proxy ports from brute-force attacks in ALL proxy modes (localhost-only and public).
+
+**Rationale:**
+- **Localhost-only (127.0.0.1)**: Protects against brute-force attacks via VPN connection
+- **Public (0.0.0.0)**: Protects against brute-force attacks from internet
 
 **Acceptance Criteria:**
-- [ ] Fail2ban installed and enabled
+- [ ] Fail2ban installed when `ENABLE_PROXY=true` (regardless of public/localhost mode)
 - [ ] Jail created for SOCKS5 (port 1080)
 - [ ] Jail created for HTTP (port 8118)
 - [ ] Ban after 5 failed auth attempts
 - [ ] Ban duration: 1 hour (3600 seconds)
 - [ ] Find time: 10 minutes (600 seconds)
 - [ ] Logs monitored: `/opt/vless/logs/xray/error.log`
+- [ ] Works for both localhost (via VPN) and public (from internet) attacks
 
 ---
 

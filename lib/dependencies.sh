@@ -504,9 +504,9 @@ install_dependencies() {
     echo -e "${CYAN}Installing optional packages...${NC}"
 
     for package in "${OPTIONAL_PACKAGES[@]}"; do
-        # Skip fail2ban if public proxy not enabled
-        if [[ "$package" == "fail2ban" && "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
-            echo -e "  ${YELLOW}⊗${NC} $package - skipped (public proxy not enabled)"
+        # Skip fail2ban if proxy not enabled (v3.3 - for all proxy modes)
+        if [[ "$package" == "fail2ban" && "${ENABLE_PROXY:-false}" != "true" ]]; then
+            echo -e "  ${YELLOW}⊗${NC} $package - skipped (proxy not enabled)"
             continue
         fi
 
