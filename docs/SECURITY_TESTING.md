@@ -1,647 +1,340 @@
 # VLESS Reality VPN - Security Testing Guide
 
-## Overview
-
-This guide provides comprehensive instructions for running encryption and security tests on your VLESS Reality VPN installation. The test suite validates that all connections from client to internet are properly encrypted and secure.
-
-**Version:** 1.0
+**Version:** 1.0 (v4.1)
 **Last Updated:** 2025-10-07
 
 ---
 
-## Table of Contents
+## Quick Start
 
-1. [Test Coverage](#test-coverage)
-2. [Prerequisites](#prerequisites)
-3. [Installation](#installation)
-4. [Running Tests](#running-tests)
-5. [Understanding Results](#understanding-results)
-6. [Troubleshooting](#troubleshooting)
-7. [Security Best Practices](#security-best-practices)
+**Recommended:** Use built-in CLI command:
+
+```bash
+sudo vless test-security              # Full test (2-3 min)
+sudo vless test-security --quick      # Fast mode (1 min, no packet capture)
+sudo vless test-security --skip-pcap  # Skip tcpdump if unavailable
+sudo vless test-security --verbose    # Detailed output
+```
+
+**Aliases:** `vless security-test`, `vless security`
 
 ---
 
 ## Test Coverage
 
-The encryption security test suite (`test_encryption_security.sh`) validates the following:
-
-### 1. **TLS 1.3 Configuration (Reality Protocol)**
-- Verifies X25519 key configuration
-- Validates Reality protocol settings
-- Checks destination TLS 1.3 support
-- Confirms SNI (Server Name Indication) configuration
-- Tests shortIds authentication
+### 1. **Reality Protocol (TLS 1.3)**
+- X25519 key configuration validation
+- Reality protocol settings verification
+- Destination TLS 1.3 support check
+- SNI (Server Name Indication) validation
+- shortIds authentication test
 
 ### 2. **stunnel TLS Termination** (Public Proxy Mode)
-- Validates stunnel configuration for SOCKS5 and HTTP proxies
-- Checks Let's Encrypt certificate validity
-- Verifies certificate expiration dates
-- Tests TLS endpoints (ports 1080, 8118)
+- TLS 1.3 on ports 1080 (SOCKS5) and 8118 (HTTP)
+- Let's Encrypt certificate validity
+- Certificate expiration dates
+- TLS endpoint connectivity tests
 
 ### 3. **Traffic Encryption Validation**
-- Captures live traffic using tcpdump
-- Analyzes packets for plaintext data leaks
-- Validates TLS handshakes
-- Confirms end-to-end encryption
+- Live traffic capture (tcpdump)
+- Plaintext data leak detection
+- TLS handshake analysis
+- End-to-end encryption verification
 
 ### 4. **Certificate Security**
-- Verifies certificate chain validity
-- Checks certificate file permissions
-- Validates certificate issuer (Let's Encrypt)
-- Tests Subject Alternative Names (SAN)
+- Certificate chain validation
+- File permissions check (600 for private keys)
+- Certificate issuer verification (Let's Encrypt)
+- Subject Alternative Names (SAN) validation
 
 ### 5. **DPI Resistance** (Deep Packet Inspection)
-- Validates Reality masquerading configuration
-- Tests traffic fingerprinting resistance
-- Verifies SNI matches destination
-- Confirms TLS 1.3 usage
+- Reality masquerading configuration
+- Traffic fingerprinting resistance
+- SNI-destination matching
+- TLS 1.3 protocol enforcement
 
 ### 6. **SSL/TLS Vulnerabilities**
-- Scans for weak cipher suites (RC4, DES, 3DES, MD5, NULL)
-- Tests for obsolete protocols (SSLv2, SSLv3, TLS 1.0/1.1)
-- Validates Perfect Forward Secrecy (PFS)
-- Checks for known vulnerabilities (POODLE, BEAST, etc.)
+- Weak cipher suites scan (RC4, DES, 3DES, MD5, NULL)
+- Obsolete protocols detection (SSLv2, SSLv3, TLS 1.0/1.1)
+- Perfect Forward Secrecy (PFS) validation
+- Known vulnerabilities check (POODLE, BEAST, etc.)
 
 ### 7. **Proxy Protocol Security**
-- Verifies authentication requirements (SOCKS5, HTTP)
-- Validates proxy listen addresses (localhost vs public)
-- Checks password strength (minimum 32 characters for v3.2)
-- Tests UDP disabled (security hardening)
+- Authentication enforcement (SOCKS5, HTTP)
+- Listen address validation (localhost vs public)
+- Password strength check (32+ characters for v3.2+)
+- UDP disabled verification (security hardening)
 
 ### 8. **Data Leak Detection**
-- Scans for exposed configuration files
-- Detects default/weak usernames
-- Checks container logs for sensitive data
-- Validates DNS configuration
+- Exposed configuration files scan
+- Default/weak credentials detection
+- Container logs sensitive data check
+- DNS configuration validation
 
 ---
 
 ## Prerequisites
 
 ### System Requirements
-
-- **Operating System:** Ubuntu 20.04+, 22.04 LTS, or Debian 10+
-- **Privileges:** Root or sudo access
-- **VLESS Installation:** Active VLESS Reality VPN at `/opt/vless`
-- **Users:** At least one VPN user configured
+- Ubuntu 20.04+, 22.04 LTS, or Debian 10+
+- Root/sudo access
+- Active VLESS installation at `/opt/vless`
+- At least one configured VPN user
 
 ### Required Tools
 
-The following tools must be installed:
-
 ```bash
-# Essential tools (will fail if missing)
+# Essential (will fail if missing)
 sudo apt-get update
-sudo apt-get install -y \
-    openssl \
-    curl \
-    jq \
-    iproute2 \
-    iptables \
-    nmap
+sudo apt-get install -y openssl curl jq iproute2 iptables
 
-# Network analysis tools
-sudo apt-get install -y \
-    tcpdump \
-    wireshark-common
+# Security testing (recommended)
+sudo apt-get install -y nmap tcpdump
+
+# Advanced analysis (optional)
+sudo apt-get install -y tshark wireshark-common
 ```
 
-### Optional Tools (Enhanced Testing)
-
-```bash
-# Wireshark tshark for advanced packet analysis
-sudo apt-get install -y tshark
-
-# testssl.sh for comprehensive TLS testing
-wget https://testssl.sh/testssl.sh
-chmod +x testssl.sh
-sudo mv testssl.sh /usr/local/bin/
-```
-
-### Docker Containers
-
-Ensure VLESS containers are running:
+### Verify Containers Running
 
 ```bash
 cd /opt/vless
-docker compose ps
-
-# Expected output: vless_xray and vless_nginx (and vless_stunnel if public proxy enabled)
-```
-
-If containers are not running:
-
-```bash
-sudo docker compose up -d
-```
-
----
-
-## Installation
-
-### 1. Download Test Script
-
-If you're working from the development repository:
-
-```bash
-cd /home/ikeniborn/Documents/Project/vless
-chmod +x tests/integration/test_encryption_security.sh
-```
-
-If deployed on a production server:
-
-```bash
-# Copy from development machine or download
-sudo mkdir -p /opt/vless/tests/integration
-sudo cp test_encryption_security.sh /opt/vless/tests/integration/
-sudo chmod +x /opt/vless/tests/integration/test_encryption_security.sh
-```
-
-### 2. Verify Installation
-
-```bash
-sudo /opt/vless/tests/integration/test_encryption_security.sh --help
+sudo docker compose ps
 ```
 
 Expected output:
 ```
-Usage: test_encryption_security.sh [options]
+NAME            STATUS          PORTS
+vless_xray      Up              0.0.0.0:443->443/tcp
+vless_nginx     Up
+vless_stunnel   Up              (if public proxy enabled)
+```
 
-Options:
-  --quick       Skip long-running tests
-  --skip-pcap   Skip packet capture tests
-  --verbose     Show detailed output
-  -h, --help    Show this help message
+If containers not running:
+```bash
+sudo docker compose up -d
 ```
 
 ---
 
 ## Running Tests
 
-### Basic Usage
-
-Run all tests with default settings:
+### Option 1: CLI Command (Recommended)
 
 ```bash
-sudo /opt/vless/tests/integration/test_encryption_security.sh
+# Full comprehensive test
+sudo vless test-security
+
+# Quick test (skip packet capture)
+sudo vless test-security --quick
+
+# Skip packet capture if tcpdump unavailable
+sudo vless test-security --skip-pcap
+
+# Verbose output for debugging
+sudo vless test-security --verbose
 ```
 
-**Note:** Root/sudo is required for packet capture (tcpdump) and system-level checks.
-
-### Quick Mode (Skip Long Tests)
-
-Skip traffic capture tests (~30 seconds):
+### Option 2: Direct Script Execution
 
 ```bash
-sudo /opt/vless/tests/integration/test_encryption_security.sh --quick
+cd /opt/vless/tests
+sudo ./test_encryption_security.sh
 ```
 
-### Skip Packet Capture
-
-If tcpdump is unavailable or you want to skip packet analysis:
-
-```bash
-sudo /opt/vless/tests/integration/test_encryption_security.sh --skip-pcap
-```
-
-### Verbose Mode (Debugging)
-
-Show detailed output for troubleshooting:
-
-```bash
-sudo /opt/vless/tests/integration/test_encryption_security.sh --verbose
-```
-
-### Combined Options
-
-```bash
-sudo /opt/vless/tests/integration/test_encryption_security.sh --quick --verbose
-```
+**Test duration:** 2-3 minutes (full), 1 minute (quick mode)
 
 ---
 
 ## Understanding Results
 
-### Exit Codes
-
-| Code | Meaning | Description |
-|------|---------|-------------|
-| `0`  | Success | All tests passed or passed with warnings |
-| `1`  | Failed  | One or more tests failed |
-| `2`  | Error   | Prerequisites not met (missing tools, VLESS not installed) |
-| `3`  | Critical| Critical security issues detected (immediate action required) |
-
-### Test Output Format
-
-Each test displays color-coded results:
-
-- **🟢 [✓ PASS]** - Test passed successfully
-- **🔴 [✗ FAIL]** - Test failed (security issue or misconfiguration)
-- **🟡 [⊘ SKIP]** - Test skipped (feature disabled or tool unavailable)
-- **🟡 [⚠ WARN]** - Warning (non-critical issue, review recommended)
-- **🔴 [🔥 CRITICAL]** - Critical security vulnerability (immediate fix required)
-
-### Sample Output
+### ✅ All Tests Passed (Exit Code: 0)
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TEST 1: Reality Protocol TLS 1.3 Configuration
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[TEST] Verifying Reality protocol TLS 1.3 settings in Xray config
-[✓ PASS] Reality X25519 private key configured
-[✓ PASS] Reality shortIds configured (2 entries)
-[✓ PASS] Reality destination configured: google.com:443
-[✓ PASS] Destination supports TLS 1.3: google.com
-[✓ PASS] Reality serverNames configured: www.google.com
-[✓ PASS] Reality protocol TLS 1.3 configuration valid
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESULT: ALL TESTS PASSED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Reality Protocol: TLS 1.3 configured
+✓ stunnel TLS: Certificates valid
+✓ Traffic Encryption: No plaintext detected
+✓ DPI Resistance: Traffic looks like HTTPS
+✓ SSL/TLS: No weak ciphers or protocols
+✓ Proxy Security: Authentication enforced
+✓ Data Leaks: None detected
 ```
 
-### Summary Report
+**Action:** System is secure, no changes needed.
 
-At the end of the test run:
+---
+
+### ⚠️ Warnings (Exit Code: 0, but with warnings)
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ENCRYPTION SECURITY TEST SUMMARY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Total Tests:      45
-Passed:           42
-Failed:           1
-Skipped:          2
-
-Security Warnings: 3
-Critical Issues:   0
-
-Failed Tests:
-  ✗ HTTP proxy port not listening: 8118
-
-Security Issues:
-  ⚠ Certificate expires within 24 hours or is already expired
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESULT: PASSED WITH WARNINGS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Reality Protocol: OK
+✓ stunnel TLS: OK
+⚠ Certificate: Expires in 15 days (renew recommended)
+✓ Traffic Encryption: OK
 ```
+
+**Action:** Review warnings, plan certificate renewal or config updates.
+
+---
+
+### ❌ Test Failed (Exit Code: 1)
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESULT: TESTS FAILED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Reality Protocol: OK
+❌ stunnel TLS: Certificate expired
+✓ Traffic Encryption: OK
+```
+
+**Action:** Fix identified issues immediately. System may be vulnerable.
+
+---
+
+## Test Details
+
+### Reality Protocol Tests
+- ✅ Private key exists and has 600 permissions
+- ✅ Public key matches private key
+- ✅ Destination supports TLS 1.3
+- ✅ SNI configured correctly
+- ✅ shortIds array not empty
+
+### stunnel TLS Tests (Public Proxy Mode)
+- ✅ stunnel.conf exists and valid
+- ✅ Certificates readable by container
+- ✅ Certificate not expired (>7 days validity)
+- ✅ TLS 1.3 handshake successful on ports 1080, 8118
+- ✅ Strong cipher suites only
+
+### Traffic Encryption Tests
+- ✅ Packet capture contains no plaintext credentials
+- ✅ TLS handshake present in capture
+- ✅ Application data encrypted
+- ✅ No HTTP/SOCKS5 plaintext protocol headers
+
+### DPI Resistance Tests
+- ✅ Traffic looks like normal HTTPS (not VPN)
+- ✅ nmap service detection reports SSL/TLS
+- ✅ SNI matches destination domain
+- ✅ TLS fingerprint matches legitimate website
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
-
-#### 1. "tcpdump: command not found"
+### Issue: "tcpdump: Permission denied"
 
 **Solution:**
 ```bash
-sudo apt-get install tcpdump
+sudo chmod +x /opt/vless/tests/test_encryption_security.sh
+sudo vless test-security --skip-pcap  # Skip packet capture
 ```
 
-Or run with `--skip-pcap`:
-```bash
-sudo ./test_encryption_security.sh --skip-pcap
-```
+---
 
-#### 2. "VLESS containers are not running"
+### Issue: "Certificate expired"
 
 **Solution:**
 ```bash
-cd /opt/vless
-sudo docker compose up -d
-sudo docker compose ps  # Verify containers are running
-```
-
-#### 3. "No users configured"
-
-**Solution:**
-```bash
-sudo vless-user add testuser
-```
-
-#### 4. "Certificate validation failed"
-
-**Possible causes:**
-- Certificate expired (run `sudo certbot renew`)
-- Certificate files missing (check `/etc/letsencrypt/live/`)
-- Incorrect domain configuration
-
-**Solution:**
-```bash
-# Check certificate expiry
-sudo openssl x509 -in /etc/letsencrypt/live/yourdomain.com/fullchain.pem -noout -enddate
-
-# Renew certificate
-sudo certbot renew
+# Manual renewal
+sudo certbot renew --force-renewal
 
 # Restart containers
-cd /opt/vless && sudo docker compose restart
+cd /opt/vless
+sudo docker compose restart
 ```
 
-#### 5. "Permission denied" errors
+---
+
+### Issue: "stunnel not configured"
+
+**Cause:** Public proxy mode not enabled.
+
+**Action:** This is expected for localhost-only mode. Tests will skip stunnel checks.
+
+---
+
+### Issue: "Weak cipher detected"
 
 **Solution:**
 ```bash
-# Script must be run as root for packet capture
-sudo ./test_encryption_security.sh
+# Check Xray config
+jq '.inbounds[].streamSettings.realitySettings' /opt/vless/config/config.json
 
-# Verify file permissions
-ls -la test_encryption_security.sh
-# Should show: -rwxr-xr-x (executable)
-
-# Fix if needed
-chmod +x test_encryption_security.sh
+# Check stunnel config (if public proxy enabled)
+cat /opt/vless/config/stunnel.conf | grep ciphersuites
 ```
 
-#### 6. "Traffic encryption test failed - no packets captured"
-
-**Possible causes:**
-- Firewall blocking traffic
-- No active connections during test
-- tcpdump permissions issue
-
-**Solution:**
-```bash
-# Check firewall rules
-sudo ufw status
-
-# Verify network interface
-ip link show
-
-# Run with verbose mode to see tcpdump output
-sudo ./test_encryption_security.sh --verbose
-```
-
-### Test-Specific Troubleshooting
-
-#### Reality Protocol Tests
-
-If Reality tests fail:
-
-1. **Check Xray configuration:**
-   ```bash
-   sudo jq . /opt/vless/config/xray_config.json | grep -A20 "realitySettings"
-   ```
-
-2. **Verify destination reachability:**
-   ```bash
-   curl -I https://google.com  # Or your configured destination
-   openssl s_client -connect google.com:443 -tls1_3
-   ```
-
-3. **Regenerate Reality keys:**
-   ```bash
-   docker run --rm teddysun/xray:24.11.30 xray x25519
-   # Update /opt/vless/config/xray_config.json with new keys
-   sudo docker compose restart xray
-   ```
-
-#### stunnel Tests
-
-If stunnel tests fail:
-
-1. **Check stunnel container:**
-   ```bash
-   docker ps | grep stunnel
-   docker logs vless_stunnel  # Check for errors
-   ```
-
-2. **Verify certificates:**
-   ```bash
-   sudo ls -la /etc/letsencrypt/live/yourdomain.com/
-   sudo openssl x509 -in /etc/letsencrypt/live/yourdomain.com/fullchain.pem -noout -text
-   ```
-
-3. **Test TLS connection manually:**
-   ```bash
-   openssl s_client -connect yourdomain.com:1080 -tls1_3
-   openssl s_client -connect yourdomain.com:8118 -tls1_3
-   ```
-
-#### Proxy Security Tests
-
-If proxy tests fail:
-
-1. **Check proxy configuration:**
-   ```bash
-   sudo jq '.inbounds[] | select(.tag | contains("proxy"))' /opt/vless/config/xray_config.json
-   ```
-
-2. **Verify authentication is enabled:**
-   ```bash
-   sudo jq '.inbounds[] | select(.tag == "socks5-proxy") | .settings.auth' /opt/vless/config/xray_config.json
-   # Should output: "password"
-   ```
-
-3. **Test proxy connection:**
-   ```bash
-   # Get test user credentials
-   TEST_USER=$(jq -r '.users[0].username' /opt/vless/config/users.json)
-   TEST_PASS=$(jq -r '.users[0].proxy_password' /opt/vless/config/users.json)
-
-   # Test SOCKS5 (localhost)
-   curl --socks5 ${TEST_USER}:${TEST_PASS}@127.0.0.1:1080 https://ifconfig.me
-
-   # Test HTTP (localhost)
-   curl --proxy http://${TEST_USER}:${TEST_PASS}@127.0.0.1:8118 https://ifconfig.me
-   ```
+Expected: Only TLS 1.3 cipher suites (AES-256-GCM, CHACHA20-POLY1305).
 
 ---
 
 ## Security Best Practices
 
-### 1. **Regular Testing**
-
-Run security tests:
-- **After initial installation** (verify configuration)
-- **After any configuration changes** (validate changes)
-- **Weekly/Monthly** (detect configuration drift)
-- **After system updates** (ensure compatibility)
-
-### 2. **Certificate Management**
-
+### 1. Run Tests Regularly
 ```bash
-# Check certificate expiry
-sudo certbot certificates
-
-# Set up automatic renewal (should be default)
-sudo systemctl enable certbot.timer
-sudo systemctl start certbot.timer
-
-# Test renewal
-sudo certbot renew --dry-run
+# Monthly security audit
+0 0 1 * * /usr/local/bin/vless test-security --quick
 ```
 
-### 3. **Password Rotation**
-
-Rotate proxy passwords regularly:
-
+### 2. Monitor Certificate Expiration
 ```bash
-# Reset password for user
-sudo vless-user reset-proxy-password <username>
-
-# Verify new password strength (should be 32+ characters)
-sudo jq -r '.users[] | select(.username == "<username>") | .proxy_password | length' /opt/vless/config/users.json
+# Check certificate validity
+sudo openssl x509 -in /etc/letsencrypt/live/YOUR_DOMAIN/cert.pem -noout -dates
 ```
 
-### 4. **Monitoring**
-
-Set up log monitoring:
-
+### 3. Review Logs
 ```bash
-# Monitor Xray logs
-sudo docker logs -f vless_xray
+# Xray errors
+sudo docker logs vless_xray --tail 100 | grep -i error
 
-# Monitor stunnel logs (if public proxy enabled)
-sudo docker logs -f vless_stunnel
-
-# Check for failed authentication attempts
-sudo journalctl -u fail2ban | grep "vless-proxy"
+# stunnel errors (if public proxy enabled)
+sudo docker logs vless_stunnel --tail 100 | grep -i error
 ```
 
-### 5. **Firewall Hardening**
-
+### 4. Update Reality Destination
+If destination site becomes unavailable or downgrades TLS:
 ```bash
-# Review UFW rules
-sudo ufw status numbered
-
-# Ensure rate limiting on proxy ports (if public)
-sudo ufw limit 1080/tcp comment 'SOCKS5 rate limit'
-sudo ufw limit 8118/tcp comment 'HTTP proxy rate limit'
-
-# Reload firewall
-sudo ufw reload
+sudo vless-config update-destination google.com:443
 ```
 
-### 6. **Update Reality Destination**
-
-Periodically change Reality masquerading destination to avoid patterns:
-
+### 5. Rotate Reality Keys
+Every 6-12 months or after suspected compromise:
 ```bash
-# Edit xray_config.json
-sudo vi /opt/vless/config/xray_config.json
-
-# Update "dest" field to another TLS 1.3 site (google.com, microsoft.com, cloudflare.com, etc.)
-# Update "serverNames" to match
-
-# Restart Xray
-cd /opt/vless && sudo docker compose restart xray
-```
-
-### 7. **Backup Configuration**
-
-```bash
-# Backup VLESS configuration
-sudo tar -czf vless_backup_$(date +%Y%m%d).tar.gz /opt/vless/config/
-
-# Store backup securely (encrypted, off-site)
+sudo vless-config rotate-keys
+# Regenerate all client configs
+sudo vless-user regenerate
 ```
 
 ---
 
-## Advanced Testing
+## Exit Codes
 
-### Manual Traffic Analysis
-
-If you want to manually inspect traffic:
-
-```bash
-# Capture traffic to file
-sudo tcpdump -i any -w /tmp/vless_traffic.pcap 'tcp and port 443'
-
-# Analyze with Wireshark (GUI)
-wireshark /tmp/vless_traffic.pcap
-
-# Analyze with tshark (CLI)
-tshark -r /tmp/vless_traffic.pcap -Y "tls.handshake.type == 1"  # Client Hello
-tshark -r /tmp/vless_traffic.pcap -Y "tls.handshake.version == 0x0304"  # TLS 1.3
-
-# Search for plaintext (should find none)
-strings /tmp/vless_traffic.pcap | grep -i "password"
-```
-
-### External Security Scanning
-
-Test from external network:
-
-```bash
-# From a different machine (not the server)
-nmap -sV -p 443,1080,8118 your-server-ip
-
-# SSL/TLS scanning with testssl.sh (comprehensive)
-testssl.sh --full your-server-ip:8118
-```
-
-### DPI Simulation
-
-Test if traffic looks like real HTTPS:
-
-```bash
-# Compare TLS fingerprint with real destination
-openssl s_client -connect your-server-ip:443 -showcerts | openssl x509 -noout -fingerprint
-openssl s_client -connect google.com:443 -showcerts | openssl x509 -noout -fingerprint
-```
+| Code | Meaning | Action |
+|------|---------|--------|
+| 0 | All tests passed | None |
+| 1 | Tests failed | Fix issues immediately |
+| 2 | Prerequisites missing | Install required tools |
+| 3 | VLESS not installed | Install VLESS first |
 
 ---
 
-## Automated Testing (CI/CD)
+## Additional Resources
 
-### GitHub Actions Example
-
-```yaml
-name: Security Tests
-
-on:
-  push:
-    branches: [ main ]
-  schedule:
-    - cron: '0 0 * * 0'  # Weekly
-
-jobs:
-  security-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install VLESS
-        run: |
-          # Installation steps
-
-      - name: Run Security Tests
-        run: |
-          sudo /opt/vless/tests/integration/test_encryption_security.sh --quick
-
-      - name: Upload Test Report
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: security-test-report
-          path: /tmp/vless_security_test_*
-```
+- **PRD.md** - Full security requirements
+- **CHANGELOG.md** - Security improvements history
+- **Xray Docs** - https://xtls.github.io/config/
+- **stunnel Docs** - https://www.stunnel.org/docs.html
+- **Let's Encrypt** - https://letsencrypt.org/docs/
 
 ---
 
-## Support
-
-### Getting Help
-
-- **GitHub Issues:** https://github.com/anthropics/vless-reality-vpn/issues
-- **Documentation:** `/opt/vless/docs/`
-- **Logs:** `/opt/vless/logs/`
-
-### Reporting Security Issues
-
-If tests detect critical vulnerabilities, please report to:
-- **Email:** security@example.com
-- **Encrypted:** Use PGP key (see SECURITY.md)
-
-### Contributing
-
-Contributions to improve test coverage are welcome! Please submit pull requests with:
-- Test description and rationale
-- Expected behavior documentation
-- Error handling
-
----
-
-**Version:** 1.0
-**Last Updated:** 2025-10-07
-**License:** MIT
+**Report Issues:** https://github.com/anthropics/vless-reality-vpn/issues
