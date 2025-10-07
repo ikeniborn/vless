@@ -278,7 +278,8 @@ vless logs [error|warn|info]  # View logs
 ```bash
 vless update                  # Update system
 vless backup create           # Create backup
-vless security audit          # Security audit
+vless test-security           # Security & encryption testing (NEW)
+vless test                    # Xray config validation
 ```
 
 ### Proxy Usage Examples
@@ -781,6 +782,8 @@ Note: No `user` field - routing based solely on source IP (works for HTTP/SOCKS5
 
 ## Testing
 
+### Unit & Integration Tests
+
 ```bash
 # Install bats
 npm install -g bats
@@ -790,6 +793,47 @@ bats tests/unit/              # Unit tests
 sudo bats tests/integration/  # Integration tests
 sudo bats tests/performance/  # Performance tests
 ```
+
+### Security Testing (NEW)
+
+**Test encryption and security from client to internet:**
+
+```bash
+# Full security test (2-3 minutes) - validates complete encryption stack
+sudo vless test-security
+
+# Quick mode (1 minute) - skip packet capture
+sudo vless test-security --quick
+
+# Verbose mode (detailed output)
+sudo vless test-security --verbose
+```
+
+**What it tests:**
+- ✅ Reality Protocol TLS 1.3 (X25519 keys, masquerading, SNI)
+- ✅ stunnel TLS termination (SOCKS5/HTTP proxies over TLS)
+- ✅ Traffic encryption validation (tcpdump, plaintext detection)
+- ✅ Certificate security (Let's Encrypt, expiration, permissions)
+- ✅ DPI resistance (Deep Packet Inspection evasion)
+- ✅ SSL/TLS vulnerabilities (weak ciphers, obsolete protocols)
+- ✅ Proxy security (authentication, password strength, binding)
+- ✅ Data leak detection (config exposure, logs, DNS)
+
+**Requirements:**
+```bash
+sudo apt-get install openssl curl jq nmap tcpdump tshark
+```
+
+**Exit codes:**
+- `0` - All tests passed (encryption secure)
+- `1` - Tests failed (configuration issues)
+- `2` - Prerequisites not met (missing tools)
+- `3` - 🔥 **CRITICAL** security vulnerabilities (immediate action required)
+
+**Documentation:**
+- Full guide: `docs/SECURITY_TESTING_CLI.md`
+- Quick start: `tests/integration/QUICK_START_RU.md`
+- Troubleshooting: `docs/SECURITY_TESTING_RU.md`
 
 ---
 

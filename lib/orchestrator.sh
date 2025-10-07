@@ -1255,6 +1255,8 @@ install_cli_tools() {
         "user_management.sh"
         "qr_generator.sh"
         "proxy_whitelist.sh"
+        "ufw_whitelist.sh"
+        "security_tests.sh"
     )
 
     for module in "${lib_modules[@]}"; do
