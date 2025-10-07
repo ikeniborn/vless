@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 # stunnel Setup Module for VLESS Reality VPN
-# Version: 4.0
+# Version: 4.1
 # Purpose: Configure and deploy stunnel for TLS termination of proxy services
 #
 # This module provides functions for:
-# - stunnel configuration generation from template
+# - stunnel configuration generation via heredoc
 # - Configuration validation
 # - Log directory setup
 # - Docker integration
@@ -17,7 +17,6 @@
 set -euo pipefail
 
 # Source paths (relative to install root)
-readonly STUNNEL_TEMPLATE="${TEMPLATE_DIR}/stunnel.conf.template"
 readonly STUNNEL_CONFIG="${CONFIG_DIR}/stunnel.conf"
 readonly STUNNEL_LOG_DIR="${LOG_DIR}/stunnel"
 
@@ -51,14 +50,14 @@ log_stunnel_error() {
 #
 # create_stunnel_config()
 #
-# Generate stunnel configuration from template with variable substitution
+# Generate stunnel configuration via heredoc
 #
 # Arguments:
 #   $1 - Domain name for certificate path
 #
 # Returns:
 #   0 - Success
-#   1 - Failure (missing template, invalid domain, etc.)
+#   1 - Failure (invalid domain, write error, etc.)
 #
 # Output:
 #   Creates ${CONFIG_DIR}/stunnel.conf
@@ -74,15 +73,123 @@ create_stunnel_config() {
         return 1
     fi
 
-    # Check template exists
-    if [[ ! -f "$STUNNEL_TEMPLATE" ]]; then
-        log_stunnel_error "stunnel template not found: $STUNNEL_TEMPLATE"
-        return 1
-    fi
+    # Generate config via heredoc
+    cat > "$STUNNEL_CONFIG" <<EOF
+#
+# stunnel Configuration for VLESS Reality VPN
+# Version: 4.0
+# Purpose: TLS termination for SOCKS5 and HTTP proxies
+#
+# Domain: $domain
+# Generated: $(date -Iseconds)
+#
+# Architecture:
+#   Client → stunnel (TLS termination, ports 1080/8118)
+#          → Xray (plaintext proxy, localhost 10800/18118)
+#          → Internet
+#
 
-    # Generate config from template (variable substitution)
-    if ! envsubst '${DOMAIN}' < "$STUNNEL_TEMPLATE" > "$STUNNEL_CONFIG"; then
-        log_stunnel_error "Failed to generate stunnel configuration"
+# Global settings
+foreground = yes
+output = /var/log/stunnel/stunnel.log
+debug = 5
+syslog = no
+
+# Security options (OpenSSL 3.x compatibility)
+# Note: SSLv2, SSLv3, TLSv1.0, TLSv1.1, TLSv1.2 are disabled by default in OpenSSL 3.x
+# Only TLSv1.3 will be used (via sslVersion = TLSv1.3 in service sections)
+
+# TLS 1.3 only cipher suites (strongest)
+ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+
+# Connection limits
+socket = l:TCP_NODELAY=1
+socket = r:TCP_NODELAY=1
+
+# Timeouts (seconds)
+TIMEOUTbusy = 300
+TIMEOUTclose = 10
+TIMEOUTconnect = 10
+TIMEOUTidle = 3600
+
+# ============================================================================
+# SOCKS5 Proxy Service (TLS-encrypted)
+# ============================================================================
+[socks5-tls]
+# Accept encrypted connections from internet
+accept = 0.0.0.0:1080
+
+# Forward plaintext to Xray SOCKS5 (localhost)
+connect = vless_xray:10800
+
+# Let's Encrypt certificates (shared with Xray VLESS)
+cert = /certs/live/$domain/fullchain.pem
+key = /certs/live/$domain/privkey.pem
+
+# Client certificate validation (disabled - password auth in Xray)
+verify = 0
+
+# TLS protocol settings
+sslVersion = TLSv1.3
+
+# Session cache for performance
+sessionCacheSize = 1000
+sessionCacheTimeout = 300
+
+# Connection options
+TIMEOUTbusy = 300
+TIMEOUTclose = 10
+TIMEOUTconnect = 10
+TIMEOUTidle = 3600
+
+# ============================================================================
+# HTTP Proxy Service (TLS-encrypted)
+# ============================================================================
+[http-tls]
+# Accept encrypted connections from internet
+accept = 0.0.0.0:8118
+
+# Forward plaintext to Xray HTTP proxy (localhost)
+connect = vless_xray:18118
+
+# Let's Encrypt certificates (shared with Xray VLESS)
+cert = /certs/live/$domain/fullchain.pem
+key = /certs/live/$domain/privkey.pem
+
+# Client certificate validation (disabled - password auth in Xray)
+verify = 0
+
+# TLS protocol settings
+sslVersion = TLSv1.3
+
+# Session cache for performance
+sessionCacheSize = 1000
+sessionCacheTimeout = 300
+
+# Connection options
+TIMEOUTbusy = 300
+TIMEOUTclose = 10
+TIMEOUTconnect = 10
+TIMEOUTidle = 3600
+
+# ============================================================================
+# Notes:
+# ============================================================================
+# 1. stunnel runs in foreground mode (foreground = yes) for Docker compatibility
+# 2. Certificates automatically renewed by Certbot (Let's Encrypt)
+# 3. vless_xray hostname resolves via Docker network (vless_reality_net)
+# 4. Xray handles authentication (password-based SOCKS5/HTTP)
+# 5. No client certificates required (verify = 0)
+# 6. TLS 1.3 only for maximum security (post-quantum ready)
+# 7. Session cache improves reconnection performance
+# 8. TCP_NODELAY disables Nagle's algorithm (lower latency)
+# 9. Port 1080 (SOCKS5) and 8118 (HTTP) exposed to internet
+# 10. Ports 10800 (SOCKS5) and 18118 (HTTP) localhost-only in Xray
+EOF
+
+    # Check if config was written successfully
+    if [[ ! -f "$STUNNEL_CONFIG" ]]; then
+        log_stunnel_error "Failed to create stunnel configuration"
         return 1
     fi
 
