@@ -44,52 +44,20 @@
         </prd_document>
 
         <project_context>
-[11/12] Deploying Docker containers...
-  Pulling Docker images...
-Traceback (most recent call last):
-  File "/usr/bin/docker-compose", line 33, in <module>
-    sys.exit(load_entry_point('docker-compose==1.29.2', 'console_scripts', 'docker-compose')())
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/bin/docker-compose", line 25, in importlib_load_entry_point
-    return next(matches).load()
-           ^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/importlib/metadata/__init__.py", line 205, in load
-    module = import_module(match.group('module'))
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
-  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
-  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
-  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
-  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
-  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
-  File "/usr/lib/python3/dist-packages/compose/cli/main.py", line 9, in <module>
-    from distutils.spawn import find_executable
-ModuleNotFoundError: No module named 'distutils'
-Failed to pull Docker images
-Failed to deploy containers
-✗ ERROR: Installation failed with exit code 1
-
-To retry installation:
-  cd /home/ikeniborn/vless
-  sudo ./install.sh
-
-
+Проанализируй каталог docs. Накопилось много документтции. ЧАсть докуменатциии уже не актуально и не соответсвует реализованным функциям и PRD. \
+  Определи легаси документы, удали. Актулаьное объедини и отформатируй. Сократи контекст без потери смысла.\
         </project_context>
 
         <task>
             <technical_requirements>
-                - Проанализировать логи установки
-                - Определить ошибки и проблемы устанвоки
-                - Исправь все выявленные проблемы
+                - Изучи документацию
+                - оптимизируй
+                - удали старое
+                - объелини и сократи контекст без потери качества
             </technical_requirements>
 
             <quality_requirements>
                 - Следовать PRD
-                - Создать необходимые тесты
-                - Документировать изменения
             </quality_requirements>
         </task>
     </context>
