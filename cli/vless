@@ -81,6 +81,7 @@ ${CYAN}Security Testing:${NC}
     --quick                 Skip long-running tests
     --skip-pcap             Skip packet capture tests
     --verbose               Show detailed output
+    --dev-mode              Development mode (skip installation checks)
 
 ${CYAN}Information:${NC}
   info                      Show server information

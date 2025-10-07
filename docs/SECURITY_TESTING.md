@@ -14,9 +14,12 @@ sudo vless test-security              # Full test (2-3 min)
 sudo vless test-security --quick      # Fast mode (1 min, no packet capture)
 sudo vless test-security --skip-pcap  # Skip tcpdump if unavailable
 sudo vless test-security --verbose    # Detailed output
+sudo vless test-security --dev-mode   # Development mode (no installation required)
 ```
 
 **Aliases:** `vless security-test`, `vless security`
+
+**Development Mode:** Use `--dev-mode` to test the security suite itself without a full VLESS installation.
 
 ---
 
@@ -142,7 +145,33 @@ cd /opt/vless/tests
 sudo ./test_encryption_security.sh
 ```
 
-**Test duration:** 2-3 minutes (full), 1 minute (quick mode)
+### Option 3: Development Mode (No Installation Required)
+
+For testing the security suite itself or running tests from source without a full VLESS installation:
+
+```bash
+# From project source directory
+cd /path/to/vless/source
+sudo bash lib/security_tests.sh --dev-mode
+
+# Combine with other flags
+sudo bash lib/security_tests.sh --dev-mode --verbose --quick
+```
+
+**Development mode features:**
+- ✅ Skips installation checks (config files, users.json, Docker containers)
+- ✅ Tests run from source directory instead of `/opt/vless`
+- ✅ Useful for development, testing, and CI/CD pipelines
+- ❌ Most tests will be skipped (expected - no config files)
+- ❌ Only validates test suite logic and tool dependencies
+
+**When to use dev mode:**
+- Testing security test improvements
+- Validating bash syntax and logic
+- Running in CI/CD without full installation
+- Developing new security checks
+
+**Test duration:** 2-3 minutes (full), 1 minute (quick mode), <30 seconds (dev mode)
 
 ---
 
@@ -229,6 +258,35 @@ RESULT: TESTS FAILED
 ---
 
 ## Troubleshooting
+
+### Issue: "VLESS not installed" or "Config directory not found"
+
+**Symptoms:**
+```
+ERROR: Config directory not found: /opt/vless/config
+VLESS does not appear to be properly installed.
+```
+
+**Cause:** Running from source directory without full installation.
+
+**Solutions:**
+
+1. **Install VLESS first** (recommended for production testing):
+```bash
+cd /path/to/vless/source
+sudo bash install.sh
+sudo vless test-security
+```
+
+2. **Use development mode** (for testing the test suite itself):
+```bash
+cd /path/to/vless/source
+sudo bash lib/security_tests.sh --dev-mode
+```
+
+**Note:** Dev mode skips most tests - only validates tool dependencies and test logic.
+
+---
 
 ### Issue: "tcpdump: Permission denied"
 

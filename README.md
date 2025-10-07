@@ -807,6 +807,12 @@ sudo vless test-security --quick
 
 # Verbose mode (detailed output)
 sudo vless test-security --verbose
+
+# Development mode (<30 seconds) - test suite validation without installation
+sudo vless test-security --dev-mode
+
+# Combine flags
+sudo vless test-security --quick --verbose --skip-pcap
 ```
 
 **What it tests:**
@@ -823,6 +829,21 @@ sudo vless test-security --verbose
 - ✅ **Automatically installed**: tcpdump, nmap (required), tshark (optional)
 - ✅ Already available: openssl, curl, jq (system dependencies)
 - ⚠️ **Manual install** (if tshark auto-install fails): `sudo apt-get install tshark`
+
+**Development Mode:**
+For testing the security suite itself or running tests from source without installation:
+
+```bash
+# Run from source directory
+cd /path/to/vless/source
+sudo bash lib/security_tests.sh --dev-mode
+```
+
+**When to use `--dev-mode`:**
+- ✅ Testing security test improvements (CI/CD pipelines)
+- ✅ Validating bash syntax and logic changes
+- ✅ Running tests without full VLESS installation
+- ❌ **NOT** for production security audits (most tests will be skipped)
 
 **Exit codes:**
 - `0` - All tests passed (encryption secure)

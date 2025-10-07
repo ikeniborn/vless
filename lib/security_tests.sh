@@ -54,8 +54,26 @@ readonly CYAN='\033[0;36m'
 readonly MAGENTA='\033[0;35m'
 readonly NC='\033[0m'
 
+# ============================================================================
+# MODE DETECTION
+# ============================================================================
+# Detect if running in development mode (from source) or production (installed)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Check if running from installed location
+if [[ "$SCRIPT_DIR" == "/opt/vless/lib" ]]; then
+    MODE="production"
+    VLESS_BASE_DIR="/opt/vless"
+else
+    MODE="development"
+    VLESS_BASE_DIR="${PROJECT_ROOT}"
+fi
+
 # Paths
-readonly VLESS_BASE_DIR="/opt/vless"
+readonly MODE
+readonly VLESS_BASE_DIR
 readonly CONFIG_DIR="${VLESS_BASE_DIR}/config"
 readonly ENV_FILE="${VLESS_BASE_DIR}/.env"
 readonly USERS_JSON="${CONFIG_DIR}/users.json"
@@ -77,6 +95,7 @@ declare -a SECURITY_ISSUES=()
 QUICK_MODE=false
 SKIP_PCAP=false
 VERBOSE=false
+DEV_MODE=false  # Allow running without full installation
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -96,18 +115,18 @@ print_test() {
 
 print_success() {
     echo -e "${GREEN}[✓ PASS]${NC} $1"
-    ((TESTS_PASSED++))
+    ((TESTS_PASSED++)) || true
 }
 
 print_failure() {
     echo -e "${RED}[✗ FAIL]${NC} $1"
-    ((TESTS_FAILED++))
+    ((TESTS_FAILED++)) || true
     FAILED_TESTS+=("$1")
 }
 
 print_skip() {
     echo -e "${YELLOW}[⊘ SKIP]${NC} $1"
-    ((TESTS_SKIPPED++))
+    ((TESTS_SKIPPED++)) || true
 }
 
 print_info() {
@@ -116,12 +135,12 @@ print_info() {
 
 print_warning() {
     echo -e "${YELLOW}[⚠ WARN]${NC} $1"
-    ((SECURITY_WARNINGS++))
+    ((SECURITY_WARNINGS++)) || true
 }
 
 print_critical() {
     echo -e "${RED}[🔥 CRITICAL]${NC} $1"
-    ((CRITICAL_ISSUES++))
+    ((CRITICAL_ISSUES++)) || true
     SECURITY_ISSUES+=("CRITICAL: $1")
 }
 
@@ -176,31 +195,78 @@ trap cleanup EXIT
 check_prerequisites() {
     print_header "CHECKING PREREQUISITES"
 
-    # Check if VLESS is installed
+    # Show current mode
+    if [[ "$MODE" == "production" ]]; then
+        print_info "Mode: Production (installed system)"
+    else
+        print_info "Mode: Development (source directory)"
+        if [[ "$DEV_MODE" != "true" ]]; then
+            print_warning "Running from source - use --dev-mode to skip installation checks"
+        fi
+    fi
+
+    print_info "Base directory: $VLESS_BASE_DIR"
+    echo ""
+
+    # Check if VLESS directory exists
     if [[ ! -d "$VLESS_BASE_DIR" ]]; then
-        echo -e "${RED}ERROR: VLESS not installed at $VLESS_BASE_DIR${NC}" >&2
+        echo -e "${RED}ERROR: Directory not found: $VLESS_BASE_DIR${NC}" >&2
+
+        if [[ "$MODE" == "production" ]]; then
+            echo ""
+            echo "VLESS does not appear to be installed."
+            echo ""
+            echo "To install VLESS:"
+            echo "  cd /path/to/vless/source"
+            echo "  sudo bash install.sh"
+            echo ""
+        else
+            echo ""
+            echo "Project directory issue detected."
+            echo "Current path: $VLESS_BASE_DIR"
+            echo ""
+        fi
         exit 2
     fi
-    print_info "VLESS installation found: $VLESS_BASE_DIR"
+    print_info "✓ Base directory exists"
 
     # Check required commands
-    local required_basic=("openssl" "curl" "jq" "ss" "iptables" "docker")
+    local required_basic=("openssl" "curl" "jq" "ss" "iptables")
+    local required_docker=("docker")
     local required_network=("tcpdump" "nmap")
     local optional=("tshark" "testssl.sh")
 
+    local missing_basic=()
     for cmd in "${required_basic[@]}"; do
-        if ! check_command "$cmd" "apt-get install $cmd"; then
-            exit 2
+        if ! check_command "$cmd" "" &>/dev/null; then
+            missing_basic+=("$cmd")
         fi
     done
 
+    if [[ ${#missing_basic[@]} -gt 0 ]]; then
+        echo -e "${RED}ERROR: Missing required commands: ${missing_basic[*]}${NC}" >&2
+        echo "Install with: sudo apt-get install ${missing_basic[*]}" >&2
+        exit 2
+    fi
+    print_info "✓ Basic tools available"
+
+    # Check Docker (only if not in dev mode)
+    if [[ "$DEV_MODE" != "true" ]]; then
+        if ! check_command "docker" "" &>/dev/null; then
+            echo -e "${RED}ERROR: Docker not found${NC}" >&2
+            echo "Install with: curl -fsSL https://get.docker.com | sh" >&2
+            exit 2
+        fi
+        print_info "✓ Docker available"
+    fi
+
     for cmd in "${required_network[@]}"; do
-        if ! check_command "$cmd" "apt-get install $cmd"; then
+        if ! check_command "$cmd" "" &>/dev/null; then
             if [[ "$cmd" == "tcpdump" ]]; then
                 print_warning "tcpdump not found - packet capture tests will be skipped"
                 SKIP_PCAP=true
             else
-                exit 2
+                print_warning "$cmd not found - some tests will be limited"
             fi
         fi
     done
@@ -211,43 +277,92 @@ check_prerequisites() {
         fi
     done
 
-    # Check if at least one user exists
-    if [[ ! -f "$USERS_JSON" ]]; then
-        echo -e "${RED}ERROR: No users.json found - VLESS may not be installed${NC}" >&2
-        echo ""
-        echo "This test suite requires a working VLESS installation."
-        echo ""
-        echo "If VLESS is NOT installed, run the installer:"
-        echo "  sudo bash install.sh"
-        echo ""
-        echo "If VLESS IS installed but has no users, create one:"
-        echo "  sudo vless-user add testuser"
-        echo ""
-        exit 2
-    fi
+    # Check VLESS installation files (skip in dev mode unless --dev-mode)
+    if [[ "$DEV_MODE" == "true" ]]; then
+        print_warning "DEV MODE: Skipping installation checks"
+    else
+        # Check config directory
+        if [[ ! -d "$CONFIG_DIR" ]]; then
+            echo -e "${RED}ERROR: Config directory not found: $CONFIG_DIR${NC}" >&2
+            echo ""
+            echo "VLESS does not appear to be properly installed."
+            echo ""
+            if [[ "$MODE" == "development" ]]; then
+                echo "You are running from source directory."
+                echo "Either:"
+                echo "  1. Install VLESS: sudo bash install.sh"
+                echo "  2. Use dev mode: $0 --dev-mode (limited functionality)"
+                echo ""
+            else
+                echo "To install VLESS:"
+                echo "  sudo bash install.sh"
+                echo ""
+            fi
+            exit 2
+        fi
+        print_info "✓ Config directory exists"
 
-    local user_count
-    user_count=$(jq -r '.users | length' "$USERS_JSON" 2>/dev/null || echo "0")
-    if [[ "$user_count" -eq 0 ]]; then
-        echo -e "${RED}ERROR: No users configured${NC}" >&2
-        echo "Create a user first: sudo vless-user add testuser"
-        exit 2
-    fi
-    print_info "Found $user_count user(s)"
+        # Check if at least one user exists
+        if [[ ! -f "$USERS_JSON" ]]; then
+            echo -e "${RED}ERROR: No users.json found${NC}" >&2
+            echo ""
+            echo "Location checked: $USERS_JSON"
+            echo ""
+            echo "This test suite requires a working VLESS installation with at least one user."
+            echo ""
+            echo "Troubleshooting:"
+            echo ""
+            echo "1. If VLESS is NOT installed:"
+            echo "   cd /path/to/vless/source"
+            echo "   sudo bash install.sh"
+            echo ""
+            echo "2. If VLESS IS installed but has no users:"
+            echo "   sudo vless add-user testuser"
+            echo ""
+            echo "3. To run tests without installation (limited):"
+            echo "   $0 --dev-mode"
+            echo ""
+            exit 2
+        fi
 
-    # Check Docker containers
-    if ! docker ps --format '{{.Names}}' | grep -q "vless"; then
-        echo -e "${RED}ERROR: VLESS containers are not running${NC}" >&2
-        echo "Start containers: cd /opt/vless && docker compose up -d"
-        exit 2
+        local user_count
+        user_count=$(jq -r '.users | length' "$USERS_JSON" 2>/dev/null || echo "0")
+        if [[ "$user_count" -eq 0 ]]; then
+            echo -e "${RED}ERROR: No users configured in users.json${NC}" >&2
+            echo ""
+            echo "Create a user first:"
+            echo "  sudo vless add-user testuser"
+            echo ""
+            exit 2
+        fi
+        print_info "✓ Found $user_count user(s)"
+
+        # Check Docker containers
+        if ! docker ps --format '{{.Names}}' | grep -q "vless" 2>/dev/null; then
+            echo -e "${RED}ERROR: VLESS containers are not running${NC}" >&2
+            echo ""
+            echo "Start containers:"
+            if [[ "$MODE" == "production" ]]; then
+                echo "  cd /opt/vless && sudo docker compose up -d"
+            else
+                echo "  cd $VLESS_BASE_DIR && sudo docker compose up -d"
+            fi
+            echo ""
+            echo "Check container status:"
+            echo "  sudo docker ps -a | grep vless"
+            echo ""
+            exit 2
+        fi
+        print_info "✓ VLESS containers are running"
     fi
-    print_info "VLESS containers are running"
 
     # Create temporary directory for packet captures
     mkdir -p "$PCAP_DIR"
     chmod 700 "$PCAP_DIR"
 
-    echo -e "${GREEN}✓ All prerequisites met${NC}"
+    echo ""
+    echo -e "${GREEN}✓ Prerequisites check completed${NC}"
+    echo ""
 }
 
 # ============================================================================
@@ -824,7 +939,7 @@ test_06_tls_vulnerabilities() {
     for cipher in "${weak_ciphers[@]}"; do
         if openssl s_client -connect "${domain}:8118" -cipher "$cipher" </dev/null 2>&1 | grep -q "Cipher.*$cipher"; then
             print_critical "Weak cipher supported: $cipher"
-            ((weak_found++))
+            ((weak_found++)) || true
         fi
     done
 
@@ -1023,7 +1138,7 @@ test_08_data_leak_detection() {
                 print_verbose "File properly protected: $file ($perms)"
             else
                 print_warning "File may be exposed: $file (permissions: $perms)"
-                ((exposed++))
+                ((exposed++)) || true
             fi
         fi
     done
@@ -1041,7 +1156,7 @@ test_08_data_leak_detection() {
     while IFS= read -r username; do
         if [[ "$username" =~ ^(admin|test|user|demo)$ ]]; then
             print_warning "Default/weak username detected: $username"
-            ((weak_users++))
+            ((weak_users++)) || true
         fi
     done < <(jq -r '.users[].username' "$USERS_JSON" 2>/dev/null)
 
@@ -1064,7 +1179,7 @@ test_08_data_leak_detection() {
         for pattern in "${sensitive_patterns[@]}"; do
             if echo "$logs" | grep -qi "$pattern"; then
                 print_warning "Potential sensitive data in $container logs: $pattern"
-                ((leaks_found++))
+                ((leaks_found++)) || true
             fi
         done
     done
@@ -1114,6 +1229,10 @@ parse_arguments() {
                 VERBOSE=true
                 print_info "Verbose mode enabled"
                 ;;
+            --dev-mode|--dev)
+                DEV_MODE=true
+                print_info "Development mode enabled - skipping installation checks"
+                ;;
             -h|--help)
                 echo "Usage: $0 [options]"
                 echo ""
@@ -1121,7 +1240,14 @@ parse_arguments() {
                 echo "  --quick       Skip long-running tests"
                 echo "  --skip-pcap   Skip packet capture tests"
                 echo "  --verbose     Show detailed output"
+                echo "  --dev-mode    Development mode (skip installation checks)"
                 echo "  -h, --help    Show this help message"
+                echo ""
+                echo "Development Mode:"
+                echo "  Use --dev-mode to run tests without full VLESS installation."
+                echo "  This is useful for development and testing the test suite itself."
+                echo "  Note: Many tests will be skipped in dev mode."
+                echo ""
                 exit 0
                 ;;
             *)
@@ -1212,7 +1338,7 @@ main() {
         test_03_traffic_encryption || true
     else
         print_skip "Traffic encryption test skipped (--quick mode)"
-        ((TESTS_SKIPPED++))
+        ((TESTS_SKIPPED++)) || true
     fi
 
     test_04_certificate_security || true
