@@ -36,9 +36,9 @@ export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 [[ -z "${CYAN:-}" ]] && CYAN='\033[0;36m'
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
-# Default values
-readonly DEFAULT_VLESS_PORT=443
-readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
+# Default values (conditional to avoid conflicts with other modules)
+[[ -z "${DEFAULT_VLESS_PORT:-}" ]] && readonly DEFAULT_VLESS_PORT=443
+[[ -z "${DEFAULT_DOCKER_SUBNET:-}" ]] && readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 readonly DEST_VALIDATION_TIMEOUT=10  # seconds
 
 # Predefined destination sites (validated for Reality compatibility)

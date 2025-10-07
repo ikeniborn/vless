@@ -54,10 +54,10 @@ set -euo pipefail
 export VLESS_PORT=""
 export DOCKER_SUBNET=""
 
-# Default values
-readonly DEFAULT_VLESS_PORT=443
+# Default values (conditional to avoid conflicts with other modules)
+[[ -z "${DEFAULT_VLESS_PORT:-}" ]] && readonly DEFAULT_VLESS_PORT=443
 readonly FALLBACK_VLESS_PORT=8443
-readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
+[[ -z "${DEFAULT_DOCKER_SUBNET:-}" ]] && readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 
 # Port range for random generation (avoid well-known ports below 1024)
 readonly PORT_RANGE_MIN=10000
@@ -71,13 +71,13 @@ readonly SUBNET_10_MAX=255
 readonly SUBNET_192_MIN=0
 readonly SUBNET_192_MAX=255
 
-# Colors for output
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m' # No Color
+# Colors for output (conditional to avoid conflicts when sourced by CLI)
+[[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
+[[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
+[[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
+[[ -z "${BLUE:-}" ]] && readonly BLUE='\033[0;34m'
+[[ -z "${CYAN:-}" ]] && readonly CYAN='\033[0;36m'
+[[ -z "${NC:-}" ]] && readonly NC='\033[0m' # No Color
 
 # ============================================================================
 # Logging Functions
