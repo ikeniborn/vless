@@ -1188,22 +1188,16 @@ export_git_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # Determine proxy URL based on mode (v3.4)
+    # Determine proxy URL based on mode (v4.0 - simplified)
     local socks_proxy
     local http_proxy
-    local server_ip
 
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # v3.3/v3.4: Public proxy with TLS encryption
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        # v4.0: stunnel ALWAYS uses TLS for public mode
         socks_proxy="socks5s://${username}:${password}@${DOMAIN}:1080"
         http_proxy="https://${username}:${password}@${DOMAIN}:8118"
-    elif [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "false" ]]; then
-        # v3.4: Public proxy without TLS (plaintext)
-        server_ip=$(get_server_ip)
-        socks_proxy="socks5://${username}:${password}@${server_ip}:1080"
-        http_proxy="http://${username}:${password}@${server_ip}:8118"
     else
-        # v3.1: Localhost-only, no TLS
+        # Localhost-only, no TLS
         socks_proxy="socks5://${username}:${password}@127.0.0.1:1080"
         http_proxy="http://${username}:${password}@127.0.0.1:8118"
     fi
