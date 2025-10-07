@@ -290,6 +290,9 @@ sslVersion = TLSv1.3
     "accounts": [{"user": "username", "pass": "password"}],
     "udp": false
   }
+  // IMPORTANT: NO streamSettings section - plaintext inbound
+  // TLS termination handled by stunnel container on port 1080
+  // Architecture: Client → stunnel:1080 (TLS) → Xray:10800 (plaintext) → Internet
 }
 ```
 
@@ -696,12 +699,29 @@ https://alice:4fd0a3936e5a1e28b7c9d0f1e2a3b4c5@203.0.113.42:8118
 
 **4. git_config.txt:**
 ```bash
-# Configure Git to use SOCKS5 with TLS
+# Configure Git to use SOCKS5 with TLS (RECOMMENDED)
 git config --global http.proxy socks5s://alice:4fd0a3936e5a1e28b7c9d0f1e2a3b4c5@203.0.113.42:1080
 
-# Alternative: Use socks5h:// for DNS resolution via proxy
+# Alternative: DNS resolution via proxy (NO TLS - use with caution)
 git config --global http.proxy socks5h://alice:4fd0a3936e5a1e28b7c9d0f1e2a3b4c5@203.0.113.42:1080
+# ⚠️ WARNING: socks5h:// does NOT provide TLS encryption
+# Only use if DNS privacy is required AND you trust the network path to proxy server
 ```
+
+**SOCKS5 URI Schemes Explained:**
+
+| Scheme | TLS Encryption | DNS Resolution | Use Case |
+|--------|----------------|----------------|----------|
+| `socks5://` | ❌ None | Local | ⛔ **DO NOT USE** (plaintext, insecure) |
+| `socks5s://` | ✅ TLS 1.3 | Local | ✅ **RECOMMENDED** - Secure proxy with TLS (v4.0+) |
+| `socks5h://` | ❌ None | Via Proxy | ⚠️ **Optional** - DNS privacy (NOT a TLS replacement!) |
+
+**Key Points:**
+- `socks5s://` = SOCKS5 with TLS (the "s" suffix means SSL/TLS)
+- `socks5h://` = SOCKS5 with DNS resolution via proxy (the "h" suffix means hostname)
+- **For v4.0+:** ALWAYS use `socks5s://` for TLS encryption (stunnel termination)
+- `socks5h://` can be combined: `socks5sh://` for TLS + DNS via proxy (Git does NOT support this)
+- **Security:** `socks5h://` alone provides NO encryption - only DNS privacy
 
 **5. bash_exports.sh:**
 ```bash
@@ -1231,31 +1251,36 @@ FAILURE HANDLING:
 
 ---
 
-### 4.4 File Structure (v3.3)
+### 4.4 File Structure (v4.1)
 
 ```
 /opt/vless/
 ├── config/
-│   ├── xray_config.json        # 3 inbounds with TLS streamSettings ←MODIFIED
-│   │                           # SOCKS5/HTTP: streamSettings.security="tls"
+│   ├── xray_config.json        # 3 inbounds: VLESS + plaintext SOCKS5/HTTP ←MODIFIED v4.0
+│   │                           # SOCKS5/HTTP: NO streamSettings (plaintext inbounds)
+│   │                           # TLS handled by stunnel (see stunnel.conf)
+│   ├── stunnel.conf            # stunnel TLS termination config ←NEW v4.0
+│   │                           # Generated via heredoc (no templates/) ←MODIFIED v4.1
 │   └── users.json              # v1.1 with proxy_password (32 chars)
 │
 ├── data/clients/<user>/
 │   ├── vless_config.json       # VLESS config (unchanged)
-│   ├── socks5_config.txt       # socks5s://user:pass@server:1080 ←MODIFIED
-│   ├── http_config.txt         # https://user:pass@server:8118 ←MODIFIED
-│   ├── vscode_settings.json    # Uses HTTPS proxy ←MODIFIED
-│   ├── docker_daemon.json      # Uses HTTPS proxy ←MODIFIED
-│   └── bash_exports.sh         # Uses HTTPS proxy ←MODIFIED
+│   ├── socks5_config.txt       # socks5s://user:pass@server:1080 ←MODIFIED v4.1 (BUGFIX)
+│   ├── http_config.txt         # https://user:pass@server:8118 ←MODIFIED v4.1 (BUGFIX)
+│   ├── vscode_settings.json    # Uses HTTPS proxy ←MODIFIED v3.3
+│   ├── docker_daemon.json      # Uses HTTPS proxy ←MODIFIED v3.3
+│   └── bash_exports.sh         # Uses HTTPS proxy ←MODIFIED v3.3
 │
 ├── logs/
 │   ├── xray/
 │   │   ├── access.log          # NOT logged (privacy)
 │   │   └── error.log           # Monitored by fail2ban
-│   └── certbot-renew.log       # Renewal logs ←NEW
+│   ├── stunnel/                # stunnel logs ←NEW v4.0
+│   │   └── stunnel.log         # TLS termination logs
+│   └── certbot-renew.log       # Renewal logs ←NEW v3.3
 │
 └── scripts/
-    └── vless-cert-renew        # Deploy hook script ←NEW
+    └── vless-cert-renew        # Deploy hook script ←NEW v3.3
 
 /etc/letsencrypt/               ←NEW
 ├── live/${DOMAIN}/
@@ -1281,26 +1306,46 @@ FAILURE HANDLING:
 
 ---
 
-### 4.5 Docker Compose Configuration (v3.3)
+### 4.5 Docker Compose Configuration (v4.1)
 
-**MODIFIED: Added volume mount for Let's Encrypt certificates**
+**MAJOR UPDATE v4.0:** Added stunnel service for TLS termination
+**UPDATE v4.1:** Xray uses plaintext inbounds (stunnel handles TLS)
 
 ```yaml
 version: '3.8'
 
 services:
+  stunnel:
+    image: dweomer/stunnel:latest
+    container_name: vless_stunnel
+    restart: unless-stopped
+    ports:
+      - "1080:1080"   # SOCKS5 with TLS
+      - "8118:8118"   # HTTP with TLS
+    volumes:
+      - /opt/vless/config/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+      - /etc/letsencrypt:/certs:ro  # Let's Encrypt certificates
+      - /opt/vless/logs/stunnel:/var/log/stunnel
+    networks:
+      - vless_reality_net
+    depends_on:
+      - xray
+
   xray:
     image: teddysun/xray:24.11.30
-    container_name: vless-reality
+    container_name: vless_xray
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - vless_reality_net
+    ports:
+      - "${VLESS_PORT}:${VLESS_PORT}"  # VLESS Reality port (default: 443)
     volumes:
       - /opt/vless/config:/etc/xray:ro
-      - /etc/letsencrypt:/etc/xray/certs:ro  # ←NEW: Mount Let's Encrypt certs
+      # NOTE: Certificates mounted to stunnel, NOT Xray (v4.0 architecture change)
     environment:
       - TZ=UTC
     healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "1080"]
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10800"]  # Plaintext SOCKS5 port
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1308,7 +1353,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: vless-fake-site
+    container_name: vless_fake_site
     restart: unless-stopped
     networks:
       - vless_reality_net
@@ -1322,10 +1367,13 @@ networks:
     driver: bridge
 ```
 
-**Key Changes:**
-- ✅ Added `/etc/letsencrypt:/etc/xray/certs:ro` volume mount
-- ✅ Read-only mount for security (Xray cannot modify certs)
-- ✅ Xray reads certs from `/etc/xray/certs/live/${DOMAIN}/`
+**Key Changes (v4.0/v4.1):**
+- ✅ **NEW:** stunnel service for TLS termination (ports 1080/8118)
+- ✅ **MODIFIED:** Xray uses Docker network (not host mode)
+- ✅ **MODIFIED:** Xray inbounds are plaintext (localhost 10800/18118)
+- ✅ **MODIFIED:** Certificates mounted to stunnel container
+- ✅ **REMOVED:** Xray `/etc/letsencrypt` mount (stunnel handles TLS)
+- ✅ **Architecture:** Client → stunnel (TLS) → Xray (plaintext) → Internet
 
 ---
 
