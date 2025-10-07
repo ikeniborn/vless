@@ -945,7 +945,7 @@ export_socks5_config() {
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
         # v4.0: Public proxy with stunnel TLS termination
-        scheme="socks5s"  # SOCKS5 over TLS (stunnel handles TLS)
+        scheme="socks5"  # SOCKS5 protocol (TLS provided by stunnel on transport layer)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
@@ -991,7 +991,7 @@ export_http_config() {
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
         # v4.0: Public proxy with stunnel TLS termination
-        scheme="https"  # HTTP over TLS (stunnel handles TLS)
+        scheme="http"  # HTTP CONNECT protocol (TLS provided by stunnel on transport layer)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS

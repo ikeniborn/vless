@@ -412,7 +412,7 @@ generate_socks5_inbound_json() {
     cat <<'EOF'
   ,{
     "tag": "socks5-proxy",
-    "listen": "127.0.0.1",
+    "listen": "0.0.0.0",
     "port": 10800,
     "protocol": "socks",
     "settings": {
@@ -449,7 +449,7 @@ generate_http_inbound_json() {
     cat <<'EOF'
   ,{
     "tag": "http-proxy",
-    "listen": "127.0.0.1",
+    "listen": "0.0.0.0",
     "port": 18118,
     "protocol": "http",
     "settings": {
