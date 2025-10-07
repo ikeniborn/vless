@@ -1,10 +1,10 @@
-# Product Requirements Document (PRD) v4.0
+# Product Requirements Document (PRD) v4.1
 
 **Project:** VLESS + Reality VPN Server with Secure Public Proxy & IP Access Control
-**Version:** 4.0
-**Date:** 2025-10-06
-**Status:** In Development
-**Previous Version:** 3.6 (server-level IP whitelisting)
+**Version:** 4.1
+**Date:** 2025-10-07
+**Status:** Implemented
+**Previous Version:** 4.0 (stunnel TLS termination + template-based configuration)
 
 ---
 
@@ -12,6 +12,7 @@
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 4.1 | 2025-10-07 | System | **Heredoc migration + Proxy URI fix**: Remove templates/, heredoc config generation, fix proxy URI schemes (https://, socks5s://) |
 | 4.0 | 2025-10-06 | System | **stunnel integration**: TLS termination via stunnel + template-based configuration |
 | 3.6 | 2025-10-06 | System | **Server-level IP whitelist**: Migration from per-user to server-level proxy access control |
 | 3.5 | 2025-10-06 | System | **IP-based access control**: Per-user IP whitelisting for proxy servers |
@@ -23,12 +24,30 @@
 
 ---
 
+## Implementation Status (v4.1)
+
+| Feature | PRD Section | Status | Notes |
+|---------|-------------|--------|-------|
+| stunnel TLS termination | FR-STUNNEL-001 | ✅ COMPLETE | stunnel container + heredoc config (v4.0/v4.1) |
+| Config generation (heredoc) | - | ✅ COMPLETE | lib/stunnel_setup.sh, no templates/ (v4.1) |
+| Proxy URI schemes fix | FR-CONFIG-001 | ✅ COMPLETE | https://, socks5s:// (v4.1 bugfix) |
+| Docker Compose stunnel service | Section 4.5 | ✅ COMPLETE | vless_stunnel container (v4.0) |
+| IP whitelisting (server-level) | FR-IP-001 | ✅ COMPLETE | proxy_allowed_ips.json + optional UFW (v4.0) |
+| Xray plaintext inbounds | FR-STUNNEL-001 | ✅ COMPLETE | localhost:10800/18118 (v4.0) |
+| 6 proxy config files | FR-CONFIG-001 | ✅ COMPLETE | All formats with correct URIs (v4.1) |
+| Template-based configs | FR-TEMPLATE-001 | ❌ DEPRECATED | Replaced by heredoc in v4.1 |
+
+**Overall Status:** v4.1 is **100% implemented** (all active features complete, templates deprecated).
+
+---
+
 ## Executive Summary
 
-### Current Version: v4.0 (In Development)
+### Current Version: v4.1 (Implemented)
 
 **Latest Updates:**
-- 🚧 **v4.0 (2025-10-06)**: stunnel TLS termination + template-based configuration architecture
+- ✅ **v4.1 (2025-10-07)**: Heredoc config generation + Proxy URI fix (https://, socks5s://)
+- ✅ **v4.0 (2025-10-06)**: stunnel TLS termination architecture
 - ✅ **v3.6 (2025-10-06)**: Server-level IP whitelist (migration from v3.5 per-user)
 - ✅ **v3.5 (2025-10-06)**: Per-user IP-based access control for proxy servers
 - ✅ **v3.4 (2025-10-05)**: Optional TLS encryption (plaintext mode for dev/testing)
@@ -37,25 +56,47 @@
 **System Capabilities:**
 - **VLESS Reality VPN:** DPI-resistant VPN tunnel
 - **Dual Proxy Modes:** SOCKS5 (1080) + HTTP (8118)
-- **TLS Termination:** stunnel handles TLS 1.3 encryption (NEW in v4.0)
-- **Template-Based Configs:** Xray, stunnel, docker-compose use templates (NEW in v4.0)
-- **IP Whitelisting:** Server-level + optional UFW firewall rules (ENHANCED in v4.0)
+- **TLS Termination:** stunnel handles TLS 1.3 encryption (v4.0+)
+- **Heredoc Config Generation:** All configs via heredoc (v4.1, simplified from v4.0 templates)
+- **Correct Proxy URIs:** https:// and socks5s:// for TLS connections (v4.1 fix)
+- **IP Whitelisting:** Server-level + optional UFW firewall rules (v4.0+)
 - **Multi-Format Configs:** 6 auto-generated config files per user
+
+---
+
+### What's New in v4.1
+
+**PRIMARY FEATURE:** Heredoc config generation + Proxy URI scheme fix.
+
+**Key Changes:**
+
+| Component | v4.0 | v4.1 | Status |
+|-----------|------|------|--------|
+| **Config Generation** | templates/ + envsubst | heredoc in lib/*.sh | ✅ IMPLEMENTED |
+| **stunnel.conf** | templates/stunnel.conf.template | heredoc in lib/stunnel_setup.sh | ✅ IMPLEMENTED |
+| **Proxy URI Schemes** | http://, socks5:// | https://, socks5s:// | ✅ IMPLEMENTED (BUGFIX) |
+| **Dependencies** | bash, envsubst | bash only | ✅ SIMPLIFIED |
+
+**Benefits:**
+- **Unified codebase**: All configs (Xray, stunnel, docker-compose) use heredoc
+- **Simpler dependencies**: Removed envsubst (GNU gettext) requirement
+- **Correct proxy URIs**: https:// and socks5s:// for TLS connections
+- **Fewer files**: 1 file instead of 2 (template + script)
 
 ---
 
 ### What's New in v4.0
 
-**PRIMARY FEATURE:** stunnel-based TLS termination + template-based configuration architecture.
+**PRIMARY FEATURE:** stunnel-based TLS termination architecture.
 
 **Key Architectural Changes:**
 
-| Component | v3.x | v4.0 | Benefit |
-|-----------|------|------|---------|
-| **TLS Handling** | Xray streamSettings | stunnel (separate container) | Separation of concerns |
-| **Proxy Ports** | 1080/8118 (TLS in Xray) | 1080/8118 (stunnel) → 10800/18118 (Xray plaintext) | Simpler Xray config |
-| **Configuration** | Inline heredocs in scripts | Template files with variable substitution | Easier to maintain |
-| **IP Whitelisting** | Xray routing only | Xray routing + optional UFW | Defense-in-depth |
+| Component | v3.x | v4.0 | Status |
+|-----------|------|------|--------|
+| **TLS Handling** | Xray streamSettings | stunnel (separate container) | ✅ IMPLEMENTED |
+| **Proxy Ports** | 1080/8118 (TLS in Xray) | 1080/8118 (stunnel) → 10800/18118 (Xray plaintext) | ✅ IMPLEMENTED |
+| **Configuration** | Inline heredocs in scripts | Template files (v4.0), heredoc (v4.1) | ✅ IMPLEMENTED (v4.1) |
+| **IP Whitelisting** | Xray routing only | Xray routing + optional UFW | ✅ IMPLEMENTED |
 
 **New CLI Commands (4):**
 ```bash
@@ -72,14 +113,12 @@ Client → stunnel (TLS termination, ports 1080/8118)
        → Internet
 ```
 
-**Technical Implementation:**
-- **NEW:** `templates/stunnel.conf.template` - stunnel configuration with TLS 1.3
-- **NEW:** `templates/xray_config.json.template` - Xray configuration (future)
-- **NEW:** `templates/docker-compose.yml.template` - Docker Compose (future)
-- **NEW:** `lib/stunnel_setup.sh` - stunnel initialization module
-- **NEW:** `lib/ufw_whitelist.sh` - UFW-based IP whitelisting
-- **MODIFIED:** `lib/orchestrator.sh` - removed TLS from Xray inbounds, added stunnel service
-- **MODIFIED:** `lib/user_management.sh` - updated client config URIs
+**Technical Implementation (v4.0/v4.1):**
+- **v4.1:** `lib/stunnel_setup.sh` - stunnel config generation via heredoc (removed templates/)
+- **v4.1:** `lib/user_management.sh` - proxy URI fix (https://, socks5s://)
+- **v4.0:** stunnel container - TLS 1.3 termination for proxy ports
+- **v4.0:** `lib/ufw_whitelist.sh` - UFW-based IP whitelisting
+- **v4.0:** `lib/orchestrator.sh` - removed TLS from Xray inbounds, added stunnel service
 
 **Benefits:**
 1. **Mature TLS Stack:** stunnel has 20+ years of production stability
@@ -285,115 +324,92 @@ stunnel:
 
 ---
 
-### FR-TEMPLATE-001: Template-Based Configuration (HIGH - NEW in v4.0)
+### FR-TEMPLATE-001: Heredoc-Based Configuration (HIGH - v4.1 UPDATE)
 
-**Requirement:** All configuration files (Xray, stunnel, docker-compose) MUST be generated from templates with variable substitution.
+**Status:** ❌ DEPRECATED (Template-based approach removed in v4.1)
 
-**Rationale:**
-- Reduces code complexity in orchestrator.sh (no large heredocs)
-- Easier to review and modify configurations
-- Better version control (config changes visible in git diff)
-- Enables reusability across installations
-- Simplifies testing (templates can be validated independently)
+**Current Implementation (v4.1):** All configuration files generated via heredoc in lib/ modules.
 
-**Acceptance Criteria:**
-- [ ] `templates/` directory created with all configuration templates
-- [ ] Templates use clear variable syntax (e.g., `${DOMAIN}`, `${VLESS_PORT}`)
-- [ ] Variable substitution via `envsubst` or equivalent
-- [ ] Templates include comments explaining each section
-- [ ] orchestrator.sh generates configs from templates (not inline heredocs)
-- [ ] All templates validated for syntax before deployment
-- [ ] Template changes can be applied without modifying scripts
+**Rationale for Heredoc Approach:**
+- **Unified codebase**: Xray and docker-compose already use heredoc
+- **Simpler dependencies**: No envsubst (GNU gettext) required
+- **Fewer files**: 1 file instead of 2 (template + script)
+- **Atomic operations**: Config generation and logic in one place
 
-**Required Templates:**
+**Implementation Status:**
 
-| Template File | Purpose | Variables |
-|---------------|---------|-----------|
-| `stunnel.conf.template` | stunnel TLS configuration | `${DOMAIN}` |
-| `xray_config.json.template` | Xray full configuration | `${VLESS_PORT}`, `${DOMAIN}`, `${DEST_SITE}` |
-| `docker-compose.yml.template` | Container orchestration | `${VLESS_PORT}`, `${DOMAIN}`, `${ENABLE_PUBLIC_PROXY}` |
+| Config File | v4.0 Method | v4.1 Method | Status |
+|-------------|-------------|-------------|--------|
+| `stunnel.conf` | templates/stunnel.conf.template | heredoc in lib/stunnel_setup.sh | ✅ IMPLEMENTED |
+| `config.json` (Xray) | ❌ NOT IMPLEMENTED | heredoc in lib/orchestrator.sh | ✅ IMPLEMENTED |
+| `docker-compose.yml` | ❌ NOT IMPLEMENTED | heredoc in lib/orchestrator.sh | ✅ IMPLEMENTED |
 
-**Technical Implementation:**
+**Technical Implementation (v4.1 - Heredoc):**
 
-**Example: templates/stunnel.conf.template**
-```ini
-# stunnel Configuration for ${DOMAIN}
+**Example: lib/stunnel_setup.sh**
+```bash
+create_stunnel_config() {
+    local domain="$1"
+
+    # Generate config via heredoc (no templates/)
+    cat > "$STUNNEL_CONFIG" <<EOF
+#
+# stunnel Configuration for VLESS Reality VPN
+# Domain: $domain
+# Generated: $(date -Iseconds)
+#
+
+# Global settings
+foreground = yes
+output = /var/log/stunnel/stunnel.log
+debug = 5
+syslog = no
+
+# TLS 1.3 only cipher suites
+ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+
 [socks5-tls]
 accept = 0.0.0.0:1080
 connect = vless_xray:10800
-cert = /certs/live/${DOMAIN}/fullchain.pem
-key = /certs/live/${DOMAIN}/privkey.pem
-```
+cert = /certs/live/$domain/fullchain.pem
+key = /certs/live/$domain/privkey.pem
+verify = 0
+sslVersion = TLSv1.3
 
-**Example: Generation in orchestrator.sh**
-```bash
-# OLD (v3.x): Inline heredoc
-cat > stunnel.conf <<EOF
-[socks5-tls]
-accept = 0.0.0.0:1080
-...
+[http-tls]
+accept = 0.0.0.0:8118
+connect = vless_xray:18118
+cert = /certs/live/$domain/fullchain.pem
+key = /certs/live/$domain/privkey.pem
+verify = 0
+sslVersion = TLSv1.3
 EOF
 
-# NEW (v4.0): Template substitution
-export DOMAIN="example.com"
-envsubst '${DOMAIN}' < templates/stunnel.conf.template > config/stunnel.conf
-```
-
-**Benefits:**
-1. Cleaner script code (orchestrator.sh reduced by ~30%)
-2. Easier configuration reviews (separate files)
-3. Better version control (config changes isolated)
-4. Reusability (templates can be shared across projects)
-5. Independent testing (validate templates separately)
-6. Documentation (templates self-documenting with comments)
-
-**User Story:** As a developer, I want configuration templates so that I can review and modify configs without touching installation scripts.
-
----
-
-### FR-TLS-001: TLS Encryption для SOCKS5 Inbound (DEPRECATED in v4.0 - See FR-STUNNEL-001)
-
-**Requirement:** SOCKS5 proxy MUST use TLS 1.3 encryption with Let's Encrypt certificates.
-
-**Acceptance Criteria:**
-- [ ] Xray `config.json` contains `streamSettings.security="tls"` for SOCKS5 inbound
-- [ ] TLS handshake successful: `openssl s_client -connect server:1080 -starttls socks5`
-- [ ] Certificate verified: Let's Encrypt CA trusted
-- [ ] No fallback to plain SOCKS5 (enforced by config validation)
-- [ ] Clients with `socks5s://` URI connect without errors
-- [ ] Wireshark capture shows TLS 1.3 encrypted stream (no plaintext SOCKS5)
-
-**Technical Implementation:**
-```json
-{
-  "inbounds": [
-    {
-      "tag": "socks5-tls",
-      "listen": "0.0.0.0",
-      "port": 1080,
-      "protocol": "socks",
-      "settings": {
-        "auth": "password",
-        "accounts": [],
-        "udp": false
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [{
-            "certificateFile": "/etc/xray/certs/live/${DOMAIN}/fullchain.pem",
-            "keyFile": "/etc/xray/certs/live/${DOMAIN}/privkey.pem"
-          }],
-          "alpn": ["http/1.1"]
-        }
-      }
-    }
-  ]
+    chmod 600 "$STUNNEL_CONFIG"
 }
 ```
 
-**User Story:** As a developer, I want to use Git with `socks5s://` proxy so that my credentials and code are encrypted during clone/push operations.
+**Migration from v4.0:**
+```bash
+# v4.0: Template-based (REMOVED in v4.1)
+envsubst '${DOMAIN}' < templates/stunnel.conf.template > config/stunnel.conf
+
+# v4.1: Heredoc-based (CURRENT)
+create_stunnel_config "$domain"  # Generates config inline
+```
+
+**Benefits:**
+1. **Unified approach**: All configs use heredoc (Xray, stunnel, docker-compose)
+2. **Simpler dependencies**: No envsubst (GNU gettext) requirement
+3. **Fewer files**: 1 file instead of 2 (no separate template)
+4. **Atomic operations**: Config generation logic in one place
+5. **Easier debugging**: All logic visible in lib/ modules
+
+**User Story:** As a developer, I want consistent config generation so that I don't need to learn multiple approaches (templates vs heredoc).
+
+---
+
+**NOTE:** FR-TLS-001 (SOCKS5 TLS in Xray streamSettings) was **DEPRECATED in v4.0** and **REMOVED from PRD in v4.1**. TLS termination is now handled by stunnel (see FR-STUNNEL-001).
 
 ---
 
