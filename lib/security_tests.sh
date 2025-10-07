@@ -58,9 +58,10 @@ readonly NC='\033[0m'
 readonly VLESS_BASE_DIR="/opt/vless"
 readonly CONFIG_DIR="${VLESS_BASE_DIR}/config"
 readonly ENV_FILE="${VLESS_BASE_DIR}/.env"
-readonly USERS_JSON="${VLESS_BASE_DIR}/config/users.json"
-readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
+readonly USERS_JSON="${CONFIG_DIR}/users.json"
+readonly XRAY_CONFIG="${CONFIG_DIR}/config.json"
 readonly STUNNEL_CONFIG="${CONFIG_DIR}/stunnel.conf"
+readonly REALITY_KEYS="${CONFIG_DIR}/reality_keys.json"
 readonly PCAP_DIR="/tmp/vless_security_test_$$"
 
 # Test results

@@ -38,12 +38,16 @@ REQUIRED_PACKAGES=(
     "fail2ban"        # v3.3: Brute-force protection (all proxy modes)
     "certbot"         # v3.3: Let's Encrypt client for TLS certificates
     "dnsutils"        # v3.3: DNS tools (dig) for certificate validation
+    "tcpdump"         # v3.3: Packet capture for security testing
+    "nmap"            # v3.3: Network scanner for security testing
 )
 
 # Optional packages (non-critical, system works without them)
 # v3.3: netcat for Docker healthchecks (has fallbacks)
+# v3.3: tshark for advanced security testing (Wireshark CLI)
 OPTIONAL_PACKAGES=(
     "netcat-openbsd"  # For Docker healthchecks (fallback: netcat-traditional, ncat)
+    "tshark"          # For advanced packet analysis in security tests (optional)
 )
 
 # Ensure it's properly declared as array for export
@@ -250,6 +254,8 @@ check_dependencies() {
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
         [[ "$package" == "fail2ban" ]] && cmd_name="fail2ban-client"
         [[ "$package" == "dnsutils" ]] && cmd_name="dig"
+        [[ "$package" == "tcpdump" ]] && cmd_name="tcpdump"
+        [[ "$package" == "nmap" ]] && cmd_name="nmap"
 
         # Special check for docker-compose-plugin (uses "docker compose" command)
         if [[ "$package" == "docker-compose-plugin" ]]; then
@@ -429,6 +435,8 @@ install_dependencies() {
         [[ "$package" == "netcat-openbsd" ]] && cmd_name="nc"
         [[ "$package" == "fail2ban" ]] && cmd_name="fail2ban-server"
         [[ "$package" == "dnsutils" ]] && cmd_name="dig"
+        [[ "$package" == "tcpdump" ]] && cmd_name="tcpdump"
+        [[ "$package" == "nmap" ]] && cmd_name="nmap"
 
         # Special check for docker-compose-plugin
         local is_installed=false
@@ -510,6 +518,7 @@ install_dependencies() {
         # Map package name to command name
         local opt_cmd="$package"
         [[ "$package" == "netcat-openbsd" ]] && opt_cmd="nc"
+        [[ "$package" == "tshark" ]] && opt_cmd="tshark"
 
         # Check if already installed
         if command -v "$opt_cmd" &>/dev/null 2>&1; then
@@ -539,6 +548,10 @@ install_dependencies() {
                 else
                     echo -e "  ${YELLOW}${WARNING_MARK} No netcat variant available (healthchecks will be disabled)${NC}"
                 fi
+            elif [[ "$package" == "tshark" ]]; then
+                echo -e "  ${YELLOW}${WARNING_MARK} tshark not available (advanced packet analysis disabled)${NC}"
+                echo -e "  ${CYAN}Note: tshark is part of Wireshark package (large download)${NC}"
+                echo -e "  ${CYAN}Manual install: sudo apt-get install tshark${NC}"
             elif [[ "$package" == "fail2ban" ]]; then
                 echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (will be handled by fail2ban_setup.sh)${NC}"
             else
