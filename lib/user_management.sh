@@ -1033,12 +1033,12 @@ export_vscode_config() {
     local strict_ssl="false"
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.3: Public proxy with TLS encryption
+        # v4.0: Public proxy with stunnel TLS termination
         proxy_url="https://${DOMAIN}:8118"
         strict_ssl="true"  # Validate TLS certificate
     else
-        # v3.1: Localhost-only, no TLS
-        proxy_url="http://$(get_server_ip):8118"
+        # Localhost-only, no TLS (proxies bind to 127.0.0.1)
+        proxy_url="http://127.0.0.1:8118"
         strict_ssl="false"
     fi
 
@@ -1087,13 +1087,11 @@ export_docker_config() {
     local proxy_url
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.3: Public proxy with TLS encryption
+        # v4.0: Public proxy with stunnel TLS termination
         proxy_url="https://${username}:${password}@${DOMAIN}:8118"
     else
-        # v3.1: Localhost-only, no TLS
-        local server_ip
-        server_ip=$(get_server_ip)
-        proxy_url="http://${username}:${password}@${server_ip}:8118"
+        # Localhost-only, no TLS (proxies bind to 127.0.0.1)
+        proxy_url="http://${username}:${password}@127.0.0.1:8118"
     fi
 
     # Write Docker daemon config JSON
@@ -1139,15 +1137,13 @@ export_bash_config() {
     local mode_label
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v3.3: Public proxy with TLS encryption
+        # v4.0: Public proxy with stunnel TLS termination
         proxy_url="https://${username}:${password}@${DOMAIN}:8118"
-        mode_label="v3.3 - Public Access with TLS"
+        mode_label="v4.0 - Public Access with stunnel TLS"
     else
-        # v3.1: Localhost-only, no TLS
-        local server_ip
-        server_ip=$(get_server_ip)
-        proxy_url="http://${username}:${password}@${server_ip}:8118"
-        mode_label="v3.1 - Localhost Only"
+        # Localhost-only, no TLS (proxies bind to 127.0.0.1)
+        proxy_url="http://${username}:${password}@127.0.0.1:8118"
+        mode_label="Localhost Only (No TLS)"
     fi
 
     # Write bash exports script
