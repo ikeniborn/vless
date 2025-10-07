@@ -213,7 +213,16 @@ check_prerequisites() {
 
     # Check if at least one user exists
     if [[ ! -f "$USERS_JSON" ]]; then
-        echo -e "${RED}ERROR: No users.json found${NC}" >&2
+        echo -e "${RED}ERROR: No users.json found - VLESS may not be installed${NC}" >&2
+        echo ""
+        echo "This test suite requires a working VLESS installation."
+        echo ""
+        echo "If VLESS is NOT installed, run the installer:"
+        echo "  sudo bash install.sh"
+        echo ""
+        echo "If VLESS IS installed but has no users, create one:"
+        echo "  sudo vless-user add testuser"
+        echo ""
         exit 2
     fi
 

@@ -1265,10 +1265,20 @@ install_cli_tools() {
                 echo -e "${RED}Failed to copy ${module}${NC}" >&2
                 return 1
             }
-            chmod 644 "${INSTALL_ROOT}/lib/${module}" || {
-                echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
-                return 1
-            }
+
+            # Set permissions: 755 for executable scripts, 644 for sourced modules
+            if [[ "${module}" == "security_tests.sh" ]]; then
+                chmod 755 "${INSTALL_ROOT}/lib/${module}" || {
+                    echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
+                    return 1
+                }
+            else
+                chmod 644 "${INSTALL_ROOT}/lib/${module}" || {
+                    echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
+                    return 1
+                }
+            fi
+
             echo "  ✓ Copied ${module} to ${INSTALL_ROOT}/lib/"
         else
             echo -e "${RED}Required module not found: ${module}${NC}" >&2

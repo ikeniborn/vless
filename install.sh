@@ -180,7 +180,7 @@ source_libraries() {
     if [[ ! -d "${lib_dir}" ]]; then
         print_error "Library directory not found: ${lib_dir}"
         print_message "${COLOR_YELLOW}" "Make sure you are running this script from the project directory:"
-        print_message "${COLOR_YELLOW}" "  cd /home/ikeniborn/Documents/Project/vless"
+        print_message "${COLOR_YELLOW}" "  cd /path/to/vless"
         print_message "${COLOR_YELLOW}" "  sudo ./install.sh"
         exit 1
     fi

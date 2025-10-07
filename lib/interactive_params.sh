@@ -309,15 +309,15 @@ select_port() {
 
     # Manual port selection
     echo ""
-    echo "Enter a custom port (1024-65535):"
+    echo "Enter a custom port (1-65535):"
 
     local custom_port
     while true; do
         read -rp "Port: " custom_port
 
         # Validate port number
-        if ! [[ "$custom_port" =~ ^[0-9]+$ ]] || [ "$custom_port" -lt 1024 ] || [ "$custom_port" -gt 65535 ]; then
-            echo -e "${RED}Invalid port. Must be between 1024 and 65535${NC}"
+        if ! [[ "$custom_port" =~ ^[0-9]+$ ]] || [ "$custom_port" -lt 1 ] || [ "$custom_port" -gt 65535 ]; then
+            echo -e "${RED}Invalid port. Must be between 1 and 65535${NC}"
             continue
         fi
 

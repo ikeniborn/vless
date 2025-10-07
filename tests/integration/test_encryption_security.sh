@@ -16,7 +16,7 @@
 #   sudo /opt/vless/lib/security_tests.sh [options]
 #
 # Or from development repository:
-#   cd ~/Documents/Project/vless
+#   cd /path/to/vless
 #   sudo lib/security_tests.sh [options]
 #
 # See: tests/integration/QUICK_START_RU.md for full instructions
@@ -34,7 +34,7 @@ echo "2. Direct module execution:"
 echo "   sudo /opt/vless/lib/security_tests.sh [options]"
 echo ""
 echo "3. From development repository:"
-echo "   cd ~/Documents/Project/vless"
+echo "   cd /path/to/vless"
 echo "   sudo lib/security_tests.sh [options]"
 echo ""
 echo "For help: sudo vless test-security --help"
