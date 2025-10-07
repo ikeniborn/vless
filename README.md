@@ -36,7 +36,7 @@ Client → stunnel (TLS 1.3, ports 1080/8118)
 ### Core Capabilities
 
 - **One-Command Installation**: Complete setup in < 5 minutes
-- **Automated Dependency Management**: Docker, UFW, certbot, jq, qrencode auto-install
+- **Automated Dependency Management**: Docker, UFW, certbot, jq, qrencode, tcpdump, nmap, fail2ban auto-install (tshark optional)
 - **Reality Protocol**: TLS 1.3 masquerading for undetectable VPN traffic
 - **Dual Proxy Support (v4.0)**: SOCKS5 (port 1080) + HTTP (port 8118) proxies with:
   - **stunnel TLS Termination**: Dedicated container for TLS 1.3 encryption
@@ -820,9 +820,9 @@ sudo vless test-security --verbose
 - ✅ Data leak detection (config exposure, logs, DNS)
 
 **Requirements:**
-```bash
-sudo apt-get install openssl curl jq nmap tcpdump tshark
-```
+- ✅ **Automatically installed**: tcpdump, nmap (required), tshark (optional)
+- ✅ Already available: openssl, curl, jq (system dependencies)
+- ⚠️ **Manual install** (if tshark auto-install fails): `sudo apt-get install tshark`
 
 **Exit codes:**
 - `0` - All tests passed (encryption secure)

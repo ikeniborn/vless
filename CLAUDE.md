@@ -353,6 +353,14 @@ Shell & Tools:
   qrencode: "latest"                # QR code generation
   openssl: "system default"         # Key generation, SNI
   uuidgen: "system default"         # UUID generation
+
+Security Testing Tools:
+  tcpdump: "latest"                 # Packet capture for security tests (required)
+  nmap: "latest"                    # Network scanning and port validation (required)
+  tshark: "latest"                  # Advanced TLS analysis (optional, Wireshark CLI)
+  fail2ban: "latest"                # Brute-force protection
+  certbot: "latest"                 # Let's Encrypt certificate management
+  dnsutils: "latest"                # DNS tools (dig) for validation
 ```
 
 ### Protocol Configuration
