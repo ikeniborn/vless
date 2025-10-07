@@ -299,10 +299,10 @@ PHASE N CHECKPOINT:
 ## 6. PROJECT OVERVIEW
 
 **Project Name:** VLESS + Reality VPN Server
-**Version:** 3.1 (with Dual Proxy Support)
+**Version:** 4.1 (stunnel TLS Termination + Heredoc Config Generation)
 **Target Scale:** 10-50 concurrent users
 **Deployment:** Linux servers (Ubuntu 20.04+, Debian 10+)
-**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, Nginx
+**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, stunnel, Nginx
 
 **Core Value Proposition:**
 - Deploy production-ready VPN in < 5 minutes
@@ -310,14 +310,20 @@ PHASE N CHECKPOINT:
 - DPI-resistant via Reality protocol (TLS 1.3 masquerading)
 - **Dual proxy support (SOCKS5 + HTTP) with unified credentials**
 - **Multi-format config export (5 formats: SOCKS5, HTTP, VSCode, Docker, Bash)**
+- **TLS termination via stunnel (v4.0+)** - separation of concerns
 - No domain/certificate management required
 - Coexists with Outline, Wireguard, other VPN services
 
 **Key Innovation:**
 Reality protocol "steals" TLS handshake from legitimate websites (google.com, microsoft.com), making VPN traffic mathematically indistinguishable from normal HTTPS. Deep Packet Inspection systems cannot detect the VPN.
 
-**Proxy Innovation (v3.1):**
-Localhost-only SOCKS5 and HTTP proxies accessible only after VPN connection. Single password for both proxies. Auto-generates 5 config file formats per user for seamless integration with IDEs, Docker, and shell environments.
+**Architecture Evolution:**
+- **v3.1:** Dual proxy support (SOCKS5 + HTTP) with localhost-only binding
+- **v4.0:** stunnel TLS termination - Client → stunnel (TLS 1.3, ports 1080/8118) → Xray (plaintext, ports 10800/18118) → Internet
+- **v4.1:** Heredoc config generation (no templates/, simplified dependencies, removed envsubst)
+
+**Proxy Architecture (v4.0+):**
+stunnel handles TLS termination for proxy connections. Separation of concerns: stunnel = TLS layer, Xray = proxy logic. Simpler Xray config (no TLS streamSettings). Proxy URIs use `https://` and `socks5s://` for TLS connections (v4.1 fix). Single password for both SOCKS5 and HTTP. Auto-generates 5 config file formats per user.
 
 ---
 
@@ -333,6 +339,7 @@ Docker & Orchestration:
 
 Container Images (FIXED VERSIONS):
   xray: "teddysun/xray:24.11.30"   # DO NOT change without testing
+  stunnel: "dweomer/stunnel:latest" # NEW in v4.0: TLS termination
   nginx: "nginx:alpine"             # Latest alpine
 
 Operating System:
@@ -364,18 +371,54 @@ Reality Settings:
   sni_extraction: "required"        # Must succeed
   validation_timeout: "10s"         # Max time for dest check
 
-Proxy Protocols (NEW in v3.1):
+Proxy Protocols (v3.1+, TLS via stunnel v4.0+):
   socks5:
     port: 1080
-    listen: "127.0.0.1"             # Localhost-only
+    listen: "127.0.0.1"             # Localhost-only in Xray
     auth: "password"                # Required
     udp: false                      # TCP only
   http:
     port: 8118
-    listen: "127.0.0.1"             # Localhost-only
+    listen: "127.0.0.1"             # Localhost-only in Xray
     auth: "password"                # Required
     allowTransparent: false         # Security hardening
     protocols: ["HTTP", "HTTPS"]    # Both supported
+
+stunnel TLS Termination (NEW in v4.0):
+  architecture: |
+    Client → stunnel (TLS 1.3, ports 1080/8118)
+           → Xray (plaintext, localhost 10800/18118)
+           → Internet
+
+  stunnel_config:
+    tls_version: "TLSv1.3"          # Only TLS 1.3 allowed
+    ciphers: "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
+    certificates: "/etc/letsencrypt" # Shared with VLESS
+    listen_socks5: "0.0.0.0:1080"
+    listen_http: "0.0.0.0:8118"
+    forward_socks5: "vless_xray:10800"
+    forward_http: "vless_xray:18118"
+    config_generation: "heredoc in lib/stunnel_setup.sh (v4.1)"
+
+  xray_inbound_changes_v4:
+    socks5:
+      old_v3: "listen: 0.0.0.0:1080, security: tls"
+      new_v4: "listen: 127.0.0.1:10800, security: none"
+    http:
+      old_v3: "listen: 0.0.0.0:8118, security: tls"
+      new_v4: "listen: 127.0.0.1:18118, security: none"
+
+  proxy_uri_schemes_v4_1:
+    http_proxy: "https://user:pass@domain:8118"
+    socks5_proxy: "socks5s://user:pass@domain:1080"
+    note: "Scheme 's' suffix = SSL/TLS (https, socks5s)"
+
+  benefits:
+    - "Separation of concerns: stunnel=TLS, Xray=proxy logic"
+    - "Mature TLS stack (stunnel 20+ years production)"
+    - "Simpler Xray config (no TLS streamSettings)"
+    - "Easier certificate management"
+    - "Separate logs for debugging"
 ```
 
 ### Network Architecture
@@ -417,18 +460,20 @@ Directory Structure:
 
 File Permissions:
   config.json:         "600"
-  users.json:          "600"        # NEW: v1.1 with proxy_password field
+  stunnel.conf:        "600"        # NEW in v4.0: stunnel TLS config
+  users.json:          "600"        # v1.1 with proxy_password field
   reality_keys.json:   "600"
   .env:                "600"
   docker-compose.yml:  "644"
   scripts/*.sh:        "755"
 
-Client Config Files (NEW in v3.1):
-  socks5_config.txt:       "600"
-  http_config.txt:         "600"
+Client Config Files (v3.1+, URI schemes fixed in v4.1):
+  socks5_config.txt:       "600"    # socks5s://user:pass@domain:1080
+  http_config.txt:         "600"    # https://user:pass@domain:8118
   vscode_settings.json:    "600"
   docker_daemon.json:      "600"
   bash_exports.sh:         "700"    # Executable
+  # NOTE: Uses https:// and socks5s:// for TLS (v4.1 fix)
 
 Symlinks:
   location: "/usr/local/bin/"
@@ -469,7 +514,8 @@ Symlinks:
 ```
 /opt/vless/                         # Created by installer
 ├── config/                         # 700, owner: root
-│   ├── config.json                 # 600 - Xray main config (3 inbounds when proxy enabled)
+│   ├── config.json                 # 600 - Xray config (3 inbounds: VLESS + plaintext SOCKS5/HTTP)
+│   ├── stunnel.conf                # 600 - stunnel TLS termination config (v4.0+)
 │   ├── users.json                  # 600 - User database (v1.1 with proxy_password)
 │   └── reality_keys.json           # 600 - X25519 key pair
 ├── data/                           # 700, user data
@@ -679,37 +725,61 @@ COMMIT
 
 ---
 
-### FR-012: Proxy Server Integration (CRITICAL - Priority 1) - NEW in v3.1
+### FR-012: Proxy Server Integration (CRITICAL - Priority 1) - v3.1, TLS via stunnel v4.0+
 
-**Requirement:** Dual proxy support (SOCKS5 + HTTP) with localhost-only binding
+**Requirement:** Dual proxy support (SOCKS5 + HTTP) with localhost-only binding and TLS termination via stunnel
 
 **Implementation:**
 ```yaml
+TLS Termination (v4.0+):
+  method: "stunnel separate container"
+  architecture: "Client (TLS) → stunnel (ports 1080/8118) → Xray plaintext (ports 10800/18118) → Internet"
+  benefits:
+    - "Xray config simplified (no TLS streamSettings)"
+    - "Mature TLS stack (stunnel 20+ years production)"
+    - "Separate logs for debugging"
+    - "Certificate management centralized"
+
 Proxy Configuration:
   socks5:
-    port: 1080
-    listen: "127.0.0.1"             # NOT exposed to internet
-    auth: "password"                # Required
+    external_port: 1080          # stunnel listens (TLS 1.3)
+    internal_port: 10800         # Xray listens (plaintext, localhost)
+    listen: "127.0.0.1"          # Xray binding (NOT exposed to internet)
+    auth: "password"             # Required
     protocol: "socks"
 
   http:
-    port: 8118
-    listen: "127.0.0.1"             # NOT exposed to internet
-    auth: "password"                # Required
+    external_port: 8118          # stunnel listens (TLS 1.3)
+    internal_port: 18118         # Xray listens (plaintext, localhost)
+    listen: "127.0.0.1"          # Xray binding (NOT exposed to internet)
+    auth: "password"             # Required
     protocol: "http"
     allowTransparent: false
+
+Config Generation (v4.1):
+  method: "heredoc in lib/stunnel_setup.sh"
+  previous_v4.0: "templates/stunnel.conf.template + envsubst"
+  change_rationale: "Unified with Xray/docker-compose generation (all heredoc)"
+  dependencies_removed: "envsubst (GNU gettext)"
 
 Credential Management:
   password_generation: "openssl rand -hex 8"  # 16 characters
   password_storage: "users.json v1.1 (proxy_password field)"
   single_password: true                        # Same for SOCKS5 + HTTP
 
-Config File Export (5 formats per user):
-  - socks5_config.txt        # SOCKS5 URI
-  - http_config.txt          # HTTP URI
+Config File Export (5 formats per user, v4.1 URI fix):
+  - socks5_config.txt        # socks5s://user:pass@domain:1080 (TLS)
+  - http_config.txt          # https://user:pass@domain:8118 (TLS)
   - vscode_settings.json     # VSCode proxy settings
   - docker_daemon.json       # Docker daemon config
   - bash_exports.sh          # Environment variables (executable)
+
+Proxy URI Schemes Explained:
+  http://   - Plaintext HTTP (NOT USED, localhost-only deprecated)
+  https://  - HTTP with TLS (v4.0+, stunnel termination) ✅
+  socks5:// - Plaintext SOCKS5 (NOT USED, localhost-only deprecated)
+  socks5s://- SOCKS5 with TLS (v4.0+, stunnel termination) ✅
+  socks5h://- SOCKS5 with DNS via proxy (NOT a TLS replacement!)
 ```
 
 **Security Requirements:**
@@ -735,19 +805,23 @@ File Permissions:
 ```bash
 # User creation (auto-generates proxy password + configs)
 sudo vless-user add alice
-# Output: UUID + proxy password + 8 config files
+# Output: UUID + proxy password + 8 config files (VLESS + 5 proxy configs)
+# Proxy configs use https:// and socks5s:// URIs (v4.1 fix)
 
 # Show proxy credentials
 sudo vless-user show-proxy alice
-# Output: SOCKS5/HTTP URIs + usage examples
+# Output:
+#   SOCKS5: socks5s://alice:PASSWORD@domain:1080
+#   HTTP:   https://alice:PASSWORD@domain:8118
+# Usage examples provided for VSCode, Docker, Git
 
 # Reset proxy password (regenerates all configs)
 sudo vless-user reset-proxy-password alice
-# Output: New password + updated config files
+# Output: New password + updated config files (all 5 formats regenerated)
 
 # Service status (shows proxy info)
 sudo vless-status
-# Output: Proxy enabled/disabled + SOCKS5/HTTP details
+# Output: Proxy enabled/disabled + SOCKS5/HTTP details + stunnel status (v4.0+)
 ```
 
 **Acceptance Criteria:**
