@@ -76,6 +76,12 @@ ${CYAN}Maintenance:${NC}
   backup                    Create backup of configuration
   test                      Test Xray configuration
 
+${CYAN}Security Testing:${NC}
+  test-security [options]   Run encryption & security tests
+    --quick                 Skip long-running tests
+    --skip-pcap             Skip packet capture tests
+    --verbose               Show detailed output
+
 ${CYAN}Information:${NC}
   info                      Show server information
   help                      Show this help message
@@ -87,6 +93,7 @@ ${CYAN}Examples:${NC}
   sudo vless set-proxy-ips 127.0.0.1,10.0.0.0/24
   sudo vless status
   sudo vless logs xray
+  sudo vless test-security --quick
 
 ${YELLOW}Note:${NC} All commands require root privileges (use sudo)
 
@@ -292,6 +299,20 @@ main() {
             check_root
             echo "Testing Xray configuration..."
             docker exec vless_xray xray -test -config=/etc/xray/xray_config.json
+            ;;
+
+        test-security|security-test|security)
+            check_root
+
+            # Check if security test module exists
+            if [[ ! -f "${LIB_DIR}/security_tests.sh" ]]; then
+                echo -e "${RED}Error: Security test module not found${NC}" >&2
+                echo "Expected location: ${LIB_DIR}/security_tests.sh" >&2
+                exit 1
+            fi
+
+            # Run security tests with all arguments passed through
+            bash "${LIB_DIR}/security_tests.sh" "$@"
             ;;
 
         update|upgrade)
