@@ -704,10 +704,10 @@ validate_mandatory_tls() {
     local socks5_listen=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .listen' "$config_file" 2>/dev/null)
     local http_listen=$(jq -r '.inbounds[] | select(.tag=="http-proxy") | .listen' "$config_file" 2>/dev/null)
 
-    if [[ "$socks5_listen" == "127.0.0.1" ]] && [[ "$http_listen" == "127.0.0.1" ]]; then
-        log_success "    ✓ Xray proxies listen on localhost (correct for v4.0)"
+    if [[ "$socks5_listen" == "0.0.0.0" ]] && [[ "$http_listen" == "0.0.0.0" ]]; then
+        log_success "    ✓ Xray proxies listen on 0.0.0.0 (correct for Docker network)"
     else
-        log_error "    ✗ Xray proxies should listen on 127.0.0.1"
+        log_error "    ✗ Xray proxies should listen on 0.0.0.0 (Docker network)"
         log_error "    Found: SOCKS5=$socks5_listen, HTTP=$http_listen"
         validation_failed=1
     fi
@@ -726,9 +726,9 @@ validate_mandatory_tls() {
     echo ""
     if [[ $validation_failed -eq 0 ]]; then
         log_success "TLS validation: PASSED (v4.0 stunnel architecture)"
-        log_info "  • Architecture: Client → stunnel (TLS) → Xray (plaintext localhost)"
-        log_info "  • SOCKS5: 0.0.0.0:1080 (TLS) → 127.0.0.1:10800 (plaintext)"
-        log_info "  • HTTP: 0.0.0.0:8118 (TLS) → 127.0.0.1:18118 (plaintext)"
+        log_info "  • Architecture: Client → stunnel (TLS) → Xray (plaintext Docker network)"
+        log_info "  • SOCKS5: 0.0.0.0:1080 (TLS) → vless_xray:10800 (plaintext)"
+        log_info "  • HTTP: 0.0.0.0:8118 (TLS) → vless_xray:18118 (plaintext)"
         return 0
     else
         log_error "TLS validation: FAILED"

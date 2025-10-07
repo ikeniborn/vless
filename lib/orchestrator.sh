@@ -355,16 +355,31 @@ generate_short_id() {
 generate_routing_json() {
     local proxy_ips_file="/opt/vless/config/proxy_allowed_ips.json"
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
+    local docker_subnet=""
 
-    # Check if proxy_allowed_ips.json exists
+    # If TLS proxy enabled, add Docker network subnet for stunnel container
+    # This allows stunnel (running in separate container) to forward traffic to Xray
+    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # Get Docker network subnet (e.g., 172.20.0.0/16)
+        docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
+        allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
+    fi
+
+    # Check if proxy_allowed_ips.json exists (user-defined overrides)
     if [[ -f "$proxy_ips_file" ]]; then
         # Read allowed IPs from file
-        allowed_ips=$(jq -c '.allowed_ips // ["127.0.0.1"]' "$proxy_ips_file" 2>/dev/null)
+        local user_ips=$(jq -c '.allowed_ips' "$proxy_ips_file" 2>/dev/null)
 
-        # Validate JSON
-        if [[ -z "$allowed_ips" ]] || ! echo "$allowed_ips" | jq empty 2>/dev/null; then
-            # Fallback to localhost if file is corrupted
-            allowed_ips='["127.0.0.1"]'
+        # Validate JSON and use if valid
+        if [[ -n "$user_ips" ]] && [[ "$user_ips" != "null" ]] && echo "$user_ips" | jq empty 2>/dev/null; then
+            allowed_ips="$user_ips"
+        else
+            # Fallback to defaults if file is corrupted
+            if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+                allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
+            else
+                allowed_ips='["127.0.0.1"]'
+            fi
         fi
     fi
 
@@ -693,15 +708,24 @@ init_proxy_allowed_ips() {
     echo -e "${CYAN}[5.5/13] Initializing proxy IP whitelist...${NC}"
 
     local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
+    local default_ips='["127.0.0.1"]'
 
-    # Create proxy_allowed_ips.json with localhost-only default
-    cat > "$proxy_ips_file" <<'EOF'
+    # If TLS proxy enabled, include Docker network subnet for stunnel container
+    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # Get Docker network subnet (e.g., 172.20.0.0/16)
+        local docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
+        default_ips='["127.0.0.1","'${docker_subnet}'"]'
+        echo "  ℹ TLS proxy enabled: allowing Docker subnet ${docker_subnet}"
+    fi
+
+    # Create proxy_allowed_ips.json with appropriate defaults
+    cat > "$proxy_ips_file" <<EOF
 {
-  "allowed_ips": ["127.0.0.1"],
+  "allowed_ips": ${default_ips},
   "metadata": {
     "created": "",
     "last_modified": "",
-    "description": "Server-level IP whitelist for proxy access (v3.6)"
+    "description": "Server-level IP whitelist for proxy access (v3.6+v4.0)"
   }
 }
 EOF
