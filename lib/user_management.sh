@@ -691,40 +691,68 @@ show_proxy_credentials() {
         return 1
     fi
 
-    # Get server IP (v3.2 - public proxy support)
+    # Load environment variables to determine proxy mode
+    local enable_public_proxy="false"
+    local domain=""
     local server_ip
+
+    if [[ -f "$ENV_FILE" ]]; then
+        enable_public_proxy=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "false")
+        domain=$(grep -E "^DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "")
+    fi
+
+    # Get server IP for display
     server_ip=$(get_server_ip)
+
+    # Determine proxy schemes and host based on mode
+    local socks_scheme="socks5"
+    local http_scheme="http"
+    local proxy_host="${server_ip}"
+    local mode_label="Localhost Only"
+
+    if [[ "$enable_public_proxy" == "true" ]] && [[ -n "$domain" ]]; then
+        socks_scheme="socks5s"
+        http_scheme="https"
+        proxy_host="${domain}"
+        mode_label="Public Access with TLS (v4.0)"
+    fi
 
     # Display credentials
     echo ""
     echo "═══════════════════════════════════════════════════════"
-    echo "  PROXY CREDENTIALS: $username (v3.2 - PUBLIC ACCESS)"
+    echo "  PROXY CREDENTIALS: $username ($mode_label)"
     echo "═══════════════════════════════════════════════════════"
     echo ""
     echo "Username: $username"
     echo "Password: $proxy_password"
     echo ""
-    echo "⚠️  WARNING: Proxy accessible from public internet"
-    echo ""
+    if [[ "$enable_public_proxy" == "true" ]]; then
+        echo "⚠️  WARNING: Proxy accessible from public internet"
+        echo ""
+    fi
     echo "─────────────────────────────────────────────────────"
     echo "SOCKS5 Proxy:"
-    echo "  Host:     ${server_ip}"
+    echo "  Host:     ${proxy_host}"
     echo "  Port:     1080"
-    echo "  URI:      socks5://${username}:${proxy_password}@${server_ip}:1080"
+    echo "  URI:      ${socks_scheme}://${username}:${proxy_password}@${proxy_host}:1080"
     echo ""
     echo "HTTP Proxy:"
-    echo "  Host:     ${server_ip}"
+    echo "  Host:     ${proxy_host}"
     echo "  Port:     8118"
-    echo "  URI:      http://${username}:${proxy_password}@${server_ip}:8118"
+    echo "  URI:      ${http_scheme}://${username}:${proxy_password}@${proxy_host}:8118"
     echo ""
     echo "─────────────────────────────────────────────────────"
     echo "Usage Examples:"
     echo ""
-    echo "  curl --socks5 ${username}:${proxy_password}@${server_ip}:1080 https://ifconfig.me"
-    echo "  curl --proxy http://${username}:${proxy_password}@${server_ip}:8118 https://ifconfig.me"
+    if [[ "$enable_public_proxy" == "true" ]]; then
+        echo "  curl --proxy ${http_scheme}://${username}:${proxy_password}@${proxy_host}:8118 https://ifconfig.me"
+    else
+        echo "  curl --socks5 ${username}:${proxy_password}@${proxy_host}:1080 https://ifconfig.me"
+        echo "  curl --proxy ${http_scheme}://${username}:${proxy_password}@${proxy_host}:8118 https://ifconfig.me"
+    fi
     echo ""
     echo "VSCode (settings.json):"
-    echo "  \"http.proxy\": \"http://${server_ip}:8118\","
+    echo "  \"http.proxy\": \"${http_scheme}://${proxy_host}:8118\","
     echo "  \"http.proxyAuthorization\": \"$(echo -n "${username}:${proxy_password}" | base64)\""
     echo "═══════════════════════════════════════════════════════"
     echo ""
@@ -858,22 +886,46 @@ reset_proxy_password() {
         log_warning "Failed to regenerate proxy configs"
     fi
 
-    # Get server IP (v3.2 - public proxy support)
+    # Load environment variables to determine proxy mode
+    local enable_public_proxy="false"
+    local domain=""
     local server_ip
+
+    if [[ -f "$ENV_FILE" ]]; then
+        enable_public_proxy=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "false")
+        domain=$(grep -E "^DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "")
+    fi
+
+    # Get server IP for display
     server_ip=$(get_server_ip)
+
+    # Determine proxy schemes and host based on mode
+    local socks_scheme="socks5"
+    local http_scheme="http"
+    local proxy_host="${server_ip}"
+    local mode_label="v3.2"
+
+    if [[ "$enable_public_proxy" == "true" ]] && [[ -n "$domain" ]]; then
+        socks_scheme="socks5s"
+        http_scheme="https"
+        proxy_host="${domain}"
+        mode_label="v4.0 - Public TLS"
+    fi
 
     echo ""
     echo "═══════════════════════════════════════════════════════"
-    echo "  PROXY PASSWORD RESET SUCCESSFUL (v3.2)"
+    echo "  PROXY PASSWORD RESET SUCCESSFUL ($mode_label)"
     echo "═══════════════════════════════════════════════════════"
     echo ""
     echo "Username: $username"
     echo "New Password: $new_password"
     echo ""
-    echo "⚠️  WARNING: Proxy accessible from public internet"
-    echo ""
-    echo "SOCKS5: socks5://${username}:${new_password}@${server_ip}:1080"
-    echo "HTTP:   http://${username}:${new_password}@${server_ip}:8118"
+    if [[ "$enable_public_proxy" == "true" ]]; then
+        echo "⚠️  WARNING: Proxy accessible from public internet"
+        echo ""
+    fi
+    echo "SOCKS5: ${socks_scheme}://${username}:${new_password}@${proxy_host}:1080"
+    echo "HTTP:   ${http_scheme}://${username}:${new_password}@${proxy_host}:8118"
     echo ""
     echo "NOTE: Proxy config files updated in /opt/vless/data/clients/$username/"
     echo "═══════════════════════════════════════════════════════"
@@ -945,7 +997,7 @@ export_socks5_config() {
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
         # v4.0: Public proxy with stunnel TLS termination
-        scheme="socks5"  # SOCKS5 protocol (TLS provided by stunnel on transport layer)
+        scheme="socks5s"  # SOCKS5 with TLS (stunnel provides TLS termination)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
@@ -991,7 +1043,7 @@ export_http_config() {
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
         # v4.0: Public proxy with stunnel TLS termination
-        scheme="http"  # HTTP CONNECT protocol (TLS provided by stunnel on transport layer)
+        scheme="https"  # HTTPS proxy with TLS (stunnel provides TLS termination)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
