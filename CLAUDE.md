@@ -1297,6 +1297,43 @@ jq '.users | length' /opt/vless/config/users.json
 jq -r '.users[].uuid' /opt/vless/config/users.json | sort | uniq -d  # Check UUID uniqueness
 ```
 
+**Security Testing:**
+```bash
+# Run comprehensive security test suite
+sudo vless test-security
+
+# Quick mode (skip long-running tests)
+sudo vless test-security --quick
+
+# Skip packet capture tests
+sudo vless test-security --skip-pcap
+
+# Development mode (run without installation)
+sudo vless test-security --dev-mode
+
+# Verbose output
+sudo vless test-security --verbose
+
+# Combined options
+sudo vless test-security --quick --verbose
+```
+
+**Security Test Coverage:**
+- TLS 1.3 configuration (Reality Protocol)
+- stunnel TLS termination (Public Proxy Mode)
+- Traffic encryption validation (packet capture)
+- Certificate security
+- DPI resistance (Deep Packet Inspection)
+- SSL/TLS vulnerabilities
+- Proxy protocol security (SOCKS5/HTTP)
+- Data leak detection
+
+**Test Output:**
+- Passed/Failed/Skipped count
+- Security warnings
+- Critical issues
+- Detailed test results
+
 ---
 
 ## 16. SUCCESS METRICS

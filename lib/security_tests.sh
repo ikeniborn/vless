@@ -76,8 +76,24 @@ readonly MODE
 readonly VLESS_BASE_DIR
 readonly CONFIG_DIR="${VLESS_BASE_DIR}/config"
 readonly ENV_FILE="${VLESS_BASE_DIR}/.env"
-readonly USERS_JSON="${CONFIG_DIR}/users.json"
-readonly XRAY_CONFIG="${CONFIG_DIR}/config.json"
+
+# Conditional path definitions with fallbacks
+if [[ -f "${CONFIG_DIR}/users.json" ]]; then
+    readonly USERS_JSON="${CONFIG_DIR}/users.json"
+elif [[ -f "${VLESS_BASE_DIR}/data/users.json" ]]; then
+    readonly USERS_JSON="${VLESS_BASE_DIR}/data/users.json"
+else
+    readonly USERS_JSON="${CONFIG_DIR}/users.json"  # Default location
+fi
+
+if [[ -f "${CONFIG_DIR}/config.json" ]]; then
+    readonly XRAY_CONFIG="${CONFIG_DIR}/config.json"
+elif [[ -f "${CONFIG_DIR}/xray_config.json" ]]; then
+    readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
+else
+    readonly XRAY_CONFIG="${CONFIG_DIR}/config.json"  # Default location
+fi
+
 readonly STUNNEL_CONFIG="${CONFIG_DIR}/stunnel.conf"
 readonly REALITY_KEYS="${CONFIG_DIR}/reality_keys.json"
 readonly PCAP_DIR="/tmp/vless_security_test_$$"
@@ -258,6 +274,26 @@ check_prerequisites() {
             exit 2
         fi
         print_info "✓ Docker available"
+
+        # Check Docker containers (only in production mode)
+        if ! docker ps --format '{{.Names}}' | grep -q "vless" 2>/dev/null; then
+            echo -e "${RED}ERROR: VLESS containers are not running${NC}" >&2
+            echo ""
+            echo "Start containers:"
+            if [[ "$MODE" == "production" ]]; then
+                echo "  cd /opt/vless && sudo docker compose up -d"
+            else
+                echo "  cd $VLESS_BASE_DIR && sudo docker compose up -d"
+            fi
+            echo ""
+            echo "Check container status:"
+            echo "  sudo docker ps -a | grep vless"
+            echo ""
+            exit 2
+        fi
+        print_info "✓ VLESS containers are running"
+    else
+        print_warning "DEV MODE: Skipping Docker checks"
     fi
 
     for cmd in "${required_network[@]}"; do
@@ -336,24 +372,6 @@ check_prerequisites() {
             exit 2
         fi
         print_info "✓ Found $user_count user(s)"
-
-        # Check Docker containers
-        if ! docker ps --format '{{.Names}}' | grep -q "vless" 2>/dev/null; then
-            echo -e "${RED}ERROR: VLESS containers are not running${NC}" >&2
-            echo ""
-            echo "Start containers:"
-            if [[ "$MODE" == "production" ]]; then
-                echo "  cd /opt/vless && sudo docker compose up -d"
-            else
-                echo "  cd $VLESS_BASE_DIR && sudo docker compose up -d"
-            fi
-            echo ""
-            echo "Check container status:"
-            echo "  sudo docker ps -a | grep vless"
-            echo ""
-            exit 2
-        fi
-        print_info "✓ VLESS containers are running"
     fi
 
     # Create temporary directory for packet captures
@@ -586,6 +604,39 @@ test_02_stunnel_tls() {
     else
         print_failure "stunnel HTTP port not listening: $http_port"
         return 1
+    fi
+
+    # Test TLS 1.3 only enforcement
+    print_info "Verifying TLS 1.3 only (no TLS 1.2)..."
+    if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_2 </dev/null 2>&1 | grep -q "Protocol.*TLSv1.2"; then
+        print_critical "TLS 1.2 is accepted (should be TLS 1.3 only)"
+        return 1
+    else
+        print_success "TLS 1.2 rejected (TLS 1.3 only enforced)"
+    fi
+
+    if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_3 </dev/null 2>&1 | grep -q "Protocol.*TLSv1.3"; then
+        print_success "TLS 1.3 is accepted"
+    else
+        print_warning "TLS 1.3 connection failed (check stunnel configuration)"
+    fi
+
+    # Test allowed ciphersuites
+    print_info "Verifying TLS ciphersuites..."
+    local allowed_ciphers=("TLS_AES_256_GCM_SHA384" "TLS_CHACHA20_POLY1305_SHA256")
+    local cipher_check_passed=false
+
+    for cipher in "${allowed_ciphers[@]}"; do
+        if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_3 -ciphersuites "$cipher" </dev/null 2>&1 | grep -q "Cipher.*:"; then
+            print_success "Allowed cipher supported: $cipher"
+            cipher_check_passed=true
+        fi
+    done
+
+    if [[ "$cipher_check_passed" == "true" ]]; then
+        print_success "Strong ciphersuites configured"
+    else
+        print_warning "None of the recommended ciphersuites detected"
     fi
 
     print_success "stunnel TLS termination configuration valid"
