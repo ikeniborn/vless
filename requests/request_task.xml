@@ -44,16 +44,45 @@
         </prd_document>
 
         <project_context>
-Проанализируй каталог docs. Накопилось много документтции. ЧАсть докуменатциии уже не актуально и не соответсвует реализованным функциям и PRD. \
-  Определи легаси документы, удали. Актулаьное объедини и отформатируй. Сократи контекст без потери смысла.\
+            При запуске теста безопасности после устанвоки возникает ошибка
+            ikeniborn@11154:~/vless$ sudo vless test-security 
+
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            VLESS REALITY VPN - ENCRYPTION SECURITY TESTING SUITE
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+            Test Suite: Encryption & Secure Channel Validation
+            Date: Tue Oct  7 20:52:43 CEST 2025
+            Server: 11154.example.us
+
+
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            CHECKING PREREQUISITES
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+            [INFO] VLESS installation found: /opt/vless
+            [INFO] Optional tool not found: testssl.sh (some tests will be limited)
+            ERROR: No users.json found - VLESS may not be installed
+
+            This test suite requires a working VLESS installation.
+
+            If VLESS is NOT installed, run the installer:
+            sudo bash install.sh
+
+            If VLESS IS installed but has no users, create one:
+            sudo vless-user add testuser
+
+            [INFO] Cleaning up...
+            [INFO] Cleanup completed
+
         </project_context>
 
         <task>
             <technical_requirements>
-                - Изучи документацию
-                - оптимизируй
-                - удали старое
-                - объелини и сократи контекст без потери качества
+                - Изучить текущее решение по тестирование
+                - Определить причину ошибки при запуске тестирования
+                - Исправить скрпиты для тестирования
+                - ЗАфиксировать изменения в документации если потребуется.
             </technical_requirements>
 
             <quality_requirements>
