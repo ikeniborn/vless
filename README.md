@@ -237,6 +237,7 @@ vless logs | grep "authentication failed"
 - [Security Hardening](docs/SECURITY_HARDENING_REPORT.md)
 - [API Reference](docs/API.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [APT Lock Handling](docs/APT_LOCK_HANDLING.md) - **NEW**: Автоматическая обработка блокировок пакетного менеджера
 
 ---
 
