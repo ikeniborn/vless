@@ -35,9 +35,24 @@ REQUIRED_PACKAGES=(
     "qrencode"
     "curl"
     "openssl"
+    "fail2ban"        # v3.3: Brute-force protection (all proxy modes)
+    "certbot"         # v3.3: Let's Encrypt client for TLS certificates
+    "dnsutils"        # v3.3: DNS tools (dig) for certificate validation
+    "tcpdump"         # v3.3: Packet capture for security testing
+    "nmap"            # v3.3: Network scanner for security testing
 )
+
+# Optional packages (non-critical, system works without them)
+# v3.3: netcat for Docker healthchecks (has fallbacks)
+# v3.3: tshark for advanced security testing (Wireshark CLI)
+OPTIONAL_PACKAGES=(
+    "netcat-openbsd"  # For Docker healthchecks (fallback: netcat-traditional, ncat)
+    "tshark"          # For advanced packet analysis in security tests (optional)
+)
+
 # Ensure it's properly declared as array for export
 declare -ga REQUIRED_PACKAGES
+declare -ga OPTIONAL_PACKAGES
 
 # Minimum version requirements
 readonly DOCKER_MIN_VERSION="20.10"
@@ -237,6 +252,10 @@ check_dependencies() {
         # Check if command exists
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
+        [[ "$package" == "fail2ban" ]] && cmd_name="fail2ban-client"
+        [[ "$package" == "dnsutils" ]] && cmd_name="dig"
+        [[ "$package" == "tcpdump" ]] && cmd_name="tcpdump"
+        [[ "$package" == "nmap" ]] && cmd_name="nmap"
 
         # Special check for docker-compose-plugin (uses "docker compose" command)
         if [[ "$package" == "docker-compose-plugin" ]]; then
@@ -369,13 +388,294 @@ check_dependencies() {
 }
 
 # =============================================================================
+# FUNCTION: classify_apt_process
+# =============================================================================
+# Description: Classify APT process by safety level for automatic termination
+# Parameters:
+#   $1: process_name (from ps comm)
+#   $2: full_command (from ps args)
+# Returns: 0=SAFE (auto-kill OK), 1=CAUTION (ask user), 2=DANGER (never kill)
+# Outputs: Classification to stdout (SAFE/CAUTION/DANGER)
+# =============================================================================
+classify_apt_process() {
+    local process_name="$1"
+    local full_command="${2:-}"
+
+    # SAFE processes (can be killed automatically)
+    case "$process_name" in
+        apt|apt-get)
+            if echo "$full_command" | grep -qE '\s+(update|search|show|list)'; then
+                echo "SAFE"
+                return 0
+            fi
+            ;;
+        apt-cache)
+            echo "SAFE"
+            return 0
+            ;;
+        unattended-upgrade|unattended-upgrades)
+            # Check process age - if < 5 minutes, likely safe to kill
+            local pid
+            pid=$(pgrep -f "$process_name" | head -n1)
+            if [[ -n "$pid" ]]; then
+                local age_seconds
+                age_seconds=$(ps -p "$pid" -o etimes= 2>/dev/null | tr -d ' ')
+                if [[ -n "$age_seconds" ]] && [[ $age_seconds -lt 300 ]]; then
+                    echo "SAFE"
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+
+    # DANGER processes (never auto-kill)
+    case "$process_name" in
+        dpkg)
+            if echo "$full_command" | grep -qE '(--install|--unpack|--configure|--remove)'; then
+                echo "DANGER"
+                return 2
+            fi
+            ;;
+    esac
+
+    # Default: CAUTION (ask user)
+    echo "CAUTION"
+    return 1
+}
+
+# =============================================================================
+# FUNCTION: check_apt_locks
+# =============================================================================
+# Description: Check if APT package manager is locked by another process
+# Checks all common lock files used by apt/dpkg
+# Returns: 0 if no locks detected, 1 if locks found
+# Sets global arrays: LOCK_PIDS, LOCK_PROCESSES, LOCK_CLASSIFICATIONS
+# =============================================================================
+check_apt_locks() {
+    local locks=(
+        "/var/lib/dpkg/lock"
+        "/var/lib/dpkg/lock-frontend"
+        "/var/lib/apt/lists/lock"
+        "/var/cache/apt/archives/lock"
+    )
+
+    local locks_found=0
+    declare -ga LOCK_PIDS=()
+    declare -ga LOCK_PROCESSES=()
+    declare -ga LOCK_CLASSIFICATIONS=()
+
+    for lock in "${locks[@]}"; do
+        # Check if lock file is held by a process
+        if command -v fuser &>/dev/null && fuser "$lock" &>/dev/null 2>&1; then
+            local pid
+            pid=$(fuser "$lock" 2>/dev/null | awk '{print $1}')
+
+            if [[ -n "$pid" ]]; then
+                # Skip duplicates
+                if [[ " ${LOCK_PIDS[*]} " =~ " ${pid} " ]]; then
+                    continue
+                fi
+
+                local process_name
+                process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+
+                local full_cmd
+                full_cmd=$(ps -p "$pid" -o args= 2>/dev/null || echo "")
+
+                local classification
+                classification=$(classify_apt_process "$process_name" "$full_cmd")
+
+                LOCK_PIDS+=("$pid")
+                LOCK_PROCESSES+=("$process_name")
+                LOCK_CLASSIFICATIONS+=("$classification")
+
+                echo -e "${YELLOW}${WARNING_MARK} APT lock detected: $lock${NC}" >&2
+                echo -e "${YELLOW}  Process: $process_name (PID: $pid)${NC}" >&2
+                echo -e "${YELLOW}  Classification: $classification${NC}" >&2
+
+                if [[ -n "$full_cmd" ]]; then
+                    echo -e "${YELLOW}  Command: ${full_cmd:0:80}${NC}" >&2
+                fi
+
+                locks_found=1
+            fi
+        fi
+    done
+
+    return $locks_found
+}
+
+# =============================================================================
+# FUNCTION: diagnose_apt_locks
+# =============================================================================
+# Description: Provide detailed diagnostics when APT is locked
+# Shows all processes holding locks and suggests solutions
+# =============================================================================
+diagnose_apt_locks() {
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}           APT LOCK DIAGNOSTICS${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    local locks=(
+        "/var/lib/dpkg/lock"
+        "/var/lib/dpkg/lock-frontend"
+        "/var/lib/apt/lists/lock"
+        "/var/cache/apt/archives/lock"
+    )
+
+    echo -e "${CYAN}Checking APT lock files...${NC}"
+    echo ""
+
+    local found_processes=0
+
+    for lock in "${locks[@]}"; do
+        if command -v fuser &>/dev/null && fuser "$lock" &>/dev/null 2>&1; then
+            local pid
+            pid=$(fuser "$lock" 2>/dev/null | awk '{print $1}')
+
+            if [[ -n "$pid" ]]; then
+                found_processes=1
+
+                echo -e "${YELLOW}Lock: $lock${NC}"
+                echo -e "${YELLOW}  PID: $pid${NC}"
+                echo -e "${YELLOW}  Process: $(ps -p "$pid" -o comm= 2>/dev/null || echo 'unknown')${NC}"
+                echo -e "${YELLOW}  Command: $(ps -p "$pid" -o args= 2>/dev/null || echo 'unknown')${NC}"
+                echo -e "${YELLOW}  Started: $(ps -p "$pid" -o lstart= 2>/dev/null || echo 'unknown')${NC}"
+                echo ""
+            fi
+        fi
+    done
+
+    if [[ $found_processes -eq 0 ]]; then
+        echo -e "${GREEN}${CHECK_MARK} No active locks detected${NC}"
+        echo ""
+        return 0
+    fi
+
+    # Check for common processes
+    echo -e "${CYAN}Common Causes & Solutions:${NC}"
+    echo ""
+
+    if pgrep -f "unattended.*upgrade" &>/dev/null; then
+        echo -e "${YELLOW}1. Automatic Updates Running${NC}"
+        echo -e "   ${CYAN}Wait for completion: sudo systemctl status unattended-upgrades${NC}"
+        echo -e "   ${CYAN}Check progress: sudo tail -f /var/log/unattended-upgrades/unattended-upgrades.log${NC}"
+        echo ""
+    fi
+
+    if pgrep -f "apt|dpkg" &>/dev/null; then
+        echo -e "${YELLOW}2. Manual APT Process Running${NC}"
+        echo -e "   ${CYAN}Check all apt processes: ps aux | grep -E 'apt|dpkg'${NC}"
+        echo -e "   ${CYAN}Wait for completion or check other terminals${NC}"
+        echo ""
+    fi
+
+    echo -e "${YELLOW}3. General Solutions (in order of safety):${NC}"
+    echo -e "   ${CYAN}a) Wait 2-5 minutes for automatic processes to finish (RECOMMENDED)${NC}"
+    echo -e "   ${CYAN}b) Check if process is stuck: ps -p <PID> -o etime=,stat=,cmd=${NC}"
+    echo -e "   ${CYAN}c) Kill stuck process (CAUTION): sudo kill <PID>${NC}"
+    echo -e "   ${CYAN}d) Force kill if needed: sudo kill -9 <PID>${NC}"
+    echo -e "   ${RED}e) Remove stale locks (LAST RESORT, may break system):${NC}"
+    echo -e "   ${RED}   sudo rm /var/lib/apt/lists/lock${NC}"
+    echo -e "   ${RED}   sudo rm /var/lib/dpkg/lock*${NC}"
+    echo -e "   ${RED}   sudo dpkg --configure -a${NC}"
+    echo ""
+
+    return 1
+}
+
+# =============================================================================
+# FUNCTION: kill_safe_apt_processes
+# =============================================================================
+# Description: Automatically kill SAFE APT processes (apt update, apt-cache, etc.)
+# Uses global arrays from check_apt_locks(): LOCK_PIDS, LOCK_PROCESSES, LOCK_CLASSIFICATIONS
+# Returns: 0 if any processes killed, 1 if none killed
+# =============================================================================
+kill_safe_apt_processes() {
+    local killed_count=0
+    local danger_count=0
+    local caution_count=0
+
+    if [[ ${#LOCK_PIDS[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}No lock processes to terminate${NC}" >&2
+        return 1
+    fi
+
+    echo -e "${CYAN}Analyzing blocking processes for safe termination...${NC}"
+    echo ""
+
+    for i in "${!LOCK_PIDS[@]}"; do
+        local pid="${LOCK_PIDS[$i]}"
+        local process="${LOCK_PROCESSES[$i]}"
+        local classification="${LOCK_CLASSIFICATIONS[$i]}"
+
+        case "$classification" in
+            SAFE)
+                echo -e "  ${GREEN}[SAFE]${NC} Terminating $process (PID $pid)..."
+
+                if kill "$pid" 2>/dev/null; then
+                    echo -e "  ${GREEN}${CHECK_MARK} Process $pid terminated${NC}"
+                    ((killed_count++)) || true
+                    sleep 1
+                else
+                    echo -e "  ${YELLOW}${WARNING_MARK} Failed to kill $pid, trying force kill...${NC}"
+                    if kill -9 "$pid" 2>/dev/null; then
+                        echo -e "  ${GREEN}${CHECK_MARK} Process $pid force-killed${NC}"
+                        ((killed_count++)) || true
+                        sleep 1
+                    else
+                        echo -e "  ${RED}${CROSS_MARK} Cannot kill process $pid${NC}"
+                    fi
+                fi
+                ;;
+
+            DANGER)
+                echo -e "  ${RED}[DANGER]${NC} Skipping $process (PID $pid) - unsafe to terminate"
+                ((danger_count++)) || true
+                ;;
+
+            CAUTION)
+                echo -e "  ${YELLOW}[CAUTION]${NC} Skipping $process (PID $pid) - requires user confirmation"
+                ((caution_count++)) || true
+                ;;
+        esac
+    done
+
+    echo ""
+
+    if [[ $killed_count -gt 0 ]]; then
+        echo -e "${GREEN}${CHECK_MARK} Terminated $killed_count safe process(es)${NC}"
+
+        # Clean up potential stale locks after killing processes
+        echo -e "${CYAN}Cleaning up package manager state...${NC}"
+        sudo dpkg --configure -a &>/dev/null 2>&1 || true
+
+        return 0
+    elif [[ $danger_count -gt 0 ]] || [[ $caution_count -gt 0 ]]; then
+        echo -e "${YELLOW}${WARNING_MARK} No safe processes to auto-terminate${NC}"
+        echo -e "${YELLOW}  DANGER processes: $danger_count${NC}"
+        echo -e "${YELLOW}  CAUTION processes: $caution_count${NC}"
+        echo -e "${YELLOW}  Manual intervention required${NC}"
+        return 1
+    else
+        echo -e "${YELLOW}${WARNING_MARK} No processes to terminate${NC}"
+        return 1
+    fi
+}
+
+# =============================================================================
 # FUNCTION: install_dependencies
 # =============================================================================
 # Description: Auto-install ALL missing dependencies
-# Uses apt update before installation
+# Uses apt update before installation with retry mechanism
 # Installs dependencies one by one with progress indicators
 # Validates each installation after completion
-# No user prompts (fully automated as per Q-001)
+# Includes APT lock detection and handling with SAFE auto-kill
+# ENV variables:
+#   - VLESS_AUTO_INSTALL_DEPS=yes: Skip user prompts for dependency installation
+#   - VLESS_AUTO_KILL_SAFE_LOCKS=yes: Auto-kill SAFE blocking processes
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 install_dependencies() {
@@ -388,16 +688,185 @@ install_dependencies() {
         return 1
     fi
 
-    # Update package lists
+    # Update package lists with retry mechanism and lock detection
     echo -e "${CYAN}Updating package lists...${NC}"
     export DEBIAN_FRONTEND=noninteractive
-    if ! ${PKG_MANAGER} update -qq &>/dev/null; then
-        echo -e "${RED}${CROSS_MARK} Failed to update package lists${NC}" >&2
-        echo -e "${YELLOW}Suggestion: Check internet connection and run 'sudo ${PKG_MANAGER} update' manually${NC}" >&2
-        return 1
-    fi
-    echo -e "${GREEN}${CHECK_MARK} Package lists updated${NC}"
-    echo ""
+
+    local max_attempts=5
+    local wait_time=30
+    local attempt=1
+
+    while [[ $attempt -le $max_attempts ]]; do
+        # Try apt update
+        if ${PKG_MANAGER} update -qq &>/dev/null 2>&1; then
+            echo -e "${GREEN}${CHECK_MARK} Package lists updated${NC}"
+            echo ""
+            break
+        fi
+
+        # Check if failure is due to APT lock
+        if check_apt_locks; then
+            # Not a lock issue, some other problem
+            echo -e "${RED}${CROSS_MARK} Failed to update package lists${NC}" >&2
+            echo -e "${YELLOW}Suggestion: Check internet connection and run 'sudo ${PKG_MANAGER} update' manually${NC}" >&2
+            return 1
+        fi
+
+        # APT is locked - try automatic safe kill first
+        echo ""
+
+        # Check if auto-kill is enabled
+        if [[ "${VLESS_AUTO_KILL_SAFE_LOCKS:-}" == "yes" ]]; then
+            echo -e "${CYAN}Auto-kill mode enabled. Attempting safe process termination...${NC}"
+            echo ""
+
+            if kill_safe_apt_processes; then
+                echo ""
+                echo -e "${GREEN}Safe processes terminated. Retrying apt update...${NC}"
+                ((attempt++)) || true
+                sleep 2
+                continue
+            else
+                echo ""
+                echo -e "${YELLOW}Cannot auto-kill remaining processes. Manual intervention needed.${NC}"
+                diagnose_apt_locks
+                return 1
+            fi
+        fi
+
+        # Not auto-kill mode - show diagnostics
+        diagnose_apt_locks
+
+        # Interactive prompt for user action
+        if [[ $attempt -lt $max_attempts ]]; then
+            echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}APT is locked. Choose an action:${NC}"
+            echo -e "  ${CYAN}[w]${NC} Wait ${wait_time}s and retry (attempt $attempt/$max_attempts)"
+            echo -e "  ${CYAN}[a]${NC} Auto-kill SAFE processes only (recommended)"
+            echo -e "  ${CYAN}[k]${NC} Kill ALL blocking processes (CAUTION)"
+            echo -e "  ${CYAN}[c]${NC} Cancel installation"
+            echo ""
+            echo -e "${CYAN}Your choice [w/a/k/c] (default=wait, 60s timeout): ${NC}"
+
+            local user_choice
+            if ! read -t 60 -r user_choice; then
+                user_choice="w"
+                echo ""
+                echo -e "${CYAN}Timeout reached, waiting for lock to release...${NC}"
+            fi
+
+            # Default to wait if empty
+            [[ -z "$user_choice" ]] && user_choice="w"
+
+            case "${user_choice,,}" in
+                a|auto)
+                    echo ""
+                    if kill_safe_apt_processes; then
+                        echo ""
+                        echo -e "${CYAN}Retrying apt update...${NC}"
+                        ((attempt++)) || true
+                        sleep 2
+                        continue
+                    else
+                        echo -e "${RED}${CROSS_MARK} No safe processes to kill${NC}"
+                        return 1
+                    fi
+                    ;;
+
+                k|kill)
+                    echo ""
+                    echo -e "${RED}${WARNING_MARK} WARNING: Killing ALL blocking processes (including potentially unsafe)${NC}"
+                    echo -e "${YELLOW}This may damage your system if dpkg is in the middle of package installation!${NC}"
+                    echo ""
+                    echo -e "${CYAN}Type 'yes' to confirm force kill: ${NC}"
+
+                    local confirm
+                    if ! read -t 30 -r confirm; then
+                        echo ""
+                        echo -e "${YELLOW}Timeout - cancelling force kill${NC}"
+                        continue
+                    fi
+
+                    if [[ "${confirm,,}" != "yes" ]]; then
+                        echo -e "${YELLOW}Force kill cancelled${NC}"
+                        continue
+                    fi
+
+                    echo -e "${YELLOW}Force killing ALL processes...${NC}"
+
+                    local locks=(
+                        "/var/lib/dpkg/lock"
+                        "/var/lib/dpkg/lock-frontend"
+                        "/var/lib/apt/lists/lock"
+                        "/var/cache/apt/archives/lock"
+                    )
+
+                    local killed_any=0
+
+                    for lock in "${locks[@]}"; do
+                        if command -v fuser &>/dev/null && fuser "$lock" &>/dev/null 2>&1; then
+                            local pid
+                            pid=$(fuser "$lock" 2>/dev/null | awk '{print $1}')
+
+                            if [[ -n "$pid" ]]; then
+                                echo -e "  Killing PID $pid ($(ps -p "$pid" -o comm= 2>/dev/null))..."
+
+                                if kill "$pid" 2>/dev/null; then
+                                    echo -e "  ${GREEN}${CHECK_MARK} Process $pid terminated${NC}"
+                                    killed_any=1
+                                    sleep 2
+                                else
+                                    echo -e "  ${YELLOW}${WARNING_MARK} Failed to kill $pid, trying force kill...${NC}"
+                                    if kill -9 "$pid" 2>/dev/null; then
+                                        echo -e "  ${GREEN}${CHECK_MARK} Process $pid force-killed${NC}"
+                                        killed_any=1
+                                        sleep 2
+                                    else
+                                        echo -e "  ${RED}${CROSS_MARK} Cannot kill process $pid${NC}"
+                                    fi
+                                fi
+                            fi
+                        fi
+                    done
+
+                    if [[ $killed_any -eq 1 ]]; then
+                        echo ""
+                        echo -e "${GREEN}Processes terminated. Cleaning up and retrying...${NC}"
+
+                        # Clean up potential stale locks
+                        sudo dpkg --configure -a &>/dev/null || true
+
+                        echo -e "${CYAN}Retrying apt update...${NC}"
+                        ((attempt++)) || true
+                        continue
+                    else
+                        echo -e "${RED}${CROSS_MARK} No processes were killed${NC}"
+                        return 1
+                    fi
+                    ;;
+
+                c|cancel)
+                    echo ""
+                    echo -e "${RED}${CROSS_MARK} Installation cancelled by user${NC}"
+                    return 1
+                    ;;
+
+                w|wait|*)
+                    echo ""
+                    echo -e "${CYAN}⏳ Waiting ${wait_time}s for APT lock to release (attempt $attempt/$max_attempts)...${NC}"
+                    sleep $wait_time
+                    ((attempt++)) || true
+                    continue
+                    ;;
+            esac
+        else
+            # Last attempt failed
+            echo ""
+            echo -e "${RED}${CROSS_MARK} APT lock timeout after $max_attempts attempts${NC}"
+            echo -e "${YELLOW}Please resolve the APT lock manually and retry installation${NC}"
+            return 1
+        fi
+    done
 
     # Get total package count (using ${#array[@]:-} would be invalid for arrays)
     # Ensure REQUIRED_PACKAGES is accessible from global scope
@@ -413,6 +882,11 @@ install_dependencies() {
         # Check if already installed
         local cmd_name="$package"
         [[ "$package" == "docker.io" ]] && cmd_name="docker"
+        [[ "$package" == "netcat-openbsd" ]] && cmd_name="nc"
+        [[ "$package" == "fail2ban" ]] && cmd_name="fail2ban-server"
+        [[ "$package" == "dnsutils" ]] && cmd_name="dig"
+        [[ "$package" == "tcpdump" ]] && cmd_name="tcpdump"
+        [[ "$package" == "nmap" ]] && cmd_name="nmap"
 
         # Special check for docker-compose-plugin
         local is_installed=false
@@ -483,6 +957,56 @@ install_dependencies() {
             echo -e "[$current_num/$total_packages] ${CROSS_MARK} $package - ${RED}installation failed${NC}"
             failed_packages+=("$package")
             ((failed_count++)) || true
+        fi
+    done
+
+    # Install optional packages (v3.2)
+    echo ""
+    echo -e "${CYAN}Installing optional packages...${NC}"
+
+    for package in "${OPTIONAL_PACKAGES[@]}"; do
+        # Map package name to command name
+        local opt_cmd="$package"
+        [[ "$package" == "netcat-openbsd" ]] && opt_cmd="nc"
+        [[ "$package" == "tshark" ]] && opt_cmd="tshark"
+
+        # Check if already installed
+        if command -v "$opt_cmd" &>/dev/null 2>&1; then
+            echo -e "  ${CHECK_MARK} $package - ${GREEN}already installed${NC}"
+            continue
+        fi
+
+        # Try to install
+        echo -e "  Installing $package..."
+        if install_package "$package"; then
+            if command -v "$opt_cmd" &>/dev/null 2>&1; then
+                echo -e "  ${CHECK_MARK} $package - ${GREEN}installed successfully${NC}"
+            else
+                echo -e "  ${YELLOW}${WARNING_MARK} $package - installed but command not found${NC}"
+            fi
+        else
+            # Handle fallbacks for specific packages
+            if [[ "$package" == "netcat-openbsd" ]]; then
+                echo -e "  ${YELLOW}${WARNING_MARK} netcat-openbsd not available, trying alternatives...${NC}"
+
+                # Try netcat-traditional
+                if install_package "netcat-traditional" 2>/dev/null; then
+                    echo -e "  ${CHECK_MARK} netcat-traditional - ${GREEN}installed as fallback${NC}"
+                # Try ncat (from nmap package)
+                elif command -v ncat &>/dev/null 2>&1; then
+                    echo -e "  ${CHECK_MARK} ncat - ${GREEN}already available${NC}"
+                else
+                    echo -e "  ${YELLOW}${WARNING_MARK} No netcat variant available (healthchecks will be disabled)${NC}"
+                fi
+            elif [[ "$package" == "tshark" ]]; then
+                echo -e "  ${YELLOW}${WARNING_MARK} tshark not available (advanced packet analysis disabled)${NC}"
+                echo -e "  ${CYAN}Note: tshark is part of Wireshark package (large download)${NC}"
+                echo -e "  ${CYAN}Manual install: sudo apt-get install tshark${NC}"
+            elif [[ "$package" == "fail2ban" ]]; then
+                echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (will be handled by fail2ban_setup.sh)${NC}"
+            else
+                echo -e "  ${YELLOW}${WARNING_MARK} $package - installation failed (non-critical)${NC}"
+            fi
         fi
     done
 

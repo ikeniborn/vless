@@ -390,6 +390,9 @@ display_service_status() {
     # Network information
     display_network_info
 
+    # Proxy configuration (TASK-11.5)
+    display_proxy_status
+
     # User count
     display_user_count
 
@@ -513,6 +516,76 @@ display_user_count() {
     count=$(jq -r '.users | length' "$users_json" 2>/dev/null || echo "0")
 
     echo "Active Users: $count"
+}
+
+#######################################
+# Display proxy configuration status
+# TASK-11.5: Service Operations Update
+# Globals:
+#   XRAY_CONFIG
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+display_proxy_status() {
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        return
+    fi
+
+    # Check if proxy inbounds exist
+    local has_socks5
+    has_socks5=$(jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "$XRAY_CONFIG" >/dev/null 2>&1 && echo "true" || echo "false")
+
+    local has_http
+    has_http=$(jq -e '.inbounds[] | select(.tag == "http-proxy")' "$XRAY_CONFIG" >/dev/null 2>&1 && echo "true" || echo "false")
+
+    if [[ "$has_socks5" == "false" && "$has_http" == "false" ]]; then
+        echo "┌─ Proxy Configuration ────────────────────────────────────┐"
+        echo -e "  Status:     \033[90m● Disabled\033[0m"
+        echo "└──────────────────────────────────────────────────────────┘"
+        echo ""
+        return
+    fi
+
+    echo "┌─ Proxy Configuration ────────────────────────────────────┐"
+    echo -e "  Status:     \033[32m● Enabled\033[0m"
+    echo ""
+
+    # SOCKS5 Proxy
+    if [[ "$has_socks5" == "true" ]]; then
+        local socks5_port
+        socks5_port=$(jq -r '.inbounds[] | select(.tag == "socks5-proxy") | .port' "$XRAY_CONFIG" 2>/dev/null || echo "N/A")
+
+        local socks5_listen
+        socks5_listen=$(jq -r '.inbounds[] | select(.tag == "socks5-proxy") | .listen' "$XRAY_CONFIG" 2>/dev/null || echo "N/A")
+
+        local socks5_users
+        socks5_users=$(jq -r '.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts | length' "$XRAY_CONFIG" 2>/dev/null || echo "0")
+
+        echo "  SOCKS5:"
+        echo "    Listen:   ${socks5_listen}:${socks5_port}"
+        echo "    Users:    $socks5_users"
+    fi
+
+    # HTTP Proxy
+    if [[ "$has_http" == "true" ]]; then
+        local http_port
+        http_port=$(jq -r '.inbounds[] | select(.tag == "http-proxy") | .port' "$XRAY_CONFIG" 2>/dev/null || echo "N/A")
+
+        local http_listen
+        http_listen=$(jq -r '.inbounds[] | select(.tag == "http-proxy") | .listen' "$XRAY_CONFIG" 2>/dev/null || echo "N/A")
+
+        local http_users
+        http_users=$(jq -r '.inbounds[] | select(.tag == "http-proxy") | .settings.accounts | length' "$XRAY_CONFIG" 2>/dev/null || echo "0")
+
+        echo "  HTTP:"
+        echo "    Listen:   ${http_listen}:${http_port}"
+        echo "    Users:    $http_users"
+    fi
+
+    echo "└──────────────────────────────────────────────────────────┘"
+    echo ""
 }
 
 #######################################

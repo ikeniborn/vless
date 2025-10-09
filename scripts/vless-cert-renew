@@ -1,0 +1,59 @@
+#!/bin/bash
+#==============================================================================
+# Certificate Renewal Deploy Hook
+# Part of VLESS + Reality VPN v3.3
+#
+# This script is called by certbot after successful certificate renewal.
+# It restarts the Xray container to load the new certificates.
+#
+# Usage: Called automatically by certbot via --deploy-hook
+# Location: /usr/local/bin/vless-cert-renew
+#==============================================================================
+
+# Constants
+readonly VLESS_DIR="/opt/vless"
+readonly LOG_FILE="$VLESS_DIR/logs/certbot-renew.log"
+readonly TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+
+# Ensure log directory exists
+mkdir -p "$VLESS_DIR/logs" 2>/dev/null
+
+# Log function
+log_message() {
+    echo "[$TIMESTAMP] $1" | tee -a "$LOG_FILE"
+}
+
+#==============================================================================
+# Main execution
+#==============================================================================
+
+log_message "🔄 Certificate renewed successfully"
+log_message "Restarting Xray container to load new certificates..."
+
+# Change to VLESS directory
+if ! cd "$VLESS_DIR"; then
+    log_message "❌ ERROR: Cannot access $VLESS_DIR"
+    exit 1
+fi
+
+# Restart Xray container
+if docker-compose restart xray >> "$LOG_FILE" 2>&1; then
+    # Wait for container to be healthy
+    sleep 2
+
+    # Verify container is running
+    if docker ps | grep -q "vless-reality.*Up"; then
+        log_message "✅ Xray restarted successfully with new certificates"
+        log_message "Downtime: ~2-3 seconds"
+        exit 0
+    else
+        log_message "❌ ERROR: Xray container failed to start after restart"
+        log_message "Run: docker logs vless-reality"
+        exit 1
+    fi
+else
+    log_message "❌ ERROR: Failed to restart Xray container"
+    log_message "Exit code: $?"
+    log_message "Manual restart: cd $VLESS_DIR && docker-compose restart xray"
+    exit 1
+fi

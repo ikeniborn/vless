@@ -100,6 +100,8 @@ verify_installation() {
     verify_docker_network
     verify_containers
     verify_xray_config
+    test_xray_config
+    validate_mandatory_tls
     verify_ufw_rules
     verify_container_internet
     verify_port_listening
@@ -438,7 +440,7 @@ verify_xray_config() {
 # ============================================================================
 
 verify_ufw_rules() {
-    log_info "Verification 6/8: Checking UFW firewall rules..."
+    log_info "Verification 6/10: Checking UFW firewall rules..."
 
     # Check if UFW is installed and active
     if ! command -v ufw &>/dev/null; then
@@ -499,7 +501,7 @@ verify_ufw_rules() {
 # ============================================================================
 
 verify_container_internet() {
-    log_info "Verification 7/8: Testing container internet connectivity..."
+    log_info "Verification 7/10: Testing container internet connectivity..."
 
     # Test connectivity from xray container
     if docker exec vless_xray ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
@@ -544,7 +546,7 @@ verify_container_internet() {
 # ============================================================================
 
 verify_port_listening() {
-    log_info "Verification 8/8: Checking port listening status..."
+    log_info "Verification 8/10: Checking port listening status..."
 
     local vless_port=$(jq -r '.inbounds[0].port' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "443")
 
@@ -621,6 +623,170 @@ display_verification_summary() {
 }
 
 # ============================================================================
+# FUNCTION: validate_mandatory_tls
+# ============================================================================
+# Description: Validate TLS configuration for public proxy mode (v3.3)
+# Checks:
+#   - streamSettings.security="tls" for SOCKS5/HTTP inbounds
+#   - Certificate files exist and accessible
+#   - Docker volume mount configured
+# Returns: 0 if valid, 1 if validation fails
+# Related: TASK-2.4 (v3.3 TLS Validation)
+# ============================================================================
+validate_mandatory_tls() {
+    echo ""
+    log_info "Verification 5.6/10: Validating TLS encryption (v4.0 stunnel architecture)..."
+
+    # Only validate if public proxy mode enabled
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
+        log_info "  ⊗ Public proxy disabled, skipping TLS validation"
+        echo ""
+        return 0
+    fi
+
+    # v4.0: TLS handled by stunnel, not Xray
+    if [[ "${ENABLE_PROXY_TLS:-false}" != "true" ]]; then
+        log_info "  ⊗ TLS disabled (plaintext mode), skipping TLS validation"
+        log_warning "  ⚠️  SECURITY WARNING: Proxy running in plaintext mode"
+        echo ""
+        return 0
+    fi
+
+    local validation_failed=0
+
+    # Check 1: stunnel.conf exists as FILE (not directory!)
+    log_info "  [1/5] Checking stunnel configuration file..."
+    if [[ ! -f "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
+        if [[ -d "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
+            log_error "    ✗ stunnel.conf is a DIRECTORY (should be FILE)"
+            log_error "    This indicates init_stunnel() was never called"
+        else
+            log_error "    ✗ stunnel.conf not found"
+        fi
+        validation_failed=1
+    else
+        log_success "    ✓ stunnel.conf exists"
+    fi
+
+    # Check 2: stunnel container exists
+    log_info "  [2/5] Checking stunnel container..."
+    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_stunnel$'; then
+        log_error "    ✗ stunnel container not found"
+        validation_failed=1
+    else
+        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        if [[ "$stunnel_status" == "running" ]]; then
+            log_success "    ✓ stunnel container running"
+        else
+            log_error "    ✗ stunnel container status: $stunnel_status"
+            validation_failed=1
+        fi
+    fi
+
+    # Check 3: Certificate files exist
+    log_info "  [3/5] Checking Let's Encrypt certificates..."
+    if [[ -z "${DOMAIN:-}" ]]; then
+        log_error "    ✗ DOMAIN variable not set"
+        validation_failed=1
+    elif [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+        log_error "    ✗ Certificate not found: /etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+        validation_failed=1
+    else
+        log_success "    ✓ Certificates exist for $DOMAIN"
+        local expiry_date
+        expiry_date=$(openssl x509 -in "/etc/letsencrypt/live/${DOMAIN}/cert.pem" -noout -enddate 2>/dev/null | cut -d= -f2)
+        log_info "    ℹ Expires: $expiry_date"
+    fi
+
+    # Check 4: Xray inbounds are plaintext localhost (v4.0 architecture)
+    log_info "  [4/5] Checking Xray proxy inbounds (should be plaintext)..."
+    local config_file="${INSTALL_ROOT}/config/xray_config.json"
+    local socks5_listen=$(jq -r '.inbounds[] | select(.tag=="socks5-proxy") | .listen' "$config_file" 2>/dev/null)
+    local http_listen=$(jq -r '.inbounds[] | select(.tag=="http-proxy") | .listen' "$config_file" 2>/dev/null)
+
+    if [[ "$socks5_listen" == "0.0.0.0" ]] && [[ "$http_listen" == "0.0.0.0" ]]; then
+        log_success "    ✓ Xray proxies listen on 0.0.0.0 (correct for Docker network)"
+    else
+        log_error "    ✗ Xray proxies should listen on 0.0.0.0 (Docker network)"
+        log_error "    Found: SOCKS5=$socks5_listen, HTTP=$http_listen"
+        validation_failed=1
+    fi
+
+    # Check 5: stunnel ports exposed to internet
+    log_info "  [5/5] Checking stunnel port mappings..."
+    local stunnel_ports=$(docker port vless_stunnel 2>/dev/null || echo "")
+    if [[ "$stunnel_ports" =~ "1080" ]] && [[ "$stunnel_ports" =~ "8118" ]]; then
+        log_success "    ✓ stunnel exposing ports 1080 and 8118"
+    else
+        log_error "    ✗ stunnel ports not properly mapped"
+        validation_failed=1
+    fi
+
+    # Final result
+    echo ""
+    if [[ $validation_failed -eq 0 ]]; then
+        log_success "TLS validation: PASSED (v4.0 stunnel architecture)"
+        log_info "  • Architecture: Client → stunnel (TLS) → Xray (plaintext Docker network)"
+        log_info "  • SOCKS5: 0.0.0.0:1080 (TLS) → vless_xray:10800 (plaintext)"
+        log_info "  • HTTP: 0.0.0.0:8118 (TLS) → vless_xray:18118 (plaintext)"
+        return 0
+    else
+        log_error "TLS validation: FAILED"
+        log_error "v4.0 requires stunnel for TLS termination"
+        return 1
+    fi
+}
+
+# ============================================================================
+# FUNCTION: test_xray_config
+# ============================================================================
+# Description: Test Xray configuration for syntax and validity
+# Uses: xray run -test command
+# Returns: 0 if valid, 1 if test fails
+# Related: TASK-2.5 (v3.3 Config Test)
+# ============================================================================
+test_xray_config() {
+    echo ""
+    log_info "Verification 5.5/10: Testing Xray configuration..."
+
+    local config_file="${INSTALL_ROOT}/config/xray_config.json"
+
+    # Check 1: JSON syntax validation
+    log_info "  [1/2] Validating JSON syntax..."
+    if ! jq empty "$config_file" 2>/dev/null; then
+        log_error "    ✗ Invalid JSON syntax in $config_file"
+        log_error "    Run: jq . $config_file"
+        return 1
+    fi
+    log_success "    ✓ JSON syntax valid"
+
+    # Check 2: Xray test mode
+    log_info "  [2/2] Running Xray configuration test..."
+
+    # Prepare volume mounts for test
+    local volume_args="-v ${INSTALL_ROOT}/config:/etc/xray:ro"
+
+    # Add certificate volume if public proxy enabled
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        volume_args="$volume_args -v /etc/letsencrypt:/certs:ro"
+    fi
+
+    # Run xray test
+    local test_output
+    if test_output=$(docker run --rm $volume_args "${XRAY_IMAGE}" xray run -test -c /etc/xray/xray_config.json 2>&1); then
+        log_success "    ✓ Xray configuration test passed"
+        return 0
+    else
+        log_error "    ✗ Xray configuration test failed"
+        log_error "Test output:"
+        echo "$test_output" | while IFS= read -r line; do
+            log_error "    $line"
+        done
+        return 1
+    fi
+}
+
+# ============================================================================
 # Export Functions
 # ============================================================================
 
@@ -637,6 +803,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f verify_container_internet
     export -f verify_port_listening
     export -f display_verification_summary
+    export -f validate_mandatory_tls
+    export -f test_xray_config
     export -f log_info
     export -f log_success
     export -f log_warning

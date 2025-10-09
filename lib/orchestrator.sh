@@ -50,12 +50,12 @@ readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="vless_xray"
 readonly NGINX_CONTAINER_NAME="vless_nginx"
 
-# Configuration files
-readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
-readonly USERS_JSON="${DATA_DIR}/users.json"
+# Configuration files (conditional to avoid conflicts when sourced by CLI)
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
+[[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${DATA_DIR}/users.json"
 readonly DOCKER_COMPOSE_FILE="${INSTALL_ROOT}/docker-compose.yml"
 readonly NGINX_CONFIG="${FAKESITE_DIR}/default.conf"
-readonly ENV_FILE="${INSTALL_ROOT}/.env"
+[[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${INSTALL_ROOT}/.env"
 
 # UFW configuration
 readonly UFW_AFTER_RULES="/etc/ufw/after.rules"
@@ -98,8 +98,9 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 4: Create Xray configuration
-    create_xray_config || {
+    # Step 4: Create Xray configuration (with optional proxy support)
+    # v3.2: Use ENABLE_PUBLIC_PROXY to determine if proxy inbounds should be created
+    create_xray_config "${ENABLE_PUBLIC_PROXY:-false}" || {
         echo -e "${RED}Failed to create Xray configuration${NC}" >&2
         return 1
     }
@@ -110,11 +111,32 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 5.5: Initialize proxy_allowed_ips.json (v3.6 - server-level IP whitelist)
+    init_proxy_allowed_ips || {
+        echo -e "${RED}Failed to initialize proxy IP whitelist${NC}" >&2
+        return 1
+    }
+
     # Step 6: Create Nginx configuration
     create_nginx_config || {
         echo -e "${RED}Failed to create Nginx configuration${NC}" >&2
         return 1
     }
+
+    # Step 6.5: Initialize stunnel TLS termination (v4.0)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        echo ""
+        echo -e "${CYAN}[6.5/12] Initializing stunnel TLS termination...${NC}"
+
+        # stunnel_setup.sh is already sourced by install.sh
+        # Required variables (TEMPLATE_DIR, CONFIG_DIR, LOG_DIR) exported by install.sh
+        # Call init_stunnel with domain
+        if ! init_stunnel "${DOMAIN}"; then
+            echo -e "${RED}Failed to initialize stunnel${NC}" >&2
+            echo -e "${YELLOW}TLS termination configuration failed${NC}" >&2
+            return 1
+        fi
+    fi
 
     # Step 7: Create docker-compose.yml
     create_docker_compose || {
@@ -134,11 +156,40 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 9.5: Setup fail2ban (v3.3 - for all proxy modes: localhost + public)
+    if [[ "${ENABLE_PROXY:-false}" == "true" ]]; then
+        echo ""
+        echo -e "${CYAN}[9.5/12] Setting up fail2ban for proxy protection...${NC}"
+
+        # Source fail2ban module
+        if [[ -f "${SCRIPT_DIR}/lib/fail2ban_setup.sh" ]]; then
+            source "${SCRIPT_DIR}/lib/fail2ban_setup.sh"
+        fi
+
+        if ! setup_fail2ban_for_proxy; then
+            echo -e "${RED}Failed to setup fail2ban${NC}" >&2
+            echo -e "${YELLOW}WARNING: Proxy will be less secure without fail2ban protection${NC}"
+            echo -e "${YELLOW}Continue installation? [y/N]: ${NC}" >&2
+            read -r response
+            if [[ "${response,,}" != "y" && "${response,,}" != "yes" ]]; then
+                return 1
+            fi
+        fi
+    fi
+
     # Step 10: Configure UFW firewall
     configure_ufw || {
         echo -e "${RED}Failed to configure UFW${NC}" >&2
         return 1
     }
+
+    # Step 10.5: Configure proxy firewall rules (v3.2 - conditional on ENABLE_PUBLIC_PROXY)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        configure_proxy_firewall_rules || {
+            echo -e "${RED}Failed to configure proxy firewall rules${NC}" >&2
+            return 1
+        }
+    fi
 
     # Step 11: Deploy containers
     deploy_containers || {
@@ -290,13 +341,158 @@ generate_short_id() {
 }
 
 # =============================================================================
+# FUNCTION: generate_routing_json
+# =============================================================================
+# Description: Generate routing rules for server-level IP whitelisting (v3.6)
+# Returns: JSON string for routing section
+# Logic:
+#   - Read allowed IPs from proxy_allowed_ips.json (server-level)
+#   - Allow connections from whitelisted IPs to proxy ports
+#   - Block all other connections to proxy ports
+# Related: v3.6 Server-Level IP Whitelisting
+# Note: NO per-user IP filtering (user field doesn't work for HTTP/SOCKS5)
+# =============================================================================
+generate_routing_json() {
+    local proxy_ips_file="/opt/vless/config/proxy_allowed_ips.json"
+    local allowed_ips='["127.0.0.1"]'  # Default: localhost only
+    local docker_subnet=""
+
+    # If TLS proxy enabled, add Docker network subnet for stunnel container
+    # This allows stunnel (running in separate container) to forward traffic to Xray
+    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # Get Docker network subnet (e.g., 172.20.0.0/16)
+        docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
+        allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
+    fi
+
+    # Check if proxy_allowed_ips.json exists (user-defined overrides)
+    if [[ -f "$proxy_ips_file" ]]; then
+        # Read allowed IPs from file
+        local user_ips=$(jq -c '.allowed_ips' "$proxy_ips_file" 2>/dev/null)
+
+        # Validate JSON and use if valid
+        if [[ -n "$user_ips" ]] && [[ "$user_ips" != "null" ]] && echo "$user_ips" | jq empty 2>/dev/null; then
+            allowed_ips="$user_ips"
+        else
+            # Fallback to defaults if file is corrupted
+            if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+                allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
+            else
+                allowed_ips='["127.0.0.1"]'
+            fi
+        fi
+    fi
+
+    # Generate routing configuration with server-level IP whitelist
+    # Rule 1: Allow whitelisted IPs to access proxy ports
+    # Rule 2: Block all other connections to proxy ports (blackhole)
+    cat <<EOF
+,
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["socks5-proxy", "http-proxy"],
+        "source": ${allowed_ips},
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["socks5-proxy", "http-proxy"],
+        "outboundTag": "blocked"
+      }
+    ]
+  }
+EOF
+}
+
+# =============================================================================
+# FUNCTION: generate_socks5_inbound_json
+# =============================================================================
+# Description: Generate SOCKS5 proxy inbound configuration for Xray
+# Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
+# Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
+# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
+# =============================================================================
+generate_socks5_inbound_json() {
+    # v4.0: stunnel-based TLS termination
+    # Architecture: Client → stunnel (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
+    #
+    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:10800)
+    # - stunnel container exposes public port 1080 with TLS encryption
+    # - Xray handles authentication (username/password MANDATORY)
+    # - No TLS streamSettings in Xray config (handled by stunnel)
+
+    cat <<'EOF'
+  ,{
+    "tag": "socks5-proxy",
+    "listen": "0.0.0.0",
+    "port": 10800,
+    "protocol": "socks",
+    "settings": {
+      "auth": "password",
+      "accounts": [],
+      "udp": false,
+      "ip": "127.0.0.1"
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+}
+
+# =============================================================================
+# FUNCTION: generate_http_inbound_json
+# =============================================================================
+# Description: Generate HTTP proxy inbound configuration for Xray
+# Returns: JSON string for HTTP inbound (to be appended to inbounds array)
+# Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
+# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
+# =============================================================================
+generate_http_inbound_json() {
+    # v4.0: stunnel-based TLS termination
+    # Architecture: Client → stunnel (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
+    #
+    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:18118)
+    # - stunnel container exposes public port 8118 with TLS encryption
+    # - Xray handles authentication (username/password MANDATORY)
+    # - No TLS streamSettings in Xray config (handled by stunnel)
+
+    cat <<'EOF'
+  ,{
+    "tag": "http-proxy",
+    "listen": "0.0.0.0",
+    "port": 18118,
+    "protocol": "http",
+    "settings": {
+      "accounts": [],
+      "allowTransparent": false,
+      "userLevel": 0
+    },
+    "sniffing": {
+      "enabled": true,
+      "destOverride": ["http", "tls"]
+    }
+  }
+EOF
+}
+
+# =============================================================================
 # FUNCTION: create_xray_config
 # =============================================================================
 # Description: Create Xray configuration file (xray_config.json)
 # Uses: PRIVATE_KEY, SHORT_ID, REALITY_DEST, REALITY_DEST_PORT, VLESS_PORT
+# Arguments:
+#   $1 - enable_proxy (optional): "true" to enable SOCKS5/HTTP proxy support
+#                                 "false" (default) for VLESS only
 # Returns: 0 on success, 1 on failure
+# Updated: TASK-11.1 - Added proxy support parameter
 # =============================================================================
 create_xray_config() {
+    local enable_proxy="${1:-false}"
     echo -e "${CYAN}[4/12] Creating Xray configuration...${NC}"
 
     # Validate required variables
@@ -339,11 +535,22 @@ create_xray_config() {
         "shortIds": ["${SHORT_ID}", ""]
       }
     }
-  }],
-  "outbounds": [{
-    "protocol": "freedom",
-    "tag": "direct"
-  }]
+  }$(if [[ "$enable_proxy" == "true" ]]; then
+    generate_socks5_inbound_json
+    generate_http_inbound_json
+fi)],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "blocked"
+    }
+  ]$(if [[ "$enable_proxy" == "true" ]]; then
+    generate_routing_json
+fi)
 }
 EOF
 
@@ -352,12 +559,98 @@ EOF
         return 1
     fi
 
+    # Validate JSON syntax
+    if ! jq empty "${XRAY_CONFIG}" 2>/dev/null; then
+        echo -e "${RED}Invalid JSON in ${XRAY_CONFIG}${NC}" >&2
+        return 1
+    fi
+
     echo "  ✓ Configuration file: ${XRAY_CONFIG}"
     echo "  ✓ Listen port: ${VLESS_PORT}"
     echo "  ✓ Destination: ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo "  ✓ Fallback to Nginx configured"
 
+    if [[ "$enable_proxy" == "true" ]]; then
+        if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+            # v3.3: TLS-encrypted public proxy
+            local domain="${DOMAIN:-SERVER_DOMAIN}"
+            echo "  ✓ SOCKS5 Proxy (0.0.0.0:1080) - TLS-ENCRYPTED PUBLIC ACCESS"
+            echo "  ✓ HTTP Proxy (0.0.0.0:8118) - TLS-ENCRYPTED PUBLIC ACCESS"
+            echo "  ✓ TLS Certificate: ${domain}"
+            echo "  ⚠️  SOCKS5 URI: socks5s://user:pass@${domain}:1080"
+            echo "  ⚠️  HTTP URI: https://user:pass@${domain}:8118"
+            echo "  ⚠️  WARNING: Proxies require TLS-capable clients (v3.3)"
+        else
+            # v3.1: Localhost-only proxy (no TLS needed)
+            echo "  ✓ SOCKS5 Proxy (127.0.0.1:1080) - LOCALHOST ONLY"
+            echo "  ✓ HTTP Proxy (127.0.0.1:8118) - LOCALHOST ONLY"
+            echo "  ℹ️  Access via VPN connection only"
+        fi
+    fi
+
     echo -e "${GREEN}✓ Xray configuration created${NC}"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: configure_proxy_firewall_rules
+# =============================================================================
+# Description: Open UFW ports for public proxy access with rate limiting
+# Arguments:
+#   None (uses global ENABLE_PUBLIC_PROXY variable)
+# Returns: 0 on success, 1 on failure
+# Related: v3.2 Public Proxy Support - TASK-2.2
+# =============================================================================
+configure_proxy_firewall_rules() {
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
+        echo "  ℹ️  Public proxy disabled, skipping firewall rules"
+        return 0
+    fi
+
+    echo -e "${CYAN}Configuring firewall for public proxy...${NC}"
+
+    # Ensure UFW is active
+    if ! ufw status | grep -q "Status: active"; then
+        echo -e "${RED}UFW is not active${NC}" >&2
+        return 1
+    fi
+
+    # Check if SOCKS5 port rule already exists
+    if ! ufw status numbered | grep -q "1080/tcp"; then
+        echo "  Adding SOCKS5 port (1080/tcp) with rate limiting..."
+        if ! ufw limit 1080/tcp comment 'VLESS SOCKS5 Proxy (rate-limited)'; then
+            echo -e "${RED}Failed to add SOCKS5 firewall rule${NC}" >&2
+            return 1
+        fi
+        echo -e "${GREEN}  ✓ SOCKS5 port opened with rate limiting${NC}"
+    else
+        echo "  ✓ SOCKS5 port already open"
+    fi
+
+    # Check if HTTP port rule already exists
+    if ! ufw status numbered | grep -q "8118/tcp"; then
+        echo "  Adding HTTP port (8118/tcp) with rate limiting..."
+        if ! ufw limit 8118/tcp comment 'VLESS HTTP Proxy (rate-limited)'; then
+            echo -e "${RED}Failed to add HTTP firewall rule${NC}" >&2
+            return 1
+        fi
+        echo -e "${GREEN}  ✓ HTTP port opened with rate limiting${NC}"
+    else
+        echo "  ✓ HTTP port already open"
+    fi
+
+    # Reload UFW to apply rules
+    echo "  Reloading UFW..."
+    if ! ufw reload &>/dev/null; then
+        echo -e "${YELLOW}Warning: Failed to reload UFW${NC}"
+    fi
+
+    echo -e "${GREEN}✓ Firewall configured for public proxy${NC}"
+    echo ""
+    echo "Active proxy ports:"
+    ufw status numbered | grep -E "(1080|8118)/tcp" || true
+    echo ""
+
     return 0
 }
 
@@ -401,6 +694,69 @@ EOF
     echo "  ✓ Initial state: empty (0 users)"
 
     echo -e "${GREEN}✓ Users database created${NC}"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: init_proxy_allowed_ips
+# =============================================================================
+# Description: Initialize proxy_allowed_ips.json with default localhost-only access
+# Returns: 0 on success, 1 on failure
+# Related: v3.6 Server-Level IP Whitelisting
+# =============================================================================
+init_proxy_allowed_ips() {
+    echo -e "${CYAN}[5.5/13] Initializing proxy IP whitelist...${NC}"
+
+    local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
+    local default_ips='["127.0.0.1"]'
+
+    # If TLS proxy enabled, include Docker network subnet for stunnel container
+    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        # Get Docker network subnet (e.g., 172.20.0.0/16)
+        local docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
+        default_ips='["127.0.0.1","'${docker_subnet}'"]'
+        echo "  ℹ TLS proxy enabled: allowing Docker subnet ${docker_subnet}"
+    fi
+
+    # Create proxy_allowed_ips.json with appropriate defaults
+    cat > "$proxy_ips_file" <<EOF
+{
+  "allowed_ips": ${default_ips},
+  "metadata": {
+    "created": "",
+    "last_modified": "",
+    "description": "Server-level IP whitelist for proxy access (v3.6+v4.0)"
+  }
+}
+EOF
+
+    # Set timestamps
+    local timestamp
+    timestamp=$(date -Iseconds)
+
+    # Use temporary file for atomic update
+    local temp_file
+    temp_file=$(mktemp)
+
+    jq ".metadata.created = \"${timestamp}\" | .metadata.last_modified = \"${timestamp}\"" \
+       "$proxy_ips_file" > "$temp_file" && mv "$temp_file" "$proxy_ips_file"
+
+    if [[ ! -f "$proxy_ips_file" ]]; then
+        echo -e "${RED}Failed to create ${proxy_ips_file}${NC}" >&2
+        return 1
+    fi
+
+    # Set permissions (600 - root only)
+    chmod 600 "$proxy_ips_file" || {
+        echo -e "${RED}Failed to set permissions on ${proxy_ips_file}${NC}" >&2
+        return 1
+    }
+
+    echo "  ✓ Proxy IP whitelist: $proxy_ips_file"
+    echo "  ✓ Default: localhost only (127.0.0.1)"
+    echo "  ✓ Manage with: vless {show|set|add|remove|reset}-proxy-ips"
+
+    echo -e "${GREEN}✓ Proxy IP whitelist initialized${NC}"
     return 0
 }
 
@@ -496,22 +852,76 @@ EOF
 create_docker_compose() {
     echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
 
+    # v4.0: stunnel-based TLS termination
+    # - Xray: ALWAYS only exposes VLESS port to host (1080/8118 NOT exposed)
+    # - stunnel: Exposes 1080/8118 when ENABLE_PUBLIC_PROXY=true
+    # - Architecture: Client → stunnel (TLS) → Xray (plaintext localhost)
+
+    # Xray ports (VLESS only, proxy ports NOT exposed to host)
+    local xray_ports="    ports:
+      - \"${VLESS_PORT}:${VLESS_PORT}\""
+
+    # Xray volumes (no certs needed, stunnel handles TLS)
+    local xray_volumes="    volumes:
+      - ${CONFIG_DIR}:/etc/xray:ro
+      - ${LOGS_DIR}:/var/log/xray"
+
+    # Xray healthcheck (check localhost proxy ports 10800/18118)
+    local xray_healthcheck="    healthcheck:
+      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 10800 && nc -z 127.0.0.1 18118 || exit 1\"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s"
+
+    # stunnel service (optional, only when ENABLE_PUBLIC_PROXY=true)
+    local stunnel_service=""
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        stunnel_service="
+  stunnel:
+    image: dweomer/stunnel:latest
+    container_name: vless_stunnel
+    restart: unless-stopped
+    entrypoint: [\"stunnel\"]
+    command: [\"/etc/stunnel/stunnel.conf\"]
+    ports:
+      - \"1080:1080\"
+      - \"8118:8118\"
+    volumes:
+      - ${CONFIG_DIR}/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+      - /etc/letsencrypt:/certs:ro
+      - ${LOGS_DIR}/stunnel:/var/log/stunnel
+    networks:
+      - ${DOCKER_NETWORK_NAME}
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - xray
+    healthcheck:
+      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 1080 && nc -z 127.0.0.1 8118 || exit 1\"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+"
+    fi
+
     # Create docker-compose.yml
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
-version: '3.8'
-
 services:
   xray:
     image: ${XRAY_IMAGE}
     container_name: ${XRAY_CONTAINER_NAME}
     restart: unless-stopped
+${xray_healthcheck}
     networks:
       - ${DOCKER_NETWORK_NAME}
-    ports:
-      - "${VLESS_PORT}:${VLESS_PORT}"
-    volumes:
-      - ${CONFIG_DIR}:/etc/xray:ro
-      - ${LOGS_DIR}:/var/log/xray
+${xray_ports}
+${xray_volumes}
     cap_drop:
       - ALL
     cap_add:
@@ -548,7 +958,7 @@ services:
       - /var/run
     depends_on:
       - xray
-
+${stunnel_service}
 networks:
   ${DOCKER_NETWORK_NAME}:
     external: true
@@ -565,6 +975,18 @@ EOF
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
 
+    # v4.0: Show architecture based on mode
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo "  ✓ Mode: PUBLIC PROXY with stunnel TLS (v4.0)"
+        echo "  ✓ stunnel: Exposed ports 1080 (SOCKS5s), 8118 (HTTPS) with TLS 1.3"
+        echo "  ✓ Xray: Localhost ports 10800 (SOCKS5), 18118 (HTTP) - plaintext"
+        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to stunnel"
+        echo "  ✓ Architecture: Client → stunnel (TLS) → Xray (auth) → Internet"
+    else
+        echo "  ✓ Mode: VLESS-only"
+        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS Reality)"
+    fi
+
     echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
     return 0
 }
@@ -579,6 +1001,10 @@ EOF
 create_env_file() {
     echo -e "${CYAN}[8/12] Creating environment file...${NC}"
 
+    # Detect external server IP
+    local server_ip
+    server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP_NOT_DETECTED")
+
     cat > "${ENV_FILE}" <<EOF
 # VLESS Reality VPN Environment Variables
 # Generated: $(date -Iseconds)
@@ -589,6 +1015,14 @@ REALITY_DEST=${REALITY_DEST}
 REALITY_DEST_PORT=${REALITY_DEST_PORT}
 VLESS_PORT=${VLESS_PORT}
 DOCKER_SUBNET=${DOCKER_SUBNET}
+
+# Server Information (v3.2 - for public proxy configs)
+SERVER_IP=${server_ip}
+
+# Proxy Configuration (v3.4)
+ENABLE_PROXY=${ENABLE_PROXY:-false}
+ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
+ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
@@ -603,6 +1037,10 @@ NGINX_IMAGE=${NGINX_IMAGE}
 INSTALL_ROOT=${INSTALL_ROOT}
 CONFIG_DIR=${CONFIG_DIR}
 DATA_DIR=${DATA_DIR}
+
+# TLS Certificate Configuration (v3.3 - for public proxy mode)
+DOMAIN=${DOMAIN:-}
+EMAIL=${EMAIL:-}
 EOF
 
     if [[ ! -f "${ENV_FILE}" ]]; then
@@ -812,17 +1250,39 @@ install_cli_tools() {
         return 1
     }
 
-    # Copy lib modules to installation
+    # Copy lib modules to installation (required for CLI to function)
     local lib_modules=(
         "user_management.sh"
         "qr_generator.sh"
+        "proxy_whitelist.sh"
+        "ufw_whitelist.sh"
+        "security_tests.sh"
     )
 
     for module in "${lib_modules[@]}"; do
         if [[ -f "${project_root}/lib/${module}" ]]; then
             cp "${project_root}/lib/${module}" "${INSTALL_ROOT}/lib/" || {
-                echo -e "${YELLOW}  ⚠ Warning: Failed to copy ${module}${NC}"
+                echo -e "${RED}Failed to copy ${module}${NC}" >&2
+                return 1
             }
+
+            # Set permissions: 755 for executable scripts, 644 for sourced modules
+            if [[ "${module}" == "security_tests.sh" ]]; then
+                chmod 755 "${INSTALL_ROOT}/lib/${module}" || {
+                    echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
+                    return 1
+                }
+            else
+                chmod 644 "${INSTALL_ROOT}/lib/${module}" || {
+                    echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
+                    return 1
+                }
+            fi
+
+            echo "  ✓ Copied ${module} to ${INSTALL_ROOT}/lib/"
+        else
+            echo -e "${RED}Required module not found: ${module}${NC}" >&2
+            return 1
         fi
     done
 
@@ -887,7 +1347,10 @@ export -f orchestrate_installation
 export -f create_directory_structure
 export -f generate_reality_keys
 export -f generate_short_id
+export -f generate_socks5_inbound_json
+export -f generate_http_inbound_json
 export -f create_xray_config
+export -f configure_proxy_firewall_rules
 export -f create_users_json
 export -f create_nginx_config
 export -f create_docker_compose

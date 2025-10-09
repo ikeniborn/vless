@@ -21,6 +21,11 @@ export REALITY_DEST=""
 export REALITY_DEST_PORT=""
 export VLESS_PORT=""
 export DOCKER_SUBNET=""
+export ENABLE_PROXY=""
+export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
+export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/false)
+export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
+export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -31,9 +36,9 @@ export DOCKER_SUBNET=""
 [[ -z "${CYAN:-}" ]] && CYAN='\033[0;36m'
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
-# Default values
-readonly DEFAULT_VLESS_PORT=443
-readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
+# Default values (conditional to avoid conflicts with other modules)
+[[ -z "${DEFAULT_VLESS_PORT:-}" ]] && readonly DEFAULT_VLESS_PORT=443
+[[ -z "${DEFAULT_DOCKER_SUBNET:-}" ]] && readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 readonly DEST_VALIDATION_TIMEOUT=10  # seconds
 
 # Predefined destination sites (validated for Reality compatibility)
@@ -85,7 +90,21 @@ collect_parameters() {
         return 1
     }
 
-    # Step 4: Confirm all parameters
+    # Step 4: Enable public proxy support (v3.2)
+    prompt_enable_public_proxy || {
+        echo -e "${RED}Failed to configure proxy settings${NC}" >&2
+        return 1
+    }
+
+    # Step 4.5: Prompt for domain and email (v3.4) - only if public proxy + TLS enabled
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
+        prompt_domain_email || {
+            echo -e "${RED}Failed to configure TLS certificate settings${NC}" >&2
+            return 1
+        }
+    fi
+
+    # Step 5: Confirm all parameters
     confirm_parameters || {
         echo -e "${YELLOW}Configuration cancelled by user${NC}"
         return 1
@@ -290,15 +309,15 @@ select_port() {
 
     # Manual port selection
     echo ""
-    echo "Enter a custom port (1024-65535):"
+    echo "Enter a custom port (1-65535):"
 
     local custom_port
     while true; do
         read -rp "Port: " custom_port
 
         # Validate port number
-        if ! [[ "$custom_port" =~ ^[0-9]+$ ]] || [ "$custom_port" -lt 1024 ] || [ "$custom_port" -gt 65535 ]; then
-            echo -e "${RED}Invalid port. Must be between 1024 and 65535${NC}"
+        if ! [[ "$custom_port" =~ ^[0-9]+$ ]] || [ "$custom_port" -lt 1 ] || [ "$custom_port" -gt 65535 ]; then
+            echo -e "${RED}Invalid port. Must be between 1 and 65535${NC}"
             continue
         fi
 
@@ -544,6 +563,68 @@ find_free_subnet() {
 }
 
 # =============================================================================
+# FUNCTION: select_proxy_enable
+# =============================================================================
+# Description: Prompt user to enable SOCKS5/HTTP proxy support
+# Sets: ENABLE_PROXY
+# Returns: 0 on success, 1 on failure
+# Related: TASK-11.1 (SOCKS5), TASK-11.2 (HTTP)
+# =============================================================================
+select_proxy_enable() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}[4/4] Proxy Support Configuration${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Enable SOCKS5 and HTTP proxy support?"
+    echo ""
+    echo -e "${YELLOW}What are proxies?${NC}"
+    echo "Proxies allow applications (VSCode, Docker, Git, terminal tools) to route"
+    echo "traffic through your VPN connection without connecting to the VPN directly."
+    echo ""
+    echo -e "${YELLOW}How does it work?${NC}"
+    echo "• Proxy servers bind to 127.0.0.1 (localhost only)"
+    echo "• Accessible ONLY through the VPN tunnel (not exposed to Internet)"
+    echo "• Each user gets unique password for authentication"
+    echo ""
+    echo -e "${YELLOW}What will be enabled:${NC}"
+    echo "• SOCKS5 Proxy: Port 1080 (password auth, TCP only)"
+    echo "• HTTP Proxy:   Port 8118 (password auth, HTTP/HTTPS)"
+    echo ""
+    echo -e "${YELLOW}Configuration files per user:${NC}"
+    echo "• 3 VLESS configs (JSON, URI, QR code)"
+    echo "• 5 proxy configs (SOCKS5, HTTP, VSCode, Docker, Bash)"
+    echo ""
+
+    local choice
+    while true; do
+        read -rp "Enable proxy support? [y/N] (default: N): " choice
+        choice="${choice:-n}"  # Default to 'n'
+
+        case "${choice,,}" in
+            y|yes)
+                ENABLE_PROXY="true"
+                echo -e "${GREEN}✓ Proxy support ENABLED${NC}"
+                echo "  Users will receive 8 config files (3 VLESS + 5 proxy)"
+                break
+                ;;
+            n|no)
+                ENABLE_PROXY="false"
+                echo -e "${YELLOW}⊗ Proxy support DISABLED${NC}"
+                echo "  Users will receive 3 VLESS config files only"
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid input. Please enter 'y' or 'n'${NC}"
+                ;;
+        esac
+    done
+
+    export ENABLE_PROXY
+    echo ""
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: confirm_parameters
 # =============================================================================
 # Description: Display all collected parameters and ask for confirmation
@@ -560,6 +641,29 @@ confirm_parameters() {
     echo -e "  ${YELLOW}Destination Site:${NC}    ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo -e "  ${YELLOW}VLESS Port:${NC}          ${VLESS_PORT}"
     echo -e "  ${YELLOW}Docker Subnet:${NC}       ${DOCKER_SUBNET}"
+
+    # v3.4: Display proxy mode with TLS status
+    if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]]; then
+        if [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
+            echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Public (TLS encrypted)${NC}"
+            echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (socks5s://, https://)${NC}"
+            # v3.3: Display domain and email if set
+            if [[ -n "$DOMAIN" ]]; then
+                echo -e "  ${YELLOW}TLS Domain:${NC}          ${DOMAIN}"
+            fi
+            if [[ -n "$EMAIL" ]]; then
+                echo -e "  ${YELLOW}TLS Email:${NC}           ${EMAIL}"
+            fi
+        else
+            echo -e "  ${YELLOW}Proxy Mode:${NC}          ${RED}Public (PLAINTEXT)${NC}"
+            echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (socks5://, http://)${NC}"
+            echo -e "  ${RED}⚠️  WARNING: Credentials NOT encrypted!${NC}"
+        fi
+    elif [[ "$ENABLE_PROXY" == "true" ]]; then
+        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Enabled (localhost only)${NC}"
+    else
+        echo -e "  ${YELLOW}Proxy Mode:${NC}          ${YELLOW}VLESS-ONLY MODE${NC}"
+    fi
     echo ""
 
     local confirm
@@ -586,6 +690,366 @@ confirm_parameters() {
 }
 
 # =============================================================================
+# FUNCTION: prompt_domain_email
+# =============================================================================
+# Description: Prompt for domain and email for Let's Encrypt (v3.3)
+# Required for: TLS certificate acquisition via certbot
+# Sets: DOMAIN, EMAIL
+# Returns: 0 on success, 1 on failure
+# Related: TASK-1.7 (v3.3 TLS Enhancement)
+# =============================================================================
+prompt_domain_email() {
+    echo ""
+    echo "═════════════════════════════════════════════════════"
+    echo "  TLS CERTIFICATE CONFIGURATION (v3.3)"
+    echo "═════════════════════════════════════════════════════"
+    echo ""
+    echo "Public proxy mode requires TLS encryption via Let's Encrypt."
+    echo ""
+    echo -e "${YELLOW}Requirements:${NC}"
+    echo "  ✓ A domain name pointing to this server"
+    echo "  ✓ DNS A record configured (domain → server IP)"
+    echo "  ✓ Port 80 accessible (temporary, for ACME challenge)"
+    echo "  ✓ Valid email for renewal notifications"
+    echo ""
+    echo -e "${YELLOW}What happens:${NC}"
+    echo "  1. DNS validation (domain must point to this server)"
+    echo "  2. Let's Encrypt certificate acquisition (ACME HTTP-01)"
+    echo "  3. Auto-renewal setup (twice daily checks)"
+    echo "  4. TLS encryption enabled for SOCKS5/HTTP proxies"
+    echo ""
+
+    # Prompt for domain
+    local server_ip
+    server_ip=$(get_server_public_ip)
+
+    echo -e "${CYAN}Server Public IP: ${server_ip}${NC}"
+    echo ""
+
+    local domain_input
+    while true; do
+        read -rp "Enter your domain name (e.g., vpn.example.com): " domain_input
+
+        # Validate domain format
+        if [[ -z "$domain_input" ]]; then
+            echo -e "${RED}Domain cannot be empty${NC}"
+            continue
+        fi
+
+        # Basic domain format validation (alphanumeric, dots, hyphens)
+        if [[ ! "$domain_input" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+            echo -e "${RED}Invalid domain format${NC}"
+            echo "Valid examples: vpn.example.com, server1.mydomain.org"
+            continue
+        fi
+
+        # Validate DNS points to server
+        echo ""
+        echo -e "${CYAN}Validating DNS...${NC}"
+
+        local dns_ip
+        dns_ip=$(dig +short "$domain_input" A | head -1)
+
+        if [[ -z "$dns_ip" ]]; then
+            echo -e "${RED}✗ DNS resolution failed${NC}"
+            echo "Domain '$domain_input' does not resolve to an IP address"
+            echo ""
+            echo "Fix steps:"
+            echo "  1. Configure DNS A record: $domain_input → $server_ip"
+            echo "  2. Wait for DNS propagation (1-48 hours)"
+            echo "  3. Verify: dig +short $domain_input"
+            echo ""
+            read -rp "Try another domain? [Y/n]: " retry
+            retry=${retry:-Y}
+            [[ "$retry" =~ ^[Yy]$ ]] && continue || return 1
+        fi
+
+        if [[ "$dns_ip" != "$server_ip" ]]; then
+            echo -e "${YELLOW}⚠ DNS mismatch${NC}"
+            echo "Domain resolves to:  $dns_ip"
+            echo "Expected:            $server_ip"
+            echo ""
+            echo "Options:"
+            echo "  1. Update DNS A record to point to $server_ip"
+            echo "  2. Continue anyway (certificate acquisition will fail)"
+            echo "  3. Try another domain"
+            echo ""
+            read -rp "Continue with mismatched DNS? [y/N]: " continue_mismatch
+            continue_mismatch=${continue_mismatch,,}
+
+            if [[ "$continue_mismatch" == "y" || "$continue_mismatch" == "yes" ]]; then
+                echo -e "${YELLOW}⚠ Proceeding with DNS mismatch (expect cert failure)${NC}"
+                DOMAIN="$domain_input"
+                break
+            else
+                continue
+            fi
+        fi
+
+        # DNS validation successful
+        echo -e "${GREEN}✓ DNS validated successfully${NC}"
+        echo "  Domain: $domain_input"
+        echo "  Resolves to: $dns_ip"
+        echo ""
+        DOMAIN="$domain_input"
+        break
+    done
+
+    # Prompt for email
+    echo ""
+    local email_input
+    while true; do
+        read -rp "Enter email for Let's Encrypt notifications: " email_input
+
+        # Validate email format
+        if [[ -z "$email_input" ]]; then
+            echo -e "${RED}Email cannot be empty${NC}"
+            continue
+        fi
+
+        # Basic email validation (RFC 5322 simplified)
+        if [[ ! "$email_input" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            echo -e "${RED}Invalid email format${NC}"
+            echo "Valid examples: admin@example.com, user@domain.org"
+            continue
+        fi
+
+        EMAIL="$email_input"
+        echo -e "${GREEN}✓ Email validated${NC}"
+        echo ""
+        break
+    done
+
+    export DOMAIN
+    export EMAIL
+
+    echo -e "${GREEN}✓ Domain and email configured${NC}"
+    echo "  Domain: $DOMAIN"
+    echo "  Email:  $EMAIL"
+    echo ""
+
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: get_server_public_ip
+# =============================================================================
+# Description: Get server's public IP address
+# Returns: Public IP address as string, or "Unable to detect" on failure
+# =============================================================================
+get_server_public_ip() {
+    local ip
+
+    # Try multiple methods to get public IP
+    ip=$(curl -s -4 ifconfig.me 2>/dev/null) || \
+    ip=$(curl -s -4 icanhazip.com 2>/dev/null) || \
+    ip=$(curl -s -4 api.ipify.org 2>/dev/null) || \
+    ip=$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null) || \
+    ip="Unable to detect"
+
+    echo "$ip"
+}
+
+# =============================================================================
+# FUNCTION: prompt_enable_public_proxy
+# =============================================================================
+# Description: Ask user if they want to enable public proxy access
+# Sets: ENABLE_PUBLIC_PROXY (true/false)
+# Returns: 0 always
+# Related: v3.2 Public Proxy Support - TASK-3.1
+# =============================================================================
+prompt_enable_public_proxy() {
+    echo ""
+    echo "═════════════════════════════════════════════════════"
+    echo "  PROXY CONFIGURATION (v4.0 - stunnel TLS)"
+    echo "═════════════════════════════════════════════════════"
+    echo ""
+    echo "VLESS Reality supports dual proxy modes:"
+    echo ""
+    echo "1. VLESS-ONLY MODE (default, safer):"
+    echo "   - Only VLESS VPN available"
+    echo "   - No SOCKS5/HTTP proxies"
+    echo "   - Best for VPN-only use cases"
+    echo ""
+    echo "2. PUBLIC PROXY MODE (v4.0 - stunnel TLS termination):"
+    echo "   - TLS-encrypted SOCKS5 + HTTP proxies (socks5s://, https://)"
+    echo "   - stunnel container handles TLS 1.3 encryption"
+    echo "   - No VPN client required (direct internet access)"
+    echo "   - Requires: Domain name, Let's Encrypt certificate"
+    echo ""
+    echo "   Architecture: Client → stunnel (TLS) → Xray (auth) → Internet"
+    echo ""
+    echo -e "${YELLOW}⚠️  WARNING: Public proxy exposes ports 1080 and 8118${NC}"
+    echo -e "${YELLOW}⚠️  to the internet. Ensure your server can handle${NC}"
+    echo -e "${YELLOW}⚠️  potential abuse and DDoS attempts.${NC}"
+    echo ""
+    echo "Security measures (auto-configured if YES):"
+    echo "  ✓ stunnel TLS 1.3 termination (20+ years production stability)"
+    echo "  ✓ Let's Encrypt certificates with auto-renewal"
+    echo "  ✓ Xray username + password authentication (mandatory)"
+    echo "  ✓ Fail2ban (ban after 5 failed auth attempts)"
+    echo "  ✓ UFW rate limiting (10 connections/min per IP)"
+    echo "  ✓ Optional UFW IP whitelisting (host firewall)"
+    echo "  ✓ Xray routing rules (application-level IP filtering)"
+    echo "  ✓ 32-character passwords (2^128 entropy)"
+    echo ""
+
+    local response
+    while true; do
+        read -r -p "Enable public proxy access? [y/N]: " response
+        response=${response,,}  # Convert to lowercase
+
+        case "$response" in
+            y|yes)
+                echo ""
+                echo -e "${YELLOW}⚠️  FINAL CONFIRMATION ⚠️${NC}"
+                echo ""
+                echo "You are about to enable PUBLIC INTERNET access to"
+                echo "SOCKS5 (port 1080) and HTTP (port 8118) proxies."
+                echo ""
+                echo "This means ANYONE on the internet can ATTEMPT to"
+                echo "connect to your proxy (authentication still required)."
+                echo ""
+                echo "Recommended for:"
+                echo "  ✓ Private VPS with trusted users"
+                echo "  ✓ Development/testing environments"
+                echo "  ✓ Users who cannot install VPN clients"
+                echo ""
+                echo "NOT recommended for:"
+                echo "  ✗ Shared hosting environments"
+                echo "  ✗ Servers with weak DDoS protection"
+                echo "  ✗ Compliance-sensitive deployments"
+                echo ""
+
+                local confirm
+                read -r -p "Proceed with public proxy? [y/N]: " confirm
+                confirm=${confirm,,}
+
+                if [[ "$confirm" == "y" || "$confirm" == "yes" ]]; then
+                    ENABLE_PUBLIC_PROXY="true"
+                    ENABLE_PROXY="true"  # Also enable proxy in general
+                    echo ""
+                    echo -e "${GREEN}✓ Public proxy mode enabled${NC}"
+                    echo ""
+
+                    # v3.4: Ask about TLS encryption
+                    echo "═════════════════════════════════════════════════════"
+                    echo "  TLS ENCRYPTION FOR PUBLIC PROXY"
+                    echo "═════════════════════════════════════════════════════"
+                    echo ""
+                    echo "Choose proxy encryption mode:"
+                    echo ""
+                    echo "1. WITH TLS ENCRYPTION (recommended, requires domain):"
+                    echo "   - Protocols: socks5s://, https://"
+                    echo "   - Let's Encrypt certificates (free, auto-renewal)"
+                    echo "   - Traffic encrypted end-to-end"
+                    echo "   - Requires: domain name + DNS configuration"
+                    echo ""
+                    echo "2. WITHOUT TLS (plaintext, no domain required):"
+                    echo "   - Protocols: socks5://, http://"
+                    echo "   - No certificates needed"
+                    echo "   - ⚠️  Credentials transmitted in plaintext"
+                    echo "   - ⚠️  Suitable only for trusted networks"
+                    echo ""
+
+                    local tls_response
+                    while true; do
+                        read -r -p "Enable TLS encryption? [Y/n]: " tls_response
+                        tls_response=${tls_response,,}  # Convert to lowercase
+                        tls_response=${tls_response:-y}  # Default to 'y'
+
+                        case "$tls_response" in
+                            y|yes)
+                                ENABLE_PROXY_TLS="true"
+                                echo ""
+                                echo -e "${GREEN}✓ TLS encryption enabled${NC}"
+                                echo ""
+                                echo "Requirements:"
+                                echo "  - Domain name pointing to this server"
+                                echo "  - Port 80 accessible (for ACME challenge)"
+                                echo "  - Valid email for Let's Encrypt"
+                                echo ""
+                                echo "You will be prompted for domain and email next."
+                                echo ""
+                                break
+                                ;;
+                            n|no)
+                                ENABLE_PROXY_TLS="false"
+                                echo ""
+                                echo -e "${YELLOW}⚠️  TLS encryption DISABLED${NC}"
+                                echo ""
+                                echo -e "${RED}WARNING: Proxy credentials will be transmitted in PLAINTEXT!${NC}"
+                                echo ""
+                                echo "This mode is suitable ONLY for:"
+                                echo "  - Development/testing environments"
+                                echo "  - Trusted private networks"
+                                echo "  - Localhost-only access"
+                                echo ""
+                                echo "DO NOT use for production or untrusted networks!"
+                                echo ""
+
+                                local plaintext_confirm
+                                read -r -p "Continue with plaintext proxy? [y/N]: " plaintext_confirm
+                                plaintext_confirm=${plaintext_confirm,,}
+
+                                if [[ "$plaintext_confirm" == "y" || "$plaintext_confirm" == "yes" ]]; then
+                                    echo ""
+                                    echo -e "${YELLOW}✓ Plaintext proxy mode confirmed${NC}"
+                                    echo ""
+                                    break
+                                else
+                                    echo ""
+                                    echo "Plaintext mode canceled. Choose TLS encryption instead."
+                                    echo ""
+                                    continue
+                                fi
+                                ;;
+                            *)
+                                echo -e "${RED}Invalid response. Please enter 'y' or 'n'${NC}"
+                                ;;
+                        esac
+                    done
+
+                    echo "Next steps:"
+                    echo "  1. Fail2ban will be installed"
+                    echo "  2. UFW ports 1080, 8118 will be opened"
+                    echo "  3. All passwords will be 32 characters"
+                    if [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
+                        echo "  4. Let's Encrypt certificate will be acquired"
+                    fi
+                    echo ""
+                    break
+                else
+                    echo ""
+                    echo "Public proxy canceled, falling back to VLESS-only mode"
+                    ENABLE_PUBLIC_PROXY="false"
+                    ENABLE_PROXY="false"
+                    ENABLE_PROXY_TLS="false"
+                    break
+                fi
+                ;;
+            n|no|"")
+                ENABLE_PUBLIC_PROXY="false"
+                ENABLE_PROXY="false"
+                ENABLE_PROXY_TLS="false"
+                echo ""
+                echo -e "${GREEN}✓ VLESS-only mode (no public proxy)${NC}"
+                echo ""
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid response. Please enter 'y' or 'n'${NC}"
+                ;;
+        esac
+    done
+
+    export ENABLE_PUBLIC_PROXY
+    export ENABLE_PROXY
+    export ENABLE_PROXY_TLS
+    return 0
+}
+
+# =============================================================================
 # MODULE INITIALIZATION
 # =============================================================================
 
@@ -600,3 +1064,6 @@ export -f select_docker_subnet
 export -f scan_docker_networks
 export -f find_free_subnet
 export -f confirm_parameters
+export -f prompt_domain_email
+export -f get_server_public_ip
+export -f prompt_enable_public_proxy
