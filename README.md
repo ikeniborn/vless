@@ -776,8 +776,62 @@ Note: No `user` field - routing based solely on source IP (works for HTTP/SOCKS5
   - HTTP (port 8118) - Web/IDE proxy protocol
 - **Containers**: Docker + Docker Compose
 - **Firewall**: UFW + iptables
-- **Storage**: JSON files (users.json v1.1 with proxy_password field)
+- **Storage**: JSON files (users.json v1.2 with per-user shortIds)
 - **Modules**: 14 bash modules (~6,500 LOC)
+
+### User Data Structure (users.json v1.2)
+
+**Updated in v1.2**: Each user now has a unique `shortId` for enhanced VLESS Reality connection management.
+
+**Schema Location:** `/opt/vless/data/users.json`
+
+**Structure:**
+```json
+{
+  "version": "1.2",
+  "users": [
+    {
+      "username": "alice",
+      "uuid": "12345678-1234-1234-1234-123456789012",
+      "shortId": "a1b2c3d4e5f67890",
+      "proxy_password": "abcdef1234567890abcdef1234567890",
+      "created": "2025-10-13T12:00:00Z",
+      "created_timestamp": 1697198400
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+
+- **version** (string): Schema version identifier (current: `1.2`)
+- **username** (string): User identifier (3-32 alphanumeric chars)
+- **uuid** (string): UUID v4 for VLESS protocol authentication
+- **shortId** (string, v1.2): Unique 16-character hex identifier for VLESS Reality protocol
+  - Used in VLESS URI: `&sid=a1b2c3d4e5f67890`
+  - Added to Xray config `realitySettings.shortIds[]` array
+  - Provides granular user connection management
+  - Enhances security (unique per user vs shared server shortId)
+- **proxy_password** (string): 32-character hex password for SOCKS5/HTTP proxy authentication
+- **created** (string): ISO 8601 timestamp of user creation
+- **created_timestamp** (integer): Unix timestamp for programmatic use
+
+**Key Changes from v1.1:**
+
+- ✅ **NEW**: `shortId` field - unique per-user VLESS Reality identifier
+- ✅ **ENHANCED**: Each user gets unique shortId instead of sharing server's default
+- ✅ **BACKWARD COMPATIBLE**: VLESS URI generation falls back to server shortId for legacy users
+
+**Benefits of Per-User shortIds:**
+
+1. **Better Security**: Unique identifiers prevent correlation attacks
+2. **Granular Management**: Track connections per user in Reality protocol
+3. **Best Practices**: Follows VLESS Reality documentation recommendations
+4. **User Isolation**: Each user has distinct Reality handshake signature
+
+**Migration from v1.1:**
+
+Existing users without `shortId` field continue to work with server's default shortId (backward compatible). New users automatically receive unique shortIds.
 
 ---
 
@@ -889,7 +943,7 @@ Production (after install):
 /opt/vless/
 ├── config/
 │   ├── xray_config.json    # 3 inbounds (VLESS + SOCKS5 + HTTP) with TLS
-│   └── users.json          # v1.1 with proxy_password field
+│   └── users.json          # v1.2 with per-user shortIds and proxy_password
 ├── .version                # v3.3: Version tracking for updates
 └── data/clients/<user>/
     ├── vless_config.json   # VLESS config
