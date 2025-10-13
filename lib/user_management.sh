@@ -225,6 +225,29 @@ validate_username() {
 }
 
 # ============================================================================
+# Fingerprint Validation
+# ============================================================================
+
+validate_fingerprint() {
+    local fingerprint="$1"
+
+    # List of valid TLS fingerprints supported by Xray Reality protocol
+    # Reference: https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality
+    local valid_fingerprints=("chrome" "firefox" "safari" "edge" "360" "qq" "ios" "android" "random" "randomized")
+
+    # Check if fingerprint is in valid list
+    for valid_fp in "${valid_fingerprints[@]}"; do
+        if [[ "$fingerprint" == "$valid_fp" ]]; then
+            return 0
+        fi
+    done
+
+    log_error "Invalid fingerprint: $fingerprint"
+    log_info "Valid fingerprints: ${valid_fingerprints[*]}"
+    return 1
+}
+
+# ============================================================================
 # User Existence Check
 # ============================================================================
 
@@ -275,6 +298,7 @@ add_user_to_json() {
     local uuid="$2"
     local proxy_password="${3:-}"  # Optional proxy password (TASK-11.1)
     local short_id="${4:-}"        # Optional shortId (v1.2 schema update)
+    local fingerprint="${5:-chrome}"  # Optional fingerprint (v1.3 schema update, default: chrome)
 
     log_info "Adding user to database..."
 
@@ -320,6 +344,10 @@ add_user_to_json() {
             user_obj+=",
             \"proxy_password\": \"$proxy_password\""
         fi
+
+        # Add fingerprint (v1.3 schema - TLS fingerprint for client configuration)
+        user_obj+=",
+            \"fingerprint\": \"$fingerprint\""
 
         # Add timestamps
         user_obj+=",
@@ -635,6 +663,15 @@ generate_vless_uri() {
     local server_name
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG" 2>/dev/null || echo "www.google.com")
 
+    # Get user-specific fingerprint from users.json (v1.3 schema)
+    # Fallback to "chrome" for backward compatibility with existing users
+    local fingerprint
+    if [[ -f "$USERS_JSON" ]]; then
+        fingerprint=$(jq -r ".users[] | select(.username == \"$username\") | .fingerprint // \"chrome\"" "$USERS_JSON" 2>/dev/null || echo "chrome")
+    else
+        fingerprint="chrome"
+    fi
+
     # Construct VLESS URI
     # Format: vless://UUID@SERVER:PORT?param1=value1&param2=value2#REMARK
     local uri="vless://${uuid}@${server_ip}:${server_port}?"
@@ -642,7 +679,7 @@ generate_vless_uri() {
     uri+="&flow=xtls-rprx-vision"
     uri+="&security=reality"
     uri+="&sni=${server_name}"
-    uri+="&fp=chrome"
+    uri+="&fp=${fingerprint}"
     uri+="&pbk=${public_key}"
     uri+="&sid=${short_id}"
     uri+="&type=tcp"
@@ -1647,6 +1684,47 @@ create_user() {
     fi
     log_success "Generated proxy password: $proxy_password"
 
+    # Step 3.6: Select TLS fingerprint for device type
+    echo ""
+    log_info "Select TLS fingerprint for client device:"
+    echo "  1) Android (chrome fingerprint) - Recommended for Android devices"
+    echo "  2) iOS (safari fingerprint) - Recommended for iOS/macOS devices"
+    echo "  3) Other/Universal (firefox fingerprint) - Universal compatibility"
+    echo ""
+
+    local fingerprint="chrome"  # Default
+    local fingerprint_choice
+
+    while true; do
+        read -r -p "Enter choice [1-3, default: 1]: " fingerprint_choice
+
+        # Default to 1 if empty
+        if [[ -z "$fingerprint_choice" ]]; then
+            fingerprint_choice="1"
+        fi
+
+        case "$fingerprint_choice" in
+            1)
+                fingerprint="chrome"
+                log_success "Selected fingerprint: chrome (Android)"
+                break
+                ;;
+            2)
+                fingerprint="safari"
+                log_success "Selected fingerprint: safari (iOS/macOS)"
+                break
+                ;;
+            3)
+                fingerprint="firefox"
+                log_success "Selected fingerprint: firefox (Universal)"
+                break
+                ;;
+            *)
+                log_error "Invalid choice. Please enter 1, 2, or 3"
+                ;;
+        esac
+    done
+
     # Step 4: Create user directory
     local user_dir="${CLIENTS_DIR}/${username}"
     if ! mkdir -p "$user_dir"; then
@@ -1656,8 +1734,8 @@ create_user() {
     chmod 700 "$user_dir"
     log_success "Created user directory: $user_dir"
 
-    # Step 5: Add user to users.json (atomic) with proxy password and shortId
-    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id"; then
+    # Step 5: Add user to users.json (atomic) with proxy password, shortId, and fingerprint
+    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint"; then
         # Cleanup on failure
         rm -rf "$user_dir"
         return 1
@@ -1832,6 +1910,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f user_exists
     export -f get_user_info
     export -f validate_username
+    export -f validate_fingerprint
     export -f generate_uuid
     export -f generate_short_id
     export -f regenerate_configs
