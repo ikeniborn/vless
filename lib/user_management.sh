@@ -128,6 +128,37 @@ generate_uuid() {
 }
 
 # =============================================================================
+# FUNCTION: generate_short_id
+# =============================================================================
+# Description:
+#   Generate unique 8-byte (16 hex characters) shortId for VLESS Reality protocol.
+#   Each user should have a unique shortId for better connection management and security.
+#
+# Arguments: None
+#
+# Returns:
+#   Stdout: 16-character hexadecimal shortId (lowercase)
+#   Exit:   0 on success, 1 on failure
+#
+# Example:
+#   short_id=$(generate_short_id)
+#   # Output: a1b2c3d4e5f67890 (16 hex characters = 8 bytes)
+#
+# Related: VLESS Reality Protocol - shortIds for user identification
+# Reference: https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality
+# =============================================================================
+generate_short_id() {
+    if ! command -v openssl &>/dev/null; then
+        log_error "openssl not found - required for shortId generation"
+        return 1
+    fi
+
+    # Generate 8 random bytes and convert to 16 hex characters
+    # This matches the format used during installation for server's default shortId
+    openssl rand -hex 8
+}
+
+# =============================================================================
 # FUNCTION: generate_proxy_password
 # =============================================================================
 # Description:
@@ -243,6 +274,7 @@ add_user_to_json() {
     local username="$1"
     local uuid="$2"
     local proxy_password="${3:-}"  # Optional proxy password (TASK-11.1)
+    local short_id="${4:-}"        # Optional shortId (v1.2 schema update)
 
     log_info "Adding user to database..."
 
@@ -271,24 +303,29 @@ add_user_to_json() {
         # Create temporary file in same directory (atomic mv requires same filesystem)
         local temp_file="${USERS_JSON}.tmp.$$"
 
-        # Build user object based on whether proxy_password is provided
+        # Build user object based on provided parameters
         local user_obj
-        if [[ -n "$proxy_password" ]]; then
-            user_obj="{
-                \"username\": \"$username\",
-                \"uuid\": \"$uuid\",
-                \"proxy_password\": \"$proxy_password\",
-                \"created\": \"$(date -Iseconds)\",
-                \"created_timestamp\": $(date +%s)
-            }"
-        else
-            user_obj="{
-                \"username\": \"$username\",
-                \"uuid\": \"$uuid\",
-                \"created\": \"$(date -Iseconds)\",
-                \"created_timestamp\": $(date +%s)
-            }"
+        user_obj="{
+            \"username\": \"$username\",
+            \"uuid\": \"$uuid\""
+
+        # Add shortId if provided (v1.2 schema - per-user shortIds)
+        if [[ -n "$short_id" ]]; then
+            user_obj+=",
+            \"shortId\": \"$short_id\""
         fi
+
+        # Add proxy_password if provided
+        if [[ -n "$proxy_password" ]]; then
+            user_obj+=",
+            \"proxy_password\": \"$proxy_password\""
+        fi
+
+        # Add timestamps
+        user_obj+=",
+            \"created\": \"$(date -Iseconds)\",
+            \"created_timestamp\": $(date +%s)
+        }"
 
         # Add user to JSON
         jq --argjson user "$user_obj" '.users += [$user]' "$USERS_JSON" > "$temp_file"
@@ -367,6 +404,7 @@ remove_user_from_json() {
 add_client_to_xray() {
     local username="$1"
     local uuid="$2"
+    local short_id="${3:-}"  # Optional shortId (v1.2 schema update)
 
     log_info "Adding client to Xray configuration..."
 
@@ -386,6 +424,29 @@ add_client_to_xray() {
         \"email\": \"${username}@vless.local\",
         \"flow\": \"xtls-rprx-vision\"
     }]" "$XRAY_CONFIG" > "$temp_file"
+
+    # Add shortId to realitySettings.shortIds array if provided (v1.2 - unique per user)
+    if [[ -n "$short_id" ]]; then
+        log_info "Adding user shortId to realitySettings..."
+
+        # Check if shortId already exists in the array (avoid duplicates)
+        local short_id_exists
+        short_id_exists=$(jq --arg sid "$short_id" \
+            '.inbounds[0].streamSettings.realitySettings.shortIds | index($sid)' \
+            "$temp_file")
+
+        if [[ "$short_id_exists" == "null" ]]; then
+            # ShortId doesn't exist, add it
+            local temp_file2="${XRAY_CONFIG}.tmp2.$$"
+            jq --arg sid "$short_id" \
+                '.inbounds[0].streamSettings.realitySettings.shortIds += [$sid]' \
+                "$temp_file" > "$temp_file2"
+            mv "$temp_file2" "$temp_file"
+            log_success "ShortId added to realitySettings array"
+        else
+            log_info "ShortId already exists in array (skipping duplicate)"
+        fi
+    fi
 
     # Verify JSON is valid
     if ! jq empty "$temp_file" 2>/dev/null; then
@@ -434,12 +495,19 @@ add_client_to_xray() {
 
 remove_client_from_xray() {
     local uuid="$1"
+    local username="${2:-}"  # Optional username for shortId removal (v1.2)
 
     log_info "Removing client from Xray configuration..."
 
     if [[ ! -f "$XRAY_CONFIG" ]]; then
         log_error "Xray configuration not found: $XRAY_CONFIG"
         return 1
+    fi
+
+    # Get user's shortId from users.json if username provided
+    local user_short_id=""
+    if [[ -n "$username" ]] && [[ -f "$USERS_JSON" ]]; then
+        user_short_id=$(jq -r ".users[] | select(.username == \"$username\") | .shortId // empty" "$USERS_JSON" 2>/dev/null)
     fi
 
     # Create backup
@@ -450,6 +518,18 @@ remove_client_from_xray() {
 
     jq ".inbounds[0].settings.clients = [.inbounds[0].settings.clients[] | select(.id != \"$uuid\")]" \
         "$XRAY_CONFIG" > "$temp_file"
+
+    # Remove user's shortId from realitySettings.shortIds array (v1.2)
+    if [[ -n "$user_short_id" ]]; then
+        log_info "Removing user shortId from realitySettings..."
+
+        local temp_file2="${XRAY_CONFIG}.tmp2.$$"
+        jq --arg sid "$user_short_id" \
+            '.inbounds[0].streamSettings.realitySettings.shortIds = [.inbounds[0].streamSettings.realitySettings.shortIds[] | select(. != $sid)]' \
+            "$temp_file" > "$temp_file2"
+        mv "$temp_file2" "$temp_file"
+        log_success "ShortId removed from realitySettings array"
+    fi
 
     # Verify JSON is valid
     if ! jq empty "$temp_file" 2>/dev/null; then
@@ -539,8 +619,18 @@ generate_vless_uri() {
     local public_key
     public_key=$(cat "${VLESS_HOME}/keys/public.key" 2>/dev/null || echo "PUBLIC_KEY")
 
+    # Get user-specific shortId from users.json (v1.2 schema - unique per user)
+    # Fallback to config's shortIds[0] for backward compatibility with existing users
     local short_id
-    short_id=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$XRAY_CONFIG" 2>/dev/null || echo "")
+    if [[ -f "$USERS_JSON" ]]; then
+        short_id=$(jq -r ".users[] | select(.username == \"$username\") | .shortId // empty" "$USERS_JSON" 2>/dev/null)
+    fi
+
+    # Fallback to config's first shortId if user doesn't have one (backward compatibility)
+    if [[ -z "$short_id" || "$short_id" == "null" ]]; then
+        short_id=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$XRAY_CONFIG" 2>/dev/null || echo "")
+        log_warning "User '$username' does not have individual shortId, using server default (backward compatibility)"
+    fi
 
     local server_name
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG" 2>/dev/null || echo "www.google.com")
@@ -1539,6 +1629,15 @@ create_user() {
     fi
     log_success "Generated UUID: $uuid"
 
+    # Step 3.1: Generate unique shortId (v1.2 schema - per-user shortIds)
+    local short_id
+    short_id=$(generate_short_id)
+    if [[ -z "$short_id" ]]; then
+        log_error "Failed to generate shortId"
+        return 1
+    fi
+    log_success "Generated shortId: $short_id"
+
     # Step 3.5: Generate proxy password (TASK-11.1)
     local proxy_password
     proxy_password=$(generate_proxy_password)
@@ -1557,15 +1656,15 @@ create_user() {
     chmod 700 "$user_dir"
     log_success "Created user directory: $user_dir"
 
-    # Step 5: Add user to users.json (atomic) with proxy password
-    if ! add_user_to_json "$username" "$uuid" "$proxy_password"; then
+    # Step 5: Add user to users.json (atomic) with proxy password and shortId
+    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id"; then
         # Cleanup on failure
         rm -rf "$user_dir"
         return 1
     fi
 
-    # Step 6: Add client to Xray configuration (VLESS)
-    if ! add_client_to_xray "$username" "$uuid"; then
+    # Step 6: Add client to Xray configuration (VLESS) and shortId to realitySettings
+    if ! add_client_to_xray "$username" "$uuid" "$short_id"; then
         # Rollback: remove from users.json
         log_warning "Rolling back user creation..."
         remove_user_from_json "$username"
@@ -1654,8 +1753,8 @@ remove_user() {
         return 1
     fi
 
-    # Step 4: Remove client from Xray configuration
-    if ! remove_client_from_xray "$uuid"; then
+    # Step 4: Remove client from Xray configuration and shortId from array (v1.2)
+    if ! remove_client_from_xray "$uuid" "$username"; then
         log_error "Failed to remove client from Xray configuration"
         return 1
     fi
@@ -1734,6 +1833,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f get_user_info
     export -f validate_username
     export -f generate_uuid
+    export -f generate_short_id
     export -f regenerate_configs
     export -f add_user_to_json
     export -f remove_user_from_json
