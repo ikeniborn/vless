@@ -44,15 +44,12 @@
         </prd_document>
 
         <project_context>
-            При создании нового пользователя генерируется новая ссылка с один и тем же shortIds.
             Изучи документцию по корректноиу ссозанинию нового пользвоателя https://deepwiki.com/XTLS/Xray-examples/2.3-vless-+-tcp-+-reality#client-configuration
         </project_context>
 
         <task>
             <technical_requirements>
-                - Изучить текущее решение по созданиб нового пользватя
-                - Изучить корректность создания пользователя и гегерации shortIds 
-                - Исправить генерацию shortIds если она создается не корректно для впн клиента
+                - Добавить в функцию созания польоввателя для впн выбор fingerptint. Для androif и ios.
             </technical_requirements>
 
             <quality_requirements>
