@@ -136,62 +136,29 @@ Client → stunnel (TLS termination, ports 1080/8118)
 
 ---
 
-### What's New in v3.5
+### Version History Summary
 
-**PRIMARY FEATURE:** Per-user IP-based access control using Xray routing rules.
+**For detailed migration guides and breaking changes, see:** [CHANGELOG.md](../CHANGELOG.md)
 
-**Key Capabilities:**
+| Version | Date | Key Feature | Status | Notes |
+|---------|------|-------------|--------|-------|
+| **v4.1** | 2025-10-07 | Heredoc config generation + Proxy URI fix | ✅ **CURRENT** | https://, socks5s://, removed templates/ |
+| **v4.0** | 2025-10-06 | stunnel TLS termination architecture | ✅ Implemented | Separate TLS layer, plaintext Xray inbounds |
+| **v3.6** | 2025-10-06 | Server-level IP whitelist | ⚠️ Superseded | Migration from v3.5 per-user to server-level |
+| **v3.5** | 2025-10-06 | Per-user IP-based access control | ⚠️ Superseded | Xray routing rules, deprecated in v3.6 |
+| **v3.4** | 2025-10-05 | Optional TLS encryption | ⚠️ Superseded | Plaintext mode for dev/testing |
+| **v3.3** | 2025-10-05 | Mandatory TLS for public proxies | ⚠️ Superseded | Let's Encrypt integration, certbot |
+| **v3.2** | 2025-10-04 | Public proxy support (no encryption) | ❌ Deprecated | SECURITY ISSUE - plaintext credentials |
+| **v3.1** | 2025-10-03 | Dual proxy (SOCKS5 + HTTP, localhost) | ⚠️ Superseded | Localhost-only binding, VPN required |
+| **v3.0** | 2025-10-01 | Base VLESS Reality VPN | ⚠️ Superseded | No proxy support |
 
-| Feature | Description | Benefit |
-|---------|-------------|---------|
-| **Per-User IP Lists** | Each user has individual allowed_ips array | Granular access control |
-| **Multiple IP Formats** | IPv4, IPv6, CIDR notation | Flexible configuration |
-| **Default Security** | New users: 127.0.0.1 only | Prevents accidental exposure |
-| **Application-Level** | Xray routing rules | Zero performance overhead |
-| **Zero Downtime** | Updates via container reload | < 3 seconds |
-
-**New CLI Commands (5):**
-```bash
-vless show-allowed-ips <user>           # Display user's IP whitelist
-vless set-allowed-ips <user> <ips>      # Set complete IP list
-vless add-allowed-ip <user> <ip>        # Add single IP
-vless remove-allowed-ip <user> <ip>     # Remove IP
-vless reset-allowed-ips <user>          # Reset to localhost
-```
-
-**Use Cases:**
-1. **Fixed IPs**: Restrict access to office/home static IPs
-2. **VPN-Only**: Allow only VPN-connected clients (10.0.0.0/8)
-3. **Multi-Region Teams**: Whitelist multiple office locations
-4. **Development**: Localhost-only for test accounts
-5. **Compliance**: Enforce IP-based policies
-
-**Technical Implementation:**
-- `users.json v1.2`: Added `allowed_ips` field (default: `["127.0.0.1"]`)
-- `orchestrator.sh`: `generate_routing_json()` creates per-user routing rules
-- `user_management.sh`: 6 IP management functions with validation
-- Routing: `user` (email) + `source` (IPs) → `direct` or `blackhole` outbound
-
----
-
-### v3.4 Key Changes
-
-**PRIMARY CHANGE:** Made TLS encryption **optional** for public proxy mode.
-
-**Deployment Modes:**
-
-| Mode | Encryption | Use Case | Production Ready |
-|------|------------|----------|------------------|
-| **TLS Mode** | TLS 1.3 (socks5s://, https://) | Production | ✅ YES |
-| **Plaintext Mode** | None (socks5://, http://) | Dev/Testing | ⚠️ NO |
-| **Localhost Mode** | N/A (127.0.0.1 only) | VPN-only | ✅ YES |
-
-**Installation Flow:**
-1. Enable public proxy? [y/N]
-2. If yes: Enable TLS encryption? [Y/n]
-3. If TLS: Domain + email for Let's Encrypt
-
-**Rationale:** Allow development/testing without domain requirements while maintaining production security option.
+**Current Production Architecture (v4.1):**
+- **VLESS Reality VPN:** DPI-resistant tunnel (port 443)
+- **stunnel TLS Termination:** Handles TLS 1.3 for proxy ports (1080, 8118)
+- **Dual Proxy:** SOCKS5 + HTTP with unified credentials
+- **IP Whitelisting:** Server-level Xray routing + optional UFW firewall
+- **Config Generation:** Heredoc-based (all configs inline in lib/*.sh)
+- **Client Configs:** 6 formats with correct TLS URI schemes
 
 ---
 
@@ -201,8 +168,8 @@ vless reset-allowed-ips <user>          # Reset to localhost
 
 Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 - **VLESS Reality VPN:** DPI-resistant tunnel for secure browsing
-- **Secure SOCKS5 Proxy:** TLS-encrypted proxy on port 1080 (**NEW in v3.3**)
-- **Secure HTTP Proxy:** HTTPS proxy on port 8118 (**NEW in v3.3**)
+- **Secure SOCKS5 Proxy:** TLS-encrypted proxy on port 1080 (v4.0+ stunnel termination)
+- **Secure HTTP Proxy:** HTTPS proxy on port 8118 (v4.0+ stunnel termination)
 - **Hybrid Mode:** VPN for some devices, encrypted proxy for others
 - **Zero Trust Network:** No plaintext proxy access, TLS mandatory
 
@@ -210,27 +177,9 @@ Production-ready VPN + **Secure** Proxy server deployable in < 7 minutes with:
 
 - **Primary:** System administrators deploying secure VPN + Proxy infrastructure
 - **Use Case 1:** VPN for mobile devices (iOS/Android)
-- **Use Case 2:** **Encrypted proxy for desktop applications** (VSCode, Git) ← **ENHANCED**
+- **Use Case 2:** Encrypted proxy for desktop applications (VSCode, Git, Docker)
 - **Use Case 3:** Mixed deployment (VPN + Encrypted Proxy simultaneously)
 - **Use Case 4:** Development teams requiring secure proxy for CI/CD pipelines
-
-### 1.3 Key Differentiators
-
-| Feature | v3.1 | v3.3 | v3.4 | v3.5 |
-|---------|------|------|------|------|
-| **Proxy Access** | Localhost | Public (0.0.0.0) | Public (optional) | Public (optional) |
-| **VPN Required** | YES | NO | NO | NO |
-| **Encryption** | N/A | ✅ TLS 1.3 (mandatory) | ✅ TLS 1.3 (optional) | ✅ TLS 1.3 (optional) |
-| **Certificate** | N/A | Let's Encrypt | Let's Encrypt (optional) | Let's Encrypt (optional) |
-| **IP Whitelisting** | ❌ None | ❌ None | ❌ None | ✅ **Server-level** |
-| **Password Length** | 16 chars | 32 chars | 32 chars | 32 chars |
-| **Fail2ban** | Optional | Mandatory | Mandatory | Mandatory |
-| **Rate Limiting** | N/A | UFW 10/min | UFW 10/min | UFW 10/min |
-| **Firewall Ports** | 443 only | 443+1080+8118+80 | 443+1080+8118+(80) | 443+1080+8118+(80) |
-| **Config URIs** | socks5://127.0.0.1 | socks5s://domain | socks5[s]://host | socks5[s]://host |
-| **Default Access** | Localhost | Public | Public | **Localhost** |
-| **Access Control** | None | Password only | Password only | Password + **IP whitelist** |
-| **Security Level** | Low | High | High | **Very High** |
 
 ---
 
@@ -327,88 +276,17 @@ stunnel:
 
 ---
 
-### FR-TEMPLATE-001: Heredoc-Based Configuration (HIGH - v4.1 UPDATE)
+### FR-CONFIG-GENERATION: Configuration Generation Method (HISTORICAL)
 
-**Status:** ❌ DEPRECATED (Template-based approach removed in v4.1)
+**Status:** ❌ v4.0 Template-Based Approach DEPRECATED in v4.1
 
-**Current Implementation (v4.1):** All configuration files generated via heredoc in lib/ modules.
+**Version History:**
+- **v4.0 (deprecated)**: Template-based config generation with envsubst
+- **v4.1 (current)**: Heredoc-based generation in lib/ modules (lib/stunnel_setup.sh, lib/orchestrator.sh)
 
-**Rationale for Heredoc Approach:**
-- **Unified codebase**: Xray and docker-compose already use heredoc
-- **Simpler dependencies**: No envsubst (GNU gettext) required
-- **Fewer files**: 1 file instead of 2 (template + script)
-- **Atomic operations**: Config generation and logic in one place
+**Current Implementation:** All configuration files (stunnel.conf, docker-compose.yml, xray_config.json) generated via heredoc in lib/*.sh modules.
 
-**Implementation Status:**
-
-| Config File | v4.0 Method | v4.1 Method | Status |
-|-------------|-------------|-------------|--------|
-| `stunnel.conf` | templates/stunnel.conf.template | heredoc in lib/stunnel_setup.sh | ✅ IMPLEMENTED |
-| `config.json` (Xray) | ❌ NOT IMPLEMENTED | heredoc in lib/orchestrator.sh | ✅ IMPLEMENTED |
-| `docker-compose.yml` | ❌ NOT IMPLEMENTED | heredoc in lib/orchestrator.sh | ✅ IMPLEMENTED |
-
-**Technical Implementation (v4.1 - Heredoc):**
-
-**Example: lib/stunnel_setup.sh**
-```bash
-create_stunnel_config() {
-    local domain="$1"
-
-    # Generate config via heredoc (no templates/)
-    cat > "$STUNNEL_CONFIG" <<EOF
-#
-# stunnel Configuration for VLESS Reality VPN
-# Domain: $domain
-# Generated: $(date -Iseconds)
-#
-
-# Global settings
-foreground = yes
-output = /var/log/stunnel/stunnel.log
-debug = 5
-syslog = no
-
-# TLS 1.3 only cipher suites
-ciphersuites = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
-
-[socks5-tls]
-accept = 0.0.0.0:1080
-connect = vless_xray:10800
-cert = /certs/live/$domain/fullchain.pem
-key = /certs/live/$domain/privkey.pem
-verify = 0
-sslVersion = TLSv1.3
-
-[http-tls]
-accept = 0.0.0.0:8118
-connect = vless_xray:18118
-cert = /certs/live/$domain/fullchain.pem
-key = /certs/live/$domain/privkey.pem
-verify = 0
-sslVersion = TLSv1.3
-EOF
-
-    chmod 600 "$STUNNEL_CONFIG"
-}
-```
-
-**Migration from v4.0:**
-```bash
-# v4.0: Template-based (REMOVED in v4.1)
-envsubst '${DOMAIN}' < templates/stunnel.conf.template > config/stunnel.conf
-
-# v4.1: Heredoc-based (CURRENT)
-create_stunnel_config "$domain"  # Generates config inline
-```
-
-**Benefits:**
-1. **Unified approach**: All configs use heredoc (Xray, stunnel, docker-compose)
-2. **Simpler dependencies**: No envsubst (GNU gettext) requirement
-3. **Fewer files**: 1 file instead of 2 (no separate template)
-4. **Atomic operations**: Config generation logic in one place
-5. **Easier debugging**: All logic visible in lib/ modules
-
-**User Story:** As a developer, I want consistent config generation so that I don't need to learn multiple approaches (templates vs heredoc).
+**Migration:** Templates/ directory removed in v4.1. See [CLAUDE.md Section 7](CLAUDE.md#7-critical-system-parameters) for current implementation details.
 
 ---
 
@@ -1377,137 +1255,34 @@ networks:
 
 ---
 
-## 5. Implementation Changes (v3.2 → v3.3)
+## 5. Implementation Details & Migration History
 
-### 5.1 Code Changes Required
+**For implementation specifics and historical migration guides, see:**
+- **[CHANGELOG.md](../CHANGELOG.md)** - Detailed version history, breaking changes, migration guides
+- **[CLAUDE.md Section 8](CLAUDE.md#8-project-structure)** - Current implementation architecture (v4.1)
 
-| File | Lines Changed | Description |
-|------|---------------|-------------|
-| `lib/orchestrator.sh` | ~30 lines | Add streamSettings.security="tls" to SOCKS5/HTTP inbounds |
-| `lib/user_management.sh` | ~25 lines | Change socks5:// → socks5s://, http:// → https:// |
-| `lib/interactive_params.sh` | ~40 lines | Add domain/email prompts for Let's Encrypt |
-| `lib/certbot_setup.sh` | ~200 lines | **NEW module** for certbot installation & config |
-| `lib/dependencies.sh` | ~10 lines | Add certbot to dependency list |
-| `lib/security_hardening.sh` | ~30 lines | Add port 80 temporary management, UFW rules update |
-| `install.sh` | ~20 lines | Call certbot_setup, DNS validation |
-| `docker-compose.yml` | ~5 lines | Add /etc/letsencrypt volume mount |
-| `scripts/vless-cert-renew` | ~20 lines | **NEW script** - deploy hook for Xray restart |
-
-**Total Estimated Changes:** ~380 lines across 9 files + 2 new modules/scripts
-
----
-
-### 5.2 Migration Path (v3.2 → v3.3)
-
-**For Existing v3.2 Users:**
-
-⚠️ **CRITICAL BREAKING CHANGES:**
-1. Domain required (must point to server IP)
-2. All proxy config files will become invalid (plain → TLS URIs)
-3. Port 80 must be temporarily available for ACME challenge
-
-**Migration Steps:**
-
-**Pre-Migration:**
-```bash
-# 1. Verify prerequisites
-dig +short vpn.example.com    # Must return server IP
-sudo ss -tulnp | grep :80      # Port 80 must be free (or temporarily stoppable)
-sudo ufw status                # UFW must be active
-```
-
-**Migration:**
-```bash
-# 2. Backup current installation
-sudo vless-backup
-
-# 3. Update to v3.3
-sudo vless-update
-# Will prompt for:
-#   - Domain name: vpn.example.com
-#   - Email: admin@example.com
-
-# Installer will:
-#   - Install certbot
-#   - Validate DNS (dig check)
-#   - Temporarily open port 80
-#   - Run certbot certonly
-#   - Update config.json with TLS streamSettings
-#   - Add /etc/letsencrypt volume mount
-#   - Close port 80
-#   - Setup cron for auto-renewal
-#   - Restart Xray
-
-# 4. Regenerate all user configs
-sudo vless-user regenerate
-# Regenerates configs for all users with TLS URIs
-
-# 5. Distribute new configs to users
-# Copy files from /opt/vless/data/clients/<user>/
-```
-
-**Post-Migration Verification:**
-```bash
-# Verify certificates
-sudo ls -la /etc/letsencrypt/live/vpn.example.com/
-# Expected: fullchain.pem, privkey.pem
-
-# Verify TLS on SOCKS5
-openssl s_client -connect server:1080
-# Expected: TLS handshake success, Let's Encrypt cert shown
-
-# Verify TLS on HTTP
-curl -I --proxy https://user:pass@server:8118 https://google.com
-# Expected: HTTP/1.1 200 OK
-
-# Verify cron job
-sudo crontab -l | grep certbot
-# Expected: 0 0,12 * * * certbot renew...
-
-# Test dry-run renewal
-sudo certbot renew --dry-run
-# Expected: Congratulations, all renewals succeeded
-```
-
-**Rollback (if needed):**
-```bash
-# Restore v3.2 backup
-sudo vless-restore /tmp/vless_backup_<timestamp>/
-
-# Remove certbot (optional)
-sudo apt remove -y certbot
-```
+**Current v4.1 Implementation Summary:**
+- **Config Generation:** Heredoc-based (lib/stunnel_setup.sh, lib/orchestrator.sh, lib/user_management.sh)
+- **TLS Termination:** stunnel container (separate from Xray)
+- **Proxy Ports:** stunnel:1080/8118 (TLS) → Xray:10800/18118 (plaintext)
+- **IP Whitelisting:** server-level via proxy_allowed_ips.json + Xray routing + optional UFW
+- **Client Configs:** 6 formats auto-generated with correct URI schemes (https://, socks5s://)
 
 ---
 
 ## 6. Security Risk Assessment
 
-### 6.1 Threat Model (v3.3 vs v3.2)
+**For detailed security analysis, threat modeling, and mitigation strategies, see:**
+- **[CLAUDE.md Section 15](CLAUDE.md#15-security--debug)** - Security Threat Matrix, Best Practices, Debug Commands
+- **[CHANGELOG.md](../CHANGELOG.md)** - Historical security improvements (v3.2 → v3.3 TLS migration)
 
-| Threat | v3.2 Risk | v3.3 Risk | Mitigation |
-|--------|-----------|-----------|------------|
-| **Credential Sniffing** | ❌ **CRITICAL** | ✅ **MITIGATED** | TLS 1.3 encryption |
-| **MITM Attack** | ❌ **CRITICAL** | ✅ **MITIGATED** | Let's Encrypt trusted cert |
-| **Password Brute-force** | ⚠️ HIGH | ⚠️ MEDIUM | 32-char passwords + fail2ban |
-| **Traffic Analysis** | ⚠️ MEDIUM | ✅ LOW | TLS encrypted payload |
-| **DDoS on proxy ports** | ⚠️ MEDIUM | ⚠️ MEDIUM | UFW rate limiting (10/min) |
-| **Cert Expiry Downtime** | N/A | ⚠️ LOW | Auto-renewal + 30-day grace |
-| **Let's Encrypt Rate Limit** | N/A | ⚠️ LOW | Cert backup/restore + staging |
-
-### 6.2 Security Improvements Summary
-
-| Security Layer | v3.2 | v3.3 | Improvement |
-|----------------|------|------|-------------|
-| **Encryption** | ❌ None | ✅ TLS 1.3 | **CRITICAL FIX** |
-| **Certificate** | ❌ None | ✅ Let's Encrypt | Trusted CA |
-| **Password** | ✅ 32 chars | ✅ 32 chars | Unchanged |
-| **Fail2ban** | ✅ Active | ✅ Active | Unchanged |
-| **Rate Limiting** | ✅ UFW 10/min | ✅ UFW 10/min | Unchanged |
-| **Port Management** | ✅ 443+1080+8118 | ✅ +80 (temp) | ACME challenge |
-
-**Overall Security Posture:**
-- v3.2: ❌ **NOT PRODUCTION-READY** (plaintext credentials)
-- v3.3: ✅ **PRODUCTION-READY** (TLS encrypted, trusted certs)
+**Current v4.1 Security Posture:**
+- ✅ **TLS 1.3 Encryption:** stunnel termination for all proxy connections (v4.0+)
+- ✅ **Let's Encrypt Certificates:** Automated certificate management with auto-renewal
+- ✅ **32-Character Passwords:** Brute-force resistant credentials
+- ✅ **fail2ban Protection:** Automated IP banning after 5 failed attempts
+- ✅ **UFW Rate Limiting:** 10 connections/minute per IP on proxy ports
+- ✅ **DPI Resistance:** Reality protocol makes VPN traffic indistinguishable from HTTPS
 
 ---
 
@@ -1674,56 +1449,12 @@ curl --socks5 alice:PASSWORD@server:1080 --proxy-insecure https://ifconfig.me
 
 ---
 
-## 8. Acceptance Criteria (v3.3)
+## 8. Acceptance Criteria
 
-### Phase 1: Core TLS Implementation ✅
+**For historical v3.x acceptance criteria and migration checklists, see:**
+- **[CHANGELOG.md](../CHANGELOG.md)** - Phase-by-phase acceptance criteria for v3.2 → v3.3, v3.5 → v3.6, v4.0, v4.1 releases
 
-- [ ] Certbot installed and configured
-- [ ] Let's Encrypt certificates obtained during installation
-- [ ] Xray config.json has `streamSettings.security="tls"` for SOCKS5
-- [ ] Xray config.json has `streamSettings.security="tls"` for HTTP
-- [ ] Docker volume mount: `/etc/letsencrypt:/etc/xray/certs:ro`
-- [ ] All 5 config file formats use TLS URIs (socks5s://, https://)
-
-### Phase 2: Certificate Management ✅
-
-- [ ] Cron job created: `/etc/cron.d/certbot-vless-renew`
-- [ ] Deploy hook script: `/usr/local/bin/vless-cert-renew`
-- [ ] Dry-run renewal test passes: `certbot renew --dry-run`
-- [ ] Deploy hook restarts Xray successfully
-- [ ] Downtime during renewal < 5 seconds
-
-### Phase 3: Security Hardening ✅
-
-- [ ] No plain proxy on public interface (validation enforced)
-- [ ] TLS handshake successful on both ports (1080, 8118)
-- [ ] Let's Encrypt certificate trusted (no warnings)
-- [ ] Fail2ban active for SOCKS5 and HTTP (unchanged from v3.2)
-- [ ] Rate limiting effective (10 conn/min per IP)
-- [ ] Port 80 auto-managed (open during certbot, closed after)
-
-### Phase 4: Client Integration ✅
-
-- [ ] VSCode works with HTTPS proxy (Test Case 6)
-- [ ] Git works with socks5s:// proxy (Test Case 7)
-- [ ] No SSL certificate warnings in clients
-- [ ] Config files copy-paste ready (no manual editing required)
-
-### Phase 5: Migration & Documentation ✅
-
-- [ ] Migration guide created: `MIGRATION_v3.2_to_v3.3.md`
-- [ ] `vless-update` shows breaking change warning
-- [ ] `vless-user regenerate` command implemented
-- [ ] README.md updated with v3.3 TLS requirements
-- [ ] PRD.md v3.3 finalized (this document)
-
-### Phase 6: Testing ✅
-
-- [ ] All 12 test cases pass (Test Cases 1-12)
-- [ ] Wireshark confirms TLS encryption (Test Case 8)
-- [ ] Nmap detects TLS on ports (Test Case 9)
-- [ ] Old v3.2 configs fail (Test Case 11)
-- [ ] New v3.3 configs work (Test Case 12)
+**v4.1 Implementation Status:** All features ✅ **COMPLETE** (see Implementation Status table at document top)
 
 ---
 
@@ -1744,93 +1475,23 @@ The following are explicitly NOT included:
 
 ## 10. Success Metrics
 
-| Metric | v3.2 Target | v3.3 Target | Validation |
-|--------|-------------|-------------|------------|
-| **Installation Time** | < 5 minutes | **< 7 minutes** | Timed test (+2 min for certbot) |
-| **Security Audit** | ❌ CRITICAL ISSUES | ✅ **0 critical issues** | nmap + Wireshark |
-| **TLS Handshake** | N/A | ✅ **100% success** | Test Cases 1-2 |
-| **Cert Renewal** | N/A | ✅ **> 99% success** | Dry-run + production monitoring |
-| **Client Compatibility** | N/A | ✅ **100% (VSCode, Git)** | Test Cases 6-7 |
-| **Password Strength** | 32 characters | 32 characters | Unchanged |
-| **Fail2ban Blocks** | 100% after 5 failures | 100% after 5 failures | Unchanged |
-| **Migration Success** | N/A | ✅ **100% config regen** | vless-user regenerate |
+**For detailed performance targets, test results, and success criteria, see:**
+- **[CLAUDE.md Section 16](CLAUDE.md#16-success-metrics)** - Current v4.1 success metrics, performance targets, overall success formula
 
 ---
 
 ## 11. Dependencies
 
-### 11.1 External Dependencies (UPDATED)
-
-| Dependency | Version | Purpose | NEW in v3.3 |
-|------------|---------|---------|-------------|
-| Docker | 20.10+ | Container runtime | - |
-| Docker Compose | v2.0+ | Orchestration | - |
-| UFW | System default | Firewall | - |
-| jq | 1.5+ | JSON processing | - |
-| qrencode | Latest | QR codes | - |
-| fail2ban | 0.11+ | Brute-force protection | - |
-| netcat | System default | Healthchecks | - |
-| **certbot** | **2.0+** | **Let's Encrypt client** | **✅ YES** |
-| **openssl** | **1.1.1+** | **TLS testing** | **✅ YES (testing)** |
-
-### 11.2 Installation Order
-
-1. OS detection
-2. Docker + Docker Compose
-3. UFW
-4. fail2ban
-5. **certbot** ← NEW
-6. jq, qrencode, netcat
-7. **openssl** (usually pre-installed)
+**For complete dependency list with versions and installation requirements, see:**
+- **[CLAUDE.md Section 7](CLAUDE.md#7-critical-system-parameters)** - Technology Stack (Docker, Xray, stunnel), Shell & Tools, Security Testing Tools
 
 ---
 
-## 12. Rollback Plan
+## 12. Rollback & Troubleshooting
 
-**If v3.3 deployment fails:**
-
-**Scenario 1: Certbot Failure**
-```bash
-# If Let's Encrypt rate limit hit or DNS issues
-# Option A: Wait for rate limit reset (1 week)
-# Option B: Use different (sub)domain
-# Option C: Rollback to v3.2 (VULNERABLE - not recommended)
-
-sudo vless-restore /tmp/vless_backup_<timestamp>/
-```
-
-**Scenario 2: TLS Configuration Issues**
-```bash
-# Check Xray logs for TLS errors
-sudo docker logs vless-reality | grep -i tls
-
-# Common issues:
-# - Certificate path incorrect
-# - Permissions on /etc/letsencrypt/
-# - Volume mount missing
-
-# Fix and restart
-sudo docker-compose restart xray
-```
-
-**Scenario 3: Complete Rollback to v3.2**
-```bash
-# Restore v3.2 backup
-sudo vless-restore /tmp/vless_backup_<timestamp>/
-
-# Remove certbot
-sudo systemctl stop certbot.timer
-sudo apt remove -y certbot
-
-# Remove cron job
-sudo rm /etc/cron.d/certbot-vless-renew
-
-# Remove deploy hook
-sudo rm /usr/local/bin/vless-cert-renew
-
-# ⚠️  WARNING: v3.2 has CRITICAL security vulnerability
-# Only use for temporary rollback, migrate to v3.3 ASAP
-```
+**For rollback procedures, troubleshooting guides, and common failure points, see:**
+- **[CLAUDE.md Section 11](CLAUDE.md#11-common-failure-points--solutions)** - Issue detection, solutions, debug workflows
+- **[CHANGELOG.md](../CHANGELOG.md)** - Historical rollback scenarios (v3.2 → v3.3, v3.5 → v3.6)
 
 ---
 

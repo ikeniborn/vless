@@ -1,22 +1,29 @@
 # VLESS Reality VPN Deployment System
 
-**Version**: 4.0
-**Status**: In Development
+**Version**: 4.1
+**Status**: Production Ready
 **License**: MIT
 
 ---
 
 ## Overview
 
-Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP) with stunnel TLS termination** (v4.0), template-based configuration architecture, multi-layer IP whitelisting (Xray + UFW), Let's Encrypt certificate automation, and defense-in-depth security hardening including fail2ban integration.
+Production-grade CLI-based VLESS+Reality VPN deployment system enabling users to install, configure, and manage Reality protocol servers in under 5 minutes. Features automated dependency installation, Docker orchestration, comprehensive user management, **dual proxy server support (SOCKS5 + HTTP) with stunnel TLS termination** (v4.0+), heredoc-based configuration generation (v4.1), multi-layer IP whitelisting (Xray + UFW), Let's Encrypt certificate automation, and defense-in-depth security hardening including fail2ban integration.
 
-### What's New in v4.0
+### What's New in v4.1
 
-**Primary Feature:** stunnel-based TLS termination + template-based configuration architecture
+**Primary Feature:** Heredoc-based configuration generation (unified architecture)
 
 **Key Changes:**
+- **Heredoc Config Generation**: All configurations (Xray, stunnel, docker-compose) generated inline via bash heredoc
+- **Simplified Dependencies**: Removed envsubst dependency (GNU gettext no longer required)
+- **Unified Architecture**: Consistent config generation method across all modules (lib/stunnel_setup.sh, lib/orchestrator.sh)
+- **No Template Directory**: Eliminated templates/ directory - configs generated directly in code
+- **Correct Proxy URIs**: Fixed v4.0 bug - URIs now use `https://` and `socks5s://` for TLS connections
+- **Easier Maintenance**: Config logic and generation in same place (no template/script split)
+
+**v4.0 Foundation (retained in v4.1):**
 - **stunnel TLS Termination**: Dedicated stunnel container handles TLS 1.3 encryption, separating concerns from Xray
-- **Template-Based Configs**: All configurations (Xray, stunnel, docker-compose) generated from templates
 - **Simpler Xray Config**: Xray focuses on proxy logic (localhost plaintext inbounds), no TLS complexity
 - **UFW Integration**: Optional host-level firewall rules for proxy ports (defense-in-depth)
 - **Mature TLS Stack**: stunnel has 20+ years production stability
@@ -45,14 +52,15 @@ Client → stunnel (TLS 1.3, ports 1080/8118)
   - **Client URIs**: `socks5s://user:pass@domain:1080` and `https://user:pass@domain:8118`
 - **Multi-Layer IP Whitelisting (v4.0)**: Defense-in-depth access control with:
   - **Xray routing rules** (v3.6): Application-level filtering via proxy_allowed_ips.json
-  - **UFW firewall rules** (v4.0 NEW): Host-level filtering for proxy ports
+  - **UFW firewall rules** (v4.0): Host-level filtering for proxy ports
   - **Multiple IP formats**: Individual IPs, CIDR ranges, IPv4/IPv6
   - **Default security**: Localhost-only access for new users
   - **Zero downtime**: Updates apply immediately via container reload
-- **Template-Based Configuration (v4.0 NEW)**: Clean separation of configs from scripts
-  - **Xray config**: Generated from template with variable substitution
-  - **stunnel config**: Template-based with domain variable
-  - **docker-compose**: Dynamic service composition based on mode
+- **Heredoc Config Generation (v4.1)**: Unified inline configuration generation
+  - **All configs**: Generated via bash heredoc (Xray, stunnel, docker-compose)
+  - **No templates/**: Eliminated separate template directory
+  - **Simplified dependencies**: Removed envsubst requirement
+  - **Correct URI schemes**: https:// and socks5s:// for TLS-enabled proxies
 - **User Management**: Create/remove users in < 5 seconds with UUID generation
 - **Multi-Format Config Export**: 6 proxy config formats (SOCKS5, HTTP, VSCode, Docker, Bash, Git)
 - **QR Code Generation**: 400x400px PNG + ANSI terminal variants
@@ -915,13 +923,13 @@ sudo bash lib/security_tests.sh --dev-mode
 
 ## Statistics
 
-- **Development Time**: 220 hours (182h v3.2 + 38h v3.3 TLS integration)
-- **Modules**: 15 (including certbot_setup.sh)
-- **Functions**: ~150 (138 v3.2 + 12 TLS-related)
-- **Test Cases**: ~140 (130 v3.2 + 10 TLS tests)
-- **Lines of Code**: ~7,200 (6,500 v3.2 + 700 TLS/migration)
+- **Development Time**: 235 hours (182h v3.x + 38h v4.0 stunnel + 15h v4.1 heredoc)
+- **Modules**: 15 (including certbot_setup.sh, stunnel_setup.sh)
+- **Functions**: ~155 (150 v4.0 + 5 heredoc refactoring)
+- **Test Cases**: ~145 (140 v4.0 + 5 heredoc validation tests)
+- **Lines of Code**: ~7,300 (7,200 v4.0 + 100 heredoc refactoring)
 - **Status**: Production Ready
-- **Latest Update**: v3.3 - Mandatory TLS Encryption for Public Proxies (Let's Encrypt)
+- **Latest Update**: v4.1 - Heredoc Config Generation (unified architecture, simplified dependencies)
 
 ---
 
@@ -930,29 +938,33 @@ sudo bash lib/security_tests.sh --dev-mode
 ```
 vless/
 ├── install.sh              # Main installation script
-├── lib/                    # Core modules (14 files)
-│   ├── orchestrator.sh     # UPDATED: Proxy inbound generation
-│   ├── user_management.sh  # UPDATED: Proxy password & config export
-│   └── service_operations.sh # UPDATED: Proxy status display
-├── docs/                   # Documentation (12 reports)
-├── tests/                  # Test suites (unit, integration, performance)
+├── lib/                    # Core modules (15 files)
+│   ├── orchestrator.sh     # v4.1: Heredoc-based Xray config generation
+│   ├── stunnel_setup.sh    # v4.1: Heredoc-based stunnel config generation
+│   ├── user_management.sh  # v4.1: Proxy password & config export (correct URIs)
+│   └── service_operations.sh # Proxy status display
+├── docs/                   # Documentation (12+ reports)
+├── tests/                  # Test suites (unit, integration, performance, security)
+│   └── test_stunnel_heredoc.sh # v4.1: Heredoc generation validation
 ├── workflow/               # Implementation summaries (EPIC-11)
 └── README.md               # This file
 
 Production (after install):
 /opt/vless/
 ├── config/
-│   ├── xray_config.json    # 3 inbounds (VLESS + SOCKS5 + HTTP) with TLS
+│   ├── xray_config.json    # v4.1: Generated via heredoc (3 inbounds: VLESS + SOCKS5 + HTTP)
+│   ├── stunnel.conf        # v4.1: Generated via heredoc (TLS termination config)
 │   └── users.json          # v1.2 with per-user shortIds and proxy_password
-├── .version                # v3.3: Version tracking for updates
+├── docker-compose.yml      # v4.1: Generated via heredoc (dynamic service composition)
+├── .version                # Version tracking for updates
 └── data/clients/<user>/
     ├── vless_config.json   # VLESS config
-    ├── socks5_config.txt   # SOCKS5 URI (socks5s:// for TLS in v3.3)
-    ├── http_config.txt     # HTTP URI (https:// for TLS in v3.3)
+    ├── socks5_config.txt   # v4.1: SOCKS5 URI (socks5s:// for TLS)
+    ├── http_config.txt     # v4.1: HTTP URI (https:// for TLS)
     ├── vscode_settings.json # VSCode proxy (with TLS validation)
     ├── docker_daemon.json  # Docker proxy config
     ├── bash_exports.sh     # Bash env vars
-    └── git_config.txt      # v3.3: Git proxy instructions
+    └── git_config.txt      # Git proxy instructions
 ```
 
 ---
