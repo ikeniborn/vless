@@ -5,6 +5,13 @@
 **Last Updated:** 2025-10-03
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
+Рекомендации по использованию
+  Для быстрого ознакомления: Начните с 00_summary.md
+  Для разработки: 02_functional_requirements.md + 04_architecture.md
+  Для тестирования: 05_testing.md + 03_nfr.md
+  Для troubleshooting: 06_appendix.md
+
+
 ---
 
 ## TABLE OF CONTENTS
