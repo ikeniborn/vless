@@ -305,40 +305,60 @@ verify_docker_network() {
 verify_containers() {
     log_info "Verification 4/8: Checking container health..."
 
-    # Check xray container
-    if docker ps --format '{{.Names}}' | grep -q '^vless_xray$'; then
-        local xray_status=$(docker inspect vless_xray -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$xray_status" == "running" ]]; then
-            log_success "Container 'vless_xray' is running"
+    # Check xray container using docker inspect (more reliable)
+    local xray_status=$(docker inspect vless_xray -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$xray_status" == "running" ]]; then
+        log_success "Container 'vless_xray' is running"
 
-            # Check uptime
-            local started_at=$(docker inspect vless_xray -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
-            if [[ -n "$started_at" ]]; then
-                log_info "  Started at: $started_at"
-            fi
-        else
-            log_error "Container 'vless_xray' exists but status is: $xray_status"
+        # Check uptime
+        local started_at=$(docker inspect vless_xray -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        if [[ -n "$started_at" ]]; then
+            log_info "  Started at: $started_at"
         fi
+
+        # Check for critical errors in logs
+        local xray_logs=$(docker logs vless_xray 2>&1 | tail -20)
+        if echo "$xray_logs" | grep -qE "(CRITICAL|FATAL|panic)"; then
+            log_warning "Container 'vless_xray' has critical messages in logs"
+        fi
+    elif [[ "$xray_status" == "not-found" ]]; then
+        log_error "Container 'vless_xray' not found"
     else
-        log_error "Container 'vless_xray' is not running"
+        log_error "Container 'vless_xray' exists but status is: $xray_status"
     fi
 
-    # Check nginx container
-    if docker ps --format '{{.Names}}' | grep -q '^vless_nginx$'; then
-        local nginx_status=$(docker inspect vless_nginx -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$nginx_status" == "running" ]]; then
-            log_success "Container 'vless_nginx' is running"
+    # Check nginx container using docker inspect (more reliable)
+    local nginx_status=$(docker inspect vless_nginx -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$nginx_status" == "running" ]]; then
+        log_success "Container 'vless_nginx' is running"
 
-            # Check uptime
-            local started_at=$(docker inspect vless_nginx -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
-            if [[ -n "$started_at" ]]; then
-                log_info "  Started at: $started_at"
-            fi
-        else
-            log_error "Container 'vless_nginx' exists but status is: $nginx_status"
+        # Check uptime
+        local started_at=$(docker inspect vless_nginx -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        if [[ -n "$started_at" ]]; then
+            log_info "  Started at: $started_at"
         fi
+
+        # Check healthcheck status (added in v4.1.1)
+        local nginx_health=$(docker inspect vless_nginx -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$nginx_health" == "healthy" ]]; then
+            log_success "Container 'vless_nginx' health: healthy"
+        elif [[ "$nginx_health" == "starting" ]]; then
+            log_info "  Container 'vless_nginx' health: starting"
+        elif [[ "$nginx_health" == "unhealthy" ]]; then
+            log_error "Container 'vless_nginx' health: unhealthy"
+        fi
+
+        # Check Nginx logs for critical errors only (ignore informational warnings)
+        local nginx_logs=$(docker logs vless_nginx 2>&1 | tail -20)
+        if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
+            log_error "Container 'vless_nginx' has critical errors in logs"
+        elif echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
+            log_info "  Nginx running in read-only mode (expected for security)"
+        fi
+    elif [[ "$nginx_status" == "not-found" ]]; then
+        log_error "Container 'vless_nginx' not found"
     else
-        log_error "Container 'vless_nginx' is not running"
+        log_error "Container 'vless_nginx' exists but status is: $nginx_status"
     fi
 
     # Check if containers are on the correct network
@@ -362,6 +382,34 @@ verify_containers() {
         log_success "Container 'vless_xray' restart policy: unless-stopped"
     else
         log_warning "Container 'vless_xray' restart policy: $xray_restart (expected unless-stopped)"
+    fi
+
+    # Check stunnel container if proxy with TLS enabled (v4.0+)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+        if [[ "$stunnel_status" == "running" ]]; then
+            log_success "Container 'vless_stunnel' is running"
+
+            # Check healthcheck status
+            local stunnel_health=$(docker inspect vless_stunnel -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+            if [[ "$stunnel_health" == "healthy" ]]; then
+                log_success "Container 'vless_stunnel' health: healthy"
+            elif [[ "$stunnel_health" == "starting" ]]; then
+                log_info "  Container 'vless_stunnel' health: starting"
+            elif [[ "$stunnel_health" == "unhealthy" ]]; then
+                log_error "Container 'vless_stunnel' health: unhealthy"
+            fi
+
+            # Check network
+            local stunnel_networks=$(docker inspect vless_stunnel -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
+            if [[ "$stunnel_networks" =~ vless_reality_net ]]; then
+                log_success "Container 'vless_stunnel' is connected to vless_reality_net"
+            else
+                log_error "Container 'vless_stunnel' is not connected to vless_reality_net (networks: $stunnel_networks)"
+            fi
+        elif [[ "$stunnel_status" != "not-found" ]]; then
+            log_error "Container 'vless_stunnel' exists but status is: $stunnel_status"
+        fi
     fi
 
     echo ""

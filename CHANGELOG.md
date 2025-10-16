@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.1.1] - 2025-10-16
+
+### Fixed - Container Verification Logic
+
+**Migration Type:** Non-Breaking (bug fix)
+
+**Primary Fix:** Improved container health verification and error detection
+
+#### Container Health Checks
+- **FIXED**: Nginx container verification now correctly distinguishes between critical errors and informational warnings
+  - Read-only filesystem warnings (expected with security hardening) no longer cause installation failure
+  - Only critical errors (`nginx: [emerg]`) now fail verification
+  - Uses `docker inspect` instead of `grep` for more reliable status checks
+- **FIXED**: Xray container verification enhanced with health status monitoring
+- **ADDED**: stunnel container verification with healthcheck status (v4.0+)
+- **ADDED**: Nginx healthcheck endpoint (`/health`) with automated monitoring
+  - Checks every 30s with 10s timeout
+  - 3 retries before marking unhealthy
+  - 10s startup grace period
+
+#### Pre-flight Checks
+- **ADDED**: Verification of critical files before container deployment
+  - Checks for xray_config.json, nginx config, docker-compose.yml, .env, keys
+  - Checks for stunnel.conf if TLS proxy enabled
+  - Clear error messages listing missing files
+  - Prevents containers from starting with incomplete configuration
+
+#### Verification Improvements
+- **CHANGED**: Container status checks now use `docker inspect` (more reliable than `docker ps | grep`)
+- **ADDED**: Health status monitoring for containers with healthcheck (Xray, stunnel)
+- **ADDED**: Log analysis for critical errors only (ignores expected security warnings)
+- **IMPROVED**: Error messages now include container status and actionable guidance
+
+#### Benefits
+- ✅ **No False Positives**: Security warnings no longer fail installation
+- ✅ **Earlier Error Detection**: Pre-flight checks catch configuration issues before deployment
+- ✅ **Better Diagnostics**: Health status provides real-time container health information
+- ✅ **More Reliable**: docker inspect eliminates race conditions with grep-based checks
+
+### Migration from v4.1
+
+**Automatic Migration:**
+- No user action required
+- Existing installations will benefit from improved verification on next update/restart
+
+---
+
 ## [4.1] - 2025-10-14
 
 ### Changed - Heredoc Config Generation

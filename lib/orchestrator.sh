@@ -937,6 +937,12 @@ ${xray_volumes}
     image: ${NGINX_IMAGE}
     container_name: ${NGINX_CONTAINER_NAME}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - ${DOCKER_NETWORK_NAME}
     volumes:
@@ -1166,6 +1172,33 @@ EOF
 deploy_containers() {
     echo -e "${CYAN}[11/12] Deploying Docker containers...${NC}"
 
+    # Pre-flight checks: Verify critical files exist before starting containers
+    echo "  Running pre-flight checks..."
+    local missing_files=()
+
+    # Check required configuration files
+    [[ ! -f "${XRAY_CONFIG}" ]] && missing_files+=("${XRAY_CONFIG}")
+    [[ ! -f "${NGINX_CONFIG}" ]] && missing_files+=("${NGINX_CONFIG}")
+    [[ ! -f "${DOCKER_COMPOSE_FILE}" ]] && missing_files+=("${DOCKER_COMPOSE_FILE}")
+    [[ ! -f "${ENV_FILE}" ]] && missing_files+=("${ENV_FILE}")
+    [[ ! -f "${KEYS_DIR}/private.key" ]] && missing_files+=("${KEYS_DIR}/private.key")
+    [[ ! -f "${KEYS_DIR}/public.key" ]] && missing_files+=("${KEYS_DIR}/public.key")
+
+    # Check stunnel config if proxy enabled (v4.0+)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        [[ ! -f "${CONFIG_DIR}/stunnel.conf" ]] && missing_files+=("${CONFIG_DIR}/stunnel.conf")
+    fi
+
+    if [[ ${#missing_files[@]} -gt 0 ]]; then
+        echo -e "${RED}✗ Pre-flight check failed: Missing critical files (${#missing_files[@]})${NC}" >&2
+        for file in "${missing_files[@]}"; do
+            echo "    - $file"
+        done
+        echo -e "${RED}Cannot start containers without these files${NC}" >&2
+        return 1
+    fi
+    echo "  ✓ All critical files present"
+
     # Change to installation directory
     cd "${INSTALL_ROOT}" || {
         echo -e "${RED}Failed to change to ${INSTALL_ROOT}${NC}" >&2
@@ -1191,21 +1224,77 @@ deploy_containers() {
     echo "  Waiting for containers to start..."
     sleep 5
 
-    # Check container status
-    if docker ps | grep -q "${XRAY_CONTAINER_NAME}"; then
+    # Check container status using docker inspect (more reliable than grep)
+    local xray_status=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$xray_status" == "running" ]]; then
         echo "  ✓ Xray container running"
+
+        # Check healthcheck status (if available)
+        local xray_health=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$xray_health" == "healthy" ]]; then
+            echo "  ✓ Xray container healthy"
+        elif [[ "$xray_health" == "starting" ]]; then
+            echo "  ℹ Xray container health: starting (will be checked later)"
+        elif [[ "$xray_health" != "no-healthcheck" ]]; then
+            echo -e "${YELLOW}  ⚠ Xray container health: $xray_health${NC}"
+        fi
     else
-        echo -e "${RED}Xray container failed to start${NC}" >&2
+        echo -e "${RED}Xray container failed to start (status: $xray_status)${NC}" >&2
         docker compose logs xray
         return 1
     fi
 
-    if docker ps | grep -q "${NGINX_CONTAINER_NAME}"; then
+    local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$nginx_status" == "running" ]]; then
         echo "  ✓ Nginx container running"
+
+        # Check healthcheck status (added in v4.1.1)
+        local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$nginx_health" == "healthy" ]]; then
+            echo "  ✓ Nginx container healthy"
+        elif [[ "$nginx_health" == "starting" ]]; then
+            echo "  ℹ Nginx container health: starting (will be checked later)"
+        elif [[ "$nginx_health" != "no-healthcheck" ]]; then
+            echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
+        fi
+
+        # Check Nginx logs for critical errors (ignore informational messages)
+        local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
+        if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
+            echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
+            docker compose logs nginx
+            return 1
+        fi
+        # Ignore read-only warnings - these are expected with security-hardened containers
+        if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
+            echo "  ℹ Nginx running in read-only mode (expected for security)"
+        fi
     else
-        echo -e "${RED}Nginx container failed to start${NC}" >&2
+        echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
         docker compose logs nginx
         return 1
+    fi
+
+    # Check stunnel container if proxy with TLS enabled (v4.0+)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
+        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+        if [[ "$stunnel_status" == "running" ]]; then
+            echo "  ✓ stunnel container running"
+
+            # Check healthcheck status
+            local stunnel_health=$(docker inspect vless_stunnel -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+            if [[ "$stunnel_health" == "healthy" ]]; then
+                echo "  ✓ stunnel container healthy"
+            elif [[ "$stunnel_health" == "starting" ]]; then
+                echo "  ℹ stunnel container health: starting (will be checked later)"
+            elif [[ "$stunnel_health" != "no-healthcheck" ]]; then
+                echo -e "${YELLOW}  ⚠ stunnel container health: $stunnel_health${NC}"
+            fi
+        elif [[ "$stunnel_status" != "not-found" ]]; then
+            echo -e "${RED}stunnel container failed to start (status: $stunnel_status)${NC}" >&2
+            docker compose logs stunnel
+            return 1
+        fi
     fi
 
     echo -e "${GREEN}✓ Containers deployed successfully${NC}"
