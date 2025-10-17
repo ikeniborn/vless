@@ -1,16 +1,18 @@
 #!/bin/bash
 # lib/docker_compose_generator.sh
 #
-# Docker Compose Configuration Generator (v4.1 Heredoc-Based)
+# Docker Compose Configuration Generator (v4.3 Unified HAProxy)
 # Generates docker-compose.yml dynamically via heredoc (no static files)
 #
 # Features:
 # - Full docker-compose.yml generation via heredoc
-# - Dynamic port management for nginx reverse proxy
+# - HAProxy unified TLS termination (ports 443, 1080, 8118)
+# - stunnel REMOVED (replaced by HAProxy)
+# - Dynamic port management for nginx reverse proxy (9443-9452)
 # - Integration with lib/docker_compose_manager.sh
 # - PRD v4.1 compliant (no templates, all heredoc)
 #
-# Version: 4.2.0
+# Version: 4.3.0
 # Author: VLESS Development Team
 # Date: 2025-10-17
 
@@ -33,10 +35,11 @@ log_error() {
 
 # =============================================================================
 # Function: generate_docker_compose
-# Description: Generates complete docker-compose.yml via heredoc
+# Description: Generates complete docker-compose.yml via heredoc (v4.3 unified HAProxy)
 #
 # Parameters:
-#   $@ - nginx_ports: Array of ports for nginx reverse proxy (e.g., 8443 8444)
+#   $@ - nginx_ports: Array of ports for nginx reverse proxy (e.g., 9443 9444)
+#        NEW in v4.3: ports are 9443-9452 (not 8443-8452)
 #        Empty array = no ports exposed (reverse proxy not configured)
 #
 # Returns:
@@ -46,15 +49,15 @@ log_error() {
 #   Creates /opt/vless/docker-compose.yml
 #
 # Example:
-#   generate_docker_compose 8443 8444 8445
+#   generate_docker_compose 9443 9444 9445
 # =============================================================================
 generate_docker_compose() {
     local nginx_ports=("$@")
 
-    log "Generating docker-compose.yml (heredoc-based, v4.1)"
-    log "  VLESS Port: ${VLESS_PORT}"
+    log "Generating docker-compose.yml (heredoc-based, v4.3 unified HAProxy)"
+    log "  VLESS Port: ${VLESS_PORT} (HAProxy backend)"
     log "  Docker Subnet: ${DOCKER_SUBNET}"
-    log "  Nginx Ports: ${nginx_ports[*]:-none}"
+    log "  Nginx Ports: ${nginx_ports[*]:-none} (localhost only)"
 
     # Create backup if file exists
     if [ -f "${DOCKER_COMPOSE_FILE}" ]; then
@@ -62,24 +65,49 @@ generate_docker_compose() {
         log "  Backup created: ${DOCKER_COMPOSE_FILE}.bak"
     fi
 
-    # Generate nginx ports section
+    # Generate nginx ports section (localhost-only, new range 9443-9452)
     local nginx_ports_yaml=""
     if [ ${#nginx_ports[@]} -gt 0 ]; then
         for port in "${nginx_ports[@]}"; do
-            nginx_ports_yaml+="      - \"${port}:${port}\"\n"
+            nginx_ports_yaml+="      - \"127.0.0.1:${port}:${port}\"\n"
         done
     else
         # Empty ports array (reverse proxy not configured)
         nginx_ports_yaml="[]  # Empty by default - populated dynamically"
     fi
 
-    # Generate docker-compose.yml via heredoc
+    # Generate docker-compose.yml via heredoc (v4.3)
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
 version: '3.8'
 
 services:
   # ===========================================================================
-  # Xray-core Service (VLESS Reality + HTTP Proxy Inbounds)
+  # HAProxy Service (v4.3 NEW - Unified TLS Termination)
+  # Handles ALL ports: 443 (SNI routing), 1080 (SOCKS5 TLS), 8118 (HTTP TLS)
+  # ===========================================================================
+  haproxy:
+    image: haproxy:2.8-alpine
+    container_name: vless_haproxy
+    restart: unless-stopped
+    network_mode: host  # Direct access to host network stack
+    volumes:
+      - ${VLESS_DIR}/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro  # Certificates for all ports
+      - ${VLESS_DIR}/logs/haproxy/:/var/log/haproxy/
+    cap_add:
+      - NET_BIND_SERVICE
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # Xray-core Service (VLESS Reality + Proxy Inbounds)
   # ===========================================================================
   xray:
     image: teddysun/xray:24.11.30
@@ -93,9 +121,11 @@ services:
     volumes:
       - ${VLESS_DIR}/config/config.json:/etc/xray/config.json:ro
       - ${VLESS_DIR}/logs/xray/:/var/log/xray/
-      - /etc/letsencrypt:/etc/letsencrypt:ro
     ports:
-      - "${VLESS_PORT}:443"
+      # v4.3 CHANGE: VLESS на localhost only (HAProxy forwards)
+      - "127.0.0.1:8443:8443"
+      # Note: SOCKS5/HTTP plaintext ports (10800/18118) not exposed to host
+      # HAProxy (host mode) accesses these via 127.0.0.1
     networks:
       - vless_reality_net
     logging:
@@ -103,34 +133,15 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8443"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # ===========================================================================
-  # stunnel Service (TLS Termination for SOCKS5/HTTP Proxy)
-  # v4.0+ feature: Separate TLS layer from proxy logic
-  # ===========================================================================
-  stunnel:
-    image: dweomer/stunnel:latest
-    container_name: vless_stunnel
-    restart: unless-stopped
-    volumes:
-      - ${VLESS_DIR}/config/stunnel.conf:/etc/stunnel/stunnel.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      - ${VLESS_DIR}/logs/stunnel/:/var/log/stunnel/
-    ports:
-      - "1080:1080"  # SOCKS5 proxy (TLS 1.3)
-      - "8118:8118"  # HTTP proxy (TLS 1.3)
-    networks:
-      - vless_reality_net
-    depends_on:
-      - xray
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ===========================================================================
-  # Nginx Reverse Proxy Service (v4.2 NEW)
+  # Nginx Reverse Proxy Service (v4.3 UPDATE)
   # Site-Specific Reverse Proxy for Blocked Websites
   # ===========================================================================
   nginx:
@@ -151,9 +162,8 @@ services:
       # Logs for fail2ban monitoring
       - ${VLESS_DIR}/logs/nginx/:/var/log/nginx/
 
-    # Port mappings: Managed dynamically via lib/docker_compose_manager.sh
-    # Ports are added when creating reverse proxy (vless-setup-proxy)
-    # Ports are removed when deleting reverse proxy (vless-proxy remove)
+    # v4.3 CHANGE: Port mappings now localhost-only (9443-9452, not 8443-8452)
+    # Managed dynamically via lib/docker_compose_manager.sh
     ports: ${nginx_ports_yaml}
 
     networks:
@@ -175,6 +185,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # ===========================================================================
+  # Certbot Nginx Service (v4.3 NEW - ACME HTTP-01 Challenges)
+  # Runs only when needed for certificate acquisition
+  # ===========================================================================
+  certbot_nginx:
+    image: nginx:alpine
+    container_name: vless_certbot_nginx
+    restart: "no"  # Do not restart automatically
+    network_mode: host  # Direct access to port 80
+    volumes:
+      - ${VLESS_DIR}/config/certbot-nginx/:/etc/nginx/conf.d/:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - certbot  # Start only with: docker-compose --profile certbot up
 
   # ===========================================================================
   # Nginx Fake Site Service (VLESS Reality Fallback)
@@ -269,10 +299,12 @@ validate_docker_compose() {
 
 # =============================================================================
 # Function: get_current_nginx_ports
-# Description: Extracts current nginx ports from docker-compose.yml
+# Description: Extracts current nginx ports from docker-compose.yml (v4.3)
 #
 # Returns:
 #   Array of ports (one per line) to stdout
+#
+# Note: v4.3 ports are 9443-9452 with localhost binding (127.0.0.1:PORT:PORT)
 # =============================================================================
 get_current_nginx_ports() {
     if [ ! -f "${DOCKER_COMPOSE_FILE}" ]; then
@@ -280,10 +312,11 @@ get_current_nginx_ports() {
     fi
 
     # Extract ports from nginx service using grep/sed
-    # Format: - "8443:8443" → 8443
+    # v4.3 Format: - "127.0.0.1:9443:9443" → 9443
     grep -A 20 "^  nginx:" "${DOCKER_COMPOSE_FILE}" \
-        | grep -E '^\s+- "[0-9]+:[0-9]+"' \
-        | sed -E 's/.*"([0-9]+):[0-9]+".*/\1/' \
+        | grep -E '^\s+- "(127\.0\.0\.1:)?[0-9]+:[0-9]+"' \
+        | sed -E 's/.*"(127\.0\.0\.1:)?([0-9]+):[0-9]+".*/\2/' \
+        | grep -E '^94[4-5][0-9]$' \
         || true
 }
 
