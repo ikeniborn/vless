@@ -655,104 +655,355 @@ If migration fails:
 
 ---
 
-### FR-REVERSE-PROXY-001: Site-Specific Reverse Proxy (NEW v4.2 DRAFT)
+### FR-REVERSE-PROXY-001: Site-Specific Reverse Proxy (NEW v4.2)
 
-**Requirement:** Реализовать reverse proxy для доступа к заблокированным сайтам через собственный домен с Let's Encrypt сертификатом.
+**Status:** 📝 DRAFT v3 (Security Hardened - 2025-10-17)
+**Priority:** CRITICAL (Security fixes mandatory)
+**Security Review:** ✅ APPROVED (with mandatory mitigations implemented)
+**Dependencies:** FR-CERT-001, FR-CERT-002 (Let's Encrypt integration)
 
-**Status:** 📝 DRAFT v2 (ожидает security review)
+---
 
-**Краткое описание:**
-- Пользователь заходит на свой домен (например, `myproxy.example.com:8443`)
-- Nginx выполняет TLS termination и HTTP Basic Auth
-- Xray проксирует запросы к целевому сайту
-- Поддержка до 10 доменов на сервер
-- Обязательная fail2ban защита
-- Configurable port (default 8443)
+#### 1. Requirement Statement
 
-**Архитектура:**
+**Requirement:** Система ДОЛЖНА поддерживать настройку reverse proxy для доступа к конкретному целевому сайту через отдельный домен с HTTP Basic Authentication и настраиваемым портом.
+
+**Rationale:**
+- Обход блокировок конкретных сайтов через reverse proxy
+- Доступ к geo-restricted контенту (Netflix, YouTube и т.д.)
+- Скрытие IP пользователя при доступе к одному сайту
+- Простота использования: не требуется настройка VPN или proxy в браузере
+- Поддержка нескольких reverse proxy доменов на одном сервере (до 10)
+
+**Key Requirements:**
+- ✅ Configurable port (default: 8443, range: 8443-8452)
+- ✅ Multiple domains support (up to 10 per server)
+- ✅ Error logging only (access log disabled for privacy)
+- ✅ Mandatory fail2ban integration (5 failures → 1 hour ban)
+- ✅ Security hardening (VULN-001/002/003/004/005 fixes implemented)
+- ❌ WebSocket support explicitly NOT included (HTTP/HTTPS only)
+
+---
+
+#### 2. User Story
+
+**As a** пользователь с заблокированным доступом к сайту
+**I want** настроить reverse proxy на своем домене с возможностью выбора порта
+**So that** я могу получить доступ к заблокированному сайту через свой домен без настройки VPN
+
+**Example Workflow:**
 ```
-User Browser → https://myproxy.example.com:8443
-             → Nginx (TLS termination, Basic Auth)
-             → Xray (domain restriction, localhost:10080)
-             → Target Site (blocked-site.com)
+1. Запускает: sudo vless-setup-proxy myproxy.example.com blocked-site.com
+2. Вводит порт: 8443 (или custom: 9443)
+3. Получает credentials: username / password
+4. Открывает https://myproxy.example.com:8443 в браузере
+5. Вводит credentials
+6. Видит контент с blocked-site.com
 ```
 
-**Ключевые компоненты:**
-1. Nginx reverse proxy (TLS + Basic Auth + error logging)
-2. Xray HTTP inbound (domain-based routing)
-3. Let's Encrypt certificate automation
-4. fail2ban protection (MANDATORY)
-5. UFW firewall rules (per domain)
+**Architecture:** См. [04_architecture.md Section 4.6](04_architecture.md#46-reverse-proxy-architecture-v42)
 
-**CLI Commands:**
+---
+
+#### 3. Acceptance Criteria
+
+**AC-1: Interactive Configuration**
+- [ ] DNS validation: `dig +short ${DOMAIN}` matches server IP
+- [ ] Port configuration: default 8443 or user-specified
+- [ ] Port availability check: `ss -tulnp | grep :${PORT}`
+- [ ] Port conflict validation (against 443, 1080, 8118, existing reverse proxies)
+- [ ] Target site validation: `curl -I https://${TARGET_SITE}`
+- [ ] Email for Let's Encrypt
+
+**AC-2: Automatic Certificate Acquisition**
+- [ ] certbot obtains certificate for reverse proxy domain
+- [ ] Port 80 temporarily opened for ACME challenge
+- [ ] Certificates saved to `/etc/letsencrypt/live/${DOMAIN}/`
+- [ ] Port 80 closed after successful acquisition
+
+**AC-3: Credentials Generation**
+- [ ] Username: `openssl rand -hex 4` (8 characters)
+- [ ] Password: `openssl rand -hex 16` (32 characters)
+- [ ] .htpasswd file: `htpasswd -bc .htpasswd-${DOMAIN} username password`
+- [ ] Credentials saved to `/opt/vless/config/reverse_proxies.json`
+
+**AC-4: Configuration Updates**
+- [ ] Nginx config created with configurable port
+- [ ] Xray config updated (new inbound + routing rules)
+- [ ] docker-compose.yml updated (new port mapping via lib/docker_compose_manager.sh)
+- [ ] fail2ban jail config created (multi-port support)
+- [ ] UFW rule added: `ufw allow ${PORT}/tcp comment 'VLESS Reverse Proxy'`
+- [ ] Config validation: `nginx -t`, `xray run -test -c config.json`
+
+**AC-5: Service Restart**
+- [ ] `docker compose up -d` applies changes
+- [ ] Healthcheck: nginx and xray containers running
+- [ ] Port listening: `ss -tulnp | grep ${PORT}`
+- [ ] fail2ban jail active: `fail2ban-client status vless-reverseproxy`
+
+**AC-6: Access Without Auth → 401 Unauthorized**
 ```bash
-# Добавить reverse proxy с портом по умолчанию
-sudo vless-rproxy add myproxy.example.com blocked-site.com
-
-# Добавить с кастомным портом
-sudo vless-rproxy add proxy2.example.com target2.com --port 9443
-
-# Список всех
-sudo vless-rproxy list
-
-# Показать детали
-sudo vless-rproxy show myproxy.example.com
-
-# Удалить
-sudo vless-rproxy remove myproxy.example.com
+curl -I https://myproxy.example.com:8443
+# Expected: HTTP/1.1 401 Unauthorized
 ```
 
-**Acceptance Criteria (17 total):**
-- AC-1 to AC-14: Базовые требования (см. детали ниже)
-- AC-15: Port Configuration Validation (configurable, default 8443)
-- AC-16: Multiple Domains Support (up to 10 domains per server)
-- AC-17: fail2ban Integration (MANDATORY, multi-port support)
+**AC-7: Access With Valid Auth → 200 OK**
+```bash
+curl -I -u username:password https://myproxy.example.com:8443
+# Expected: HTTP/1.1 200 OK (content from blocked-site.com)
+```
 
-**Детальная документация:** [→ FR-REVERSE-PROXY-001.md](FR-REVERSE-PROXY-001.md) (978 строк)
+**AC-8: Access With Invalid Auth → 401 Unauthorized**
+```bash
+curl -I -u wrong:credentials https://myproxy.example.com:8443
+# Expected: HTTP/1.1 401 Unauthorized
+```
+
+**AC-9: Domain Restriction**
+- User cannot access other sites via reverse proxy (blocked by Xray routing)
+
+**AC-10: CLI - vless-proxy add**
+```bash
+# Default port
+sudo vless-proxy add myproxy.example.com blocked-site.com
+# Output: Domain: https://myproxy.example.com:8443
+
+# Custom port
+sudo vless-proxy add proxy2.example.com target2.com --port 9443
+# Output: Domain: https://proxy2.example.com:9443
+```
+
+**AC-11: CLI - vless-proxy list**
+```bash
+sudo vless-proxy list
+# Output: Lists all reverse proxies with ports and target sites
+```
+
+**AC-12: CLI - vless-proxy show <domain>**
+```bash
+sudo vless-proxy show myproxy.example.com
+# Output: Shows credentials, certificate expiry, fail2ban status
+```
+
+**AC-13: CLI - vless-proxy remove <domain>**
+```bash
+sudo vless-proxy remove myproxy.example.com
+# Output: Removes config, updates docker-compose.yml, deletes UFW rule
+```
+
+**AC-14: Port Configuration Validation**
+- [ ] Default port works: 8443
+- [ ] Custom port works: 9443
+- [ ] Port conflict (system service) blocked: 443
+- [ ] Port conflict (existing proxy) blocked: 8443
+- [ ] Port already in use blocked: 22
+
+**AC-15: Multiple Domains Support**
+- [ ] Support up to 10 reverse proxy domains per server
+- [ ] Sequential port allocation: 8443-8452
+- [ ] Port reuse after domain removal
+- [ ] 11th domain blocked with clear error
+
+**AC-16: fail2ban Integration (MANDATORY)**
+- [ ] fail2ban jail created for all reverse proxy ports
+- [ ] 5 failed auth attempts trigger IP ban
+- [ ] Ban duration: 1 hour
+- [ ] UFW blocks banned IPs
+- [ ] Auto-unban after timeout
+
+**AC-17: Security Headers Validation**
+- [ ] HSTS header present: `max-age=31536000`
+- [ ] X-Frame-Options: DENY
+- [ ] X-Content-Type-Options: nosniff
+- [ ] X-XSS-Protection: 1; mode=block
+
+---
+
+#### 4. Security Requirements
+
+**SEC-1: TLS 1.3 Only**
+- [ ] Nginx: `ssl_protocols TLSv1.3;`
+- [ ] Strong ciphers: `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256`
+
+**SEC-2: HTTP Basic Auth (MANDATORY)**
+- [ ] Username: 8 characters (hex)
+- [ ] Password: 32 characters (hex)
+- [ ] bcrypt hashed in .htpasswd
+- [ ] No plaintext password storage
+
+**SEC-3: Domain Restriction**
+- [ ] Xray routing: ONLY specified target domain allowed
+- [ ] Catch-all rule: `outboundTag: block`
+- [ ] No wildcard domains
+
+**SEC-4: Rate Limiting**
+- [ ] UFW: 10 connections/minute per IP per port
+- [ ] Nginx: `limit_req_zone` 10 requests/second, burst 20
+- [ ] Connection limit: 5 concurrent per IP
+
+**SEC-5: Host Header Validation (VULN-001 FIX - CRITICAL)**
+- [ ] Explicit Host validation: `if ($host != "domain") { return 444; }`
+- [ ] Default server block catches invalid Host headers
+- [ ] Hardcoded `proxy_set_header Host` (NOT $host)
+
+**SEC-6: HSTS Header (VULN-002 FIX - HIGH)**
+- [ ] HSTS: `max-age=31536000; includeSubDomains; preload`
+- [ ] Additional security headers (X-Frame-Options, X-Content-Type-Options, etc.)
+
+**SEC-7: DoS Protection (VULN-003/004/005 FIX - MEDIUM)**
+- [ ] Connection limit: 5 concurrent per IP
+- [ ] Request rate limit: 10 req/s per IP
+- [ ] Max request body size: 10 MB
+- [ ] Timeouts: 10s (prevent slowloris)
+
+**SEC-8: Error Logging ONLY**
+- [ ] Access log: DISABLED (privacy requirement)
+- [ ] Error log: ENABLED (for fail2ban + debugging)
+- [ ] Log level: warn (auth failures, connection errors)
+- [ ] Log rotation: 7 days retention
+
+**SEC-9: fail2ban Integration (MANDATORY)**
+```ini
+# /etc/fail2ban/jail.d/vless-reverseproxy.conf
+[vless-reverseproxy]
+enabled = true
+port = 8443,8444,8445,8446,8447,8448,8449,8450,8451,8452
+filter = vless-reverseproxy
+logpath = /opt/vless/logs/nginx/reverse-proxy-error.log
+maxretry = 5
+bantime = 3600
+findtime = 600
+action = ufw
+```
+
+---
+
+#### 5. File Structure
+
+```
+/opt/vless/
+├── config/
+│   ├── xray_config.json               # Updated: +multiple reverse-proxy inbounds
+│   ├── reverse_proxies.json           # NEW: Credentials + port info
+│   └── reverse-proxy/                 # NEW: Nginx reverse proxy configs
+│       ├── proxy1.example.com.conf    # Per-domain config (heredoc-generated)
+│       ├── proxy2.example.com.conf
+│       ├── .htpasswd-proxy1           # Per-domain Basic Auth (bcrypt hashed)
+│       └── .htpasswd-proxy2
+│
+├── logs/
+│   └── nginx/
+│       └── reverse-proxy-error.log    # NEW: Error log ONLY (no access log)
+│
+└── lib/                               # NEW: Reverse proxy modules
+    ├── nginx_config_generator.sh      # Generates Nginx configs via heredoc
+    ├── reverseproxy_db.sh             # Manages reverse_proxies.json
+    └── letsencrypt_integration.sh     # Extends FR-CERT-001/002
+
+/etc/fail2ban/                          # NEW: fail2ban configs
+├── jail.d/
+│   └── vless-reverseproxy.conf        # Multi-port jail
+└── filter.d/
+    └── vless-reverseproxy.conf        # Nginx auth failure filter
+
+/usr/local/bin/
+├── vless-setup-proxy → /opt/vless/cli/vless-setup-proxy
+└── vless-proxy → /opt/vless/cli/vless-proxy
+```
+
+---
+
+#### 6. Configuration File Formats
+
+**reverse_proxies.json:**
+```json
+{
+  "version": "1.0",
+  "reverse_proxies": [
+    {
+      "domain": "myproxy.example.com",
+      "target_site": "blocked-site.com",
+      "port": 9443,
+      "xray_inbound_port": 10080,
+      "username": "a3f9c2e1",
+      "password_hash": "$2y$10$...",
+      "created_at": "2025-10-16T21:00:00Z",
+      "certificate": "/etc/letsencrypt/live/myproxy.example.com/",
+      "certificate_expires": "2026-01-14T21:00:00Z",
+      "last_renewed": "2025-10-16T21:00:00Z",
+      "enabled": true
+    }
+  ]
+}
+```
+
+---
+
+#### 7. Implementation Scope
+
+**In Scope (v4.2):**
+- ✅ CLI tools: `vless-setup-proxy`, `vless-proxy` (add/list/show/remove)
+- ✅ Nginx config generation via heredoc (lib/nginx_config_generator.sh)
+- ✅ Xray HTTP inbound management (lib/xray_http_inbound.sh)
+- ✅ Let's Encrypt integration (extends FR-CERT-001/002)
+- ✅ fail2ban multi-port support
+- ✅ UFW firewall rules (per domain)
+- ✅ Sequential port allocation (8443-8452)
+- ✅ Dynamic docker-compose.yml updates (lib/docker_compose_manager.sh)
+- ✅ Security hardening (VULN-001/002/003/004/005 fixes)
+
+**Out of Scope:**
+- ❌ WebSocket proxying (HTTP/HTTPS only)
+- ❌ GRPC proxying
+- ❌ Multiple target sites per domain (load balancing)
+- ❌ Custom authentication (OAuth, LDAP) - only Basic Auth
+- ❌ CDN integration (Cloudflare, etc.)
+- ❌ Content caching (reverse proxy is transparent)
+- ❌ Access logging (privacy requirement - only error log)
+
+---
+
+#### 8. Comparison with Existing Proxy
+
+| Feature | Existing Proxy (SOCKS5/HTTP) | Reverse Proxy (NEW) |
+|---------|------------------------------|---------------------|
+| Client | Desktop apps (VSCode, Git, Docker) | Web Browser |
+| Protocol | SOCKS5s, HTTPS proxy | HTTPS reverse proxy |
+| Authentication | Password (32-char) | HTTP Basic Auth (bcrypt) |
+| Target Site | Any (user choice) | Specific (admin choice) |
+| Use Case | Proxy for all applications | Access to 1 blocked site |
+| Port Range | 1080, 8118 (fixed) | 8443-8452 (configurable) |
+
+---
+
+#### 9. Success Metrics
+
+**Functional:**
+- [ ] 100% acceptance criteria passed (17 AC total)
+- [ ] All security tests passed (TLS, auth, domain restriction, fail2ban)
+
+**Performance:**
+- [ ] Latency < 50ms overhead per domain
+- [ ] 1000 concurrent connections per domain
+- [ ] 1 Gbps aggregate throughput (10 domains × 100 Mbps)
+
+**Usability:**
+- [ ] Setup time < 5 minutes per domain
+- [ ] Zero manual configuration after script run
+- [ ] Port configuration: < 30 seconds per domain
+
+**Security:**
+- [ ] fail2ban ban rate: 99% (5 failed attempts → ban)
+- [ ] No access log leaks (privacy validated)
+- [ ] Error log contains auth failures only
+- [ ] All VULN-001/002/003/004/005 fixes validated
+
+---
 
 **User Story:**
 - Как системный администратор, я хочу предоставить доступ к заблокированным сайтам через свой домен
 - Чтобы пользователи могли обходить блокировки без VPN клиента
 - С защитой через HTTP Basic Auth и fail2ban
-
-**Отличия от существующего proxy (FR-PUBLIC-001):**
-| Функция | Existing Proxy (SOCKS5/HTTP) | Reverse Proxy (NEW) |
-|---------|------------------------------|---------------------|
-| Клиент | Desktop apps (VSCode, Git, Docker) | Web Browser |
-| Протокол | SOCKS5s, HTTPS proxy | HTTPS reverse proxy |
-| Аутентификация | Password (32-char) | HTTP Basic Auth (bcrypt) |
-| Целевой сайт | Любой (user choice) | Конкретный (admin choice) |
-| Use Case | Proxy для всех приложений | Доступ к 1 заблокированному сайту |
-
-**Security Features:**
-- TLS 1.3 encryption (Nginx termination)
-- HTTP Basic Auth (bcrypt hashed)
-- fail2ban protection (MANDATORY, 5 retries → 1 hour ban)
-- Domain-based access control (Xray routing)
-- Error logging only (no access log for privacy)
-- UFW firewall integration
-
-**Implementation Scope (v4.2):**
-- Отдельный setup script: `vless-setup-reverseproxy`
-- CLI management tool: `vless-rproxy`
-- Nginx config templates с heredoc generation
-- Xray config updates (новые HTTP inbounds)
-- Let's Encrypt integration (per domain)
-- fail2ban rules (multi-port support)
-- Sequential port allocation (8443-8452)
-
-**Out of Scope:**
-- ❌ WebSocket proxying (HTTP/HTTPS only)
-- ❌ HTTP/2 Server Push
-- ❌ Custom SSL certificates (Let's Encrypt only)
-- ❌ Load balancing (single target per domain)
-
-**Status Roadmap:**
-- 📝 DRAFT v2 (текущий) - ожидает security review
-- 🔍 Security Review - команда безопасности
-- ✅ Approved - готов к implementation planning
-- 🚧 In Development - v4.2 sprint
-- ✅ Released - v4.2 production
 
 ---
 

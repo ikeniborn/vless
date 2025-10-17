@@ -107,6 +107,98 @@ time curl -s --proxy https://user:pass@server:8118 https://ifconfig.me
 - [ ] Grace period: 30 дней до истечения для troubleshooting
 - [ ] Downtime during renewal < 5 seconds
 
+### NFR-RPROXY-001: Reverse Proxy Performance (v4.2 - NEW)
+
+**Requirement:** Reverse proxy ДОЛЖЕН обеспечивать минимальные задержки и высокую пропускную способность.
+
+**Metrics:**
+- [ ] Latency overhead < 50ms (vs direct access to target site)
+- [ ] Throughput: 100 Mbps per reverse proxy instance
+- [ ] Max concurrent connections: 1000 per domain
+- [ ] Total throughput with 10 domains: 1 Gbps aggregate
+- [ ] CPU overhead < 10% per domain
+
+**Benchmark:**
+```bash
+# Baseline (direct access)
+time curl -s https://blocked-site.com > /dev/null
+
+# With reverse proxy
+time curl -s -u user:pass https://myproxy.example.com:8443 > /dev/null
+
+# Compare latency: < 50ms overhead expected
+```
+
+---
+
+### NFR-RPROXY-002: Reverse Proxy Scalability (v4.2 - NEW)
+
+**Requirement:** Система ДОЛЖНА поддерживать до 10 reverse proxy доменов на одном сервере.
+
+**Metrics:**
+- [ ] Support up to 10 reverse proxy domains per server
+- [ ] Each domain: 1 target site (1:1 mapping)
+- [ ] Each domain: unique port (8443-8452 default range)
+- [ ] Each domain: separate Xray inbound (10080-10089)
+- [ ] Port allocation: sequential or user-specified
+- [ ] Port reuse after domain removal
+
+**Constraints:**
+- Min port: 1024 (unprivileged)
+- Max port: 65535
+- Reserved ports: 443 (VLESS), 1080 (SOCKS5), 8118 (HTTP)
+- Max domains: 10 per server (architectural limit)
+
+**Recommendation:** For > 10 domains, use multiple independent servers.
+
+---
+
+### NFR-RPROXY-003: Reverse Proxy Reliability (v4.2 - NEW)
+
+**Requirement:** Reverse proxy ДОЛЖЕН обеспечивать высокую доступность с автоматическим восстановлением.
+
+**Metrics:**
+- [ ] Uptime: 99.9% (same as VLESS VPN)
+- [ ] Auto-recovery: Container restart on failure (Docker restart policy)
+- [ ] Certificate auto-renewal: Same as FR-CERT-002 (certbot + deploy hook)
+- [ ] fail2ban ban success rate: 99% (5 failed attempts → 1 hour ban)
+- [ ] Config validation before apply: 100% (nginx -t, xray run -test)
+
+**Health Checks:**
+```yaml
+healthcheck:
+  test: ["CMD", "nginx", "-t"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+```
+
+---
+
+### NFR-RPROXY-004: Reverse Proxy Security (v4.2 - NEW)
+
+**Requirement:** Reverse proxy ДОЛЖЕН соответствовать требованиям безопасности с обязательными митигациями.
+
+**Metrics:**
+- [ ] 100% TLS 1.3 connections (no fallback to TLS 1.2)
+- [ ] HSTS header present on all responses (max-age=31536000)
+- [ ] fail2ban ban rate: 99% (5 failed auth → ban)
+- [ ] No access log leaks: 0 IP/URL records in logs (privacy validated)
+- [ ] Error log contains auth failures only (no sensitive data)
+- [ ] All VULN-001/002/003/004/005 fixes validated
+
+**Validation:**
+```bash
+# Check TLS version
+openssl s_client -connect myproxy.example.com:8443 -tls1_3
+
+# Check HSTS header
+curl -I -u user:pass https://myproxy.example.com:8443 | grep Strict-Transport-Security
+
+# Check no access log
+ls -la /opt/vless/logs/nginx/reverse-proxy-access.log  # Should NOT exist
+```
+
 ---
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)

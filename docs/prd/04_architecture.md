@@ -318,6 +318,329 @@ networks:
 - ✅ **REMOVED:** Xray `/etc/letsencrypt` mount (stunnel handles TLS)
 - ✅ **Architecture:** Client → stunnel (TLS) → Xray (plaintext) → Internet
 
+### 4.6 Reverse Proxy Architecture (v4.2)
+
+**Feature Status:** 📝 DRAFT v3 (Security Hardened - 2025-10-17)
+**Security Review:** ✅ APPROVED (VULN-001/002/003/004/005 mitigated)
+
+#### 4.6.1 High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    USER BROWSER                             │
+│  https://myproxy.example.com:8443 (Domain 1)               │
+│  https://proxy2.example.com:8444 (Domain 2)                │
+│  https://proxy3.example.com:9443 (Domain 3, custom port)   │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      │ 1. HTTPS Request (TLS 1.3)
+                      │    + Basic Auth credentials
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│               UFW FIREWALL (Server)                         │
+│  Ports: 8443, 8444, 9443 /tcp: ALLOW (rate limited)       │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      │ 2. TLS ClientHello
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│        NGINX CONTAINER (vless_nginx_reverseproxy)           │
+│  Multiple server blocks (one per domain):                  │
+│                                                             │
+│  Server 1: listen 8443 ssl; server_name proxy1.example.com│
+│    - TLS Termination (Let's Encrypt cert 1)               │
+│    - HTTP Basic Auth (credentials 1)                       │
+│    - proxy_pass to Xray localhost:10080                    │
+│    - error_log ONLY (no access_log)                        │
+│                                                             │
+│  Server 2: listen 8444 ssl; server_name proxy2.example.com│
+│    - TLS Termination (Let's Encrypt cert 2)               │
+│    - HTTP Basic Auth (credentials 2)                       │
+│    - proxy_pass to Xray localhost:10081                    │
+│                                                             │
+│  Server 3: listen 9443 ssl; server_name proxy3.example.com│
+│    - TLS Termination (Let's Encrypt cert 3)               │
+│    - HTTP Basic Auth (credentials 3)                       │
+│    - proxy_pass to Xray localhost:10082                    │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      │ 3. HTTP (plaintext, localhost)
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│         XRAY CONTAINER (vless_xray)                         │
+│  Multiple inbounds (one per reverse proxy):                │
+│                                                             │
+│  Inbound 1:                                                 │
+│    - Tag: reverse-proxy-1                                  │
+│    - Listen: 127.0.0.1:10080                               │
+│  Routing 1:                                                 │
+│    - InboundTag: reverse-proxy-1                           │
+│    - Domain: target1.com ONLY                              │
+│                                                             │
+│  Inbound 2:                                                 │
+│    - Tag: reverse-proxy-2                                  │
+│    - Listen: 127.0.0.1:10081                               │
+│  Routing 2:                                                 │
+│    - InboundTag: reverse-proxy-2                           │
+│    - Domain: target2.com ONLY                              │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      │ 4. HTTP/HTTPS to target sites
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│     TARGET SITES (target1.com, target2.com, ...)          │
+└─────────────────────────────────────────────────────────────┘
+
+SECURITY LAYERS:
+  ✅ TLS 1.3 Encryption (Nginx)
+  ✅ HTTP Basic Auth (Nginx)
+  ✅ Domain restriction (Xray routing per inbound)
+  ✅ Rate limiting (UFW + Nginx)
+  ✅ fail2ban (MANDATORY, multi-port)
+  ✅ Error logging only (privacy)
+```
+
+**Port Allocation Strategy:**
+- Domain 1: 8443 (default)
+- Domain 2: 8444 (default + 1)
+- Domain 3: 8445 (default + 2)
+- ...
+- Domain 10: 8452 (default + 9)
+- Custom: user-specified port (validated for conflicts)
+
+#### 4.6.2 Component Configuration
+
+**Nginx Reverse Proxy Server Block (with VULN-001/002 fixes):**
+
+```nginx
+# /opt/vless/config/reverse-proxy/myproxy.example.com.conf
+
+upstream xray_reverseproxy_1 {
+    server vless_xray:10080;
+    keepalive 32;
+}
+
+# Primary server block (with Host header validation)
+server {
+    listen 8443 ssl http2;  # Configurable port
+    server_name myproxy.example.com;  # EXACT match required
+
+    # TLS Configuration
+    ssl_certificate /etc/letsencrypt/live/myproxy.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myproxy.example.com/privkey.pem;
+    ssl_protocols TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # HTTP Basic Auth
+    auth_basic "Restricted Access";
+    auth_basic_user_file /etc/nginx/conf.d/reverse-proxy/.htpasswd-myproxy;
+
+    # VULN-001 FIX: Host Header Validation (CRITICAL)
+    if ($host != "myproxy.example.com") {
+        return 444;  # Close connection without response
+    }
+
+    # VULN-002 FIX: HSTS Header (HIGH)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    # Additional Security Headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Rate Limiting
+    limit_req zone=reverseproxy burst=20 nodelay;
+    limit_conn conn_limit_per_ip 5;
+
+    # Logging (error log only, no access log)
+    access_log off;  # Privacy: no access logging
+    error_log /var/log/nginx/reverse-proxy-error.log warn;
+
+    # Proxy to Xray
+    location / {
+        proxy_pass http://xray_reverseproxy_1;
+        proxy_http_version 1.1;
+
+        # VULN-001 FIX: Hardcoded Host header (NOT $host)
+        proxy_set_header Host blocked-site.com;  # Target site (hardcoded)
+
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts (prevent slowloris)
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+
+# VULN-001 FIX: Default server block (catch invalid Host headers)
+server {
+    listen 8443 ssl http2 default_server;
+    server_name _;
+
+    ssl_certificate /etc/letsencrypt/live/myproxy.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myproxy.example.com/privkey.pem;
+
+    # Reject all requests with invalid Host header
+    return 444;  # No response
+}
+```
+
+**Nginx HTTP Context Configuration (rate limiting):**
+
+```nginx
+http {
+    # VULN-003 FIX: Connection limit zone
+    limit_conn_zone $binary_remote_addr zone=conn_limit_per_ip:10m;
+
+    # VULN-004 FIX: Request rate limit zone
+    limit_req_zone $binary_remote_addr zone=reverseproxy:10m rate=10r/s;
+
+    # VULN-005 FIX: Maximum request body size
+    client_max_body_size 10m;
+
+    # Timeouts (prevent slowloris attacks)
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    send_timeout 10s;
+    keepalive_timeout 30s;
+
+    # Error responses for limit violations
+    limit_conn_status 429;  # Too Many Requests
+    limit_req_status 429;
+
+    # Include server blocks
+    include /etc/nginx/conf.d/reverse-proxy/*.conf;
+}
+```
+
+**Xray Reverse Proxy Inbound Configuration:**
+
+```json
+{
+  "inbounds": [
+    {
+      "tag": "reverse-proxy-1",
+      "protocol": "http",
+      "listen": "127.0.0.1",
+      "port": 10080,
+      "settings": {
+        "allowTransparent": false,
+        "userLevel": 0
+      }
+    },
+    {
+      "tag": "reverse-proxy-2",
+      "protocol": "http",
+      "listen": "127.0.0.1",
+      "port": 10081,
+      "settings": {
+        "allowTransparent": false,
+        "userLevel": 0
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["reverse-proxy-1"],
+        "domain": ["target1.com"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["reverse-proxy-1"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["reverse-proxy-2"],
+        "domain": ["target2.com"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["reverse-proxy-2"],
+        "outboundTag": "block"
+      }
+    ]
+  }
+}
+```
+
+#### 4.6.3 Port Mapping Strategy
+
+Each reverse proxy domain gets its own unique port mapping:
+
+```
+Public Port    →    Nginx    →    Xray Inbound Port
+8443           →    proxy1   →    127.0.0.1:10080
+8444           →    proxy2   →    127.0.0.1:10081
+8445           →    proxy3   →    127.0.0.1:10082
+...
+8452 (or custom) →  proxy10  →   127.0.0.1:10089
+```
+
+**Xray Inbound Port Allocation:**
+- Base: 10080
+- Domain N: 10080 + (N - 1)
+- Range: 10080-10089 (10 inbounds max)
+
+**Port Validation:**
+- Reserved: 443 (VLESS), 1080 (SOCKS5), 8118 (HTTP)
+- Min: 1024 (unprivileged)
+- Max: 65535
+- Max domains: 10 per server
+
+#### 4.6.4 Docker Compose Integration
+
+**Dynamic Port Mapping (v4.2):**
+
+```yaml
+services:
+  nginx:
+    container_name: vless_nginx_reverseproxy
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8443:8443"                # reverse proxy 1 (NEW)
+      - "8444:8444"                # reverse proxy 2 (NEW)
+      - "8445:8445"                # reverse proxy 3 (NEW)
+      - "8446:8446"                # reverse proxy 4 (NEW)
+      - "8447:8447"                # reverse proxy 5 (NEW)
+      - "8448:8448"                # reverse proxy 6 (NEW)
+      - "8449:8449"                # reverse proxy 7 (NEW)
+      - "8450:8450"                # reverse proxy 8 (NEW)
+      - "8451:8451"                # reverse proxy 9 (NEW)
+      - "8452:8452"                # reverse proxy 10 (NEW)
+      # Note: Ports managed dynamically via lib/docker_compose_manager.sh
+    volumes:
+      - ./config/reverse-proxy/:/etc/nginx/conf.d/reverse-proxy/:ro
+      - ./config/reverse-proxy-http-context.conf:/etc/nginx/conf.d/reverse-proxy-http-context.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./logs/nginx/:/var/log/nginx/
+    networks:
+      - vless_reality_net
+    depends_on:
+      - xray
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
+**Key Features:**
+- ✅ Configurable ports (default 8443-8452)
+- ✅ Multi-domain support (up to 10)
+- ✅ Dynamic port allocation via `lib/docker_compose_manager.sh`
+- ✅ Separate Nginx container for reverse proxy
+- ✅ Integration with existing VLESS/SOCKS5/HTTP services
+
 ---
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
