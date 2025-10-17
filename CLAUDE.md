@@ -582,6 +582,116 @@ sudo vless-status
 
 ---
 
+### FR-013: Config Generation (CRITICAL - Priority 1) - PRD v4.1 Heredoc Compliance
+
+**Requirement:** ALL configuration files MUST be generated via bash heredoc (NO static files, NO templates)
+
+**PRD v4.1 Mandate:**
+```yaml
+Config Generation Method:
+  required: "heredoc in lib/*.sh modules"
+  prohibited:
+    - "Static config files in repository root (docker-compose.yml, .env.template)"
+    - "Template directories (templates/)"
+    - "Template file pattern (*.template)"
+    - "envsubst dependency (GNU gettext)"
+
+Architecture Evolution:
+  v4.0: "templates/ + envsubst → config files"
+  v4.1: "heredoc in lib/*.sh → config files (direct generation)"
+
+Benefits:
+  - "Simplified dependencies (bash only, no envsubst)"
+  - "Single source of truth (code = config)"
+  - "Easier testing (no file I/O for templates)"
+  - "Dynamic variable substitution at generation time"
+```
+
+**Config Files Subject to Heredoc Generation:**
+```yaml
+1. docker-compose.yml:
+   generator: "lib/docker_compose_generator.sh"
+   function: "generate_docker_compose()"
+   parameters: "nginx_ports array (dynamic)"
+   trigger: "install.sh, port add/remove operations"
+
+2. config.json (Xray):
+   generator: "lib/orchestrator.sh"
+   function: "create_xray_config()"
+   trigger: "install.sh, user add/remove operations"
+
+3. stunnel.conf:
+   generator: "lib/stunnel_setup.sh"
+   function: "create_stunnel_config()"
+   trigger: "install.sh"
+
+4. nginx reverse proxy configs:
+   generator: "lib/nginx_config_generator.sh"
+   function: "generate_nginx_config()"
+   trigger: "vless-proxy add/remove operations"
+
+5. client config files:
+   generator: "lib/client_config_generator.sh"
+   functions: "generate_vless_config(), generate_proxy_configs()"
+   trigger: "vless-user add, password reset"
+```
+
+**Validation Rules:**
+```bash
+# Prohibited patterns in repository:
+❌ Static docker-compose.yml in root
+❌ .env.template file
+❌ templates/ directory
+❌ *.template files
+❌ envsubst usage in scripts
+
+# Required patterns:
+✓ cat > file.conf <<EOF ... EOF (heredoc)
+✓ All configs generated in lib/*.sh
+✓ Dynamic variable substitution: ${VARIABLE}
+✓ Backup → generate → validate → move pattern
+```
+
+**Acceptance Criteria:**
+✓ NO static config files in repository (docker-compose.yml, .env.template removed)
+✓ NO templates/ directory exists
+✓ ALL configs generated via heredoc in lib/*.sh
+✓ envsubst NOT used anywhere in project
+✓ docker-compose.yml regenerated on every port change (not edited in-place)
+✓ Backup created before every config regeneration
+✓ Validation performed after generation (docker compose config, jq validation)
+✓ Atomic file replacement (generate to .tmp, validate, mv)
+
+**Compliance Check Script:**
+```bash
+# Run this to verify PRD v4.1 compliance
+cd /home/ikeniborn/Documents/Project/vless
+
+# 1. Check for prohibited static files
+test ! -f docker-compose.yml || echo "❌ VIOLATION: docker-compose.yml exists"
+test ! -f .env.template || echo "❌ VIOLATION: .env.template exists"
+test ! -d templates/ || echo "❌ VIOLATION: templates/ directory exists"
+
+# 2. Check for prohibited patterns in code
+! grep -r "envsubst" lib/ || echo "❌ VIOLATION: envsubst usage found"
+! find . -name "*.template" 2>/dev/null | grep -v node_modules || echo "❌ VIOLATION: .template files found"
+
+# 3. Verify heredoc usage
+grep -r "cat.*<<.*EOF" lib/*.sh > /dev/null && echo "✓ Heredoc pattern found in lib/"
+```
+
+**Migration Checklist (v4.0 → v4.1):**
+- [x] Remove static docker-compose.yml from repository
+- [x] Remove .env.template from repository
+- [x] Create lib/docker_compose_generator.sh (heredoc-based)
+- [x] Update lib/docker_compose_manager.sh (use generator, remove yq edits)
+- [x] Remove templates/ directory (if exists)
+- [x] Remove envsubst from dependencies
+- [x] Update all config generation to use heredoc
+- [x] Add this requirement to CLAUDE.md
+
+---
+
 ## 10. NON-FUNCTIONAL REQUIREMENTS (NFR)
 
 ### Performance Targets
