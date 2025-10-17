@@ -1,18 +1,27 @@
 #!/bin/bash
 #==============================================================================
 # Certificate Renewal Deploy Hook
-# Part of VLESS + Reality VPN v3.3
+# Part of VLESS + Reality VPN v4.2
 #
 # This script is called by certbot after successful certificate renewal.
-# It restarts the Xray container to load the new certificates.
+# Handles certificate updates for both VLESS Reality and Reverse Proxy.
+#
+# v4.2 Features:
+# - Restarts Xray container (VLESS Reality)
+# - Reloads Nginx reverse proxy (v4.2)
+# - Updates reverse_proxies.json database
+# - Supports multiple renewed domains
 #
 # Usage: Called automatically by certbot via --deploy-hook
 # Location: /usr/local/bin/vless-cert-renew
 #==============================================================================
 
+set -euo pipefail
+
 # Constants
 readonly VLESS_DIR="/opt/vless"
 readonly LOG_FILE="$VLESS_DIR/logs/certbot-renew.log"
+readonly DB_SCRIPT="$VLESS_DIR/lib/reverseproxy_db.sh"
 readonly TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # Ensure log directory exists
@@ -23,37 +32,153 @@ log_message() {
     echo "[$TIMESTAMP] $1" | tee -a "$LOG_FILE"
 }
 
+log_error() {
+    echo "[$TIMESTAMP] ERROR: $1" | tee -a "$LOG_FILE" >&2
+}
+
+#==============================================================================
+# v4.2: Reverse Proxy Support
+#==============================================================================
+
+reload_nginx_reverseproxy() {
+    log_message "Reloading Nginx reverse proxy..."
+
+    # Check if nginx reverse proxy container exists
+    if ! docker ps -a --format '{{.Names}}' | grep -q "vless_nginx_reverseproxy"; then
+        log_message "ℹ️  Nginx reverse proxy not configured, skipping"
+        return 0
+    fi
+
+    # Check if container is running
+    if ! docker ps --format '{{.Names}}' | grep -q "vless_nginx_reverseproxy"; then
+        log_message "⚠️  Nginx reverse proxy container not running"
+        return 1
+    fi
+
+    # Reload nginx
+    if docker exec vless_nginx_reverseproxy nginx -s reload 2>&1 >> "$LOG_FILE"; then
+        log_message "✅ Nginx reverse proxy reloaded successfully"
+        return 0
+    else
+        log_error "Failed to reload Nginx reverse proxy"
+        return 1
+    fi
+}
+
+update_database_cert_info() {
+    local domain="$1"
+
+    # Check if database script exists
+    if [ ! -f "$DB_SCRIPT" ]; then
+        log_message "ℹ️  Database script not found, skipping database update"
+        return 0
+    fi
+
+    # Source database functions
+    source "$DB_SCRIPT"
+
+    # Check if this is a reverse proxy domain
+    if ! get_proxy "$domain" &>/dev/null; then
+        log_message "ℹ️  $domain is not a reverse proxy, skipping database update"
+        return 0
+    fi
+
+    log_message "Updating database for $domain..."
+
+    # Calculate new expiry (Let's Encrypt: 90 days)
+    local new_expiry
+    new_expiry=$(date -u -d '+90 days' +'%Y-%m-%dT%H:%M:%SZ')
+
+    local renewed_at
+    renewed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+    # Update database
+    if update_certificate_info "$domain" "$new_expiry" "$renewed_at" 2>&1 >> "$LOG_FILE"; then
+        log_message "✅ Database updated for $domain (expires: $new_expiry)"
+        return 0
+    else
+        log_error "Failed to update database for $domain"
+        return 1
+    fi
+}
+
 #==============================================================================
 # Main execution
 #==============================================================================
 
-log_message "🔄 Certificate renewed successfully"
-log_message "Restarting Xray container to load new certificates..."
+main() {
+    log_message "═══════════════════════════════════════════════════════"
+    log_message "🔄 Certificate Renewal Deploy Hook (v4.2)"
+    log_message "═══════════════════════════════════════════════════════"
 
-# Change to VLESS directory
-if ! cd "$VLESS_DIR"; then
-    log_message "❌ ERROR: Cannot access $VLESS_DIR"
-    exit 1
-fi
+    # Get renewed domains from certbot environment variable
+    local renewed_domains="${RENEWED_DOMAINS:-}"
 
-# Restart Xray container
-if docker-compose restart xray >> "$LOG_FILE" 2>&1; then
-    # Wait for container to be healthy
-    sleep 2
-
-    # Verify container is running
-    if docker ps | grep -q "vless-reality.*Up"; then
-        log_message "✅ Xray restarted successfully with new certificates"
-        log_message "Downtime: ~2-3 seconds"
-        exit 0
-    else
-        log_message "❌ ERROR: Xray container failed to start after restart"
-        log_message "Run: docker logs vless-reality"
+    if [ -z "$renewed_domains" ]; then
+        log_error "RENEWED_DOMAINS environment variable not set"
+        log_message "This script should be called by certbot --deploy-hook"
         exit 1
     fi
-else
-    log_message "❌ ERROR: Failed to restart Xray container"
-    log_message "Exit code: $?"
-    log_message "Manual restart: cd $VLESS_DIR && docker-compose restart xray"
-    exit 1
-fi
+
+    log_message "Renewed domains: $renewed_domains"
+
+    # Change to VLESS directory
+    if ! cd "$VLESS_DIR"; then
+        log_error "Cannot access $VLESS_DIR"
+        exit 1
+    fi
+
+    local success=true
+
+    # 1. Restart Xray container (VLESS Reality)
+    log_message ""
+    log_message "Step 1: Restarting Xray container..."
+
+    if docker-compose restart xray >> "$LOG_FILE" 2>&1; then
+        sleep 2
+
+        if docker ps | grep -q "vless.*Up"; then
+            log_message "✅ Xray restarted successfully"
+        else
+            log_error "Xray container failed to start"
+            success=false
+        fi
+    else
+        log_error "Failed to restart Xray container"
+        success=false
+    fi
+
+    # 2. Reload Nginx reverse proxy (v4.2)
+    log_message ""
+    log_message "Step 2: Reloading Nginx reverse proxy..."
+
+    if ! reload_nginx_reverseproxy; then
+        success=false
+    fi
+
+    # 3. Update database for each renewed domain (v4.2)
+    log_message ""
+    log_message "Step 3: Updating database..."
+
+    for domain in $renewed_domains; do
+        if ! update_database_cert_info "$domain"; then
+            success=false
+        fi
+    done
+
+    # Summary
+    log_message ""
+    log_message "═══════════════════════════════════════════════════════"
+
+    if [ "$success" = true ]; then
+        log_message "✅ Deploy hook completed successfully"
+        log_message "All services reloaded with new certificates"
+        exit 0
+    else
+        log_error "Deploy hook completed with errors"
+        log_message "Check logs: $LOG_FILE"
+        exit 1
+    fi
+}
+
+main "$@"
