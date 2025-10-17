@@ -74,11 +74,14 @@ Port 443 (HAProxy, 3 frontends):
   - [x] Интегрировать combined.pem creation в lib/certbot_setup.sh ✅
   - [x] **Acceptance:** combined.pem создается автоматически при acquisition и renewal ✅
 
-- [ ] **Задача 1.5:** Создание Certbot Nginx Service (1 час)
-  - [ ] Добавить certbot_nginx service в docker-compose.yml
-  - [ ] Создать lib/certbot_manager.sh
-  - [ ] Реализовать acquire_certificate()
-  - [ ] **Acceptance:** Certbot nginx запускается по требованию
+- [x] **Задача 1.5:** Создание Certbot Nginx Service (1 час) ✅ ЗАВЕРШЕНО
+  - [x] certbot_nginx service уже добавлен в docker-compose.yml (Task 1.1) ✅
+  - [x] Создать lib/certbot_manager.sh module ✅
+  - [x] Реализовать create_certbot_nginx_config() ✅
+  - [x] Реализовать start_certbot_nginx() / stop_certbot_nginx() ✅
+  - [x] Реализовать acquire_certificate() workflow ✅
+  - [x] Обновить lib/certbot_setup.sh для использования certbot_manager.sh ✅
+  - [x] **Acceptance:** Certbot nginx запускается по требованию с docker-compose profile ✅
 
 - [ ] **Задача 1.6:** Переназначение портов бэкендов (1 час)
   - [ ] Xray: 443 → 127.0.0.1:8443
