@@ -5,7 +5,7 @@
 # Comprehensive CLI for managing reverse proxy configurations
 #
 # Commands:
-#   add                 - Create new reverse proxy (alias to vless-setup-proxy)
+#   add                 - Create new reverse proxy (calls scripts/vless-setup-proxy)
 #   list                - List all reverse proxies
 #   show <domain>       - Show detailed configuration
 #   remove <domain>     - Remove reverse proxy
@@ -92,12 +92,12 @@ print_info() {
 # =============================================================================
 
 cmd_add() {
-    if [ ! -f "${INSTALL_PATH}/cli/vless-setup-proxy" ]; then
+    if [ ! -f "${INSTALL_PATH}/scripts/vless-setup-proxy" ]; then
         print_error "vless-setup-proxy не найден"
         exit 1
     fi
 
-    exec "${INSTALL_PATH}/cli/vless-setup-proxy"
+    exec "${INSTALL_PATH}/scripts/vless-setup-proxy"
 }
 
 # =============================================================================
