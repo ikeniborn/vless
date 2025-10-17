@@ -66,7 +66,7 @@ backup_docker_compose() {
 # Description: Adds port mapping to nginx service via heredoc regeneration
 #
 # Parameters:
-#   $1 - port: Port number to add (e.g., 8443)
+#   $1 - port: Port number to add (e.g., 9443, v4.3 range: 9443-9452)
 #
 # Returns:
 #   0 on success, 1 on failure
@@ -79,9 +79,9 @@ add_nginx_port() {
         return 1
     fi
 
-    # Validate port range
-    if [ "$port" -lt 8443 ] || [ "$port" -gt 8452 ]; then
-        log_error "Port must be in range 8443-8452"
+    # Validate port range (v4.3: 9443-9452)
+    if [ "$port" -lt 9443 ] || [ "$port" -gt 9452 ]; then
+        log_error "Port must be in range 9443-9452"
         return 1
     fi
 
@@ -137,7 +137,7 @@ add_nginx_port() {
 # Description: Removes port mapping from nginx service via heredoc regeneration
 #
 # Parameters:
-#   $1 - port: Port number to remove (e.g., 8443)
+#   $1 - port: Port number to remove (e.g., 9443, v4.3 range: 9443-9452)
 #
 # Returns:
 #   0 on success, 1 on failure

@@ -336,7 +336,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo ""
         echo "Examples:"
         echo "  $0 generate                 # No nginx ports (reverse proxy not configured)"
-        echo "  $0 generate 8443 8444       # With 2 nginx ports"
+        echo "  $0 generate 9443 9444       # With 2 nginx ports (v4.3)"
         echo "  $0 validate                 # Validate syntax"
         echo "  $0 get-ports                # List current ports"
         exit 1

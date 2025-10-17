@@ -138,15 +138,15 @@ time curl -s -u user:pass https://myproxy.example.com:8443 > /dev/null
 **Metrics:**
 - [ ] Support up to 10 reverse proxy domains per server
 - [ ] Each domain: 1 target site (1:1 mapping)
-- [ ] Each domain: unique port (8443-8452 default range)
-- [ ] Each domain: separate Xray inbound (10080-10089)
+- [ ] Each domain: unique port (9443-9452 default range) # v4.3: changed from 8443-8452
+- [ ] Each domain: separate Nginx backend
 - [ ] Port allocation: sequential or user-specified
 - [ ] Port reuse after domain removal
 
 **Constraints:**
 - Min port: 1024 (unprivileged)
 - Max port: 65535
-- Reserved ports: 443 (VLESS), 1080 (SOCKS5), 8118 (HTTP)
+- Reserved ports: 443 (HAProxy all-in-one), 1080 (SOCKS5), 8118 (HTTP) # v4.3
 - Max domains: 10 per server (architectural limit)
 
 **Recommendation:** For > 10 domains, use multiple independent servers.

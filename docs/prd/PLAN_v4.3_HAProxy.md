@@ -83,11 +83,15 @@ Port 443 (HAProxy, 3 frontends):
   - [x] Обновить lib/certbot_setup.sh для использования certbot_manager.sh ✅
   - [x] **Acceptance:** Certbot nginx запускается по требованию с docker-compose profile ✅
 
-- [ ] **Задача 1.6:** Переназначение портов бэкендов (1 час)
-  - [ ] Xray: 443 → 127.0.0.1:8443
-  - [ ] Nginx: 8443-8452 → 127.0.0.1:9443-9452
-  - [ ] Обновить lib/docker_compose_generator.sh
-  - [ ] **Acceptance:** Бэкенды на localhost only
+- [x] **Задача 1.6:** Переназначение портов бэкендов (1 час) ✅ ЗАВЕРШЕНО
+  - [x] Xray: 443 → 127.0.0.1:8443 ✅
+  - [x] Nginx: 8443-8452 → 127.0.0.1:9443-9452 ✅
+  - [x] Обновить lib/docker_compose_manager.sh (port validation) ✅
+  - [x] Обновить docs/prd/03_nfr.md (NFR-RPROXY-002) ✅
+  - [x] Обновить lib/reverseproxy_db.sh (database schema) ✅
+  - [x] Обновить lib/fail2ban_config.sh (port references) ✅
+  - [x] Обновить comment examples (docker_compose_generator.sh, nginx_config_generator.sh) ✅
+  - [x] **Acceptance:** Бэкенды на localhost only, диапазон портов 9443-9452 ✅
 
 - [ ] **Задача 1.7:** UFW правила (30 мин)
   - [ ] Удалить правила для 8443-8452/tcp
