@@ -57,12 +57,13 @@ Port 443 (HAProxy, 3 frontends):
   - [x] list_haproxy_routes() ✅
   - [x] **Acceptance:** haproxy.cfg генерируется через heredoc ✅
 
-- [ ] **Задача 1.3:** Удаление stunnel артефактов (30 мин)
-  - [ ] Удалить config/stunnel.conf
-  - [ ] Удалить lib/stunnel_setup.sh
-  - [ ] Удалить logs/stunnel/
-  - [ ] Обновить lib/orchestrator.sh (удалить setup_stunnel())
-  - [ ] **Acceptance:** Все stunnel файлы удалены
+- [x] **Задача 1.3:** Удаление stunnel артефактов (30 мин) ✅ ЗАВЕРШЕНО
+  - [x] Удалить config/stunnel.conf (N/A - dev machine) ✅
+  - [x] Удалить lib/stunnel_setup.sh ✅
+  - [x] Удалить tests/test_stunnel_heredoc.sh ✅
+  - [x] Обновить lib/orchestrator.sh (удалить setup_stunnel()) ✅
+  - [x] Обновить lib/verification.sh (заменить stunnel checks на HAProxy) ✅
+  - [x] **Acceptance:** Все stunnel файлы удалены ✅
 
 - [ ] **Задача 1.4:** Certificate combined.pem generation (1 час)
   - [ ] Создать create_haproxy_combined_cert() в lib/certificate_manager.sh

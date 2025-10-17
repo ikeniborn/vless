@@ -384,31 +384,26 @@ verify_containers() {
         log_warning "Container 'vless_xray' restart policy: $xray_restart (expected unless-stopped)"
     fi
 
-    # Check stunnel container if proxy with TLS enabled (v4.0+)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-        if [[ "$stunnel_status" == "running" ]]; then
-            log_success "Container 'vless_stunnel' is running"
+    # Check HAProxy container if proxy enabled (v4.3+)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        local haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+        if [[ "$haproxy_status" == "running" ]]; then
+            log_success "Container 'vless_haproxy' is running"
 
-            # Check healthcheck status
-            local stunnel_health=$(docker inspect vless_stunnel -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-            if [[ "$stunnel_health" == "healthy" ]]; then
-                log_success "Container 'vless_stunnel' health: healthy"
-            elif [[ "$stunnel_health" == "starting" ]]; then
-                log_info "  Container 'vless_stunnel' health: starting"
-            elif [[ "$stunnel_health" == "unhealthy" ]]; then
-                log_error "Container 'vless_stunnel' health: unhealthy"
+            # Check healthcheck status (if available)
+            local haproxy_health=$(docker inspect vless_haproxy -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+            if [[ "$haproxy_health" == "healthy" ]]; then
+                log_success "Container 'vless_haproxy' health: healthy"
+            elif [[ "$haproxy_health" == "starting" ]]; then
+                log_info "  Container 'vless_haproxy' health: starting"
+            elif [[ "$haproxy_health" == "unhealthy" ]]; then
+                log_error "Container 'vless_haproxy' health: unhealthy"
             fi
 
-            # Check network
-            local stunnel_networks=$(docker inspect vless_stunnel -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
-            if [[ "$stunnel_networks" =~ vless_reality_net ]]; then
-                log_success "Container 'vless_stunnel' is connected to vless_reality_net"
-            else
-                log_error "Container 'vless_stunnel' is not connected to vless_reality_net (networks: $stunnel_networks)"
-            fi
-        elif [[ "$stunnel_status" != "not-found" ]]; then
-            log_error "Container 'vless_stunnel' exists but status is: $stunnel_status"
+            # v4.3: HAProxy runs in host network mode (no Docker network attachment)
+            log_info "  HAProxy network mode: host (direct access to ports 443, 1080, 8118)"
+        elif [[ "$haproxy_status" != "not-found" ]]; then
+            log_error "Container 'vless_haproxy' exists but status is: $haproxy_status"
         fi
     fi
 
@@ -683,7 +678,7 @@ display_verification_summary() {
 # ============================================================================
 validate_mandatory_tls() {
     echo ""
-    log_info "Verification 5.6/10: Validating TLS encryption (v4.0 stunnel architecture)..."
+    log_info "Verification 5.6/10: Validating TLS encryption (v4.3 HAProxy unified architecture)..."
 
     # Only validate if public proxy mode enabled
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
@@ -692,41 +687,32 @@ validate_mandatory_tls() {
         return 0
     fi
 
-    # v4.0: TLS handled by stunnel, not Xray
-    if [[ "${ENABLE_PROXY_TLS:-false}" != "true" ]]; then
-        log_info "  ⊗ TLS disabled (plaintext mode), skipping TLS validation"
-        log_warning "  ⚠️  SECURITY WARNING: Proxy running in plaintext mode"
-        echo ""
-        return 0
-    fi
-
     local validation_failed=0
 
-    # Check 1: stunnel.conf exists as FILE (not directory!)
-    log_info "  [1/5] Checking stunnel configuration file..."
-    if [[ ! -f "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
-        if [[ -d "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
-            log_error "    ✗ stunnel.conf is a DIRECTORY (should be FILE)"
-            log_error "    This indicates init_stunnel() was never called"
+    # Check 1: haproxy.cfg exists as FILE (not directory!)
+    log_info "  [1/5] Checking HAProxy configuration file..."
+    if [[ ! -f "${INSTALL_ROOT}/config/haproxy.cfg" ]]; then
+        if [[ -d "${INSTALL_ROOT}/config/haproxy.cfg" ]]; then
+            log_error "    ✗ haproxy.cfg is a DIRECTORY (should be FILE)"
         else
-            log_error "    ✗ stunnel.conf not found"
+            log_error "    ✗ haproxy.cfg not found"
         fi
         validation_failed=1
     else
-        log_success "    ✓ stunnel.conf exists"
+        log_success "    ✓ haproxy.cfg exists"
     fi
 
-    # Check 2: stunnel container exists
-    log_info "  [2/5] Checking stunnel container..."
-    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_stunnel$'; then
-        log_error "    ✗ stunnel container not found"
+    # Check 2: HAProxy container exists
+    log_info "  [2/5] Checking HAProxy container..."
+    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_haproxy$'; then
+        log_error "    ✗ HAProxy container not found"
         validation_failed=1
     else
-        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$stunnel_status" == "running" ]]; then
-            log_success "    ✓ stunnel container running"
+        local haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        if [[ "$haproxy_status" == "running" ]]; then
+            log_success "    ✓ HAProxy container running"
         else
-            log_error "    ✗ stunnel container status: $stunnel_status"
+            log_error "    ✗ HAProxy container status: $haproxy_status"
             validation_failed=1
         fi
     fi
@@ -760,27 +746,39 @@ validate_mandatory_tls() {
         validation_failed=1
     fi
 
-    # Check 5: stunnel ports exposed to internet
-    log_info "  [5/5] Checking stunnel port mappings..."
-    local stunnel_ports=$(docker port vless_stunnel 2>/dev/null || echo "")
-    if [[ "$stunnel_ports" =~ "1080" ]] && [[ "$stunnel_ports" =~ "8118" ]]; then
-        log_success "    ✓ stunnel exposing ports 1080 and 8118"
+    # Check 5: HAProxy ports accessible (host network mode)
+    log_info "  [5/5] Checking HAProxy port accessibility..."
+    # v4.3: HAProxy runs in host network mode, ports bound directly to host
+    local haproxy_listening=0
+    if ss -tuln | grep -q ":443 "; then
+        haproxy_listening=$((haproxy_listening + 1))
+    fi
+    if ss -tuln | grep -q ":1080 "; then
+        haproxy_listening=$((haproxy_listening + 1))
+    fi
+    if ss -tuln | grep -q ":8118 "; then
+        haproxy_listening=$((haproxy_listening + 1))
+    fi
+
+    if [[ $haproxy_listening -eq 3 ]]; then
+        log_success "    ✓ HAProxy listening on ports 443, 1080, 8118"
     else
-        log_error "    ✗ stunnel ports not properly mapped"
+        log_error "    ✗ HAProxy not listening on all required ports (found $haproxy_listening/3)"
         validation_failed=1
     fi
 
     # Final result
     echo ""
     if [[ $validation_failed -eq 0 ]]; then
-        log_success "TLS validation: PASSED (v4.0 stunnel architecture)"
-        log_info "  • Architecture: Client → stunnel (TLS) → Xray (plaintext Docker network)"
-        log_info "  • SOCKS5: 0.0.0.0:1080 (TLS) → vless_xray:10800 (plaintext)"
-        log_info "  • HTTP: 0.0.0.0:8118 (TLS) → vless_xray:18118 (plaintext)"
+        log_success "TLS validation: PASSED (v4.3 HAProxy unified architecture)"
+        log_info "  • Architecture: Client → HAProxy (TLS/passthrough) → Xray (localhost)"
+        log_info "  • Port 443: SNI routing (VLESS + reverse proxies)"
+        log_info "  • Port 1080: SOCKS5 TLS termination → 127.0.0.1:10800"
+        log_info "  • Port 8118: HTTP TLS termination → 127.0.0.1:18118"
         return 0
     else
         log_error "TLS validation: FAILED"
-        log_error "v4.0 requires stunnel for TLS termination"
+        log_error "v4.3 requires HAProxy for unified TLS termination"
         return 1
     fi
 }

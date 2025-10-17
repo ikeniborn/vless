@@ -123,20 +123,7 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 6.5: Initialize stunnel TLS termination (v4.0)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        echo ""
-        echo -e "${CYAN}[6.5/12] Initializing stunnel TLS termination...${NC}"
-
-        # stunnel_setup.sh is already sourced by install.sh
-        # Required variables (TEMPLATE_DIR, CONFIG_DIR, LOG_DIR) exported by install.sh
-        # Call init_stunnel with domain
-        if ! init_stunnel "${DOMAIN}"; then
-            echo -e "${RED}Failed to initialize stunnel${NC}" >&2
-            echo -e "${YELLOW}TLS termination configuration failed${NC}" >&2
-            return 1
-        fi
-    fi
+    # Step 6.5: Removed in v4.3 - stunnel replaced by HAProxy unified TLS termination
 
     # Step 7: Create docker-compose.yml
     create_docker_compose || {
@@ -357,13 +344,8 @@ generate_routing_json() {
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
     local docker_subnet=""
 
-    # If TLS proxy enabled, add Docker network subnet for stunnel container
-    # This allows stunnel (running in separate container) to forward traffic to Xray
-    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # Get Docker network subnet (e.g., 172.20.0.0/16)
-        docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
-        allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
-    fi
+    # v4.3: HAProxy runs in host network mode, no need for Docker subnet
+    # All traffic from HAProxy to Xray uses 127.0.0.1 (localhost)
 
     # Check if proxy_allowed_ips.json exists (user-defined overrides)
     if [[ -f "$proxy_ips_file" ]]; then
@@ -374,12 +356,8 @@ generate_routing_json() {
         if [[ -n "$user_ips" ]] && [[ "$user_ips" != "null" ]] && echo "$user_ips" | jq empty 2>/dev/null; then
             allowed_ips="$user_ips"
         else
-            # Fallback to defaults if file is corrupted
-            if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-                allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
-            else
-                allowed_ips='["127.0.0.1"]'
-            fi
+            # Fallback to defaults if file is corrupted (v4.3: localhost only)
+            allowed_ips='["127.0.0.1"]'
         fi
     fi
 
@@ -413,16 +391,16 @@ EOF
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
 # Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
 # Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
-# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
+# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
 # =============================================================================
 generate_socks5_inbound_json() {
-    # v4.0: stunnel-based TLS termination
-    # Architecture: Client → stunnel (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
+    # v4.3: HAProxy unified TLS termination
+    # Architecture: Client → HAProxy (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
     #
     # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:10800)
-    # - stunnel container exposes public port 1080 with TLS encryption
+    # - HAProxy handles TLS termination on public port 1080
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by stunnel)
+    # - No TLS streamSettings in Xray config (handled by HAProxy)
 
     cat <<'EOF'
   ,{
@@ -450,16 +428,16 @@ EOF
 # Description: Generate HTTP proxy inbound configuration for Xray
 # Returns: JSON string for HTTP inbound (to be appended to inbounds array)
 # Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
-# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
+# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
 # =============================================================================
 generate_http_inbound_json() {
-    # v4.0: stunnel-based TLS termination
-    # Architecture: Client → stunnel (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
+    # v4.3: HAProxy unified TLS termination
+    # Architecture: Client → HAProxy (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
     #
     # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:18118)
-    # - stunnel container exposes public port 8118 with TLS encryption
+    # - HAProxy handles TLS termination on public port 8118
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by stunnel)
+    # - No TLS streamSettings in Xray config (handled by HAProxy)
 
     cat <<'EOF'
   ,{
@@ -710,13 +688,8 @@ init_proxy_allowed_ips() {
     local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
     local default_ips='["127.0.0.1"]'
 
-    # If TLS proxy enabled, include Docker network subnet for stunnel container
-    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # Get Docker network subnet (e.g., 172.20.0.0/16)
-        local docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
-        default_ips='["127.0.0.1","'${docker_subnet}'"]'
-        echo "  ℹ TLS proxy enabled: allowing Docker subnet ${docker_subnet}"
-    fi
+    # v4.3: HAProxy runs in host network mode, only localhost needed
+    # All traffic from HAProxy to Xray uses 127.0.0.1
 
     # Create proxy_allowed_ips.json with appropriate defaults
     cat > "$proxy_ips_file" <<EOF
@@ -852,63 +825,28 @@ EOF
 create_docker_compose() {
     echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
 
-    # v4.0: stunnel-based TLS termination
-    # - Xray: ALWAYS only exposes VLESS port to host (1080/8118 NOT exposed)
-    # - stunnel: Exposes 1080/8118 when ENABLE_PUBLIC_PROXY=true
-    # - Architecture: Client → stunnel (TLS) → Xray (plaintext localhost)
+    # v4.3: HAProxy-based unified TLS termination
+    # - Xray: Exposes ONLY localhost ports (8443 for VLESS, 10800/18118 for proxy)
+    # - HAProxy: Handles ALL public ports (443, 1080, 8118) in host network mode
+    # - Architecture: Client → HAProxy (TLS/passthrough) → Xray (localhost)
 
-    # Xray ports (VLESS only, proxy ports NOT exposed to host)
+    # v4.3: Xray ports (localhost-only, HAProxy forwards from public ports)
     local xray_ports="    ports:
-      - \"${VLESS_PORT}:${VLESS_PORT}\""
+      - \"127.0.0.1:8443:${VLESS_PORT}\"
+      # Proxy ports NOT exposed - accessed by HAProxy via localhost"
 
-    # Xray volumes (no certs needed, stunnel handles TLS)
+    # Xray volumes (no certs needed, HAProxy handles TLS)
     local xray_volumes="    volumes:
       - ${CONFIG_DIR}:/etc/xray:ro
       - ${LOGS_DIR}:/var/log/xray"
 
     # Xray healthcheck (check localhost proxy ports 10800/18118)
     local xray_healthcheck="    healthcheck:
-      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 10800 && nc -z 127.0.0.1 18118 || exit 1\"]
+      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 8443 && nc -z 127.0.0.1 10800 && nc -z 127.0.0.1 18118 || exit 1\"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s"
-
-    # stunnel service (optional, only when ENABLE_PUBLIC_PROXY=true)
-    local stunnel_service=""
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        stunnel_service="
-  stunnel:
-    image: dweomer/stunnel:latest
-    container_name: vless_stunnel
-    restart: unless-stopped
-    entrypoint: [\"stunnel\"]
-    command: [\"/etc/stunnel/stunnel.conf\"]
-    ports:
-      - \"1080:1080\"
-      - \"8118:8118\"
-    volumes:
-      - ${CONFIG_DIR}/stunnel.conf:/etc/stunnel/stunnel.conf:ro
-      - /etc/letsencrypt:/certs:ro
-      - ${LOGS_DIR}/stunnel:/var/log/stunnel
-    networks:
-      - ${DOCKER_NETWORK_NAME}
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    depends_on:
-      - xray
-    healthcheck:
-      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 1080 && nc -z 127.0.0.1 8118 || exit 1\"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-"
-    fi
 
     # Create docker-compose.yml
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
@@ -964,7 +902,7 @@ ${xray_volumes}
       - /var/run
     depends_on:
       - xray
-${stunnel_service}
+
 networks:
   ${DOCKER_NETWORK_NAME}:
     external: true
@@ -981,16 +919,17 @@ EOF
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
 
-    # v4.0: Show architecture based on mode
+    # v4.3: HAProxy unified architecture
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo "  ✓ Mode: PUBLIC PROXY with stunnel TLS (v4.0)"
-        echo "  ✓ stunnel: Exposed ports 1080 (SOCKS5s), 8118 (HTTPS) with TLS 1.3"
-        echo "  ✓ Xray: Localhost ports 10800 (SOCKS5), 18118 (HTTP) - plaintext"
-        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to stunnel"
-        echo "  ✓ Architecture: Client → stunnel (TLS) → Xray (auth) → Internet"
+        echo "  ✓ Mode: PUBLIC PROXY with HAProxy unified TLS (v4.3)"
+        echo "  ✓ HAProxy: Handles ALL ports (443, 1080, 8118) with TLS/passthrough"
+        echo "  ✓ Xray: Localhost ports 8443 (VLESS), 10800 (SOCKS5), 18118 (HTTP)"
+        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to HAProxy"
+        echo "  ✓ Architecture: Client → HAProxy (TLS) → Xray (auth) → Internet"
     else
-        echo "  ✓ Mode: VLESS-only"
-        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS Reality)"
+        echo "  ✓ Mode: VLESS-only with HAProxy passthrough (v4.3)"
+        echo "  ✓ Exposed ports: 443 (VLESS Reality via HAProxy)"
+        echo "  ✓ Xray: Localhost 8443 (HAProxy forwards from port 443)"
     fi
 
     echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
@@ -1184,10 +1123,7 @@ deploy_containers() {
     [[ ! -f "${KEYS_DIR}/private.key" ]] && missing_files+=("${KEYS_DIR}/private.key")
     [[ ! -f "${KEYS_DIR}/public.key" ]] && missing_files+=("${KEYS_DIR}/public.key")
 
-    # Check stunnel config if proxy enabled (v4.0+)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        [[ ! -f "${CONFIG_DIR}/stunnel.conf" ]] && missing_files+=("${CONFIG_DIR}/stunnel.conf")
-    fi
+    # v4.3: HAProxy config checked via docker-compose generator (lib/haproxy_config_manager.sh)
 
     if [[ ${#missing_files[@]} -gt 0 ]]; then
         echo -e "${RED}✗ Pre-flight check failed: Missing critical files (${#missing_files[@]})${NC}" >&2
@@ -1275,27 +1211,8 @@ deploy_containers() {
         return 1
     fi
 
-    # Check stunnel container if proxy with TLS enabled (v4.0+)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-        if [[ "$stunnel_status" == "running" ]]; then
-            echo "  ✓ stunnel container running"
-
-            # Check healthcheck status
-            local stunnel_health=$(docker inspect vless_stunnel -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-            if [[ "$stunnel_health" == "healthy" ]]; then
-                echo "  ✓ stunnel container healthy"
-            elif [[ "$stunnel_health" == "starting" ]]; then
-                echo "  ℹ stunnel container health: starting (will be checked later)"
-            elif [[ "$stunnel_health" != "no-healthcheck" ]]; then
-                echo -e "${YELLOW}  ⚠ stunnel container health: $stunnel_health${NC}"
-            fi
-        elif [[ "$stunnel_status" != "not-found" ]]; then
-            echo -e "${RED}stunnel container failed to start (status: $stunnel_status)${NC}" >&2
-            docker compose logs stunnel
-            return 1
-        fi
-    fi
+    # v4.3: HAProxy runs in host network mode, managed separately (not in docker-compose containers)
+    # HAProxy health check performed by lib/haproxy_config_manager.sh::check_haproxy_status()
 
     echo -e "${GREEN}✓ Containers deployed successfully${NC}"
     return 0
