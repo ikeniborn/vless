@@ -1080,15 +1080,61 @@ EOF
         echo "  ✓ Docker forwarding rules already present"
     fi
 
-    # Allow VLESS port (check if rule already exists first)
-    echo "  Allowing port ${VLESS_PORT}..."
+    # v4.3: Remove old reverse proxy port rules (8443-8452) if they exist
+    echo "  Removing old reverse proxy port rules (v4.2: 8443-8452)..."
+    local removed_count=0
+    for old_port in {8443..8452}; do
+        if ufw status numbered | grep -q "${old_port}/tcp"; then
+            # Find rule number and delete
+            local rule_nums=$(ufw status numbered | grep "${old_port}/tcp" | grep -oP '^\[\s*\K\d+' || true)
+            if [[ -n "$rule_nums" ]]; then
+                for rule_num in $rule_nums; do
+                    echo "y" | ufw delete "$rule_num" &>/dev/null || true
+                    ((removed_count++))
+                done
+            fi
+        fi
+    done
+    if [[ $removed_count -gt 0 ]]; then
+        echo "  ✓ Removed $removed_count old reverse proxy port rules"
+    else
+        echo "  ✓ No old reverse proxy port rules found"
+    fi
+
+    # Allow HAProxy port 443 (check if rule already exists first)
+    echo "  Allowing port ${VLESS_PORT} (HAProxy all-in-one)..."
     if ufw status numbered | grep -q "${VLESS_PORT}/tcp.*ALLOW"; then
         echo "  ✓ Port ${VLESS_PORT}/tcp already allowed"
     else
-        ufw allow "${VLESS_PORT}/tcp" comment 'VLESS Reality VPN' || {
+        ufw allow "${VLESS_PORT}/tcp" comment 'HAProxy VLESS+Reverse Proxy (v4.3)' || {
             echo -e "${YELLOW}Warning: Failed to add UFW rule${NC}"
         }
         echo "  ✓ Port ${VLESS_PORT}/tcp allowed"
+    fi
+
+    # v4.3: Ensure ports 9443-9452 are NOT exposed (localhost-only nginx backends)
+    echo "  Verifying nginx backend ports (9443-9452) are NOT exposed..."
+    local exposed_nginx_ports=()
+    for nginx_port in {9443..9452}; do
+        if ufw status numbered | grep -q "${nginx_port}/tcp"; then
+            exposed_nginx_ports+=("$nginx_port")
+        fi
+    done
+    if [[ ${#exposed_nginx_ports[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}  ⚠️  WARNING: Nginx backend ports exposed: ${exposed_nginx_ports[*]}${NC}"
+        echo "  These ports should be localhost-only (127.0.0.1) in v4.3"
+        echo "  Removing rules..."
+        for port in "${exposed_nginx_ports[@]}"; do
+            local rule_nums=$(ufw status numbered | grep "${port}/tcp" | grep -oP '^\[\s*\K\d+' || true)
+            if [[ -n "$rule_nums" ]]; then
+                for rule_num in $rule_nums; do
+                    echo "y" | ufw delete "$rule_num" &>/dev/null || true
+                done
+            fi
+        done
+        echo "  ✓ Nginx backend ports secured (localhost-only)"
+    else
+        echo "  ✓ Nginx backend ports are localhost-only (correct)"
     fi
 
     # Reload UFW to apply changes
@@ -1098,7 +1144,7 @@ EOF
     }
     echo "  ✓ Docker forwarding configured for ${DOCKER_SUBNET}"
 
-    echo -e "${GREEN}✓ UFW firewall configured${NC}"
+    echo -e "${GREEN}✓ UFW firewall configured (v4.3)${NC}"
     return 0
 }
 
