@@ -1,14 +1,16 @@
 #!/bin/bash
 #==============================================================================
 # Certificate Renewal Deploy Hook
-# Part of VLESS + Reality VPN v4.2
+# Part of VLESS + Reality VPN v4.3
 #
 # This script is called by certbot after successful certificate renewal.
-# Handles certificate updates for both VLESS Reality and Reverse Proxy.
+# Handles certificate updates for HAProxy, Xray, and Reverse Proxy.
 #
-# v4.2 Features:
+# v4.3 Features:
+# - Creates HAProxy combined.pem (fullchain + privkey)
+# - Gracefully reloads HAProxy (zero downtime)
 # - Restarts Xray container (VLESS Reality)
-# - Reloads Nginx reverse proxy (v4.2)
+# - Reloads Nginx reverse proxy
 # - Updates reverse_proxies.json database
 # - Supports multiple renewed domains
 #
@@ -22,7 +24,13 @@ set -euo pipefail
 readonly VLESS_DIR="/opt/vless"
 readonly LOG_FILE="$VLESS_DIR/logs/certbot-renew.log"
 readonly DB_SCRIPT="$VLESS_DIR/lib/reverseproxy_db.sh"
+readonly CERT_MANAGER="$VLESS_DIR/lib/certificate_manager.sh"
 readonly TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+
+# Source certificate manager module (v4.3)
+if [[ -f "$CERT_MANAGER" ]]; then
+    source "$CERT_MANAGER"
+fi
 
 # Ensure log directory exists
 mkdir -p "$VLESS_DIR/logs" 2>/dev/null
@@ -108,7 +116,7 @@ update_database_cert_info() {
 
 main() {
     log_message "═══════════════════════════════════════════════════════"
-    log_message "🔄 Certificate Renewal Deploy Hook (v4.2)"
+    log_message "🔄 Certificate Renewal Deploy Hook (v4.3)"
     log_message "═══════════════════════════════════════════════════════"
 
     # Get renewed domains from certbot environment variable
@@ -130,9 +138,45 @@ main() {
 
     local success=true
 
-    # 1. Restart Xray container (VLESS Reality)
+    # 1. Create HAProxy combined.pem for each renewed domain (v4.3)
     log_message ""
-    log_message "Step 1: Restarting Xray container..."
+    log_message "Step 1: Creating HAProxy combined.pem..."
+
+    for domain in $renewed_domains; do
+        log_message "  Processing: $domain"
+
+        if command -v create_haproxy_combined_cert &>/dev/null; then
+            if create_haproxy_combined_cert "$domain" >> "$LOG_FILE" 2>&1; then
+                log_message "  ✅ Combined.pem created for $domain"
+            else
+                log_error "  Failed to create combined.pem for $domain"
+                success=false
+            fi
+        else
+            log_error "  Certificate manager module not found"
+            success=false
+        fi
+    done
+
+    # 2. Gracefully reload HAProxy (v4.3)
+    log_message ""
+    log_message "Step 2: Reloading HAProxy..."
+
+    if command -v reload_haproxy_after_cert_update &>/dev/null; then
+        if reload_haproxy_after_cert_update >> "$LOG_FILE" 2>&1; then
+            log_message "✅ HAProxy reloaded successfully"
+        else
+            log_error "Failed to reload HAProxy"
+            success=false
+        fi
+    else
+        log_error "Certificate manager module not found"
+        success=false
+    fi
+
+    # 3. Restart Xray container (VLESS Reality)
+    log_message ""
+    log_message "Step 3: Restarting Xray container..."
 
     if docker-compose restart xray >> "$LOG_FILE" 2>&1; then
         sleep 2
@@ -148,17 +192,17 @@ main() {
         success=false
     fi
 
-    # 2. Reload Nginx reverse proxy (v4.2)
+    # 4. Reload Nginx reverse proxy
     log_message ""
-    log_message "Step 2: Reloading Nginx reverse proxy..."
+    log_message "Step 4: Reloading Nginx reverse proxy..."
 
     if ! reload_nginx_reverseproxy; then
         success=false
     fi
 
-    # 3. Update database for each renewed domain (v4.2)
+    # 5. Update database for each renewed domain
     log_message ""
-    log_message "Step 3: Updating database..."
+    log_message "Step 5: Updating database..."
 
     for domain in $renewed_domains; do
         if ! update_database_cert_info "$domain"; then

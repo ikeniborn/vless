@@ -65,11 +65,14 @@ Port 443 (HAProxy, 3 frontends):
   - [x] Обновить lib/verification.sh (заменить stunnel checks на HAProxy) ✅
   - [x] **Acceptance:** Все stunnel файлы удалены ✅
 
-- [ ] **Задача 1.4:** Certificate combined.pem generation (1 час)
-  - [ ] Создать create_haproxy_combined_cert() в lib/certificate_manager.sh
-  - [ ] Обновить /usr/local/bin/vless-cert-renew
-  - [ ] Интегрировать с certbot deploy hook
-  - [ ] **Acceptance:** combined.pem создается автоматически
+- [x] **Задача 1.4:** Certificate combined.pem generation (1 час) ✅ ЗАВЕРШЕНО
+  - [x] Создать lib/certificate_manager.sh module ✅
+  - [x] Реализовать create_haproxy_combined_cert() function ✅
+  - [x] Реализовать validate_haproxy_cert() function ✅
+  - [x] Реализовать reload_haproxy_after_cert_update() ✅
+  - [x] Обновить scripts/vless-cert-renew для v4.3 ✅
+  - [x] Интегрировать combined.pem creation в lib/certbot_setup.sh ✅
+  - [x] **Acceptance:** combined.pem создается автоматически при acquisition и renewal ✅
 
 - [ ] **Задача 1.5:** Создание Certbot Nginx Service (1 час)
   - [ ] Добавить certbot_nginx service в docker-compose.yml

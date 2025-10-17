@@ -1,18 +1,19 @@
 #!/bin/bash
 #==============================================================================
 # Certificate Management Module for Let's Encrypt
-# Part of VLESS + Reality VPN v3.3
+# Part of VLESS + Reality VPN v4.3
 #
 # This module handles:
 # - Let's Encrypt certificate acquisition via certbot
 # - DNS validation before certificate requests
 # - Port 80 management for ACME HTTP-01 challenge
 # - Auto-renewal setup with cron jobs
-# - Deploy hooks for Xray restart
+# - HAProxy combined.pem creation (v4.3)
+# - Deploy hooks for HAProxy/Xray restart
 #
-# Version: 3.3
+# Version: 4.3
 # Author: VLESS Team
-# Date: 2025-10-06
+# Date: 2025-10-17
 #==============================================================================
 
 # Color codes for output (conditional to avoid conflicts when sourced by CLI)
@@ -20,6 +21,12 @@
 [[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
 [[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
 [[ -z "${NC:-}" ]] && readonly NC='\033[0m' # No Color
+
+# Source certificate manager for combined.pem creation (v4.3)
+CERT_MANAGER_PATH="$(dirname "${BASH_SOURCE[0]}")/certificate_manager.sh"
+if [[ -f "$CERT_MANAGER_PATH" ]]; then
+    source "$CERT_MANAGER_PATH"
+fi
 
 #==============================================================================
 # FUNCTION: validate_domain_dns
@@ -265,6 +272,25 @@ obtain_certificate() {
     local expiry=$(openssl x509 -in "$cert_path/cert.pem" -noout -enddate | cut -d= -f2)
     echo "Certificate expires: $expiry"
     echo "Auto-renewal scheduled at 60 days (30 days before expiry)"
+    echo ""
+
+    # v4.3: Create HAProxy combined.pem
+    echo "Creating HAProxy combined.pem..."
+    echo ""
+
+    if command -v create_haproxy_combined_cert &>/dev/null; then
+        if create_haproxy_combined_cert "$domain"; then
+            echo -e "${GREEN}✅ HAProxy combined.pem created${NC}"
+        else
+            echo -e "${YELLOW}⚠️  WARNING: Failed to create combined.pem${NC}"
+            echo "   HAProxy will not work until combined.pem is created"
+            echo "   Manually run: create_haproxy_combined_cert $domain"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  WARNING: Certificate manager module not found${NC}"
+        echo "   HAProxy combined.pem not created"
+    fi
+
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
