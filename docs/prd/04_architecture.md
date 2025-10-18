@@ -643,4 +643,287 @@ services:
 
 ---
 
+### 4.7 HAProxy Unified Architecture (v4.3)
+
+**Version:** 4.3.0
+**Status:** Current Implementation
+**Purpose:** Single HAProxy container for ALL TLS termination and routing
+
+#### 4.7.1 Architectural Shift from v4.2
+
+**v4.2 Architecture (stunnel + HAProxy dual setup):**
+```
+Port 443 (stunnel TLS termination)
+  → HAProxy (SNI routing only)
+    → VLESS Reality: Xray:8443
+    → Reverse Proxies: Nginx:8443-8452
+
+Ports 1080/8118 (stunnel TLS termination for proxies)
+  → Xray plaintext proxies
+```
+
+**v4.3 Architecture (HAProxy unified):**
+```
+Port 443 (HAProxy, 1 frontend, multiple routing rules)
+  Frontend: SNI Routing (NO TLS termination for Reality)
+    → VLESS Reality: SNI passthrough → Xray:8443 (Reality TLS)
+    → Reverse Proxies: SNI routing → Nginx:9443-9452 (HTTPS)
+
+Ports 1080/8118 (HAProxy TLS termination)
+  Frontend socks5-tls: TLS decrypt → Xray:10800 (plaintext SOCKS5)
+  Frontend http-tls: TLS decrypt → Xray:18118 (plaintext HTTP)
+```
+
+**Key Changes:**
+- ❌ **stunnel removed completely**
+- ✅ **HAProxy handles all 3 ports** (443, 1080, 8118)
+- ✅ **1 container instead of 2**
+- ✅ **Subdomain-based access** (https://domain, no port!)
+- ✅ **Unified configuration, logging, monitoring**
+
+#### 4.7.2 HAProxy Configuration Structure
+
+**File:** `/opt/vless/config/haproxy.cfg`
+
+**3 Frontends:**
+
+```haproxy
+# Frontend 1: SNI Routing (port 443)
+frontend vless-reality
+    bind *:443
+    mode tcp
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req_ssl_hello_type 1 }
+
+    # === DYNAMIC_REVERSE_PROXY_ROUTES ===
+    # (ACLs and use_backend directives added dynamically)
+    # Example:
+    #   acl is_claude req.ssl_sni -i claude.ikeniborn.ru
+    #   use_backend nginx_claude if is_claude
+
+    default_backend xray_reality
+
+# Frontend 2: SOCKS5 TLS Termination (port 1080)
+frontend socks5-tls
+    bind *:1080 ssl crt /opt/vless/certs/combined.pem
+    mode tcp
+    default_backend xray_socks5
+
+# Frontend 3: HTTP Proxy TLS Termination (port 8118)
+frontend http-tls
+    bind *:8118 ssl crt /opt/vless/certs/combined.pem
+    mode tcp
+    default_backend xray_http
+```
+
+**Backends:**
+
+```haproxy
+backend xray_reality
+    mode tcp
+    server xray vless_xray:8443
+
+backend xray_socks5
+    mode tcp
+    server xray vless_xray:10800
+
+backend xray_http
+    mode tcp
+    server xray vless_xray:18118
+
+# Dynamic Nginx backends (added via add_reverse_proxy_route())
+backend nginx_claude
+    mode tcp
+    server nginx vless_reverse_proxy_nginx:9443
+
+backend nginx_proxy2
+    mode tcp
+    server nginx vless_reverse_proxy_nginx:9444
+```
+
+**Stats Page:**
+
+```haproxy
+frontend stats
+    bind *:9000
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+```
+
+#### 4.7.3 Dynamic Routing Management
+
+**Module:** `lib/haproxy_config_manager.sh`
+
+**Key Functions:**
+
+```bash
+# Add reverse proxy route
+add_reverse_proxy_route() {
+    local domain="$1"
+    local backend_port="$2"
+
+    # 1. Add ACL: acl is_${sanitized_domain} req.ssl_sni -i ${domain}
+    # 2. Add backend: backend nginx_${sanitized_domain}
+    # 3. Add routing: use_backend nginx_${sanitized_domain} if is_${sanitized_domain}
+    # 4. Validate config
+    # 5. Graceful reload (haproxy -sf <old_pid>)
+}
+
+# Remove reverse proxy route
+remove_reverse_proxy_route() {
+    local domain="$1"
+
+    # 1. Remove ACL line
+    # 2. Remove backend section
+    # 3. Remove use_backend line
+    # 4. Validate config
+    # 5. Graceful reload
+}
+
+# List active routes
+list_haproxy_routes() {
+    # Parse haproxy.cfg for active ACLs and backends
+    # Returns: domain → backend_port mappings
+}
+
+# Graceful reload (zero downtime)
+reload_haproxy() {
+    local old_pid=$(cat /var/run/haproxy.pid)
+    docker exec vless-haproxy haproxy -f /etc/haproxy/haproxy.cfg -sf $old_pid
+}
+```
+
+#### 4.7.4 Certificate Management for HAProxy
+
+**combined.pem Format:**
+
+```
+-----BEGIN CERTIFICATE-----
+(fullchain.pem contents)
+-----END CERTIFICATE-----
+-----BEGIN PRIVATE KEY-----
+(privkey.pem contents)
+-----END PRIVATE KEY-----
+```
+
+**Creation Workflow:**
+
+1. **Certbot acquisition:** `certbot certonly --nginx -d domain.com`
+2. **combined.pem creation:**
+   ```bash
+   cat /etc/letsencrypt/live/domain.com/fullchain.pem \
+       /etc/letsencrypt/live/domain.com/privkey.pem \
+       > /opt/vless/certs/combined.pem
+   chmod 600 /opt/vless/certs/combined.pem
+   ```
+3. **HAProxy reload:** `reload_haproxy()`
+
+**Module:** `lib/certificate_manager.sh`
+
+**Functions:**
+- `create_haproxy_combined_cert(domain)` - Creates combined.pem from Let's Encrypt certs
+- `validate_haproxy_cert(combined_pem_path)` - Validates cert and key format
+- `reload_haproxy_after_cert_update()` - Graceful HAProxy reload
+
+**Renewal:**
+- **Cron job:** `/etc/cron.d/vless-cert-renew`
+- **Script:** `scripts/vless-cert-renew`
+- **Frequency:** Daily check (certbot renew --quiet)
+- **Post-hook:** Regenerate combined.pem + reload HAProxy
+
+#### 4.7.5 Port Allocation Strategy (v4.3)
+
+| Service | Port | Binding | Protocol | Backend |
+|---------|------|---------|----------|---------|
+| **HAProxy** | | | | |
+| VLESS Reality | 443 | 0.0.0.0 | SNI Passthrough | Xray:8443 |
+| SOCKS5 TLS | 1080 | 0.0.0.0 | TLS Termination | Xray:10800 |
+| HTTP TLS | 8118 | 0.0.0.0 | TLS Termination | Xray:18118 |
+| Stats Page | 9000 | 127.0.0.1 | HTTP | - |
+| **Xray** | | | | |
+| VLESS Reality | 8443 | 127.0.0.1 | Reality TLS | Internet |
+| SOCKS5 | 10800 | 127.0.0.1 | Plaintext | Internet |
+| HTTP | 18118 | 127.0.0.1 | Plaintext | Internet |
+| **Nginx** | | | | |
+| Reverse Proxies | 9443-9452 | 127.0.0.1 | HTTPS | Xray:10800 → Internet |
+
+**Key Principles:**
+- ✅ HAProxy: Public-facing (0.0.0.0), all TLS termination
+- ✅ Xray/Nginx: Localhost-only (127.0.0.1), not exposed
+- ✅ Port range 9443-9452 (NOT 8443-8452) for reverse proxies
+- ✅ NO UFW rules for 9443-9452 (localhost-only, protected by HAProxy)
+
+#### 4.7.6 Subdomain-Based Access (v4.3)
+
+**Old (v4.2):** `https://claude.ikeniborn.ru:8443`
+**New (v4.3):** `https://claude.ikeniborn.ru` ← NO PORT NUMBER
+
+**How it works:**
+
+1. **DNS:** `claude.ikeniborn.ru` → Server IP
+2. **Client:** Connects to `https://claude.ikeniborn.ru` (port 443 implied)
+3. **HAProxy Frontend (port 443):**
+   - Inspects SNI (Server Name Indication)
+   - Matches ACL: `req.ssl_sni -i claude.ikeniborn.ru`
+   - Routes to backend: `nginx_claude` (Nginx:9443)
+4. **Nginx (port 9443):**
+   - Serves content or proxies to target
+   - All on localhost (not exposed to internet)
+
+**Benefits:**
+- ✅ Cleaner URLs (no port numbers)
+- ✅ Standard HTTPS port (443)
+- ✅ Better UX (users expect https://domain)
+- ✅ Works with browser bookmarks/autocomplete
+- ✅ SSL/TLS "just works" (no warnings)
+
+#### 4.7.7 Integration with Existing Services
+
+**VLESS Reality:**
+- ✅ Works unchanged (HAProxy SNI passthrough to Xray:8443)
+- ✅ Reality protocol remains intact (no TLS termination)
+- ✅ Client config unchanged
+
+**SOCKS5/HTTP Proxies:**
+- ✅ HAProxy terminates TLS (instead of stunnel)
+- ✅ Xray receives plaintext (simpler config)
+- ✅ Client URIs: `socks5s://` and `https://` (TLS via HAProxy)
+
+**Reverse Proxies:**
+- ✅ HAProxy SNI routing (instead of direct access)
+- ✅ Subdomain-based (no port numbers)
+- ✅ Nginx on localhost:9443-9452 (instead of 0.0.0.0:8443-8452)
+
+**fail2ban:**
+- ✅ Protects all 3 HAProxy frontends (443, 1080, 8118)
+- ✅ Filter: `/etc/fail2ban/filter.d/haproxy-sni.conf`
+- ✅ Jail: `/etc/fail2ban/jail.d/vless-haproxy.conf`
+
+#### 4.7.8 Comparison: v4.2 vs v4.3
+
+| Feature | v4.2 (stunnel + HAProxy) | v4.3 (HAProxy Unified) |
+|---------|--------------------------|------------------------|
+| **Containers** | 2 (stunnel + HAProxy) | 1 (HAProxy) |
+| **TLS for VLESS** | stunnel termination | HAProxy SNI passthrough |
+| **TLS for Proxies** | stunnel termination | HAProxy TLS termination |
+| **TLS for Reverse Proxies** | Direct Nginx HTTPS | HAProxy SNI routing |
+| **Port 443** | stunnel → HAProxy (SNI only) | HAProxy (SNI + passthrough) |
+| **Reverse Proxy Access** | https://domain:8443 | https://domain (NO port!) |
+| **Reverse Proxy Ports** | 8443-8452 (public) | 9443-9452 (localhost) |
+| **Configuration** | 2 files (stunnel.conf + haproxy.cfg) | 1 file (haproxy.cfg) |
+| **Logging** | 2 log streams | 1 unified log |
+| **Stats/Monitoring** | HAProxy stats only | HAProxy stats (unified) |
+| **Complexity** | Higher (2 layers) | Lower (1 layer) |
+| **Maintenance** | 2 services to manage | 1 service to manage |
+
+**Migration from v4.2:**
+- ✅ Automatic (handled by `vless-install` update)
+- ✅ Zero downtime (graceful transition)
+- ✅ User data preserved (users, keys, reverse proxies)
+- ✅ Backward compatible (existing clients work)
+
+---
+
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
