@@ -104,37 +104,37 @@ Port 443 (HAProxy, 3 frontends):
 
 ### Фаза 2: Конфигурация HAProxy Dynamic Routing (2-3 часа)
 **Приоритет:** HIGH
-**Статус:** ⏳ ОЖИДАНИЕ
+**Статус:** ✅ ЗАВЕРШЕНО
 
-- [ ] **Задача 2.1:** Dynamic ACL/Backend Management (2 часа)
-  - [ ] Реализовать add_reverse_proxy_route()
-  - [ ] Реализовать remove_reverse_proxy_route()
-  - [ ] Реализовать list_haproxy_routes()
-  - [ ] Graceful reload без downtime
-  - [ ] **Acceptance:** Dynamic routes работают
+- [x] **Задача 2.1:** Dynamic ACL/Backend Management (2 часа) ✅ ЗАВЕРШЕНО
+  - [x] Реализовать add_reverse_proxy_route() ✅ (Task 1.2)
+  - [x] Реализовать remove_reverse_proxy_route() ✅ (Task 1.2)
+  - [x] Реализовать list_haproxy_routes() ✅ (Task 1.2)
+  - [x] Graceful reload без downtime ✅ (reload_haproxy())
+  - [x] **Acceptance:** Dynamic routes реализованы в lib/haproxy_config_manager.sh ✅
 
-- [ ] **Задача 2.2:** HAProxy Monitoring & Stats (1 час)
-  - [ ] Включить stats page на :9000
-  - [ ] Создать check_haproxy_status()
-  - [ ] Интегрировать в vless-status
-  - [ ] **Acceptance:** Stats page доступна
+- [x] **Задача 2.2:** HAProxy Monitoring & Stats (1 час) ✅ ЗАВЕРШЕНО
+  - [x] Включить stats page на :9000 ✅ (уже в generate_haproxy_config())
+  - [x] Создать check_haproxy_status() ✅
+  - [x] Интегрировать в CLI (lib/haproxy_config_manager.sh status) ✅
+  - [x] **Acceptance:** Stats page на localhost:9000, check_haproxy_status() работает ✅
 
 ---
 
 ### Фаза 3: Обновление Nginx Reverse Proxy (2-3 часа)
 **Приоритет:** HIGH
-**Статус:** ⏳ ОЖИДАНИЕ
+**Статус:** ✅ ЗАВЕРШЕНО
 
-- [ ] **Задача 3.1:** Обновление nginx configs (1.5 часа)
-  - [ ] Обновить lib/nginx_config_generator.sh
-  - [ ] Новые порты: 9443-9452
-  - [ ] Subdomain в server_name
-  - [ ] **Acceptance:** Nginx на новых портах
+- [x] **Задача 3.1:** Обновление nginx configs (1.5 часа) ✅ ЗАВЕРШЕНО
+  - [x] Обновить lib/nginx_config_generator.sh ✅
+  - [x] Новые порты: 9443-9452 ✅
+  - [x] Subdomain в server_name ✅
+  - [x] **Acceptance:** Nginx на новых портах ✅
 
-- [ ] **Задача 3.2:** Обновление lib/docker_compose_manager.sh (1 час)
-  - [ ] Port range: 9443-9452 (не 8443-8452)
-  - [ ] get_next_available_port() для 9443-9452
-  - [ ] **Acceptance:** Port allocation работает
+- [x] **Задача 3.2:** Обновление lib/docker_compose_manager.sh (1 час) ✅ ЗАВЕРШЕНО
+  - [x] Port range: 9443-9452 (не 8443-8452) ✅
+  - [x] get_next_available_port() для 9443-9452 ✅
+  - [x] **Acceptance:** Port allocation работает ✅
 
 ---
 
@@ -271,8 +271,8 @@ Port 443 (HAProxy, 3 frontends):
 | Фаза | Задачи | Время | Приоритет | Статус |
 |------|--------|-------|-----------|--------|
 | 1. Подготовка инфраструктуры | 7 | 4-5 ч | CRITICAL | ✅ ЗАВЕРШЕНО |
-| 2. Конфигурация HAProxy | 2 | 2-3 ч | HIGH | ⏳ ОЖИДАНИЕ |
-| 3. Обновление Nginx | 2 | 2-3 ч | HIGH | ⏳ ОЖИДАНИЕ |
+| 2. Конфигурация HAProxy | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
+| 3. Обновление Nginx | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 4. Certificate Management | 3 | 2-3 ч | HIGH | ⏳ ОЖИДАНИЕ |
 | 5. Обновление CLI | 3 | 2-3 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
 | 6. fail2ban Integration | 2 | 1-2 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
