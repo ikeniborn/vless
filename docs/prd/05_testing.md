@@ -1,4 +1,4 @@
-# PRD v4.1 - Testing Requirements
+# PRD v4.3 - Testing Requirements
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
 
@@ -6,11 +6,105 @@
 
 ## 7. Testing Requirements
 
-### 7.1 TLS Integration Tests (NEW)
+### 7.0 v4.3 Automated Test Suite (NEW)
 
-**Test Case 1: TLS Handshake - SOCKS5**
+**Test Suite Version:** 4.3.0
+**Coverage:** 6 test cases (3 automated, 3 production-only)
+**Location:** `tests/integration/v4.3/`
+
+**Automated Tests (DEV_MODE Support):**
+
+1. **Test 01: VLESS Reality through HAProxy** (`test_01_vless_reality_haproxy.sh`)
+   - Duration: 30 minutes
+   - Checks: 8 validation points
+   - Coverage:
+     - HAProxy container running and listening on port 443
+     - HAProxy `vless-reality` frontend configuration
+     - Xray `xray_reality` backend configuration
+     - Xray container running on port 8443
+     - Xray VLESS inbound with Reality security
+     - Network connectivity HAProxy → Xray
+     - HAProxy stats page accessibility
+   - DEV_MODE: Partial (config validation only)
+
+2. **Test 02: SOCKS5/HTTP Proxy through HAProxy** (`test_02_proxy_haproxy.sh`)
+   - Duration: 30 minutes
+   - Checks: 8 validation points
+   - Coverage:
+     - HAProxy `socks5-tls` frontend (port 1080) with TLS termination
+     - HAProxy `http-tls` frontend (port 8118) with TLS termination
+     - Xray `xray_socks5` and `xray_http` backends
+     - Xray SOCKS5 inbound (port 10800, localhost, password auth)
+     - Xray HTTP inbound (port 18118, localhost, password auth)
+     - HAProxy ports listening (1080, 8118)
+     - Certificate files for TLS termination (combined.pem)
+   - DEV_MODE: Partial (config validation only)
+
+3. **Test 03: Reverse Proxy Subdomain Access** (`test_03_reverse_proxy_subdomain.sh`)
+   - Duration: 1 hour
+   - Checks: 8 validation points
+   - Coverage:
+     - Reverse proxy database schema (v2.0)
+     - Port range 9443-9452 (NOT 8443-8452)
+     - HAProxy dynamic ACL section
+     - HAProxy route management functions
+     - Nginx config generator (port 9443-9452)
+     - CLI tools integration (vless-setup-proxy, vless-proxy)
+     - Subdomain access format (https://domain, NO port)
+     - Certificate requirement and DNS validation
+   - DEV_MODE: Full (code validation, no runtime)
+
+**Production-Only Tests (TODO):**
+
+4. **Test 04: Certificate Acquisition & Renewal** (`test_04_certificate_management.sh`)
+   - Duration: 1 hour
+   - Requirements: Production environment with valid DNS
+   - Coverage: DNS validation, certbot workflow, combined.pem creation, HAProxy graceful reload, auto-renewal cron
+
+5. **Test 05: Multi-Domain Concurrent Access** (`test_05_multi_domain_concurrent.sh`)
+   - Duration: 1 hour
+   - Requirements: Production environment + configured domains
+   - Coverage: VLESS, SOCKS5, HTTP, 2 reverse proxy subdomains (simultaneous access)
+
+6. **Test 06: Migration from v4.0/v4.1** (`test_06_migration_compatibility.sh`)
+   - Duration: 1 hour
+   - Requirements: v4.0/v4.1 installation
+   - Coverage: stunnel detection, HAProxy migration, data preservation, backward compatibility
+
+**Usage:**
+
 ```bash
-# Verify TLS on SOCKS5 port
+# Quick validation (Dev Mode)
+cd tests/integration/v4.3
+chmod +x *.sh
+DEV_MODE=true ./run_all_tests.sh
+
+# Individual test
+./test_01_vless_reality_haproxy.sh
+
+# Production testing (requires /opt/vless/ installation)
+sudo ./run_all_tests.sh
+```
+
+**Test Results Format:**
+```
+Test Summary:
+  Passed:  X
+  Failed:  Y
+  Skipped: Z
+
+Success Rate: XX%
+```
+
+**Related Documentation:** [v4.3 Test Suite README](../../../tests/integration/v4.3/README.md)
+
+---
+
+### 7.1 TLS Integration Tests (v4.3 HAProxy)
+
+**Test Case 1: TLS Handshake - SOCKS5 (HAProxy Termination)**
+```bash
+# Verify TLS on SOCKS5 port (HAProxy frontend)
 openssl s_client -connect server:1080 -showcerts
 
 # Expected Output:
@@ -18,11 +112,12 @@ openssl s_client -connect server:1080 -showcerts
 # - Issuer: Let's Encrypt
 # - Subject: CN=vpn.example.com
 # - Verify return code: 0 (ok)
+# - Protocol: TLSv1.3
 ```
 
-**Test Case 2: TLS Handshake - HTTP/HTTPS**
+**Test Case 2: TLS Handshake - HTTP/HTTPS (HAProxy Termination)**
 ```bash
-# Verify HTTPS on HTTP proxy port
+# Verify HTTPS on HTTP proxy port (HAProxy frontend)
 curl -I --proxy https://user:pass@server:8118 https://google.com
 
 # Expected Output:
@@ -30,15 +125,19 @@ curl -I --proxy https://user:pass@server:8118 https://google.com
 # (no SSL warnings)
 ```
 
-**Test Case 3: Certificate Validation**
+**Test Case 3: Certificate Validation (combined.pem format)**
 ```bash
-# Check certificate validity
-openssl x509 -in /etc/letsencrypt/live/${DOMAIN}/cert.pem -noout -text
+# Check combined.pem format for HAProxy
+openssl x509 -in /opt/vless/certs/combined.pem -noout -text
 
 # Expected:
 # - Issuer: Let's Encrypt
 # - Validity: 90 days from issuance
 # - Subject Alt Name: DNS:vpn.example.com
+
+# Verify private key included
+grep -q "BEGIN PRIVATE KEY" /opt/vless/certs/combined.pem
+echo $?  # Expected: 0 (found)
 ```
 
 **Test Case 4: Auto-Renewal Dry-Run**
@@ -50,15 +149,16 @@ sudo certbot renew --dry-run
 # Congratulations, all simulated renewals succeeded
 ```
 
-**Test Case 5: Deploy Hook Execution**
+**Test Case 5: Deploy Hook Execution (HAProxy Reload)**
 ```bash
 # Manually trigger deploy hook
 sudo /usr/local/bin/vless-cert-renew
 
 # Expected:
-# - Xray restarts successfully
+# - combined.pem regenerated
+# - HAProxy gracefully reloads (haproxy -sf <old_pid>)
 # - Downtime < 5 seconds
-# - docker logs shows restart
+# - docker logs shows reload
 ```
 
 ---
@@ -83,7 +183,8 @@ sudo /usr/local/bin/vless-cert-renew
 **Expected:**
 - ✅ Extension installs successfully
 - ✅ No SSL certificate warnings
-- ✅ Xray logs show HTTPS connection
+- ✅ HAProxy logs show HTTPS connection (frontend http-tls)
+- ✅ Xray logs show plaintext HTTP inbound traffic
 
 **Test Case 7: Git Clone via SOCKS5s Proxy**
 ```bash
@@ -96,12 +197,13 @@ git clone https://github.com/torvalds/linux.git
 # Expected:
 # - Clone succeeds
 # - No TLS errors
-# - Xray logs show SOCKS5 connection
+# - HAProxy logs show SOCKS5 connection (frontend socks5-tls)
+# - Xray logs show plaintext SOCKS5 inbound traffic
 ```
 
 ---
 
-### 7.3 Security Tests (v3.3)
+### 7.3 Security Tests (v4.3 HAProxy)
 
 **Test Case 8: Wireshark Traffic Capture**
 ```bash
@@ -112,37 +214,47 @@ sudo tcpdump -i any -w /tmp/proxy_traffic.pcap port 1080
 wireshark /tmp/proxy_traffic.pcap
 
 # Expected:
-# - TLS 1.3 handshake visible
+# - TLS 1.3 handshake visible (HAProxy termination)
 # - Application Data encrypted
 # - NO plaintext SOCKS5/HTTP
 # - NO plaintext credentials
 ```
 
-**Test Case 9: Nmap Service Detection**
+**Test Case 9: Nmap Service Detection (HAProxy)**
 ```bash
-# Scan proxy ports
-nmap -sV -p 1080,8118 server
+# Scan HAProxy ports
+nmap -sV -p 443,1080,8118 server
 
 # Expected Output:
 # PORT     STATE SERVICE  VERSION
+# 443/tcp  open  ssl/unknown  (SNI routing)
 # 1080/tcp open  ssl/socks
 # 8118/tcp open  ssl/http
 ```
 
-**Test Case 10: Config Validation - No Plain Proxy**
+**Test Case 10: Config Validation - HAProxy TLS**
 ```bash
-# Ensure no plain proxy on public interface
-jq '.inbounds[] | select(.listen=="0.0.0.0") | {tag, security: .streamSettings.security}' /opt/vless/config/xray_config.json
+# Verify HAProxy TLS configuration
+docker exec vless_haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend socks5-tls"
 
 # Expected:
-# {"tag": "socks5-tls", "security": "tls"}
-# {"tag": "http-tls", "security": "tls"}
-# (NO entries with "security": null or missing)
+# frontend socks5-tls
+#     bind *:1080 ssl crt /opt/vless/certs/combined.pem
+#     mode tcp
+#     default_backend xray_socks5
+
+docker exec vless_haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend http-tls"
+
+# Expected:
+# frontend http-tls
+#     bind *:8118 ssl crt /opt/vless/certs/combined.pem
+#     mode tcp
+#     default_backend xray_http
 ```
 
 ---
 
-### 7.4 Backward Compatibility Tests (v3.2 → v3.3)
+### 7.4 Backward Compatibility Tests (v3.2 → v3.3+ → v4.3)
 
 **Test Case 11: Old Configs Must Fail**
 ```bash
@@ -154,65 +266,68 @@ curl --socks5 alice:PASSWORD@server:1080 https://ifconfig.me
 # - Error: "TLS handshake required"
 ```
 
-**Test Case 12: New Configs Must Work**
+**Test Case 12: New Configs Must Work (HAProxy TLS)**
 ```bash
-# Connect with new v3.3 TLS config
+# Connect with new v4.3 TLS config
 curl --socks5 alice:PASSWORD@server:1080 --proxy-insecure https://ifconfig.me
 # (Note: --proxy-insecure needed if testing with self-signed, NOT needed with Let's Encrypt)
 
 # Expected:
 # - Connection succeeds
 # - Returns external IP
+# - HAProxy terminates TLS
+# - Xray receives plaintext SOCKS5
 ```
 
 ---
 
-### 7.5 Reverse Proxy Tests (v4.2 - NEW)
+### 7.5 Reverse Proxy Tests (v4.3 - Subdomain-Based, HAProxy SNI Routing)
 
 #### 7.5.1 Authentication Testing (HTTP Basic Auth)
 
-**Test Case 13: Valid Credentials**
+**Test Case 13: Valid Credentials (Subdomain Access)**
 ```bash
-# Test successful authentication
-curl -u user:password https://myproxy.example.com:8443
+# Test successful authentication (NO PORT NUMBER)
+curl -u user:password https://myproxy.example.com
 
 # Expected:
 # - HTTP 200 OK
 # - Content from target site (blocked-site.com)
 # - No authentication errors
+# - HAProxy SNI routing to Nginx:9443
 ```
 
 **Test Case 14: Invalid Credentials**
 ```bash
 # Test authentication rejection
-curl -u user:wrongpass https://myproxy.example.com:8443
+curl -u user:wrongpass https://myproxy.example.com
 
 # Expected:
 # - HTTP 401 Unauthorized
 # - WWW-Authenticate: Basic realm="Reverse Proxy"
-# - fail2ban logs show auth failure
+# - fail2ban logs show auth failure (nginx filter)
 ```
 
 **Test Case 15: No Credentials**
 ```bash
 # Test missing authentication
-curl https://myproxy.example.com:8443
+curl https://myproxy.example.com
 
 # Expected:
 # - HTTP 401 Unauthorized
 # - Prompt for credentials
 ```
 
-**Test Case 16: Brute Force Protection (fail2ban)**
+**Test Case 16: Brute Force Protection (fail2ban with HAProxy + Nginx)**
 ```bash
 # Simulate 5 failed attempts
 for i in {1..5}; do
-  curl -u user:wrongpass https://myproxy.example.com:8443
+  curl -u user:wrongpass https://myproxy.example.com
   sleep 1
 done
 
-# Check fail2ban status
-sudo fail2ban-client status vless-reverse-proxy-8443
+# Check fail2ban status (Nginx filter)
+sudo fail2ban-client status vless-nginx-reverseproxy
 
 # Expected:
 # - IP banned after 5 failures
@@ -223,20 +338,21 @@ sudo fail2ban-client status vless-reverse-proxy-8443
 
 ---
 
-#### 7.5.2 TLS Configuration Testing
+#### 7.5.2 TLS Configuration Testing (HAProxy SNI Routing)
 
-**Test Case 17: TLS 1.3 Enforcement**
+**Test Case 17: TLS 1.3 Enforcement (Nginx Backend)**
 ```bash
-# Verify TLS 1.3 required
-openssl s_client -connect myproxy.example.com:8443 -tls1_3
+# Verify TLS 1.3 required (Nginx backend)
+openssl s_client -connect myproxy.example.com:443 -servername myproxy.example.com -tls1_3
 
 # Expected:
+# - HAProxy SNI routing to Nginx:9443
 # - TLS 1.3 handshake succeeds
 # - Protocol: TLSv1.3
 # - Cipher: TLS_AES_256_GCM_SHA384 or TLS_CHACHA20_POLY1305_SHA256
 
 # Test TLS 1.2 rejection
-openssl s_client -connect myproxy.example.com:8443 -tls1_2
+openssl s_client -connect myproxy.example.com:443 -servername myproxy.example.com -tls1_2
 
 # Expected:
 # - Handshake FAILS
@@ -246,7 +362,7 @@ openssl s_client -connect myproxy.example.com:8443 -tls1_2
 **Test Case 18: HSTS Header Validation (VULN-002 Mitigation)**
 ```bash
 # Check HSTS header present
-curl -I -u user:password https://myproxy.example.com:8443
+curl -I -u user:password https://myproxy.example.com
 
 # Expected Headers:
 # Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
@@ -254,12 +370,12 @@ curl -I -u user:password https://myproxy.example.com:8443
 
 # Verify HSTS enforcement
 # 1. First request with HTTPS
-curl -v -u user:pass https://myproxy.example.com:8443 2>&1 | grep -i "strict-transport"
+curl -v -u user:pass https://myproxy.example.com 2>&1 | grep -i "strict-transport"
 
 # 2. Browser should auto-upgrade HTTP to HTTPS after first visit
 ```
 
-**Test Case 19: Certificate Validation**
+**Test Case 19: Certificate Validation (Let's Encrypt)**
 ```bash
 # Verify Let's Encrypt certificate
 openssl x509 -in /etc/letsencrypt/live/myproxy.example.com/cert.pem -noout -text
@@ -278,17 +394,18 @@ openssl x509 -in /etc/letsencrypt/live/myproxy.example.com/cert.pem -noout -text
 **Test Case 20: Valid Host Header**
 ```bash
 # Test with correct Host header
-curl -H "Host: myproxy.example.com" -u user:pass https://myproxy.example.com:8443
+curl -H "Host: myproxy.example.com" -u user:pass https://myproxy.example.com
 
 # Expected:
 # - HTTP 200 OK
 # - Content from target site
+# - HAProxy SNI routing successful
 ```
 
 **Test Case 21: Invalid Host Header (Attack Simulation)**
 ```bash
 # Test Host Header Injection attempt
-curl -H "Host: evil.com" -u user:pass https://myproxy.example.com:8443
+curl -H "Host: evil.com" -u user:pass https://myproxy.example.com
 
 # Expected:
 # - Connection CLOSED (HTTP 444)
@@ -296,7 +413,7 @@ curl -H "Host: evil.com" -u user:pass https://myproxy.example.com:8443
 # - nginx error log: "Host header mismatch"
 
 # Test with IP instead of domain
-curl -H "Host: 1.2.3.4" -u user:pass https://1.2.3.4:8443
+curl -H "Host: 1.2.3.4" -u user:pass https://1.2.3.4:443
 
 # Expected:
 # - Connection CLOSED (HTTP 444)
@@ -305,7 +422,7 @@ curl -H "Host: 1.2.3.4" -u user:pass https://1.2.3.4:8443
 **Test Case 22: Host Header Validation in Nginx Config**
 ```bash
 # Verify config has VULN-001 fix
-grep -A 2 'if ($host !=' /opt/vless/config/reverse-proxy/myproxy.example.com_8443.conf
+grep -A 2 'if ($host !=' /opt/vless/config/reverse-proxy/myproxy.example.com.conf
 
 # Expected Output:
 # if ($host != "myproxy.example.com") {
@@ -321,7 +438,7 @@ grep -A 2 'if ($host !=' /opt/vless/config/reverse-proxy/myproxy.example.com_844
 ```bash
 # Test 10 requests (below 20/second burst limit)
 for i in {1..10}; do
-  curl -s -u user:pass https://myproxy.example.com:8443 > /dev/null
+  curl -s -u user:pass https://myproxy.example.com > /dev/null
 done
 
 # Expected:
@@ -333,7 +450,7 @@ done
 ```bash
 # Test 50 rapid requests (exceeds 20/second burst limit)
 for i in {1..50}; do
-  curl -s -u user:pass https://myproxy.example.com:8443 > /dev/null &
+  curl -s -u user:pass https://myproxy.example.com > /dev/null &
 done
 wait
 
@@ -346,7 +463,7 @@ wait
 ```bash
 # Test 10 concurrent connections (exceeds 5 connection limit)
 for i in {1..10}; do
-  curl -u user:pass https://myproxy.example.com:8443 &
+  curl -u user:pass https://myproxy.example.com &
 done
 wait
 
@@ -373,14 +490,14 @@ cat /opt/vless/config/reverse-proxy-http-context.conf
 **Test Case 27: Target Site Accessibility**
 ```bash
 # Test that target site is reachable
-curl -u user:pass https://myproxy.example.com:8443
+curl -u user:pass https://myproxy.example.com
 
 # Expected:
 # - Content from blocked-site.com
 # - Response headers from target site
 
 # Verify Host header forwarded correctly
-curl -v -u user:pass https://myproxy.example.com:8443 2>&1 | grep -i "host:"
+curl -v -u user:pass https://myproxy.example.com 2>&1 | grep -i "host:"
 
 # Expected in nginx logs:
 # proxy_set_header Host blocked-site.com (hardcoded, NOT $host)
@@ -392,7 +509,7 @@ curl -v -u user:pass https://myproxy.example.com:8443 2>&1 | grep -i "host:"
 # NOTE: Reverse proxy is site-specific, no arbitrary browsing allowed
 
 # Verify Xray config only routes to target site
-docker exec vless_xray cat /etc/xray/config.json | jq '.inbounds[] | select(.port==10080)'
+docker exec vless_xray cat /etc/xray/config.json | jq '.inbounds[] | select(.port==10800)'
 
 # Expected:
 # - Xray inbound configured for specific domain only
@@ -400,20 +517,21 @@ docker exec vless_xray cat /etc/xray/config.json | jq '.inbounds[] | select(.por
 # - Connection to non-target sites should fail or timeout
 ```
 
-**Test Case 29: Multiple Domain Support**
+**Test Case 29: Multiple Domain Support (Subdomain-Based)**
 ```bash
-# If multiple reverse proxies configured (e.g., domain1:8443, domain2:8444)
+# If multiple reverse proxies configured (e.g., domain1, domain2)
 # Test isolation between domains
 
-# Domain 1
-curl -u user1:pass1 https://domain1.example.com:8443  # Target: site1.com
+# Domain 1 (NO PORT NUMBER)
+curl -u user1:pass1 https://domain1.example.com  # Target: site1.com
 
-# Domain 2
-curl -u user2:pass2 https://domain2.example.com:8444  # Target: site2.com
+# Domain 2 (NO PORT NUMBER)
+curl -u user2:pass2 https://domain2.example.com  # Target: site2.com
 
 # Expected:
 # - Each domain serves ONLY its target site
 # - No cross-domain access
+# - HAProxy SNI routing to Nginx:9443 and Nginx:9444
 # - Each uses separate Xray inbound (10080, 10081)
 ```
 
@@ -440,7 +558,7 @@ grep -r "access_log" /opt/vless/config/reverse-proxy/*.conf
 **Test Case 31: Error Log Contains Auth Failures Only**
 ```bash
 # Check error log after failed auth attempt
-curl -u user:wrongpass https://myproxy.example.com:8443
+curl -u user:wrongpass https://myproxy.example.com
 cat /opt/vless/logs/nginx/reverse-proxy-error.log | tail -5
 
 # Expected Log Entries:
@@ -458,13 +576,13 @@ cat /opt/vless/logs/nginx/reverse-proxy-error.log | tail -5
 **Test Case 32: Nginx Health Check**
 ```bash
 # Check container health status
-docker ps --format "{{.Names}}: {{.Status}}" | grep vless_nginx_reverseproxy
+docker ps --format "{{.Names}}: {{.Status}}" | grep vless_reverse_proxy_nginx
 
 # Expected:
-# vless_nginx_reverseproxy: Up X minutes (healthy)
+# vless_reverse_proxy_nginx: Up X minutes (healthy)
 
 # Manually trigger health check
-docker exec vless_nginx_reverseproxy nginx -t
+docker exec vless_reverse_proxy_nginx nginx -t
 
 # Expected:
 # nginx: configuration file /etc/nginx/nginx.conf test is successful
@@ -473,13 +591,13 @@ docker exec vless_nginx_reverseproxy nginx -t
 **Test Case 33: Container Auto-Recovery**
 ```bash
 # Simulate nginx crash
-docker exec vless_nginx_reverseproxy killall nginx
+docker exec vless_reverse_proxy_nginx killall nginx
 
 # Wait 10 seconds
 sleep 10
 
 # Check status
-docker ps | grep vless_nginx_reverseproxy
+docker ps | grep vless_reverse_proxy_nginx
 
 # Expected:
 # - Container auto-restarted (Docker restart policy)
@@ -489,29 +607,36 @@ docker ps | grep vless_nginx_reverseproxy
 
 ---
 
-#### 7.5.8 Port Allocation and Management Tests
+#### 7.5.8 Port Allocation and Management Tests (v4.3)
 
-**Test Case 34: Dynamic Port Addition**
+**Test Case 34: Dynamic Port Addition (Subdomain-Based)**
 ```bash
-# Add new reverse proxy (port 8444)
+# Add new reverse proxy (subdomain-based, NO port in URL)
 sudo vless-setup-proxy
 
 # Follow prompts:
 # - Domain: proxy2.example.com
 # - Target: site2.com
-# - Port: 8444 (auto-suggested)
+# - Port: 9444 (auto-suggested, localhost-only)
 
-# Verify port added to docker-compose.yml
-grep -A 5 "nginx:" /opt/vless/docker-compose.yml | grep "8444"
-
-# Expected:
-# - "8444:8444"
-
-# Verify nginx config created
-ls /opt/vless/config/reverse-proxy/proxy2.example.com_8444.conf
+# Verify HAProxy ACL added
+grep "is_proxy2" /opt/vless/config/haproxy.cfg
 
 # Expected:
-# - Config file exists with correct port and domain
+# - acl is_proxy2 req.ssl_sni -i proxy2.example.com
+# - use_backend nginx_proxy2 if is_proxy2
+
+# Verify nginx config created (localhost binding)
+cat /opt/vless/config/reverse-proxy/proxy2.example.com.conf | grep "listen"
+
+# Expected:
+# - listen 9444 ssl http2;  # (NOT 8444, port range changed in v4.3)
+
+# Access without port number
+curl -u user:pass https://proxy2.example.com
+
+# Expected:
+# - Works via HAProxy SNI routing (port 443 → Nginx:9444)
 ```
 
 **Test Case 35: Port Conflict Detection**
@@ -523,7 +648,7 @@ sudo vless-setup-proxy
 # Expected:
 # - Error: "Port 443 already in use by VLESS service"
 # - Prompt for alternative port
-# - Port allocation suggestions (8443-8452)
+# - Port allocation suggestions (9443-9452, changed from 8443-8452)
 ```
 
 **Test Case 36: Maximum Domain Limit**
@@ -541,40 +666,44 @@ sudo vless-setup-proxy
 
 ---
 
-#### 7.5.9 Integration Tests
+#### 7.5.9 Integration Tests (v4.3 HAProxy)
 
-**Test Case 37: End-to-End Reverse Proxy Setup**
+**Test Case 37: End-to-End Reverse Proxy Setup (Subdomain-Based)**
 ```bash
 # Full workflow test
 1. sudo vless-setup-proxy
    - Domain: test.example.com
    - Target: github.com
-   - Port: 9443 (custom)
+   - Port: 9443 (custom, localhost-only)
 
 2. Wait for Let's Encrypt certificate (up to 60 seconds)
 
-3. Test access
-   curl -u $(jq -r '.reverse_proxies[0].username' /opt/vless/config/reverse_proxies.json):PASSWORD https://test.example.com:9443
+3. Test subdomain access (NO port number)
+   curl -u $(jq -r '.reverse_proxies[0].username' /opt/vless/config/reverse_proxies.json):PASSWORD https://test.example.com
 
 # Expected:
 # - DNS validated (dig test.example.com)
 # - Certificate acquired (/etc/letsencrypt/live/test.example.com/)
-# - Nginx config generated
+# - HAProxy ACL added (req.ssl_sni -i test.example.com)
+# - HAProxy backend added (nginx_test, port 9443)
+# - Nginx config generated (listen 9443 ssl)
 # - Xray inbound created (port 10080)
-# - Docker Compose updated (port 9443 exposed)
-# - nginx container reloaded
+# - HAProxy gracefully reloaded (haproxy -sf)
 # - HTTP 200 from github.com
+# - Access via https://test.example.com (NO :9443 port!)
 ```
 
-**Test Case 38: Reverse Proxy Removal**
+**Test Case 38: Reverse Proxy Removal (v4.3)**
 ```bash
 # Remove reverse proxy
 sudo vless-proxy remove test.example.com
 
 # Expected:
+# - HAProxy ACL removed
+# - HAProxy backend removed
+# - HAProxy gracefully reloaded
 # - Nginx config deleted
 # - Xray inbound removed
-# - Docker Compose port removed
 # - fail2ban jail removed
 # - reverse_proxies.json updated
 # - Certificate retained (for manual renewal if re-enabled)
@@ -584,24 +713,24 @@ sudo vless-proxy remove test.example.com
 
 #### 7.5.10 Penetration Testing (Security Validation)
 
-**Test Case 39: Nmap Service Detection**
+**Test Case 39: Nmap Service Detection (HAProxy SNI Routing)**
 ```bash
-# Scan reverse proxy port
-nmap -sV -p 8443 myproxy.example.com
+# Scan HAProxy port 443 (SNI routing)
+nmap -sV -p 443 myproxy.example.com
 
 # Expected Output:
 # PORT     STATE SERVICE  VERSION
-# 8443/tcp open  ssl/http nginx
+# 443/tcp  open  ssl/unknown  (SNI routing, HAProxy)
 
 # Should NOT reveal:
 # - "reverse proxy" in service name
-# - Backend Xray details
+# - Backend Nginx/Xray details
 ```
 
 **Test Case 40: SSL/TLS Vulnerability Scan (testssl.sh)**
 ```bash
-# Run comprehensive TLS test
-testssl.sh https://myproxy.example.com:8443
+# Run comprehensive TLS test on subdomain
+testssl.sh https://myproxy.example.com
 
 # Expected:
 # - TLS 1.3: YES
@@ -611,12 +740,13 @@ testssl.sh https://myproxy.example.com:8443
 # - Forward Secrecy: YES
 # - Cipher suites: STRONG (AES-256-GCM, ChaCha20-Poly1305)
 # - Certificate: Let's Encrypt, valid, no warnings
+# - HAProxy SNI routing transparent to scanner
 ```
 
 **Test Case 41: Web Vulnerability Scan (nikto)**
 ```bash
 # Scan for common web vulnerabilities
-nikto -h https://myproxy.example.com:8443 -ssl
+nikto -h https://myproxy.example.com -ssl
 
 # Expected:
 # - No critical vulnerabilities
@@ -629,7 +759,7 @@ nikto -h https://myproxy.example.com:8443 -ssl
 **Test Case 42: Security Headers Validation**
 ```bash
 # Check security headers
-curl -I -u user:pass https://myproxy.example.com:8443
+curl -I -u user:pass https://myproxy.example.com
 
 # Expected Headers:
 # Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
@@ -645,23 +775,24 @@ curl -I -u user:pass https://myproxy.example.com:8443
 
 #### 7.5.11 Performance and Load Tests
 
-**Test Case 43: Latency Overhead Measurement**
+**Test Case 43: Latency Overhead Measurement (HAProxy SNI Routing)**
 ```bash
 # Baseline: Direct access to target site
 time curl -s https://blocked-site.com > /dev/null
 
-# With Reverse Proxy
-time curl -s -u user:pass https://myproxy.example.com:8443 > /dev/null
+# With Reverse Proxy (HAProxy SNI routing)
+time curl -s -u user:pass https://myproxy.example.com > /dev/null
 
 # Expected:
 # - Latency overhead < 50ms (NFR-RPROXY-001)
 # - Compare both times
+# - HAProxy SNI routing adds minimal overhead
 ```
 
 **Test Case 44: Throughput Test**
 ```bash
 # Download large file through reverse proxy
-curl -u user:pass https://myproxy.example.com:8443/large-file.zip -o /dev/null
+curl -u user:pass https://myproxy.example.com/large-file.zip -o /dev/null
 
 # Monitor throughput
 # Expected:
@@ -672,18 +803,19 @@ curl -u user:pass https://myproxy.example.com:8443/large-file.zip -o /dev/null
 **Test Case 45: Concurrent Connections Test**
 ```bash
 # Simulate 100 concurrent users
-ab -n 1000 -c 100 -A user:pass https://myproxy.example.com:8443/
+ab -n 1000 -c 100 -A user:pass https://myproxy.example.com/
 
 # Expected:
 # - 95% requests succeed (< 5% rate limited)
 # - Average response time < 500ms
 # - No container crashes
 # - Memory usage stable
+# - HAProxy handles concurrent SNI routing
 ```
 
 ---
 
-#### 7.5.12 Certificate Renewal Tests
+#### 7.5.12 Certificate Renewal Tests (v4.3 HAProxy)
 
 **Test Case 46: Auto-Renewal Dry-Run (Reverse Proxy Certificates)**
 ```bash
@@ -693,7 +825,9 @@ sudo certbot renew --cert-name myproxy.example.com --dry-run
 # Expected:
 # - Simulated renewal succeeds
 # - Deploy hook triggered (/usr/local/bin/vless-cert-renew)
-# - nginx container reloaded
+# - combined.pem regenerated (fullchain + privkey)
+# - HAProxy gracefully reloaded (haproxy -sf <old_pid>)
+# - Downtime < 5 seconds
 ```
 
 **Test Case 47: Certificate Expiry Monitoring**
@@ -707,6 +841,67 @@ done
 # - All certificates valid for > 30 days
 # - Expiry dates logged
 # - Alert mechanism configured (certbot email notifications)
+```
+
+---
+
+#### 7.5.13 HAProxy-Specific Tests (NEW v4.3)
+
+**Test Case 48: HAProxy Stats Page**
+```bash
+# Access HAProxy stats page (localhost-only)
+curl http://localhost:9000/stats
+
+# Expected:
+# - HTML stats page returned
+# - Shows all frontends (vless-reality, socks5-tls, http-tls)
+# - Shows all backends (xray_reality, xray_socks5, xray_http, nginx_*)
+# - Session counts, error rates, health status
+```
+
+**Test Case 49: HAProxy Graceful Reload (Zero Downtime)**
+```bash
+# Add new reverse proxy (triggers reload)
+sudo vless-proxy add
+
+# Monitor active connections during reload
+watch -n 1 'docker exec vless_haproxy netstat -an | grep ESTABLISHED | wc -l'
+
+# Expected:
+# - Established connections maintained during reload
+# - New connections handled immediately after reload
+# - No connection drops
+# - Downtime < 1 second
+```
+
+**Test Case 50: HAProxy SNI Routing Validation**
+```bash
+# Test SNI routing for multiple domains
+curl -v --resolve domain1.example.com:443:SERVER_IP https://domain1.example.com 2>&1 | grep "SNI"
+curl -v --resolve domain2.example.com:443:SERVER_IP https://domain2.example.com 2>&1 | grep "SNI"
+
+# Expected:
+# - SNI header sent correctly
+# - HAProxy routes based on SNI
+# - domain1 → Nginx:9443
+# - domain2 → Nginx:9444
+```
+
+**Test Case 51: fail2ban HAProxy Filter**
+```bash
+# Trigger auth failures on SOCKS5 proxy (HAProxy frontend)
+for i in {1..5}; do
+  curl --socks5 user:wrongpass@server:1080 https://google.com 2>&1 | grep -i "auth"
+  sleep 1
+done
+
+# Check fail2ban HAProxy jail
+sudo fail2ban-client status vless-haproxy
+
+# Expected:
+# - IP banned after 5 failures
+# - HAProxy logs parsed by fail2ban filter
+# - UFW rule added to block IP
 ```
 
 ---
