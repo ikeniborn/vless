@@ -211,42 +211,53 @@ Port 443 (HAProxy, 3 frontends):
 
 ### Фаза 7: Testing & Validation (4-5 часов)
 **Приоритет:** CRITICAL
-**Статус:** ⏳ ОЖИДАНИЕ
+**Статус:** 🔄 ЧАСТИЧНО ЗАВЕРШЕНО (automated tests ready)
 
-- [ ] **Test Case 1:** VLESS Reality через HAProxy (30 мин)
-  - [ ] Configure client: vless://...@vless.domain.ru:443
-  - [ ] Verify HAProxy routes to Xray:8443
-  - [ ] Verify Reality handshake
+- [x] **Test Case 1:** VLESS Reality через HAProxy (30 мин) ✅ AUTOMATED
+  - [x] Test script: `tests/integration/v4.3/test_01_vless_reality_haproxy.sh` ✅
+  - [x] 8 checks: Container, Port 443, Frontend config, Backend config, Xray port, VLESS inbound, Network, Stats ✅
+  - [x] DEV_MODE support (config validation) ✅
+  - [ ] Production run (requires VLESS installation)
   - [ ] **Expected:** VPN tunnel работает
 
-- [ ] **Test Case 2:** SOCKS5/HTTP Proxy через HAProxy (30 мин)
-  - [ ] Test SOCKS5: curl --proxy socks5s://...
-  - [ ] Test HTTP: curl --proxy https://...
-  - [ ] Verify HAProxy logs
+- [x] **Test Case 2:** SOCKS5/HTTP Proxy через HAProxy (30 мин) ✅ AUTOMATED
+  - [x] Test script: `tests/integration/v4.3/test_02_proxy_haproxy.sh` ✅
+  - [x] 8 checks: SOCKS5/HTTP frontends, Backends, Xray inbounds, Ports, Certificates, Functional ✅
+  - [x] DEV_MODE support ✅
+  - [ ] Production run
   - [ ] **Expected:** Proxies работают
 
-- [ ] **Test Case 3:** Reverse Proxy без порта (1 час)
-  - [ ] Setup: vless-setup-proxy
-  - [ ] Access: https://claude.ikeniborn.ru (no port!)
-  - [ ] Verify certificate, auth, backend
+- [x] **Test Case 3:** Reverse Proxy без порта (1 час) ✅ AUTOMATED
+  - [x] Test script: `tests/integration/v4.3/test_03_reverse_proxy_subdomain.sh` ✅
+  - [x] 8 checks: DB schema, Port range, HAProxy ACL, Route functions, Nginx generator, CLI, Subdomain format, DNS ✅
+  - [x] DEV_MODE support ✅
+  - [ ] Production run
   - [ ] **Expected:** Access работает
 
-- [ ] **Test Case 4:** Certificate Acquisition & Renewal (1 час)
-  - [ ] Acquire certificate
-  - [ ] Verify combined.pem
+- [ ] **Test Case 4:** Certificate Acquisition & Renewal (1 час) ⏳ REQUIRES PRODUCTION
+  - [ ] Acquire certificate for test domain
+  - [ ] Verify combined.pem created correctly
   - [ ] Test renewal dry-run
+  - [ ] Test HAProxy graceful reload
   - [ ] **Expected:** Certificates работают
+  - [ ] **Note:** Requires production environment + valid domain
 
-- [ ] **Test Case 5:** Multi-Domain Concurrent Access (1 час)
-  - [ ] VLESS + 2 reverse proxies + SOCKS5 proxy
-  - [ ] All simultaneously
-  - [ ] **Expected:** No conflicts
+- [ ] **Test Case 5:** Multi-Domain Concurrent Access (1 час) ⏳ REQUIRES PRODUCTION
+  - [ ] VLESS Reality connection
+  - [ ] SOCKS5 proxy connection
+  - [ ] HTTP proxy connection
+  - [ ] 2 reverse proxy subdomains
+  - [ ] All simultaneously, no conflicts
+  - [ ] **Expected:** All services work concurrently
+  - [ ] **Note:** Requires production environment + configured domains
 
-- [ ] **Test Case 6:** Migration from v4.0/v4.1 (1 час)
+- [ ] **Test Case 6:** Migration from v4.0/v4.1 (1 час) ⏳ REQUIRES v4.0/v4.1
   - [ ] Pre-migration: stunnel exists
-  - [ ] Run migration
+  - [ ] Run migration script
   - [ ] Post-migration: stunnel removed, HAProxy works
+  - [ ] User data preserved
   - [ ] **Expected:** Backward compatible
+  - [ ] **Note:** Requires v4.0/v4.1 installation
 
 ---
 
@@ -284,12 +295,13 @@ Port 443 (HAProxy, 3 frontends):
 | 4. Certificate Management | 3 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 5. Обновление CLI | 3 | 2-3 ч | MEDIUM | ✅ ЗАВЕРШЕНО |
 | 6. fail2ban Integration | 2 | 1-2 ч | MEDIUM | ✅ ЗАВЕРШЕНО |
-| 7. Testing & Validation | 6 | 4-5 ч | CRITICAL | ⏳ ОЖИДАНИЕ |
+| 7. Testing & Validation | 6 | 4-5 ч | CRITICAL | 🔄 ЧАСТИЧНО (3/6 автоматизированы) |
 | 8. Документация | 3 | 2-3 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
-| **ИТОГО** | **27** | **19-27 ч** | — | **6/8 фаз ✅** |
+| **ИТОГО** | **27** | **19-27 ч** | — | **6/8 фаз ✅, 1 частично** |
 
 **Реалистичная оценка:** 23 часа
-**Прогресс:** 16/27 задач завершено (~70% от общего времени: 16 часов из 23)
+**Прогресс:** 19/27 задач завершено (~75% от общего времени: 17 часов из 23)
+**Автоматизированное тестирование:** 3/6 test cases готовы (Tests 1-3), 3/6 требуют production (Tests 4-6)
 
 ---
 
