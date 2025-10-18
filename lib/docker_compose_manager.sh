@@ -1,7 +1,7 @@
 #!/bin/bash
 # lib/docker_compose_manager.sh
 #
-# Docker Compose Configuration Manager (VLESS v4.2)
+# Docker Compose Configuration Manager (VLESS v4.3)
 # Dynamic port management for nginx reverse proxy container
 #
 # Features:
@@ -9,10 +9,11 @@
 # - Atomic operations with backups
 # - PRD v4.1 compliant (heredoc-based, no yq dependency)
 # - Container reload after changes
+# - v4.3: Port range 9443-9452 for HAProxy unified architecture
 #
-# Version: 4.2.1 (heredoc migration)
+# Version: 4.3.0
 # Author: VLESS Development Team
-# Date: 2025-10-17
+# Date: 2025-10-18
 
 set -euo pipefail
 
@@ -235,6 +236,54 @@ list_nginx_ports() {
 }
 
 # ============================================================================
+# Function: get_next_available_port
+# Description: Finds next available port in range 9443-9452 for nginx
+#
+# Returns:
+#   Next available port number to stdout
+#   Returns 1 if all ports are occupied
+#
+# Algorithm:
+#   1. Get current nginx ports
+#   2. Check range 9443-9452 sequentially
+#   3. Return first unoccupied port
+#   4. Error if all 10 ports are used
+# ============================================================================
+get_next_available_port() {
+    local current_ports_raw
+    current_ports_raw=$(get_current_nginx_ports)
+
+    # Convert to array for easier checking
+    local current_ports=()
+    if [[ -n "$current_ports_raw" ]]; then
+        while IFS= read -r p; do
+            current_ports+=("$p")
+        done <<< "$current_ports_raw"
+    fi
+
+    # Check ports 9443-9452 sequentially
+    for port in {9443..9452}; do
+        local port_occupied=false
+
+        for used_port in "${current_ports[@]}"; do
+            if [[ "$used_port" == "$port" ]]; then
+                port_occupied=true
+                break
+            fi
+        done
+
+        if [[ "$port_occupied" == "false" ]]; then
+            echo "$port"
+            return 0
+        fi
+    done
+
+    # All ports occupied
+    log_error "All ports in range 9443-9452 are occupied (max 10 reverse proxies)"
+    return 1
+}
+
+# ============================================================================
 # Function: reload_nginx_container
 # Description: Reloads nginx container with docker-compose
 #
@@ -307,6 +356,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "  add-port <port>       - Add port to nginx service"
         echo "  remove-port <port>    - Remove port from nginx service"
         echo "  list-ports            - List all nginx ports"
+        echo "  next-port             - Get next available port (9443-9452)"
         echo "  reload                - Reload nginx container"
         echo "  validate              - Validate docker-compose.yml"
         exit 1
@@ -324,6 +374,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         list-ports)
             list_nginx_ports
+            ;;
+        next-port)
+            get_next_available_port
             ;;
         reload)
             reload_nginx_container
