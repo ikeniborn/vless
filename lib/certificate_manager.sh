@@ -417,8 +417,132 @@ reload_haproxy_after_cert_update() {
     fi
 }
 
+#==============================================================================
+# FUNCTION: acquire_certificate_for_domain
+# PURPOSE: Unified certificate acquisition workflow (v4.3)
+# USAGE: acquire_certificate_for_domain <domain> <email>
+# RETURNS: 0 on success, 1 on failure
+#
+# COMPLETE WORKFLOW:
+#   1. Validate DNS A record points to server
+#   2. Start Certbot Nginx (port 80)
+#   3. Run certbot with ACME HTTP-01 challenge
+#   4. Create HAProxy combined.pem
+#   5. Stop Certbot Nginx
+#   6. Reload HAProxy gracefully
+#
+# DEPENDENCIES:
+#   - certificate_manager.sh (this module)
+#   - certbot_manager.sh (acquire_certificate)
+#==============================================================================
+acquire_certificate_for_domain() {
+    local domain="$1"
+    local email="$2"
+
+    # Validate parameters
+    if [[ -z "$domain" ]]; then
+        echo -e "${RED}ERROR: Domain parameter required${NC}" >&2
+        echo "Usage: acquire_certificate_for_domain <domain> <email>" >&2
+        return 1
+    fi
+
+    if [[ -z "$email" ]]; then
+        echo -e "${RED}ERROR: Email parameter required${NC}" >&2
+        echo "Usage: acquire_certificate_for_domain <domain> <email>" >&2
+        return 1
+    fi
+
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║  Unified Certificate Acquisition (v4.3 HAProxy)             ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Domain: $domain"
+    echo "Email:  $email"
+    echo ""
+
+    # STEP 1: DNS Validation (MANDATORY)
+    echo -e "${CYAN}[STEP 1/6] DNS Validation${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    if ! validate_dns_for_domain "$domain"; then
+        echo ""
+        echo -e "${RED}✗ ABORTED: DNS validation failed${NC}" >&2
+        echo ""
+        echo "Certificate acquisition requires valid DNS configuration."
+        echo "Fix DNS A record and retry."
+        echo ""
+        return 1
+    fi
+
+    # STEP 2-5: Certificate Acquisition (via certbot_manager.sh)
+    echo -e "${CYAN}[STEP 2-5/6] Certificate Acquisition${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Source certbot_manager.sh if not already loaded
+    local certbot_manager_path
+    certbot_manager_path="$(dirname "${BASH_SOURCE[0]}")/certbot_manager.sh"
+
+    if [[ ! -f "$certbot_manager_path" ]]; then
+        echo -e "${RED}ERROR: certbot_manager.sh not found${NC}" >&2
+        echo "Expected: $certbot_manager_path" >&2
+        return 1
+    fi
+
+    if ! command -v acquire_certificate &>/dev/null; then
+        source "$certbot_manager_path"
+    fi
+
+    # Run certbot acquisition workflow
+    if ! acquire_certificate "$domain" "$email"; then
+        echo ""
+        echo -e "${RED}✗ ABORTED: Certificate acquisition failed${NC}" >&2
+        echo ""
+        echo "Check certbot logs: /var/log/letsencrypt/letsencrypt.log"
+        echo ""
+        return 1
+    fi
+
+    # STEP 6: HAProxy Reload
+    echo ""
+    echo -e "${CYAN}[STEP 6/6] HAProxy Reload${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    if ! reload_haproxy_after_cert_update; then
+        echo ""
+        echo -e "${YELLOW}⚠️  WARNING: HAProxy reload failed${NC}"
+        echo ""
+        echo "Certificate acquired successfully, but HAProxy did not reload."
+        echo "Manually reload HAProxy to use the new certificate:"
+        echo "  reload_haproxy_after_cert_update"
+        echo ""
+        return 1
+    fi
+
+    # SUCCESS SUMMARY
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║  ${GREEN}✅ CERTIFICATE ACQUISITION COMPLETED${CYAN}                      ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Domain:         $domain"
+    echo "Email:          $email"
+    echo "Certificate:    /etc/letsencrypt/live/$domain/fullchain.pem"
+    echo "Private Key:    /etc/letsencrypt/live/$domain/privkey.pem"
+    echo "HAProxy Cert:   /etc/letsencrypt/live/$domain/combined.pem"
+    echo "HAProxy Status: Reloaded"
+    echo ""
+    echo -e "${GREEN}Ready to configure reverse proxy or other services using this certificate.${NC}"
+    echo ""
+
+    return 0
+}
+
 # Export functions for use by other modules
 export -f validate_dns_for_domain
+export -f acquire_certificate_for_domain
 export -f create_haproxy_combined_cert
 export -f validate_haproxy_cert
 export -f create_combined_cert_for_all_domains
@@ -434,11 +558,20 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "Usage: $0 <command> [options]"
         echo ""
         echo "Commands:"
-        echo "  validate-dns <domain>         - Validate DNS A record for domain"
-        echo "  create-combined <domain>      - Create HAProxy combined.pem"
-        echo "  validate-cert <combined.pem>  - Validate HAProxy certificate"
-        echo "  create-all                    - Create combined.pem for all domains"
-        echo "  reload-haproxy                - Reload HAProxy gracefully"
+        echo "  validate-dns <domain>              - Validate DNS A record for domain"
+        echo "  acquire <domain> <email>           - Complete certificate acquisition workflow (v4.3)"
+        echo "  create-combined <domain>           - Create HAProxy combined.pem"
+        echo "  validate-cert <combined.pem>       - Validate HAProxy certificate"
+        echo "  create-all                         - Create combined.pem for all domains"
+        echo "  reload-haproxy                     - Reload HAProxy gracefully"
+        echo ""
+        echo "v4.3 Workflow (acquire command):"
+        echo "  1. Validate DNS"
+        echo "  2. Start Certbot Nginx (port 80)"
+        echo "  3. Run certbot (ACME HTTP-01)"
+        echo "  4. Create HAProxy combined.pem"
+        echo "  5. Stop Certbot Nginx"
+        echo "  6. Reload HAProxy"
         exit 1
     fi
 
@@ -448,6 +581,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "$command" in
         validate-dns)
             validate_dns_for_domain "$@"
+            ;;
+        acquire)
+            acquire_certificate_for_domain "$@"
             ;;
         create-combined)
             create_haproxy_combined_cert "$@"
