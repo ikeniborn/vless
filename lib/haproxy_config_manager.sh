@@ -422,6 +422,135 @@ reload_haproxy() {
 }
 
 # =============================================================================
+# Function: check_haproxy_status
+# Description: Checks HAProxy container status and backend health
+#
+# Returns:
+#   Prints status information to stdout
+#   Returns 0 if healthy, 1 if issues detected
+# =============================================================================
+check_haproxy_status() {
+    echo "HAProxy Status (v4.3 Unified Solution)"
+    echo "========================================"
+    echo ""
+
+    # Check if container exists
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${HAPROXY_CONTAINER}$"; then
+        echo "❌ HAProxy container not found"
+        return 1
+    fi
+
+    # Check container status
+    local container_status=$(docker inspect "${HAPROXY_CONTAINER}" -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
+    local container_health=$(docker inspect "${HAPROXY_CONTAINER}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+
+    echo "Container Status:"
+    if [[ "$container_status" == "running" ]]; then
+        echo "  ✓ Running"
+    else
+        echo "  ✗ Status: $container_status"
+        return 1
+    fi
+
+    if [[ "$container_health" != "no-healthcheck" ]]; then
+        if [[ "$container_health" == "healthy" ]]; then
+            echo "  ✓ Health: Healthy"
+        else
+            echo "  ⚠️  Health: $container_health"
+        fi
+    fi
+
+    # Check HAProxy process
+    local haproxy_pid=$(docker exec "${HAPROXY_CONTAINER}" pidof haproxy 2>/dev/null || echo "")
+    if [[ -n "$haproxy_pid" ]]; then
+        echo "  ✓ Process running (PID: $haproxy_pid)"
+    else
+        echo "  ✗ HAProxy process not running"
+        return 1
+    fi
+
+    echo ""
+
+    # Check ports
+    echo "Port Bindings:"
+    if ss -tuln | grep -q ":443 "; then
+        echo "  ✓ Port 443 (HTTPS SNI Router) - LISTENING"
+    else
+        echo "  ✗ Port 443 - NOT LISTENING"
+    fi
+
+    if ss -tuln | grep -q ":1080 "; then
+        echo "  ✓ Port 1080 (SOCKS5 TLS) - LISTENING"
+    else
+        echo "  ℹ️  Port 1080 (SOCKS5 TLS) - Not configured or disabled"
+    fi
+
+    if ss -tuln | grep -q ":8118 "; then
+        echo "  ✓ Port 8118 (HTTP Proxy TLS) - LISTENING"
+    else
+        echo "  ℹ️  Port 8118 (HTTP Proxy TLS) - Not configured or disabled"
+    fi
+
+    if ss -tuln | grep -q "127.0.0.1:9000 "; then
+        echo "  ✓ Port 9000 (Stats Page) - LISTENING (localhost only)"
+    else
+        echo "  ℹ️  Port 9000 (Stats Page) - Not accessible"
+    fi
+
+    echo ""
+
+    # Stats page info
+    echo "Stats Page:"
+    echo "  URL: http://127.0.0.1:9000/stats"
+    echo "  Access: localhost only (use SSH tunnel from remote)"
+    echo "  SSH Tunnel: ssh -L 9000:localhost:9000 user@server"
+
+    echo ""
+
+    # Backend check (basic connectivity test)
+    echo "Backend Connectivity:"
+
+    # Check Xray VLESS backend
+    if nc -z 127.0.0.1 8443 2>/dev/null; then
+        echo "  ✓ Xray VLESS (127.0.0.1:8443) - UP"
+    else
+        echo "  ✗ Xray VLESS (127.0.0.1:8443) - DOWN"
+    fi
+
+    # Check Xray SOCKS5 backend
+    if nc -z 127.0.0.1 10800 2>/dev/null; then
+        echo "  ✓ Xray SOCKS5 (127.0.0.1:10800) - UP"
+    else
+        echo "  ℹ️  Xray SOCKS5 (127.0.0.1:10800) - Not configured or disabled"
+    fi
+
+    # Check Xray HTTP backend
+    if nc -z 127.0.0.1 18118 2>/dev/null; then
+        echo "  ✓ Xray HTTP (127.0.0.1:18118) - UP"
+    else
+        echo "  ℹ️  Xray HTTP (127.0.0.1:18118) - Not configured or disabled"
+    fi
+
+    echo ""
+
+    # Count configured reverse proxy routes
+    local proxy_count=0
+    if [ -f "${HAPROXY_CONFIG}" ]; then
+        proxy_count=$(grep "acl is_" "${HAPROXY_CONFIG}" | grep -v "is_vless" | wc -l)
+    fi
+
+    echo "Configured Routes:"
+    echo "  VLESS Reality: 1"
+    echo "  Reverse Proxies: ${proxy_count}"
+    echo "  Proxy Services: 2 (SOCKS5, HTTP)"
+
+    echo ""
+    echo "For detailed stats, access: http://127.0.0.1:9000/stats"
+
+    return 0
+}
+
+# =============================================================================
 # Function: list_haproxy_routes
 # Description: Lists all configured reverse proxy routes
 #
@@ -480,12 +609,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "  remove <domain>         - Remove reverse proxy route"
         echo "  validate                - Validate configuration"
         echo "  reload                  - Gracefully reload HAProxy"
+        echo "  status                  - Check HAProxy status and health"
         echo "  list                    - List all routes"
         echo ""
         echo "Examples:"
         echo "  $0 generate vless.example.com example.com"
         echo "  $0 add claude.example.com 9443"
         echo "  $0 remove claude.example.com"
+        echo "  $0 status"
         echo "  $0 list"
         exit 1
     fi
@@ -508,6 +639,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         reload)
             reload_haproxy
+            ;;
+        status)
+            check_haproxy_status
             ;;
         list)
             list_haproxy_routes
