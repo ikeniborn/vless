@@ -140,24 +140,24 @@ Port 443 (HAProxy, 3 frontends):
 
 ### Фаза 4: Certificate Management (2-3 часа)
 **Приоритет:** HIGH
-**Статус:** ⏳ ОЖИДАНИЕ
+**Статус:** ✅ ЗАВЕРШЕНО
 
-- [ ] **Задача 4.1:** DNS Validation (30 мин)
-  - [ ] validate_dns_for_domain()
-  - [ ] dig + IP comparison
-  - [ ] **Acceptance:** DNS validation работает
+- [x] **Задача 4.1:** DNS Validation (30 мин) ✅ ЗАВЕРШЕНО
+  - [x] validate_dns_for_domain() ✅
+  - [x] dig + IP comparison ✅
+  - [x] **Acceptance:** DNS validation работает ✅
 
-- [ ] **Задача 4.2:** Unified certificate acquisition (2 часа)
-  - [ ] acquire_certificate_for_domain()
-  - [ ] Certbot nginx integration
-  - [ ] combined.pem creation
-  - [ ] **Acceptance:** Certificate acquisition автоматизирован
+- [x] **Задача 4.2:** Unified certificate acquisition (2 часа) ✅ ЗАВЕРШЕНО
+  - [x] acquire_certificate_for_domain() ✅
+  - [x] Certbot nginx integration ✅
+  - [x] combined.pem creation ✅
+  - [x] **Acceptance:** Certificate acquisition автоматизирован ✅
 
-- [ ] **Задача 4.3:** Certificate renewal (30 мин)
-  - [ ] Обновить vless-cert-renew
-  - [ ] HAProxy graceful reload
-  - [ ] Cron job для auto-renewal
-  - [ ] **Acceptance:** Renewal работает
+- [x] **Задача 4.3:** Certificate renewal (30 мин) ✅ ЗАВЕРШЕНО
+  - [x] Обновить vless-cert-renew ✅ (уже сделано в Task 1.4)
+  - [x] HAProxy graceful reload ✅
+  - [x] Cron job для auto-renewal ✅
+  - [x] **Acceptance:** Renewal работает ✅
 
 ---
 
@@ -273,7 +273,7 @@ Port 443 (HAProxy, 3 frontends):
 | 1. Подготовка инфраструктуры | 7 | 4-5 ч | CRITICAL | ✅ ЗАВЕРШЕНО |
 | 2. Конфигурация HAProxy | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 3. Обновление Nginx | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
-| 4. Certificate Management | 3 | 2-3 ч | HIGH | ⏳ ОЖИДАНИЕ |
+| 4. Certificate Management | 3 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 5. Обновление CLI | 3 | 2-3 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
 | 6. fail2ban Integration | 2 | 1-2 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
 | 7. Testing & Validation | 6 | 4-5 ч | CRITICAL | ⏳ ОЖИДАНИЕ |
