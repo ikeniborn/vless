@@ -7,6 +7,241 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3] - 2025-10-18
+
+### Changed - HAProxy Unified Architecture
+
+**Migration Type:** Breaking (stunnel removed, HAProxy replaces all TLS/routing)
+
+**Primary Feature:** Single HAProxy container for ALL TLS termination and routing
+
+#### HAProxy Unified Architecture (v4.3)
+- **REPLACED**: stunnel + HAProxy dual setup → Single unified HAProxy container
+  - **v4.0-v4.2**: 2 containers (stunnel for TLS termination, HAProxy for SNI routing)
+  - **v4.3**: 1 container (HAProxy handles both TLS termination AND SNI routing)
+- **ADDED**: `lib/haproxy_config_manager.sh` - Unified HAProxy configuration module
+  - `generate_haproxy_config()` - Generate haproxy.cfg via heredoc
+  - `add_reverse_proxy_route()` - Dynamic ACL/backend management
+  - `remove_reverse_proxy_route()` - Route removal with graceful reload
+  - `list_haproxy_routes()` - Active routes listing
+  - `reload_haproxy()` - Graceful reload (zero downtime, haproxy -sf)
+  - `check_haproxy_status()` - Health monitoring
+- **ADDED**: HAProxy configuration file `/opt/vless/config/haproxy.cfg`
+  - 3 frontends: vless-reality (443), socks5-tls (1080), http-tls (8118)
+  - Dynamic ACL section for reverse proxy routes
+  - TLS 1.3 only, strong cipher suites
+  - Stats page on localhost:9000
+
+#### stunnel Removal
+- **REMOVED**: stunnel container completely eliminated from docker-compose.yml
+- **REMOVED**: `lib/stunnel_setup.sh` module (deprecated)
+- **REMOVED**: `config/stunnel.conf` configuration file
+- **REMOVED**: `tests/test_stunnel_heredoc.sh` (replaced with HAProxy tests)
+- **UPDATED**: `lib/verification.sh` - Replaced stunnel checks with HAProxy verification
+- **UPDATED**: `lib/orchestrator.sh` - Removed setup_stunnel() function
+
+#### Subdomain-Based Reverse Proxy (v4.3 KEY FEATURE)
+- **CHANGED**: Reverse proxy access format: `https://subdomain.example.com` (NO port number!)
+  - **v4.2**: `https://domain:8443` (port required)
+  - **v4.3**: `https://domain` (NO port, cleaner URLs)
+- **CHANGED**: Backend port range: 8443-8452 → 9443-9452 (localhost-only)
+  - Nginx binds to 127.0.0.1:9443-9452 (NOT exposed to internet)
+  - Public access via HAProxy frontend 443 (SNI routing)
+- **ADDED**: HAProxy SNI routing for reverse proxy subdomains
+  - Dynamic ACL creation: `acl is_subdomain req.ssl_sni -i subdomain.example.com`
+  - NO TLS decryption for reverse proxy (passthrough to Nginx)
+  - Multi-layer fail2ban protection (HAProxy + Nginx filters)
+
+#### Port Reassignment
+- **CHANGED**: Xray VLESS Reality: 443 → 8443 (internal, HAProxy handles 443)
+- **CHANGED**: Nginx reverse proxy backends: 8443-8452 → 9443-9452 (localhost-only)
+- **UNCHANGED**: SOCKS5/HTTP external ports remain 1080/8118 (now via HAProxy TLS termination)
+- **UNCHANGED**: Xray plaintext ports remain 10800/18118 (localhost-only)
+
+#### Certificate Management
+- **ADDED**: `lib/certificate_manager.sh` - HAProxy certificate management
+  - `create_haproxy_combined_cert()` - Concatenate fullchain + privkey → combined.pem
+  - `validate_haproxy_cert()` - Certificate validation for HAProxy
+  - `reload_haproxy_after_cert_update()` - Graceful reload post-renewal
+- **ADDED**: Combined certificate format `/opt/vless/certs/combined.pem`
+  - HAProxy requires fullchain + privkey in single PEM file
+  - Auto-generated on certificate acquisition and renewal
+  - Permissions: 600, owner: root
+- **ADDED**: `lib/certbot_manager.sh` - Certbot Nginx service management
+  - `create_certbot_nginx_config()` - Temporary Nginx for ACME challenges
+  - `start_certbot_nginx()` / `stop_certbot_nginx()` - On-demand service
+  - `acquire_certificate()` - Automated certificate acquisition workflow
+- **UPDATED**: Certificate renewal workflow (vless-cert-renew)
+  - Regenerates combined.pem after Let's Encrypt renewal
+  - Triggers HAProxy graceful reload (NOT full restart)
+  - Zero downtime certificate updates
+
+#### fail2ban Integration
+- **ADDED**: HAProxy fail2ban filters and jails
+  - `/etc/fail2ban/filter.d/haproxy-sni.conf` - HAProxy-specific patterns
+  - `/etc/fail2ban/jail.d/haproxy.conf` - Protection for ports 443, 1080, 8118
+  - Multi-layer protection: HAProxy filter + existing Nginx filters
+- **ADDED**: `lib/fail2ban_config.sh` HAProxy functions
+  - `create_haproxy_filter()` - Filter creation for HAProxy logs
+  - `setup_haproxy_jail()` - Jail configuration
+  - `setup_haproxy_fail2ban()` - Full HAProxy fail2ban setup
+- **ADDED**: CLI commands for HAProxy fail2ban management
+  - `vless fail2ban setup-haproxy` - Configure HAProxy protection
+  - `vless fail2ban status-haproxy` - Check HAProxy jail status
+
+#### CLI Updates
+- **UPDATED**: `vless-setup-proxy` (reverse proxy setup)
+  - Subdomain-based prompts (instead of port selection)
+  - Automatic port allocation from 9443-9452 range
+  - DNS validation required before certificate acquisition
+  - HAProxy SNI route addition (replaced UFW port opening)
+  - Success message: `https://subdomain.example.com` (NO port!)
+- **UPDATED**: `vless-proxy` commands
+  - `show`: Displays subdomain URL without port
+  - `list`: Shows all reverse proxies with v4.3 architecture note
+  - `remove`: HAProxy route removal (replaced UFW port removal)
+- **UPDATED**: `vless-status`
+  - HAProxy status section added (3 frontends info)
+  - Active routes listing (parsed from haproxy.cfg)
+  - Version header: 4.3.0
+
+#### Testing
+- **ADDED**: `tests/integration/v4.3/` - Comprehensive v4.3 test suite
+  - `test_01_vless_reality_haproxy.sh` - VLESS Reality via HAProxy (8 checks)
+  - `test_02_proxy_haproxy.sh` - SOCKS5/HTTP via HAProxy TLS termination (8 checks)
+  - `test_03_reverse_proxy_subdomain.sh` - Subdomain-based reverse proxy (8 checks)
+  - `run_all_tests.sh` - Automated test runner
+  - DEV_MODE support for config validation without production environment
+- **ADDED**: `tests/integration/v4.3/README.md` - Test suite documentation
+
+#### Documentation Updates
+- **UPDATED**: `docs/prd/04_architecture.md` - Added Section 4.7 HAProxy Unified Architecture
+- **UPDATED**: `docs/prd/02_functional_requirements.md`
+  - FR-HAPROXY-001: HAProxy Unified Architecture (CRITICAL)
+  - FR-REVERSE-PROXY-001: Subdomain-Based Reverse Proxy (v4.3)
+- **UPDATED**: `docs/prd/03_nfr.md` - NFR-RPROXY-002: Reverse Proxy Performance (v4.3)
+- **UPDATED**: `docs/prd/05_testing.md` - v4.3 automated test suite documentation
+- **UPDATED**: `docs/prd/06_appendix.md` - Implementation details for v4.3
+- **UPDATED**: `docs/prd/00_summary.md` - Executive summary with v4.3 status
+- **REWRITTEN**: `docs/REVERSE_PROXY_GUIDE.md` - Complete rewrite for v4.3 subdomain access
+- **REWRITTEN**: `docs/REVERSE_PROXY_API.md` - Updated for v4.3 architecture
+- **UPDATED**: `CLAUDE.md` - Project memory updated to v4.3
+
+#### Benefits
+- ✅ **Simplified Architecture**: 1 container instead of 2 (stunnel REMOVED)
+- ✅ **Subdomain-Based Access**: `https://domain` (NO port number!)
+- ✅ **SNI Routing Security**: NO TLS decryption for reverse proxy
+- ✅ **Unified Management**: All TLS and routing in single HAProxy config
+- ✅ **Graceful Reload**: Zero-downtime route updates (haproxy -sf)
+- ✅ **Dynamic ACL Management**: Add/remove reverse proxy routes without restart
+- ✅ **Single Log Stream**: Unified HAProxy logs for all frontends
+- ✅ **Better Performance**: Industry-standard load balancer (20+ years production)
+- ✅ **Easier Troubleshooting**: One config file, one container, clear separation
+
+### Migration from v4.1.1 / v4.1 / v4.0
+
+**Prerequisites:**
+- Existing VLESS installation (v4.0, v4.1, or v4.1.1)
+- Domain name with valid DNS A record (if using reverse proxy)
+- Backup recommended: `sudo vless backup create`
+
+**Automatic Migration:**
+```bash
+# Update to v4.3 (preserves users, keys, reverse proxies)
+sudo vless update
+
+# Migration automatically:
+# 1. Removes stunnel container
+# 2. Creates HAProxy container
+# 3. Generates haproxy.cfg from scratch
+# 4. Creates combined.pem certificates (if proxies enabled)
+# 5. Updates Xray config (port 8443, localhost-only proxies)
+# 6. Updates Nginx configs (ports 9443-9452)
+# 7. Migrates reverse proxy routes to HAProxy ACLs
+# 8. Restarts services with zero user data loss
+
+# Verify migration
+sudo vless status
+# Should show: HAProxy Unified v4.3, stunnel: NOT FOUND (expected)
+```
+
+**Manual Verification:**
+```bash
+# 1. Check HAProxy container
+sudo docker ps | grep haproxy
+# Expected: vless_haproxy, status: Up
+
+# 2. Verify stunnel removed
+sudo docker ps -a | grep stunnel
+# Expected: NO OUTPUT (stunnel completely removed)
+
+# 3. Check HAProxy config
+sudo cat /opt/vless/config/haproxy.cfg | head -20
+# Expected: 3 frontends (vless-reality, socks5-tls, http-tls)
+
+# 4. Check combined.pem (if proxies enabled)
+sudo ls -lh /opt/vless/certs/combined.pem
+# Expected: File exists, 600 permissions, ~4-8 KB size
+
+# 5. Verify ports
+sudo ss -tulnp | grep -E ':(443|1080|8118|8443|9443)'
+# Expected:
+#   443  - haproxy (SNI routing)
+#   1080 - haproxy (SOCKS5 TLS termination)
+#   8118 - haproxy (HTTP TLS termination)
+#   8443 - xray (localhost, VLESS Reality backend)
+#   9443 - nginx (localhost, reverse proxy backend 1)
+
+# 6. Test VLESS connection (use existing client config)
+# Should work without changes
+
+# 7. Test SOCKS5/HTTP proxies (use existing credentials)
+curl -s --socks5 user:pass@domain:1080 https://ifconfig.me
+curl -s --proxy https://user:pass@domain:8118 https://ifconfig.me
+
+# 8. Test reverse proxy (if configured)
+# OLD: https://subdomain.example.com:8443 (DEPRECATED)
+# NEW: https://subdomain.example.com (NO port!)
+curl -I https://subdomain.example.com
+```
+
+**Rollback to v4.1.1 (if needed):**
+```bash
+# 1. Restore backup
+sudo vless backup restore /tmp/vless_backup_TIMESTAMP.tar.gz
+
+# 2. Manually add stunnel container back to docker-compose.yml
+# 3. Recreate lib/stunnel_setup.sh (from v4.1.1 release)
+# 4. Restart services
+sudo docker compose down
+sudo docker compose up -d
+```
+
+**Breaking Changes:**
+- ❌ **stunnel container removed** - No longer exists in docker-compose.yml
+- ❌ **Reverse proxy port access deprecated** - `https://domain:8443` NO LONGER WORKS
+  - Use subdomain access instead: `https://domain` (NO port)
+- ❌ **Xray VLESS port changed** - 443 → 8443 (internal, HAProxy handles 443)
+  - Client configs UNCHANGED (still connect to port 443, HAProxy forwards)
+- ❌ **Nginx backend ports changed** - 8443-8452 → 9443-9452 (localhost-only)
+  - NOT exposed to internet, accessed via HAProxy SNI routing
+- ✅ **Backward Compatible**: Existing VLESS client configs work without changes
+- ✅ **Backward Compatible**: SOCKS5/HTTP proxy credentials unchanged
+- ✅ **Data Preserved**: All users, keys, passwords, reverse proxies migrated automatically
+
+**Acceptance Criteria:**
+- [x] HAProxy container running and handling all 3 ports (443, 1080, 8118)
+- [x] stunnel container removed from docker-compose.yml
+- [x] Reverse proxy accessible via subdomain (NO port)
+- [x] VLESS Reality working via HAProxy passthrough (port 443)
+- [x] SOCKS5/HTTP proxies working via HAProxy TLS termination (ports 1080/8118)
+- [x] Certificate renewal triggers HAProxy graceful reload
+- [x] fail2ban protecting HAProxy (ports 443, 1080, 8118)
+- [x] Zero user data loss during migration
+- [x] Downtime < 30 seconds during update
+
+---
+
 ## [4.1.1] - 2025-10-16
 
 ### Fixed - Container Verification Logic
@@ -584,8 +819,10 @@ curl -s --proxy https://user:pass@vpn.example.com:8118 https://ifconfig.me
 
 | Version | Date | Primary Feature | Migration Type |
 |---------|------|----------------|----------------|
+| **4.3** | 2025-10-18 | HAProxy Unified Architecture | Breaking |
+| **4.1.1** | 2025-10-16 | Container verification improvements | Non-Breaking |
 | **4.1** | 2025-10-14 | Heredoc config generation | Non-Breaking |
-| **4.0** | 2025-10-10 | stunnel TLS termination | Breaking |
+| **4.0** | 2025-10-10 | stunnel TLS termination (deprecated v4.3) | Breaking |
 | **3.6** | 2025-10-06 | Server-level IP whitelisting | Breaking |
 | **3.5** | 2025-10-04 | Per-user IP whitelisting | Non-Breaking |
 | **3.4** | 2025-10-02 | Optional TLS for proxies | Non-Breaking |
@@ -598,7 +835,7 @@ curl -s --proxy https://user:pass@vpn.example.com:8118 https://ifconfig.me
 
 ## Upgrade Path
 
-### From v3.x to v4.1 (Recommended)
+### From v3.x / v4.0 / v4.1 to v4.3 (Recommended)
 
 **Direct upgrade** (preserves all user data and keys):
 
@@ -606,33 +843,54 @@ curl -s --proxy https://user:pass@vpn.example.com:8118 https://ifconfig.me
 # 1. Backup current installation
 sudo vless backup create
 
-# 2. Update to latest version
+# 2. Update to latest version (v4.3)
 sudo vless update
 
-# 3. Follow prompts for:
-# - Domain name (if proxy mode enabled)
-# - Let's Encrypt email
-# - Certificate issuance
+# 3. Migration automatically:
+# - Removes stunnel container (if v4.0-v4.1)
+# - Creates HAProxy unified container
+# - Generates haproxy.cfg
+# - Creates combined.pem certificates
+# - Migrates reverse proxy routes to HAProxy ACLs
+# - Updates all configs (zero user data loss)
 
 # 4. Verify services
 sudo vless status
+# Should show: HAProxy Unified v4.3
 
-# 5. Regenerate all user configs (updates URI schemes to v4.1)
-for user in $(sudo vless list-users | tail -n +2); do
-  sudo vless regenerate "$user"
-done
-
-# 6. Test proxy connections
+# 5. Test connections (existing configs work without changes)
+# VLESS Reality (port 443)
+# SOCKS5 proxy (port 1080)
 curl -s --socks5 user:pass@domain:1080 https://ifconfig.me
+# HTTP proxy (port 8118)
 curl -s --proxy https://user:pass@domain:8118 https://ifconfig.me
+# Reverse proxy (subdomain, NO port)
+curl -I https://subdomain.example.com
 ```
 
 ### Rollback Procedures
 
-**v4.1 → v4.0:**
+**v4.3 → v4.1.1:**
+```bash
+# 1. Restore backup
+sudo vless backup restore /tmp/vless_backup_TIMESTAMP.tar.gz
+
+# 2. Manually add stunnel container back to docker-compose.yml
+# 3. Recreate lib/stunnel_setup.sh (from v4.1.1 release)
+# 4. Reconfigure Xray ports (8443 → 443, 9443-9452 → 8443-8452)
+# 5. Restart services
+sudo docker compose down
+sudo docker compose up -d
+
+# NOTE: Reverse proxy URLs will change back to port-based access
+# OLD v4.3: https://subdomain.example.com (NO port)
+# NEW v4.1.1: https://subdomain.example.com:8443 (port required)
+```
+
+**v4.1.1 → v4.1 or v4.1 → v4.0:**
 ```bash
 # No breaking changes - configs compatible
-# Only heredoc generation method changed
+# Only minor verification improvements in v4.1.1
 ```
 
 **v4.0 → v3.6:**
