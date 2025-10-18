@@ -1,20 +1,21 @@
 #!/bin/bash
 # cli/vless-setup-proxy
 #
-# VLESS v4.2 - Interactive Reverse Proxy Setup Wizard
+# VLESS v4.3 - Interactive Reverse Proxy Setup Wizard (HAProxy Unified)
 # Guides user through complete reverse proxy configuration
 #
 # Features:
-# - Domain validation (DNS + TLS 1.3)
-# - Certificate acquisition (Let's Encrypt)
-# - Nginx config generation (security-hardened)
+# - Domain validation (DNS mandatory via validate_dns_for_domain)
+# - Certificate acquisition (unified workflow via acquire_certificate_for_domain)
+# - Nginx config generation (security-hardened, localhost-only)
 # - Xray HTTP inbound configuration
 # - fail2ban multi-port protection
-# - UFW firewall rules
+# - HAProxy SNI routing (NO UFW port opening required)
+# - Subdomain-based access: https://domain (NO port number!)
 #
-# Version: 4.2.0
+# Version: 4.3.0
 # Author: VLESS Development Team
-# Date: 2025-10-17
+# Date: 2025-10-18
 
 set -euo pipefail
 
@@ -26,6 +27,8 @@ INSTALL_PATH="/opt/vless"
 LIB_PATH="${INSTALL_PATH}/lib"
 
 # Source library files
+source "${LIB_PATH}/certificate_manager.sh"     # v4.3: DNS validation + unified cert acquisition
+source "${LIB_PATH}/haproxy_config_manager.sh"  # v4.3: HAProxy dynamic routing
 source "${LIB_PATH}/nginx_config_generator.sh"
 source "${LIB_PATH}/xray_http_inbound.sh"
 source "${LIB_PATH}/letsencrypt_integration.sh"
@@ -273,20 +276,28 @@ prompt_port() {
     local port
     local proxy_count
 
-    print_header "Шаг 3: Публичный Порт"
+    print_header "Шаг 3: Nginx Backend Port (localhost-only)"
 
     proxy_count=$(get_proxy_count)
 
-    echo -e "${CYAN}Выберите публичный порт для reverse proxy:${NC}"
-    echo -e "${YELLOW}Доступные порты: 8443-8452 (всего 10 слотов)${NC}"
+    echo -e "${CYAN}Выберите localhost-only порт для nginx backend:${NC}"
+    echo -e "${YELLOW}Доступные порты: 9443-9452 (всего 10 слотов)${NC}"
     echo "  Использовано: $proxy_count/10"
     echo ""
+    echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Architecture:${NC}"
+    echo "  - Nginx слушает на 127.0.0.1:<port> (localhost-only)"
+    echo "  - HAProxy маршрутизирует по SNI с порта 443"
+    echo "  - Публичный доступ: https://<domain> (БЕЗ номера порта!)"
+    echo ""
 
-    # Suggest next available port
-    local suggested_port=$((8443 + proxy_count))
-
-    if [ "$suggested_port" -le 8452 ]; then
-        echo -e "${GREEN}Рекомендуется: $suggested_port${NC}"
+    # Auto-suggest next available port (v4.3)
+    local suggested_port
+    if suggested_port=$(get_next_available_port 2>/dev/null); then
+        echo -e "${GREEN}Рекомендуется (авто-выбор): $suggested_port${NC}"
+    else
+        # Fallback if get_next_available_port fails
+        suggested_port=$((9443 + proxy_count))
+        echo -e "${YELLOW}Рекомендуется: $suggested_port${NC}"
     fi
 
     echo ""
@@ -295,17 +306,14 @@ prompt_port() {
         read -p "Порт [$suggested_port]: " port
         port=${port:-$suggested_port}
 
-        # Validate port range
-        if [ "$port" -lt 8443 ] || [ "$port" -gt 8452 ]; then
-            print_error "Порт должен быть в диапазоне 8443-8452"
+        # Validate port range (v4.3: 9443-9452)
+        if [ "$port" -lt 9443 ] || [ "$port" -gt 9452 ]; then
+            print_error "Порт должен быть в диапазоне 9443-9452"
             continue
         fi
 
-        # Check if port is available
-        if ! check_port_available "$port"; then
-            continue
-        fi
-
+        # Check if port is available (should not be bound externally)
+        # Port binding check relaxed since nginx binds to localhost only
         break
     done
 
@@ -351,16 +359,26 @@ prompt_confirmation() {
     echo ""
     echo -e "  ${BOLD}Домен:${NC}           $domain"
     echo -e "  ${BOLD}Целевой сайт:${NC}    $target"
-    echo -e "  ${BOLD}Порт:${NC}            $port"
+    echo -e "  ${BOLD}Backend порт:${NC}    $port (localhost-only)"
     echo -e "  ${BOLD}Email:${NC}           $email"
     echo ""
-    echo -e "${YELLOW}${BOLD}Что будет выполнено:${NC}"
-    echo "  1. Получение Let's Encrypt сертификата для $domain"
-    echo "  2. Создание Nginx reverse proxy конфигурации"
-    echo "  3. Создание Xray HTTP inbound (localhost:10080+)"
-    echo "  4. Настройка fail2ban защиты"
-    echo "  5. Открытие UFW порта $port"
-    echo "  6. Генерация HTTP Basic Auth креденшелов"
+    echo -e "  ${BOLD}Публичный URL:${NC}   ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
+    echo ""
+    echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}"
+    echo "  1. DNS validation (обязательно!)"
+    echo "  2. Получение Let's Encrypt сертификата для $domain"
+    echo "  3. Создание HAProxy combined.pem (fullchain + privkey)"
+    echo "  4. Создание Nginx reverse proxy конфигурации (localhost:$port)"
+    echo "  5. Создание Xray HTTP inbound (localhost:10080+)"
+    echo "  6. Добавление HAProxy SNI route: $domain → nginx:$port"
+    echo "  7. Настройка fail2ban защиты"
+    echo "  8. Генерация HTTP Basic Auth креденшелов"
+    echo ""
+    echo -e "${CYAN}${ICON_INFO} v4.3 Architecture:${NC}"
+    echo "  - HAProxy (port 443) принимает все HTTPS трафик"
+    echo "  - SNI routing по имени домена (TLS passthrough НЕ используется)"
+    echo "  - Nginx backend слушает ТОЛЬКО на 127.0.0.1:$port"
+    echo "  - UFW порт НЕ открывается (не нужен, HAProxy уже на 443)"
     echo ""
 
     read -p "Продолжить установку? [y/N]: " -n 1 -r
@@ -383,10 +401,12 @@ setup_reverse_proxy() {
 
     print_header "Установка Reverse Proxy"
 
-    # Step 1: Obtain Let's Encrypt certificate
-    print_step "Получение Let's Encrypt сертификата..."
-    if ! obtain_certificate "$domain" "$email"; then
+    # Step 1: Unified Certificate Acquisition (v4.3)
+    # Includes: DNS validation + certbot + HAProxy combined.pem + reload
+    print_step "Получение Let's Encrypt сертификата (v4.3 unified workflow)..."
+    if ! acquire_certificate_for_domain "$domain" "$email"; then
         print_error "Не удалось получить сертификат"
+        print_error "Проверьте DNS: dig +short $domain"
         return 1
     fi
 
@@ -461,15 +481,7 @@ EOF
         reload_fail2ban
     fi
 
-    # Step 7: Open UFW port
-    print_step "Открытие UFW порта $port..."
-    if sudo ufw allow "${port}/tcp" comment "VLESS Reverse Proxy: ${domain}"; then
-        print_success "UFW правило добавлено"
-    else
-        print_warning "Не удалось добавить UFW правило (проверьте вручную)"
-    fi
-
-    # Step 7.5: Add port to docker-compose.yml
+    # Step 7: Add port to docker-compose.yml (nginx localhost binding)
     print_step "Добавление порта в docker-compose.yml..."
     if ! add_nginx_port "$port"; then
         print_error "Не удалось добавить порт в docker-compose.yml"
@@ -478,7 +490,16 @@ EOF
         print_success "Порт $port добавлен в docker-compose.yml"
     fi
 
-    # Step 8: Reload services
+    # Step 8: Add HAProxy SNI route (v4.3)
+    print_step "Добавление HAProxy SNI route..."
+    if ! add_reverse_proxy_route "$domain" "$port"; then
+        print_error "Не удалось добавить HAProxy route"
+        print_warning "Маршрут придётся добавить вручную"
+    else
+        print_success "HAProxy route добавлен: $domain → nginx:$port"
+    fi
+
+    # Step 9: Reload services
     print_step "Перезагрузка сервисов..."
     reload_nginx_container  # Docker compose restart with new port
     reload_xray
@@ -508,9 +529,10 @@ main() {
 
     # Print welcome banner
     clear
-    print_header "${ICON_ROCKET} VLESS v4.2 - Reverse Proxy Setup Wizard"
+    print_header "${ICON_ROCKET} VLESS v4.3 - Reverse Proxy Setup Wizard (HAProxy Unified)"
 
     echo -e "${CYAN}Этот wizard поможет настроить reverse proxy для доступа к заблокированным сайтам.${NC}"
+    echo -e "${YELLOW}v4.3: Unified HAProxy architecture - subdomain access без номера порта!${NC}"
     echo ""
 
     # Collect parameters
@@ -529,16 +551,22 @@ main() {
         echo ""
         echo -e "${GREEN}${BOLD}Reverse Proxy готов к использованию!${NC}"
         echo ""
-        echo -e "${CYAN}${BOLD}Детали конфигурации:${NC}"
-        echo -e "  URL: ${BOLD}https://${domain}:${port}${NC}"
-        echo -e "  Username: ${BOLD}$username${NC}"
-        echo -e "  Password: ${BOLD}$password${NC}"
+        echo -e "${CYAN}${BOLD}Детали конфигурации (v4.3):${NC}"
+        echo -e "  ${BOLD}URL:${NC}      ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
+        echo -e "  ${BOLD}Backend:${NC}  127.0.0.1:${port} (localhost-only)"
+        echo -e "  ${BOLD}Username:${NC} $username"
+        echo -e "  ${BOLD}Password:${NC} $password"
         echo ""
         echo -e "${YELLOW}${BOLD}Как использовать:${NC}"
         echo "  1. Откройте браузер"
-        echo "  2. Перейдите по адресу: https://${domain}:${port}"
+        echo "  2. Перейдите по адресу: ${GREEN}${BOLD}https://${domain}${NC}"
         echo "  3. Введите username/password при запросе"
         echo "  4. Вы будете перенаправлены на ${target}"
+        echo ""
+        echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Routing:${NC}"
+        echo "  - HAProxy принимает HTTPS запросы на порту 443"
+        echo "  - SNI-based routing: по имени домена ($domain)"
+        echo "  - Nginx backend слушает только localhost (недоступен извне)"
         echo ""
         echo -e "${CYAN}Управление:${NC}"
         echo "  sudo vless-proxy show ${domain}        # Показать детали"
