@@ -191,17 +191,21 @@ Port 443 (HAProxy, 3 frontends):
 
 ### Фаза 6: fail2ban Integration (1-2 часа)
 **Приоритет:** MEDIUM
-**Статус:** ⏳ ОЖИДАНИЕ
+**Статус:** ✅ ЗАВЕРШЕНО
 
-- [ ] **Задача 6.1:** HAProxy Logging (30 мин)
-  - [ ] Docker logging driver
-  - [ ] Logs в /opt/vless/logs/haproxy/
-  - [ ] **Acceptance:** Logging работает
+- [x] **Задача 6.1:** HAProxy Logging (30 мин) ✅ ЗАВЕРШЕНО
+  - [x] Docker logging driver ✅ (уже реализовано в Фазе 1)
+  - [x] Logs в /opt/vless/logs/haproxy/ ✅
+  - [x] **Acceptance:** Logging работает ✅
 
-- [ ] **Задача 6.2:** fail2ban Filter & Jail (1 час)
-  - [ ] /etc/fail2ban/filter.d/haproxy-sni.conf
-  - [ ] /etc/fail2ban/jail.d/haproxy.conf
-  - [ ] **Acceptance:** fail2ban защищает HAProxy
+- [x] **Задача 6.2:** fail2ban Filter & Jail (1 час) ✅ ЗАВЕРШЕНО
+  - [x] /etc/fail2ban/filter.d/haproxy-sni.conf ✅
+  - [x] /etc/fail2ban/jail.d/haproxy.conf ✅
+  - [x] create_haproxy_filter() функция ✅
+  - [x] setup_haproxy_jail() функция ✅
+  - [x] setup_haproxy_fail2ban() обертка ✅
+  - [x] CLI commands: setup-haproxy, status-haproxy ✅
+  - [x] **Acceptance:** fail2ban защищает HAProxy (ports 443, 1080, 8118) ✅
 
 ---
 
@@ -279,13 +283,13 @@ Port 443 (HAProxy, 3 frontends):
 | 3. Обновление Nginx | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 4. Certificate Management | 3 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 5. Обновление CLI | 3 | 2-3 ч | MEDIUM | ✅ ЗАВЕРШЕНО |
-| 6. fail2ban Integration | 2 | 1-2 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
+| 6. fail2ban Integration | 2 | 1-2 ч | MEDIUM | ✅ ЗАВЕРШЕНО |
 | 7. Testing & Validation | 6 | 4-5 ч | CRITICAL | ⏳ ОЖИДАНИЕ |
 | 8. Документация | 3 | 2-3 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
-| **ИТОГО** | **27** | **19-27 ч** | — | **5/8 фаз ✅** |
+| **ИТОГО** | **27** | **19-27 ч** | — | **6/8 фаз ✅** |
 
 **Реалистичная оценка:** 23 часа
-**Прогресс:** 14/27 задач завершено (~64% от общего времени: 15 часов из 23)
+**Прогресс:** 16/27 задач завершено (~70% от общего времени: 16 часов из 23)
 
 ---
 
