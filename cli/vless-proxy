@@ -1,7 +1,7 @@
 #!/bin/bash
 # cli/vless-proxy
 #
-# VLESS v4.2 - Reverse Proxy Management Tool
+# VLESS v4.3 - Reverse Proxy Management Tool (HAProxy Unified)
 # Comprehensive CLI for managing reverse proxy configurations
 #
 # Commands:
@@ -14,9 +14,15 @@
 #   disable <domain>    - Disable reverse proxy
 #   check-certs         - Check all certificate expiry dates
 #
-# Version: 4.2.0
+# v4.3 Changes:
+#   - HAProxy unified architecture (SNI routing on port 443)
+#   - Subdomain-based access: https://domain (NO port number!)
+#   - Nginx backends: localhost-only (127.0.0.1:9443-9452)
+#   - NO UFW port opening required (HAProxy already on 443)
+#
+# Version: 4.3.0
 # Author: VLESS Development Team
-# Date: 2025-10-17
+# Date: 2025-10-18
 
 set -euo pipefail
 
@@ -28,6 +34,7 @@ INSTALL_PATH="/opt/vless"
 LIB_PATH="${INSTALL_PATH}/lib"
 
 # Source library files
+source "${LIB_PATH}/haproxy_config_manager.sh"  # v4.3: HAProxy dynamic routing
 source "${LIB_PATH}/nginx_config_generator.sh"
 source "${LIB_PATH}/xray_http_inbound.sh"
 source "${LIB_PATH}/letsencrypt_integration.sh"
@@ -105,7 +112,7 @@ cmd_add() {
 # =============================================================================
 
 cmd_list() {
-    print_header "${ICON_GLOBE} Список Reverse Proxies"
+    print_header "${ICON_GLOBE} Список Reverse Proxies (v4.3)"
 
     local proxy_count
     proxy_count=$(get_proxy_count)
@@ -119,10 +126,13 @@ cmd_list() {
 
     echo -e "${CYAN}${BOLD}Найдено: $proxy_count proxy (макс. 10)${NC}"
     echo ""
+    echo -e "${YELLOW}${ICON_INFO} v4.3: Subdomain access без порта - https://<domain>${NC}"
+    echo -e "${DIM}  HAProxy маршрутизирует на port 443 → nginx backends (localhost:9443-9452)${NC}"
+    echo ""
 
     # Table header
-    printf "${BOLD}%-4s %-30s %-25s %-8s %-10s${NC}\n" "ID" "ДОМЕН" "ЦЕЛЕВОЙ САЙТ" "ПОРТ" "СТАТУС"
-    echo "────────────────────────────────────────────────────────────────────────────────"
+    printf "${BOLD}%-4s %-30s %-25s %-12s %-10s${NC}\n" "ID" "ДОМЕН (PUBLIC URL)" "ЦЕЛЕВОЙ САЙТ" "BACKEND PORT" "СТАТУС"
+    echo "────────────────────────────────────────────────────────────────────────────────────────"
 
     # List all proxies
     list_proxies | jq -r '. | "\(.id)|\(.domain)|\(.target_site)|\(.port)|\(.enabled)"' | while IFS='|' read -r id domain target port enabled; do
@@ -137,15 +147,16 @@ cmd_list() {
             status_color="${RED}"
         fi
 
-        printf "%-4s %-30s %-25s %-8s ${status_color}%-10s${NC}\n" \
+        printf "%-4s %-30s %-25s ${DIM}%-12s${NC} ${status_color}%-10s${NC}\n" \
             "$id" \
             "$domain" \
             "$target" \
-            "$port" \
+            "127.0.0.1:$port" \
             "$([ "$enabled" = "true" ] && echo "enabled" || echo "disabled")"
     done
 
     echo ""
+    print_info "Public URLs: https://<domain> (БЕЗ номера порта!)"
     print_info "Используйте: sudo vless-proxy show <domain> для деталей"
 }
 
@@ -203,14 +214,16 @@ cmd_show() {
     echo -e "  ID:                 ${BOLD}$id${NC}"
     echo -e "  Домен:              ${BOLD}$domain${NC}"
     echo -e "  Целевой сайт:       ${BOLD}$target${NC}"
-    echo -e "  Публичный порт:     ${BOLD}$port${NC}"
+    echo -e "  Backend порт:       ${DIM}127.0.0.1:${port}${NC} (localhost-only)"
     echo -e "  Статус:             $([ "$enabled" = "true" ] && echo "${GREEN}${ICON_SUCCESS} Enabled${NC}" || echo "${RED}${ICON_WARNING} Disabled${NC}")"
     echo ""
 
-    echo -e "${CYAN}${BOLD}Доступ:${NC}"
-    echo -e "  URL:                ${BOLD}https://${domain}:${port}${NC}"
+    echo -e "${CYAN}${BOLD}Публичный доступ (v4.3):${NC}"
+    echo -e "  ${BOLD}URL:${NC}                ${GREEN}${BOLD}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
     echo -e "  Username:           ${BOLD}$username${NC}"
     echo -e "  Password:           ${DIM}(хранится в .htpasswd)${NC}"
+    echo ""
+    echo -e "${DIM}  HAProxy Routing:  port 443 → SNI: $domain → nginx:$port → xray:$xray_port → $target${NC}"
     echo ""
 
     echo -e "${CYAN}${BOLD}Xray Configuration:${NC}"
@@ -287,14 +300,16 @@ cmd_remove() {
     xray_tag=$(echo "$proxy_json" | jq -r '.xray_inbound_tag')
 
     # Show what will be removed
-    echo -e "${YELLOW}${BOLD}Будет удалено:${NC}"
+    echo -e "${YELLOW}${BOLD}Будет удалено (v4.3):${NC}"
     echo "  - Nginx конфигурация"
     echo "  - Xray HTTP inbound ($xray_tag)"
+    echo "  - HAProxy SNI route для $domain"
     echo "  - fail2ban правило для порта $port"
-    echo "  - UFW правило для порта $port"
     echo "  - .htpasswd файл"
+    echo "  - Порт $port из docker-compose.yml"
     echo "  - Запись из БД"
     echo ""
+    echo -e "${CYAN}${ICON_INFO} v4.3: UFW правило НЕ удаляется (не создавалось, HAProxy уже на 443)${NC}"
     echo -e "${RED}${BOLD}⚠️  Let's Encrypt сертификат НЕ будет удалён (может быть использован повторно)${NC}"
     echo ""
 
@@ -322,19 +337,20 @@ cmd_remove() {
         print_warning "Не удалось удалить Xray inbound"
     fi
 
-    # 3. Remove fail2ban port
+    # 3. Remove HAProxy SNI route (v4.3)
+    print_info "Удаление HAProxy SNI route..."
+    if remove_reverse_proxy_route "$domain"; then
+        print_success "HAProxy route удалён"
+    else
+        print_warning "Не удалось удалить HAProxy route (возможно, уже удалён)"
+    fi
+
+    # 4. Remove fail2ban port
     if remove_port_from_jail "$port"; then
         reload_fail2ban
         print_success "fail2ban правило удалено"
     else
         print_warning "Не удалось удалить fail2ban правило"
-    fi
-
-    # 4. Remove UFW rule
-    if sudo ufw delete allow "${port}/tcp"; then
-        print_success "UFW правило удалено"
-    else
-        print_warning "Не удалось удалить UFW правило"
     fi
 
     # 5. Remove from database
@@ -531,7 +547,7 @@ cmd_check_certs() {
 
 show_usage() {
     cat <<EOF
-${BOLD}VLESS v4.2 - Reverse Proxy Management Tool${NC}
+${BOLD}VLESS v4.3 - Reverse Proxy Management Tool (HAProxy Unified)${NC}
 
 ${CYAN}${BOLD}ИСПОЛЬЗОВАНИЕ:${NC}
   sudo vless-proxy <command> [options]
@@ -553,6 +569,13 @@ ${CYAN}${BOLD}ПРИМЕРЫ:${NC}
   sudo vless-proxy remove proxy.example.com
   sudo vless-proxy renew-cert proxy.example.com
   sudo vless-proxy check-certs
+
+${CYAN}${BOLD}v4.3 ОСОБЕННОСТИ:${NC}
+  - Subdomain-based access: ${GREEN}https://domain${NC} (БЕЗ номера порта!)
+  - HAProxy SNI routing на port 443
+  - Nginx backends: localhost-only (127.0.0.1:9443-9452)
+  - Unified certificate management
+  - NO UFW port opening required
 
 ${CYAN}${BOLD}ПОДРОБНОСТИ:${NC}
   Документация: /opt/vless/docs/REVERSE_PROXY_GUIDE.md
