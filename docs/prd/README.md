@@ -1,4 +1,4 @@
-# PRD v4.1 - Структурированная документация
+# PRD v4.3 - Структурированная документация
 
 Это структурированная версия Product Requirements Document (PRD) для проекта **VLESS + Reality VPN Server**.
 
@@ -10,14 +10,13 @@
 |------|-----------|--------|
 | **[00_summary.md](00_summary.md)** | 📋 **Итоговое саммари** - точка входа, быстрая навигация, ключевые метрики | ~16 KB |
 | **[01_overview.md](01_overview.md)** | 📖 Document Control, Executive Summary, Version History, Product Overview | ~12 KB |
-| **[02_functional_requirements.md](02_functional_requirements.md)** | 🔧 Все функциональные требования (FR-*): stunnel, TLS, certificates, IP whitelist, configs, **reverse proxy (v4.2 DRAFT)** | ~29 KB |
+| **[02_functional_requirements.md](02_functional_requirements.md)** | 🔧 Все функциональные требования (FR-*): HAProxy unified, TLS, certificates, IP whitelist, reverse proxy (v4.3) | ~35 KB |
 | **[03_nfr.md](03_nfr.md)** | 📊 Non-Functional Requirements (NFR-*): Security, Performance, Compatibility, Usability | ~8 KB |
-| **[04_architecture.md](04_architecture.md)** | 🏗️ Technical Architecture: Network diagrams, Data flow, File structure, Docker Compose | ~20 KB |
-| **[05_testing.md](05_testing.md)** | 🧪 Testing Requirements: TLS tests, Client integration, Security tests, Compatibility | ~8 KB |
+| **[04_architecture.md](04_architecture.md)** | 🏗️ Technical Architecture: Section 4.7 HAProxy Unified, Network diagrams, Data flow, File structure | ~28 KB |
+| **[05_testing.md](05_testing.md)** | 🧪 Testing Requirements: TLS tests, HAProxy tests, Security tests, v4.3 test suite | ~10 KB |
 | **[06_appendix.md](06_appendix.md)** | 📚 Implementation, Security Risk, Success Metrics, Dependencies, Rollback, References | ~8 KB |
-| **[FR-REVERSE-PROXY-001.md](FR-REVERSE-PROXY-001.md)** | 🆕 **NEW v4.2 DRAFT** - Site-Specific Reverse Proxy (detailed spec) | ~50 KB |
 
-**Общий размер:** ~151 KB (исходный PRD.md: ~100 KB, +51 KB новые требования)
+**Общий размер:** ~117 KB
 
 ---
 
@@ -82,11 +81,12 @@
 
 | Версия | Дата | Ключевые изменения |
 |--------|------|--------------------|
+| **v4.3** | 2025-10-18 | HAProxy Unified Architecture - subdomain-based reverse proxy (https://domain, NO port), ports 9443-9452, stunnel REMOVED |
+| **v4.2** | 2025-10-17 | Reverse proxy planning (intermediate, see v4.3 for implementation) |
 | **v4.1** | 2025-10-07 | Heredoc config generation + Proxy URI fix (https://, socks5s://) |
-| **v4.0** | 2025-10-06 | stunnel TLS termination architecture |
+| **v4.0** | 2025-10-06 | stunnel TLS termination architecture (deprecated in v4.3) |
 | **v3.6** | 2025-10-06 | Server-level IP whitelist |
 | **v3.3** | 2025-10-05 | Mandatory TLS for public proxies (CRITICAL security fix) |
-| **v3.2** | 2025-10-04 | Public proxy support (❌ SECURITY ISSUE - deprecated) |
 | **v3.1** | 2025-10-03 | Dual proxy (SOCKS5 + HTTP, localhost-only) |
 | **v3.0** | 2025-10-01 | Base VLESS Reality VPN system |
 
@@ -96,31 +96,23 @@
 
 ## Статус реализации
 
-### v4.1 (Production)
+### v4.3 (Production)
 
 ✅ **100% COMPLETE** - все активные фичи реализованы
 
 | Компонент | Статус |
 |-----------|--------|
 | VLESS Reality VPN | ✅ Production |
-| stunnel TLS Termination | ✅ v4.0+ |
-| Dual Proxy (SOCKS5 + HTTP) | ✅ v4.1 |
-| Heredoc Config Generation | ✅ v4.1 |
-| Proxy URI Fix | ✅ v4.1 (bugfix) |
-| IP Whitelisting (server-level) | ✅ v3.6/v4.0 |
+| HAProxy Unified Architecture | ✅ v4.3 |
+| Subdomain-Based Reverse Proxy | ✅ v4.3 (https://domain, NO port) |
+| SNI Routing (HAProxy) | ✅ v4.3 |
+| Dual Proxy (SOCKS5 + HTTP) | ✅ v4.1+ |
+| Heredoc Config Generation | ✅ v4.1+ |
+| Port Range 9443-9452 (localhost) | ✅ v4.3 |
+| fail2ban Integration (HAProxy) | ✅ v4.3 |
+| IP Whitelisting (server-level) | ✅ v3.6+ |
 | Let's Encrypt Auto-Renewal | ✅ v3.3+ |
-
-### v4.2 (Planned - DRAFT)
-
-📝 **IN PLANNING** - новая функциональность в разработке требований
-
-| Компонент | Статус |
-|-----------|--------|
-| Site-Specific Reverse Proxy | 📝 DRAFT v2 (ожидает security review) |
-| Multiple Domains Support (up to 10) | 📝 Specified |
-| Configurable Ports | 📝 Specified |
-| fail2ban Integration (MANDATORY) | 📝 Specified |
-| Error Logging Only (privacy) | 📝 Specified |
+| v4.3 Test Suite (automated) | ✅ v4.3 |
 
 ---
 
@@ -164,5 +156,6 @@ pandoc 00_summary.md 01_overview.md 02_functional_requirements.md \
 ---
 
 **Создано:** 2025-10-16
-**Версия PRD:** v4.1
+**Обновлено:** 2025-10-18
+**Версия PRD:** v4.3
 **Статус:** Production-Ready ✅

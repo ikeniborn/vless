@@ -1,10 +1,10 @@
-# PRD v4.1 - Executive Summary & Navigation
+# PRD v4.3 - Executive Summary & Navigation
 
 **VLESS + Reality VPN Server: Product Requirements Document**
 
-**Version:** 4.1 (Heredoc Config Generation + Proxy URI Fix)
+**Version:** 4.3 (HAProxy Unified Architecture)
 **Status:** ✅ 100% Implemented
-**Last Updated:** 2025-10-07
+**Last Updated:** 2025-10-18
 
 ---
 
@@ -13,15 +13,15 @@
 | Раздел | Описание | Ссылка |
 |--------|----------|--------|
 | **01. Обзор** | Document Control, Executive Summary, Product Overview | [→ Открыть](01_overview.md) |
-| **02. Функциональные требования** | FR-STUNNEL-001, FR-TLS-002, FR-CERT-001/002, FR-IP-001, FR-CONFIG-001, FR-VSCODE-001, FR-GIT-001, FR-PUBLIC-001, FR-PASSWORD-001, FR-FAIL2BAN-001, FR-UFW-001, FR-MIGRATION-001, **FR-REVERSE-PROXY-001** (NEW v4.2 DRAFT) | [→ Открыть](02_functional_requirements.md) |
-| **03. NFR** | NFR-SEC-001, NFR-OPS-001, NFR-PERF-001, NFR-COMPAT-001, NFR-USABILITY-001, NFR-RELIABILITY-001 | [→ Открыть](03_nfr.md) |
-| **04. Архитектура** | Network Architecture, Data Flow, Certificate Lifecycle, File Structure, Docker Compose | [→ Открыть](04_architecture.md) |
-| **05. Тестирование** | TLS Integration Tests, Client Integration Tests, Security Tests, Backward Compatibility | [→ Открыть](05_testing.md) |
+| **02. Функциональные требования** | FR-HAPROXY-001 (v4.3), FR-REVERSE-PROXY-001 (v4.3), FR-TLS-002, FR-CERT-001/002, FR-IP-001, FR-CONFIG-001, FR-VSCODE-001, FR-GIT-001, FR-PUBLIC-001, FR-PASSWORD-001, FR-FAIL2BAN-001, FR-UFW-001, FR-MIGRATION-001 | [→ Открыть](02_functional_requirements.md) |
+| **03. NFR** | NFR-SEC-001, NFR-OPS-001, NFR-PERF-001, NFR-COMPAT-001, NFR-USABILITY-001, NFR-RELIABILITY-001, NFR-RPROXY-002 (v4.3) | [→ Открыть](03_nfr.md) |
+| **04. Архитектура** | Section 4.7 HAProxy Unified Architecture (v4.3), Network Architecture, Data Flow, Certificate Lifecycle, File Structure | [→ Открыть](04_architecture.md) |
+| **05. Тестирование** | v4.3 Test Suite (automated), TLS Integration Tests, Client Integration Tests, Security Tests, HAProxy Tests | [→ Открыть](05_testing.md) |
 | **06. Приложения** | Implementation Details, Security Risk, Success Metrics, Dependencies, Rollback, References | [→ Открыть](06_appendix.md) |
 
 ---
 
-## Ключевые характеристики v4.1
+## Ключевые характеристики v4.3
 
 ### Текущая версия (Production-Ready)
 
@@ -29,17 +29,21 @@
 
 | Компонент | Версия | Статус |
 |-----------|--------|--------|
-| **VLESS Reality VPN** | v4.1 | ✅ Stable |
-| **stunnel TLS Termination** | v4.0+ | ✅ Production |
-| **Dual Proxy (SOCKS5 + HTTP)** | v4.1 | ✅ Complete |
-| **Heredoc Config Generation** | v4.1 | ✅ Implemented |
-| **Proxy URI Fix** | v4.1 | ✅ Bugfix (https://, socks5s://) |
-| **IP Whitelisting** | v3.6/v4.0 | ✅ Server-level + UFW |
+| **VLESS Reality VPN** | v4.3 | ✅ Stable |
+| **HAProxy Unified Architecture** | v4.3 | ✅ Production (replaces stunnel) |
+| **Subdomain-Based Reverse Proxy** | v4.3 | ✅ https://domain (NO port!) |
+| **SNI Routing (HAProxy)** | v4.3 | ✅ TLS passthrough |
+| **Dual Proxy (SOCKS5 + HTTP)** | v4.1+ | ✅ Complete |
+| **Heredoc Config Generation** | v4.1+ | ✅ Implemented |
+| **Port Range 9443-9452 (localhost)** | v4.3 | ✅ Nginx reverse proxy backends |
+| **fail2ban Integration (HAProxy)** | v4.3 | ✅ Multi-layer protection |
+| **IP Whitelisting** | v3.6+ | ✅ Server-level + UFW |
 | **Let's Encrypt Auto-Renewal** | v3.3+ | ✅ Automated |
+| **v4.3 Test Suite (automated)** | v4.3 | ✅ 3 test cases, DEV_MODE support |
 
 ---
 
-## Архитектура (v4.1)
+## Архитектура (v4.3)
 
 ### Компоненты системы
 
@@ -47,16 +51,16 @@
 ┌─────────────────────────────────────────────────────────┐
 │                        CLIENT                           │
 │  VLESS Reality VPN (port 443)                          │
-│  OR                                                     │
 │  Encrypted Proxy: socks5s://1080, https://8118        │
+│  Reverse Proxy: https://subdomain.example.com (NO port!)│
 └─────────────────────┬───────────────────────────────────┘
                       │
                       │ TLS 1.3 Encrypted
                       ↓
 ┌─────────────────────────────────────────────────────────┐
 │                   UFW FIREWALL                          │
-│  - VLESS: 443 (ALLOW)                                  │
-│  - Proxy: 1080/8118 (LIMIT: 10 conn/min)              │
+│  - Port 443 (ALLOW) - VLESS + Reverse Proxy            │
+│  - Ports 1080/8118 (LIMIT: 10 conn/min) - Proxies      │
 └─────────────────────┬───────────────────────────────────┘
                       │
                       ↓
@@ -64,16 +68,21 @@
 │               DOCKER CONTAINERS                         │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐ │
-│  │ stunnel (v4.0+)                                  │ │
-│  │  - TLS 1.3 termination for proxy ports          │ │
-│  │  - Listens: 0.0.0.0:1080, 0.0.0.0:8118         │ │
-│  │  - Forwards to: vless_xray:10800, :18118       │ │
-│  │  - Uses Let's Encrypt certificates             │ │
+│  │ HAProxy (v4.3 UNIFIED)                           │ │
+│  │  - Frontend 443: SNI routing (TLS passthrough)   │ │
+│  │    • VLESS Reality → Xray:8443                  │ │
+│  │    • Subdomain routing → Nginx:9443-9452        │ │
+│  │  - Frontend 1080: SOCKS5 TLS termination        │ │
+│  │    • Forwards to: Xray:10800 (plaintext)        │ │
+│  │  - Frontend 8118: HTTP TLS termination          │ │
+│  │    • Forwards to: Xray:18118 (plaintext)        │ │
+│  │  - Uses combined.pem (fullchain + privkey)      │ │
+│  │  - fail2ban protection (HAProxy filter)         │ │
 │  └──────────────────┬───────────────────────────────┘ │
 │                     │                                  │
 │  ┌──────────────────▼───────────────────────────────┐ │
 │  │ Xray-core                                        │ │
-│  │  - VLESS Reality (port 443)                     │ │
+│  │  - VLESS Reality (port 8443, internal)          │ │
 │  │  - SOCKS5 plaintext (localhost:10800)           │ │
 │  │  - HTTP plaintext (localhost:18118)             │ │
 │  │  - Password authentication (32-char)            │ │
@@ -81,9 +90,10 @@
 │  └──────────────────────────────────────────────────┘ │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐ │
-│  │ Nginx (fake-site)                                │ │
-│  │  - Fallback for invalid VLESS connections       │ │
-│  │  - Proxies to destination site (DPI resistance) │ │
+│  │ Nginx Reverse Proxy (v4.3)                       │ │
+│  │  - Binds to localhost:9443-9452 (10 ports)      │ │
+│  │  - Proxies to target sites via Xray             │ │
+│  │  - fail2ban protection (nginx filter)           │ │
 │  └──────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -92,11 +102,12 @@
 
 | Версия | Дата | Основное изменение | Impact |
 |--------|------|-------------------|--------|
+| **v4.3** | 2025-10-18 | HAProxy Unified Architecture | 1 контейнер вместо 2 (stunnel REMOVED), subdomain-based reverse proxy (https://domain, NO port!), ports 9443-9452 |
+| **v4.2** | 2025-10-17 | Reverse proxy planning | Промежуточная версия (см. v4.3 для реализации) |
 | **v4.1** | 2025-10-07 | Heredoc config generation + URI fix | Упрощение (удален envsubst), исправлен баг URI |
-| **v4.0** | 2025-10-06 | stunnel TLS termination | Разделение TLS и proxy логики |
+| **v4.0** | 2025-10-06 | stunnel TLS termination | Разделение TLS и proxy логики (deprecated в v4.3) |
 | **v3.6** | 2025-10-06 | Server-level IP whitelist | Миграция с per-user (протокольное ограничение) |
 | **v3.3** | 2025-10-05 | Mandatory TLS (Let's Encrypt) | Устранена критическая уязвимость v3.2 |
-| **v3.2** | 2025-10-04 | Public proxy (no encryption) | ❌ **CRITICAL SECURITY ISSUE** (deprecated) |
 | **v3.1** | 2025-10-03 | Dual proxy (localhost-only) | Базовая proxy функциональность |
 | **v3.0** | 2025-10-01 | Base VLESS Reality VPN | Исходная VPN система |
 
@@ -106,54 +117,53 @@
 
 ### Критические (CRITICAL)
 
-1. **FR-STUNNEL-001** (v4.0) - stunnel TLS Termination
-   - TLS 1.3 в отдельном контейнере
-   - Упрощенная конфигурация Xray (plaintext inbounds)
-   - Лучшая отладка (раздельные логи)
+1. **FR-HAPROXY-001** (v4.3) - HAProxy Unified Architecture
+   - Единый HAProxy контейнер для ALL TLS и routing
+   - 3 frontends: SNI routing (443), SOCKS5 TLS (1080), HTTP TLS (8118)
+   - SNI routing без TLS decryption (TLS passthrough)
+   - combined.pem certificates (fullchain + privkey)
+   - Graceful reload (haproxy -sf) для zero-downtime
 
-2. **FR-CERT-001** - Автоматическое получение Let's Encrypt сертификатов
+2. **FR-REVERSE-PROXY-001** (v4.3) - Subdomain-Based Reverse Proxy
+   - HAProxy SNI routing → Nginx backends (ports 9443-9452, localhost-only)
+   - Subdomain access: https://subdomain.example.com (NO port number!)
+   - Xray routing для proxy traffic to target sites
+   - Let's Encrypt сертификаты (combined.pem format)
+   - Поддержка до 10 доменов (ports 9443-9452)
+   - fail2ban protection (nginx + HAProxy filters)
+   - Dynamic ACL management (sed-based config updates)
+
+3. **FR-CERT-001** - Автоматическое получение Let's Encrypt сертификатов
    - Интеграция с certbot
    - ACME HTTP-01 challenge (временное открытие порта 80)
    - DNS валидация перед получением
+   - combined.pem generation (для HAProxy v4.3)
 
-3. **FR-CERT-002** - Автоматическое обновление сертификатов
+4. **FR-CERT-002** - Автоматическое обновление сертификатов
    - Cron job (запуск 2 раза в день)
-   - Deploy hook для перезапуска Xray
+   - Deploy hook для перезапуска HAProxy (graceful reload)
    - Downtime < 5 секунд
 
-4. **FR-IP-001** (v3.6) - Server-Level IP-Based Access Control
+5. **FR-IP-001** (v3.6) - Server-Level IP-Based Access Control
    - proxy_allowed_ips.json (server-level whitelist)
    - Xray routing rules без поля `user` (протокольное ограничение)
    - 5 CLI команд для управления
 
-5. **FR-CONFIG-001** (v4.1 BUGFIX) - Генерация клиентских конфигураций с TLS URIs
-   - ✅ Исправлено: `socks5s://` (было `socks5://`)
-   - ✅ Исправлено: `https://` (было `http://`)
+6. **FR-CONFIG-001** (v4.1) - Генерация клиентских конфигураций с TLS URIs
+   - ✅ Исправлено: `socks5s://` (TLS-enabled SOCKS5)
+   - ✅ Исправлено: `https://` (TLS-enabled HTTP)
    - 6 форматов файлов на пользователя
 
 ### Высокий приоритет (HIGH)
 
-6. **FR-VSCODE-001** - VSCode Integration через HTTPS Proxy
-7. **FR-GIT-001** - Git Integration через SOCKS5s Proxy
-8. **FR-TLS-002** - TLS Encryption для HTTP Inbound
-9. **FR-PUBLIC-001** - Public Proxy Binding (0.0.0.0)
-10. **FR-PASSWORD-001** - 32-character passwords (brute-force protection)
-11. **FR-FAIL2BAN-001** - Fail2ban Integration (5 retries → ban)
-12. **FR-UFW-001** - UFW Firewall Rules с rate limiting
-13. **FR-MIGRATION-001** - Migration Path v3.2 → v3.3
-
-### Запланировано (v4.2 DRAFT)
-
-14. **FR-REVERSE-PROXY-001** - Site-Specific Reverse Proxy (NEW v4.2)
-   - Nginx reverse proxy с TLS termination
-   - Xray для domain-based routing
-   - HTTP Basic Auth (bcrypt)
-   - Let's Encrypt сертификаты
-   - Поддержка до 10 доменов на сервер
-   - Обязательная fail2ban защита
-   - Configurable port (default 8443)
-   - **Status:** 📝 DRAFT v2 (ожидает security review)
-   - **Ссылка:** [→ FR-REVERSE-PROXY-001.md](FR-REVERSE-PROXY-001.md)
+7. **FR-VSCODE-001** - VSCode Integration через HTTPS Proxy
+8. **FR-GIT-001** - Git Integration через SOCKS5s Proxy
+9. **FR-TLS-002** - TLS Encryption для HTTP Inbound
+10. **FR-PUBLIC-001** - Public Proxy Binding (0.0.0.0)
+11. **FR-PASSWORD-001** - 32-character passwords (brute-force protection)
+12. **FR-FAIL2BAN-001** - Fail2ban Integration (5 retries → ban, HAProxy + Nginx filters в v4.3)
+13. **FR-UFW-001** - UFW Firewall Rules с rate limiting
+14. **FR-MIGRATION-001** - Migration Path v3.2 → v3.3+ → v4.3
 
 **Детали:** [→ Функциональные требования](02_functional_requirements.md)
 
@@ -176,23 +186,25 @@
 
 ## Технические характеристики
 
-### Performance Targets (v4.1)
+### Performance Targets (v4.3)
 
 - **Installation Time:** < 7 минут (clean Ubuntu 22.04, 10 Mbps)
 - **User Creation:** < 5 секунд (consistent up to 50 users)
 - **Container Startup:** < 10 секунд
-- **Config Reload:** < 3 секунд
+- **Config Reload:** < 3 секунд (HAProxy graceful reload)
 - **Cert Renewal Downtime:** < 5 секунд
+- **Reverse Proxy Setup:** < 2 минуты (subdomain-based, NO port!)
 
-### Security Posture (v4.1)
+### Security Posture (v4.3)
 
-- ✅ **TLS 1.3 Encryption** (stunnel termination, v4.0+)
-- ✅ **Let's Encrypt Certificates** (auto-renewal)
+- ✅ **TLS 1.3 Encryption** (HAProxy termination, v4.3)
+- ✅ **Let's Encrypt Certificates** (auto-renewal, combined.pem format)
 - ✅ **32-Character Passwords** (brute-force resistant)
-- ✅ **fail2ban Protection** (5 attempts → 1 hour ban)
+- ✅ **fail2ban Protection** (HAProxy + Nginx filters, 5 attempts → 1 hour ban)
 - ✅ **UFW Rate Limiting** (10 conn/min per IP)
-- ✅ **DPI Resistance** (Reality protocol)
-- ✅ **IP Whitelisting** (server-level + optional UFW, v4.0+)
+- ✅ **DPI Resistance** (Reality protocol + SNI routing)
+- ✅ **IP Whitelisting** (server-level + optional UFW)
+- ✅ **SNI Routing Security** (NO TLS decryption for reverse proxy)
 
 ### Scalability
 
@@ -234,12 +246,12 @@
 
 ## Зависимости
 
-### Core Stack (v4.1)
+### Core Stack (v4.3)
 
 **Container Images:**
 - `teddysun/xray:24.11.30` - Xray-core VPN/Proxy
-- `dweomer/stunnel:latest` - TLS termination (NEW v4.0)
-- `nginx:alpine` - Fake-site для DPI resistance
+- `haproxy:latest` - Unified TLS termination & routing (NEW v4.3, replaces stunnel)
+- `nginx:alpine` - Reverse proxy backends (ports 9443-9452, localhost)
 
 **System:**
 - Ubuntu 20.04+ / Debian 10+ (primary support)
@@ -269,13 +281,19 @@ sudo vless-user list                # Список пользователей
 sudo vless-user show alice          # Показать конфиги
 sudo vless-user show-proxy alice    # Показать proxy credentials
 
-# 3. IP whitelisting (v4.0+)
+# 3. Reverse Proxy (v4.3 - subdomain-based, NO port!)
+sudo vless-proxy add                # Interactive setup
+# URL: https://subdomain.example.com (NO :9443!)
+sudo vless-proxy list               # Список reverse proxies
+sudo vless-proxy remove subdomain.example.com
+
+# 4. IP whitelisting
 sudo vless show-proxy-ips           # Показать server-level whitelist
 sudo vless add-proxy-ip 203.0.113.45  # Добавить IP
 sudo vless add-ufw-ip 203.0.113.45    # Добавить UFW правило (опционально)
 
-# 4. Мониторинг
-sudo vless-status                   # Статус системы
+# 5. Мониторинг
+sudo vless-status                   # Статус системы (включая HAProxy info)
 sudo vless-logs -f                  # Live логи
 sudo vless test-security            # Security test suite
 ```
@@ -316,18 +334,27 @@ sudo vless test-security            # Security test suite
 
 ## Статус проекта
 
-**Version:** v4.1 (2025-10-07)
+**Version:** v4.3 (2025-10-18)
 **Implementation Status:** ✅ **100% COMPLETE**
 **Production Ready:** ✅ **YES**
-**Security Status:** ✅ **APPROVED** (TLS 1.3, Let's Encrypt, fail2ban, UFW)
+**Security Status:** ✅ **APPROVED** (TLS 1.3 HAProxy, Let's Encrypt, fail2ban HAProxy+Nginx, UFW, SNI routing)
+
+**Ключевые достижения v4.3:**
+1. ✅ HAProxy Unified Architecture (1 контейнер вместо 2)
+2. ✅ Subdomain-based reverse proxy (https://domain, NO port!)
+3. ✅ SNI routing без TLS decryption
+4. ✅ Port range 9443-9452 (localhost-only backends)
+5. ✅ fail2ban HAProxy integration
+6. ✅ Automated test suite (3 test cases, DEV_MODE)
 
 **Следующие шаги:**
-1. ✅ Все фичи реализованы
-2. Мониторинг production performance
-3. Планирование v4.2 (по необходимости)
+1. Production deployment monitoring
+2. Performance metrics collection
+3. Security auditing (ongoing)
 
 ---
 
 **Создано:** 2025-10-16
+**Обновлено:** 2025-10-18 (v4.3 HAProxy Unified)
 **Источник:** [PRD.md](../../PRD.md) (consolidated version)
 **Разделение:** Логические модули для удобной навигации
