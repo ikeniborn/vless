@@ -1,12 +1,17 @@
 #!/bin/bash
 #
 # VLESS Reality VPN - Main CLI Interface
-# Version: 1.0.0
+# Version: 4.3.0 (HAProxy Unified)
 #
 # Usage: vless <command> [arguments]
 #
 # This is the main CLI wrapper that provides user-friendly commands
 # for managing the VLESS Reality VPN server.
+#
+# v4.3 Changes:
+# - HAProxy unified architecture (VLESS + SOCKS5 + HTTP + Reverse Proxies)
+# - Subdomain-based reverse proxy access (https://domain without port)
+# - Enhanced status command with HAProxy frontends and routes
 #
 
 set -euo pipefail
@@ -265,7 +270,50 @@ main() {
 
         status)
             check_root
+            echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║          VLESS v4.3 - Service Status (HAProxy Unified)      ║${NC}"
+            echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+
+            # Container status
+            echo -e "${CYAN}Container Status:${NC}"
             docker ps --filter "name=vless" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            echo ""
+
+            # HAProxy Status (v4.3)
+            echo -e "${CYAN}HAProxy v4.3 Status:${NC}"
+            if docker ps --filter "name=vless-haproxy" --format "{{.Names}}" | grep -q "vless-haproxy"; then
+                echo -e "  ${GREEN}✓ HAProxy Running${NC}"
+
+                # Show frontends
+                echo ""
+                echo -e "${CYAN}HAProxy Frontends:${NC}"
+                echo "  1. vless-reality    → TCP port 443 (VLESS Reality passthrough)"
+                echo "  2. socks5-tls       → TCP port 1080 (SOCKS5 + TLS termination)"
+                echo "  3. http-tls         → TCP port 8118 (HTTP + TLS termination)"
+
+                # Show active reverse proxy routes
+                echo ""
+                echo -e "${CYAN}Reverse Proxy Routes (SNI):${NC}"
+                if [[ -f "${INSTALL_ROOT}/config/haproxy.cfg" ]]; then
+                    local route_count=$(grep -c "use_backend nginx_" "${INSTALL_ROOT}/config/haproxy.cfg" 2>/dev/null || echo "0")
+                    if [ "$route_count" -gt 0 ]; then
+                        echo -e "  ${GREEN}Active Routes: $route_count${NC}"
+                        grep "acl is_" "${INSTALL_ROOT}/config/haproxy.cfg" | grep -v "#" | while read -r line; do
+                            local domain=$(echo "$line" | awk '{print $NF}')
+                            echo "    → https://$domain"
+                        done
+                    else
+                        echo "  ${YELLOW}No reverse proxy routes configured${NC}"
+                    fi
+                else
+                    echo "  ${YELLOW}HAProxy config not found${NC}"
+                fi
+            else
+                echo -e "  ${RED}✗ HAProxy Not Running${NC}"
+            fi
+
+            echo ""
             ;;
 
         start)
