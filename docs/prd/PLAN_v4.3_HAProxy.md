@@ -163,25 +163,29 @@ Port 443 (HAProxy, 3 frontends):
 
 ### Фаза 5: Обновление CLI инструментов (2-3 часа)
 **Приоритет:** MEDIUM
-**Статус:** ⏳ ОЖИДАНИЕ
+**Статус:** ✅ ЗАВЕРШЕНО
 
-- [ ] **Задача 5.1:** vless-setup-proxy Updates (1.5 часа)
-  - [ ] Subdomain-based prompts
-  - [ ] Автоматическое назначение порта 9443-9452
-  - [ ] DNS validation обязательна
-  - [ ] **Acceptance:** Setup wizard работает
+- [x] **Задача 5.1:** vless-setup-proxy Updates (1.5 часа) ✅ ЗАВЕРШЕНО
+  - [x] Subdomain-based prompts ✅
+  - [x] Автоматическое назначение порта 9443-9452 (via get_next_available_port) ✅
+  - [x] DNS validation обязательна (via acquire_certificate_for_domain) ✅
+  - [x] HAProxy SNI route addition (remove UFW port opening) ✅
+  - [x] Success message: https://domain (NO port number!) ✅
+  - [x] **Acceptance:** Setup wizard работает ✅
 
-- [ ] **Задача 5.2:** vless-proxy CLI Updates (1 час)
-  - [ ] show: subdomain без порта
-  - [ ] list: все reverse proxies
-  - [ ] URL format: https://domain (NO :8443!)
-  - [ ] **Acceptance:** CLI commands обновлены
+- [x] **Задача 5.2:** vless-proxy CLI Updates (1 час) ✅ ЗАВЕРШЕНО
+  - [x] show: subdomain без порта (https://domain) ✅
+  - [x] list: все reverse proxies с v4.3 architecture note ✅
+  - [x] URL format: https://domain (NO :8443!) ✅
+  - [x] remove: HAProxy route removal (replaced UFW port removal) ✅
+  - [x] **Acceptance:** CLI commands обновлены ✅
 
-- [ ] **Задача 5.3:** vless-status Updates (30 мин)
-  - [ ] HAProxy status section
-  - [ ] 3 frontends info
-  - [ ] Active routes
-  - [ ] **Acceptance:** Status показывает HAProxy
+- [x] **Задача 5.3:** vless-status Updates (30 мин) ✅ ЗАВЕРШЕНО
+  - [x] HAProxy status section ✅
+  - [x] 3 frontends info (vless-reality, socks5-tls, http-tls) ✅
+  - [x] Active routes (парсинг haproxy.cfg) ✅
+  - [x] Version header обновлен до 4.3.0 ✅
+  - [x] **Acceptance:** Status показывает HAProxy ✅
 
 ---
 
@@ -274,13 +278,14 @@ Port 443 (HAProxy, 3 frontends):
 | 2. Конфигурация HAProxy | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 3. Обновление Nginx | 2 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
 | 4. Certificate Management | 3 | 2-3 ч | HIGH | ✅ ЗАВЕРШЕНО |
-| 5. Обновление CLI | 3 | 2-3 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
+| 5. Обновление CLI | 3 | 2-3 ч | MEDIUM | ✅ ЗАВЕРШЕНО |
 | 6. fail2ban Integration | 2 | 1-2 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
 | 7. Testing & Validation | 6 | 4-5 ч | CRITICAL | ⏳ ОЖИДАНИЕ |
 | 8. Документация | 3 | 2-3 ч | MEDIUM | ⏳ ОЖИДАНИЕ |
-| **ИТОГО** | **27** | **19-27 ч** | — | — |
+| **ИТОГО** | **27** | **19-27 ч** | — | **5/8 фаз ✅** |
 
 **Реалистичная оценка:** 23 часа
+**Прогресс:** 14/27 задач завершено (~64% от общего времени: 15 часов из 23)
 
 ---
 
