@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.0] - 2025-10-19
+
+### Changed - CLAUDE.md Optimization
+
+**Migration Type:** Non-breaking (documentation only)
+
+**Primary Feature:** Optimized project memory with 53% size reduction
+
+#### CLAUDE.md v5.0 Optimization
+- **OPTIMIZED**: CLAUDE.md project memory file
+  - **Size**: 60 KB → 28 KB (↓ 53%)
+  - **Lines**: 1719 → 688 (↓ 60%)
+  - **Removed**: ~800 lines of duplication with docs/prd/
+  - **Improved**: Navigation, readability, maintainability
+
+#### What Was Removed
+- **REMOVED**: Section 17 (PRD Documentation Structure) - 216 lines
+  - Replaced with concise Documentation Map (20 lines)
+  - Full details in docs/prd/00_summary.md
+- **REMOVED**: Section 13 (Technical Details) - 226 lines
+  - Detailed configs moved to docs/prd/04_architecture.md
+  - Kept only critical parameters and quick reference
+- **REMOVED**: Section 10 (NFR) - 91 lines
+  - Full list in docs/prd/03_nfr.md
+  - Kept top-5 NFR in Quick Reference
+- **REMOVED**: Section 12 (Testing Checklist) - 60 lines
+  - Full test suite in docs/prd/05_testing.md
+  - Kept quick checklist in Quick Reference
+
+#### What Was Compressed
+- **COMPRESSED**: Section 9 (Critical Requirements) - 346 → 150 lines
+  - Kept top-5 CRITICAL requirements (FR-001, FR-004, FR-011, FR-012, FR-014)
+  - Added links to docs/prd/02_functional_requirements.md for full details
+- **COMPRESSED**: Section 7 (Critical Parameters) - 214 → 80 lines
+  - Removed YAML/bash code examples
+  - Kept concise tables with versions and ports
+  - Added links to docs/prd/04_architecture.md
+- **COMPRESSED**: Section 11 (Failure Points) - 159 → 60 lines
+  - Kept top-3 common issues
+  - Full troubleshooting in docs/prd/06_appendix.md
+- **COMPRESSED**: Section 15 (Security & Debug) - 143 → 70 lines
+  - Kept only quick debug commands
+  - Full security details in docs/prd/06_appendix.md
+
+#### New Structure
+- **ADDED**: Section 10 (Quick Reference) - replaces sections 10-16
+  - Top-5 NFR with acceptance criteria
+  - Top-3 common issues with solutions
+  - Quick debug commands
+  - Security testing commands
+- **ADDED**: Section 11 (Documentation Map) - replaces section 17
+  - Navigation guide for all project documentation
+  - PRD quick navigation by use case
+  - Version history summary with key changes
+
+#### Benefits
+- **Faster Navigation**: Jump to details via links instead of scrolling
+- **Single Source of Truth**: docs/prd/ contains all detailed information
+- **Easier Maintenance**: Update once in docs/prd/, reference from CLAUDE.md
+- **Better Readability**: Shorter sections, clearer structure
+- **Reduced Context**: Smaller file loads faster in AI assistants
+
+#### Backup
+- Резервная копия: `CLAUDE.md.backup.20251019-104440` (58 KB)
+- Для восстановления: `cp CLAUDE.md.backup.20251019-104440 CLAUDE.md`
+
+---
+
 ## [4.3] - 2025-10-18
 
 ### Changed - HAProxy Unified Architecture
