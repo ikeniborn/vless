@@ -28,8 +28,8 @@
 #   2 - Permission error (not root)
 #   3 - Dependency error
 #
-# Version: 1.0
-# Date: 2025-10-02
+# Version: 4.3
+# Date: 2025-10-19
 ################################################################################
 
 set -euo pipefail
@@ -45,9 +45,6 @@ readonly COLOR_RESET='\033[0m'
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-
-# Export paths for modules (required by stunnel_setup.sh)
-export TEMPLATE_DIR="${SCRIPT_DIR}/templates"
 
 # Total installation steps
 readonly TOTAL_STEPS=10
@@ -136,7 +133,7 @@ print_banner() {
 ║          VLESS + Reality VPN Server Installation            ║
 ║                                                              ║
 ║  Production-grade CLI-based Reality protocol deployment     ║
-║  Version: 3.0                                               ║
+║  Version: 4.3 (HAProxy Unified Architecture)               ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 EOF
@@ -173,7 +170,6 @@ source_libraries() {
         "verification.sh"
         "security_hardening.sh"
         "certbot_setup.sh"
-        "stunnel_setup.sh"
     )
 
     # Check if lib directory exists
@@ -202,7 +198,7 @@ source_libraries() {
             exit 1
         }
 
-        # After sourcing orchestrator.sh, export paths for subsequent modules (stunnel_setup.sh)
+        # After sourcing orchestrator.sh, export paths for subsequent modules
         if [[ "$module" == "orchestrator.sh" ]]; then
             export CONFIG_DIR
             export LOG_DIR="${LOGS_DIR}"
