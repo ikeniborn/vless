@@ -88,17 +88,23 @@ services:
     image: haproxy:2.8-alpine
     container_name: vless_haproxy
     restart: unless-stopped
-    network_mode: host  # Direct access to host network stack
+    networks:
+      - vless_reality_net
+    ports:
+      - "443:443"      # HTTPS SNI routing
+      - "1080:1080"    # SOCKS5 with TLS
+      - "8118:8118"    # HTTP proxy with TLS
+      - "9000:9000"    # HAProxy stats page (localhost only in haproxy.cfg)
     volumes:
       - ${VLESS_DIR}/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro  # Certificates for all ports
       - ${VLESS_DIR}/logs/haproxy/:/var/log/haproxy/
-    cap_add:
-      - NET_BIND_SERVICE
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
+    depends_on:
+      - xray
     logging:
       driver: "json-file"
       options:
@@ -120,11 +126,12 @@ services:
     volumes:
       - ${VLESS_DIR}/config/xray_config.json:/etc/xray/config.json:ro
       - ${VLESS_DIR}/logs/xray/:/var/log/xray/
-    ports:
-      # v4.3 CHANGE: VLESS на localhost only (HAProxy forwards)
-      - "127.0.0.1:8443:8443"
-      # Note: SOCKS5/HTTP plaintext ports (10800/18118) not exposed to host
-      # HAProxy (host mode) accesses these via 127.0.0.1
+    expose:
+      # v4.3 CHANGE: Ports exposed ONLY within Docker network (not to host)
+      # HAProxy accesses these via service name: vless_xray:8443
+      - "8443"   # VLESS Reality inbound
+      - "10800"  # SOCKS5 proxy (plaintext, HAProxy terminates TLS)
+      - "18118"  # HTTP proxy (plaintext, HAProxy terminates TLS)
     networks:
       - vless_reality_net
     logging:

@@ -133,7 +133,7 @@ frontend https_sni_router
 # Backend for VLESS Reality (TCP passthrough, NO TLS termination)
 backend xray_vless
     mode tcp
-    server xray 127.0.0.1:8443 check inter 10s fall 3 rise 2
+    server xray vless_xray:8443 check inter 10s fall 3 rise 2
 
 # Blackhole for unknown/invalid SNI
 backend blackhole
@@ -156,7 +156,7 @@ frontend socks5_tls
 # Backend for SOCKS5 (plaintext to Xray)
 backend xray_socks5_plaintext
     mode tcp
-    server xray 127.0.0.1:10800 check inter 10s fall 3 rise 2
+    server xray vless_xray:10800 check inter 10s fall 3 rise 2
 
 # ==============================================================================
 # Frontend 3: Port 8118 - HTTP Proxy TLS Termination
@@ -175,7 +175,7 @@ frontend http_proxy_tls
 # Backend for HTTP Proxy (plaintext to Xray)
 backend xray_http_plaintext
     mode tcp
-    server xray 127.0.0.1:18118 check inter 10s fall 3 rise 2
+    server xray vless_xray:18118 check inter 10s fall 3 rise 2
 
 # ==============================================================================
 # Stats Page (localhost only)
@@ -275,14 +275,14 @@ add_reverse_proxy_route() {
 # Backend for reverse proxy: ${domain}
 backend nginx_${domain_safe}
     mode tcp
-    server nginx_${port} 127.0.0.1:${port} check inter 10s fall 3 rise 2
+    server nginx_${port} vless_nginx_reverseproxy:${port} check inter 10s fall 3 rise 2
 EOF
     else
         # Insert before stats section
         sed -i "$((stats_line-1))a\\# Backend for reverse proxy: ${domain}" "${HAPROXY_CONFIG}"
         sed -i "$((stats_line))a\\backend nginx_${domain_safe}" "${HAPROXY_CONFIG}"
         sed -i "$((stats_line+1))a\\    mode tcp" "${HAPROXY_CONFIG}"
-        sed -i "$((stats_line+2))a\\    server nginx_${port} 127.0.0.1:${port} check inter 10s fall 3 rise 2" "${HAPROXY_CONFIG}"
+        sed -i "$((stats_line+2))a\\    server nginx_${port} vless_nginx_reverseproxy:${port} check inter 10s fall 3 rise 2" "${HAPROXY_CONFIG}"
         sed -i "$((stats_line+3))a\\ " "${HAPROXY_CONFIG}"
     fi
 

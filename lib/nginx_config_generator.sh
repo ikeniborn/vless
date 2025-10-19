@@ -133,7 +133,7 @@ upstream xray_reverseproxy_${domain//[.-]/_} {
 
 # Primary server block (with Host header validation)
 server {
-    listen 127.0.0.1:${port} ssl http2;  # v4.3: localhost-only (HAProxy routes by SNI)
+    listen 0.0.0.0:${port} ssl http2;  # v4.3: Bridge network (HAProxy routes by SNI)
     server_name ${domain};  # EXACT match required
 
     # TLS Configuration (TLS 1.3 only)
@@ -217,7 +217,7 @@ server {
 
 # VULN-001 FIX: Default server block (catch invalid Host headers)
 server {
-    listen 127.0.0.1:${port} ssl http2 default_server;  # v4.3: localhost-only
+    listen 0.0.0.0:${port} ssl http2 default_server;  # v4.3: Bridge network
     server_name _;
 
     ssl_certificate ${cert_path}/fullchain.pem;
