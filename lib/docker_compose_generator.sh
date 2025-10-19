@@ -22,7 +22,8 @@ set -euo pipefail
 VLESS_DIR="${VLESS_DIR:-/opt/vless}"
 DOCKER_COMPOSE_FILE="${VLESS_DIR}/docker-compose.yml"
 DOCKER_SUBNET="${DOCKER_SUBNET:-172.20.0.0/16}"
-VLESS_PORT="${VLESS_PORT:-443}"
+# v5.1: VLESS_PORT is internal port 8443 (HAProxy listens on 443 externally)
+VLESS_PORT="${VLESS_PORT:-8443}"
 
 # Logging
 log() {

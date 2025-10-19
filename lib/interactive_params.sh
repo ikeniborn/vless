@@ -4,10 +4,11 @@
 # Part of VLESS+Reality VPN Deployment System
 #
 # Purpose: Interactively collect and validate installation parameters
-# Parameters: Destination site, VLESS port, Docker subnet
+# Parameters: Destination site, Docker subnet, Proxy configuration
 # Usage: source this file from install.sh
 #
 # TASK-1.5: Interactive parameter collection (3h)
+# v5.1: Removed VLESS port selection (hardcoded 8443 for HAProxy architecture)
 #
 
 # Only set strict mode if not already set (to avoid issues when sourced)
@@ -52,16 +53,14 @@ PREDEFINED_DESTINATIONS=(
     ["4"]="www.cloudflare.com:443"
 )
 
-# Alternative ports if 443 is occupied
-readonly ALTERNATIVE_PORTS=(8443 2053 2083 2087 2096 2052)
-
 # =============================================================================
 # FUNCTION: collect_parameters
 # =============================================================================
 # Description: Main function to collect all installation parameters interactively
 # Called by: install.sh main()
-# Sets: REALITY_DEST, REALITY_DEST_PORT, VLESS_PORT, DOCKER_SUBNET
+# Sets: REALITY_DEST, REALITY_DEST_PORT, VLESS_PORT (hardcoded 8443), DOCKER_SUBNET
 # Returns: 0 on success, 1 on failure or user cancellation
+# v5.1: VLESS_PORT hardcoded to 8443 (HAProxy architecture requirement)
 # =============================================================================
 collect_parameters() {
     echo ""
@@ -73,31 +72,31 @@ collect_parameters() {
     echo -e "${CYAN}Press Ctrl+C at any time to cancel.${NC}"
     echo ""
 
+    # v5.1: Hardcode VLESS port to 8443 (HAProxy architecture requirement)
+    # HAProxy listens on external port 443 and forwards to Xray internal port 8443
+    VLESS_PORT="$DEFAULT_VLESS_PORT"
+    echo -e "${CYAN}Xray internal port: ${VLESS_PORT} (hardcoded for HAProxy architecture)${NC}"
+    echo ""
+
     # Step 1: Select destination site
     select_destination_site || {
         echo -e "${RED}Failed to select destination site${NC}" >&2
         return 1
     }
 
-    # Step 2: Select VLESS port
-    select_port || {
-        echo -e "${RED}Failed to select VLESS port${NC}" >&2
-        return 1
-    }
-
-    # Step 3: Select Docker subnet
+    # Step 2: Select Docker subnet
     select_docker_subnet || {
         echo -e "${RED}Failed to select Docker subnet${NC}" >&2
         return 1
     }
 
-    # Step 4: Enable public proxy support (v3.2)
+    # Step 3: Enable public proxy support (v3.2)
     prompt_enable_public_proxy || {
         echo -e "${RED}Failed to configure proxy settings${NC}" >&2
         return 1
     }
 
-    # Step 4.5: Prompt for domain and email (v3.4) - only if public proxy + TLS enabled
+    # Step 4: Prompt for domain and email (v3.4) - only if public proxy + TLS enabled
     if [[ "$ENABLE_PUBLIC_PROXY" == "true" ]] && [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
         prompt_domain_email || {
             echo -e "${RED}Failed to configure TLS certificate settings${NC}" >&2
@@ -128,7 +127,7 @@ collect_parameters() {
 # =============================================================================
 select_destination_site() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}[1/3] Select Destination Site for Reality Masquerading${NC}"
+    echo -e "${CYAN}[1/2] Select Destination Site for Reality Masquerading${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo "Reality protocol 'borrows' the TLS handshake from a legitimate HTTPS site."
@@ -269,73 +268,11 @@ validate_destination() {
 }
 
 # =============================================================================
-# FUNCTION: select_port
+# FUNCTION: select_port - REMOVED in v5.1
 # =============================================================================
-# Description: Interactive selection of VLESS server port with availability check
-# Default: 8443 (v4.3 HAProxy: internal Xray port, HAProxy listens on 443)
-# Validates: Port is available and not in use
-# Sets: VLESS_PORT
-# Returns: 0 on success, 1 on failure
+# VLESS port is now hardcoded to 8443 for HAProxy architecture (v4.3+)
+# This function has been removed as port selection is no longer needed
 # =============================================================================
-select_port() {
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}[2/3] Select VLESS Server Port${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "Xray internal port (HAProxy forwards from external port 443 to this port)."
-    echo "Port 8443 is recommended for v4.3 HAProxy architecture."
-    echo ""
-
-    # Check if default port is available
-    echo -e "${CYAN}Checking port availability...${NC}"
-    if check_port_availability "$DEFAULT_VLESS_PORT"; then
-        echo -e "${GREEN}✓ Port ${DEFAULT_VLESS_PORT} is available${NC}"
-        echo ""
-
-        local use_default
-        read -rp "Use port ${DEFAULT_VLESS_PORT}? [Y/n]: " use_default
-        use_default=${use_default:-Y}
-
-        if [[ "$use_default" =~ ^[Yy]$ ]]; then
-            VLESS_PORT="$DEFAULT_VLESS_PORT"
-            echo -e "${GREEN}✓ Selected port: ${VLESS_PORT}${NC}"
-            echo ""
-            return 0
-        fi
-    else
-        echo -e "${YELLOW}⚠ Port ${DEFAULT_VLESS_PORT} is already in use${NC}"
-        echo ""
-        suggest_alternative_ports
-    fi
-
-    # Manual port selection
-    echo ""
-    echo "Enter a custom port (1-65535):"
-
-    local custom_port
-    while true; do
-        read -rp "Port: " custom_port
-
-        # Validate port number
-        if ! [[ "$custom_port" =~ ^[0-9]+$ ]] || [ "$custom_port" -lt 1 ] || [ "$custom_port" -gt 65535 ]; then
-            echo -e "${RED}Invalid port. Must be between 1 and 65535${NC}"
-            continue
-        fi
-
-        # Check availability
-        echo -n "Checking port ${custom_port}... "
-        if check_port_availability "$custom_port"; then
-            echo -e "${GREEN}Available${NC}"
-            VLESS_PORT="$custom_port"
-            echo -e "${GREEN}✓ Selected port: ${VLESS_PORT}${NC}"
-            echo ""
-            return 0
-        else
-            echo -e "${RED}In use${NC}"
-            echo "Please try another port."
-        fi
-    done
-}
 
 # =============================================================================
 # FUNCTION: check_port_availability
@@ -372,47 +309,10 @@ check_port_availability() {
 }
 
 # =============================================================================
-# FUNCTION: suggest_alternative_ports
+# FUNCTION: suggest_alternative_ports - REMOVED in v5.1
 # =============================================================================
-# Description: Suggest alternative ports if default is occupied
-# Displays: List of available alternative ports
+# This function has been removed as VLESS port is now hardcoded to 8443
 # =============================================================================
-suggest_alternative_ports() {
-    echo -e "${CYAN}Checking alternative ports...${NC}"
-    echo ""
-
-    local available_ports=()
-    for alt_port in "${ALTERNATIVE_PORTS[@]}"; do
-        if check_port_availability "$alt_port"; then
-            available_ports+=("$alt_port")
-        fi
-    done
-
-    if [ ${#available_ports[@]} -gt 0 ]; then
-        echo -e "${GREEN}Available alternative ports:${NC}"
-        for port in "${available_ports[@]}"; do
-            echo "  - $port"
-        done
-        echo ""
-
-        local use_alt
-        read -rp "Use one of these ports? Enter port number or 'n' for custom: " use_alt
-
-        if [[ "$use_alt" =~ ^[0-9]+$ ]]; then
-            for port in "${available_ports[@]}"; do
-                if [ "$port" == "$use_alt" ]; then
-                    VLESS_PORT="$use_alt"
-                    echo -e "${GREEN}✓ Selected port: ${VLESS_PORT}${NC}"
-                    echo ""
-                    return 0
-                fi
-            done
-            echo -e "${YELLOW}Port ${use_alt} not in suggested list, please verify manually${NC}"
-        fi
-    else
-        echo -e "${YELLOW}No alternative ports available from predefined list${NC}"
-    fi
-}
 
 # =============================================================================
 # FUNCTION: select_docker_subnet
@@ -425,7 +325,7 @@ suggest_alternative_ports() {
 # =============================================================================
 select_docker_subnet() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}[3/3] Select Docker Network Subnet${NC}"
+    echo -e "${CYAN}[2/2] Select Docker Network Subnet${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo "Docker bridge network will be created with an isolated subnet."
@@ -640,7 +540,7 @@ confirm_parameters() {
     echo -e "${CYAN}Please review your configuration:${NC}"
     echo ""
     echo -e "  ${YELLOW}Destination Site:${NC}    ${REALITY_DEST}:${REALITY_DEST_PORT}"
-    echo -e "  ${YELLOW}VLESS Port:${NC}          ${VLESS_PORT}"
+    echo -e "  ${YELLOW}Xray Internal Port:${NC}  ${VLESS_PORT} (HAProxy forwards from 443)"
     echo -e "  ${YELLOW}Docker Subnet:${NC}       ${DOCKER_SUBNET}"
 
     # v3.4: Display proxy mode with TLS status
@@ -1058,9 +958,7 @@ prompt_enable_public_proxy() {
 export -f collect_parameters
 export -f select_destination_site
 export -f validate_destination
-export -f select_port
 export -f check_port_availability
-export -f suggest_alternative_ports
 export -f select_docker_subnet
 export -f scan_docker_networks
 export -f find_free_subnet
