@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.1] - 2025-10-20
+
+### Fixed - HAProxy v4.3 Port Configuration
+
+**Migration Type:** Non-breaking (configuration fix for existing installations)
+
+**Primary Fix:** Xray VLESS inbound port alignment with HAProxy v4.3 architecture
+
+#### Issue
+- **PROBLEM**: Xray configured to listen on port 443 (external) instead of 8443 (internal)
+- **IMPACT**: vless_xray container unhealthy, HAProxy backend down ("Connection refused")
+- **ROOT CAUSE**: Installation scripts using old port configuration (pre-v4.3)
+
+#### Fixed Components
+
+**1. Production Configuration (/opt/vless/config/xray_config.json)**
+- **FIXED**: Xray VLESS inbound port: 443 → 8443
+- **FIXED**: Fallback container name: vless_nginx → vless_fake_site
+- **REASON**: HAProxy v4.3 listens on 443 externally, forwards to Xray:8443 internally
+
+**2. Installation Scripts (lib/)**
+- **FIXED**: `lib/interactive_params.sh`
+  - DEFAULT_VLESS_PORT: 443 → 8443
+  - Added comment: "v4.3 HAProxy Architecture: Xray listens on internal port 8443, HAProxy on external 443"
+  - Updated port selection prompt to explain internal vs external ports
+
+- **FIXED**: `lib/orchestrator.sh`
+  - Fallback destination: vless_nginx:80 → vless_fake_site:80
+  - Aligns with docker-compose.yml container naming
+
+#### Documentation Updates
+
+**CLAUDE.md v5.1:**
+- Updated version: 5.0 → 5.1
+- Enhanced HAProxy Architecture description (external 443 → internal 8443)
+- Added Issue 4 to Common Issues: "Xray Container Unhealthy - Wrong Port Configuration"
+  - Detection commands
+  - Root cause explanation
+  - Step-by-step fix for existing installations
+  - Permanent fix for future installations
+
+**Architecture Diagram (already correct in docs/prd/04_architecture.md):**
+```
+Port 443 (HAProxy, external)
+  → SNI Routing → Xray:8443 (internal, VLESS Reality)
+```
+
+#### Impact & Migration
+
+**For New Installations:**
+- ✅ Automatic - scripts now use correct ports
+
+**For Existing Installations (manual fix):**
+```bash
+# 1. Fix Xray configuration
+sudo sed -i 's/"port": 443,/"port": 8443,/' /opt/vless/config/xray_config.json
+sudo sed -i 's/"dest": "vless_nginx:80"/"dest": "vless_fake_site:80"/' /opt/vless/config/xray_config.json
+
+# 2. Restart Xray
+docker restart vless_xray
+
+# 3. Verify
+docker ps --filter "name=vless_xray" --format "{{.Status}}"  # Should show (healthy)
+docker logs vless_haproxy --tail 5 | grep "UP"                # Should show "xray is UP"
+```
+
+**Affected Files:**
+- `/opt/vless/config/xray_config.json` (production)
+- `lib/interactive_params.sh` (installation)
+- `lib/orchestrator.sh` (installation)
+- `CLAUDE.md` (documentation)
+- `CHANGELOG.md` (this file)
+
+**Related Issues:**
+- See CLAUDE.md Section "Top-4 Common Issues" → Issue 4
+
+---
+
 ## [5.0] - 2025-10-19
 
 ### Changed - Documentation Restructuring & Optimization

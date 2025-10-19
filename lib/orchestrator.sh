@@ -569,7 +569,7 @@ create_xray_config() {
       "decryption": "none",
       "fallbacks": [
         {
-          "dest": "vless_nginx:80"
+          "dest": "vless_fake_site:80"
         }
       ]
     },

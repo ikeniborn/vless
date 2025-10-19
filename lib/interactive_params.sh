@@ -37,7 +37,8 @@ export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Default values (conditional to avoid conflicts with other modules)
-[[ -z "${DEFAULT_VLESS_PORT:-}" ]] && readonly DEFAULT_VLESS_PORT=443
+# v4.3 HAProxy Architecture: Xray listens on internal port 8443, HAProxy on external 443
+[[ -z "${DEFAULT_VLESS_PORT:-}" ]] && readonly DEFAULT_VLESS_PORT=8443
 [[ -z "${DEFAULT_DOCKER_SUBNET:-}" ]] && readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 readonly DEST_VALIDATION_TIMEOUT=10  # seconds
 
@@ -271,7 +272,7 @@ validate_destination() {
 # FUNCTION: select_port
 # =============================================================================
 # Description: Interactive selection of VLESS server port with availability check
-# Default: 443 (standard HTTPS port)
+# Default: 8443 (v4.3 HAProxy: internal Xray port, HAProxy listens on 443)
 # Validates: Port is available and not in use
 # Sets: VLESS_PORT
 # Returns: 0 on success, 1 on failure
@@ -281,8 +282,8 @@ select_port() {
     echo -e "${CYAN}[2/3] Select VLESS Server Port${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo "VLESS server will listen on this port for incoming VPN connections."
-    echo "Port 443 is recommended (standard HTTPS) for maximum compatibility."
+    echo "Xray internal port (HAProxy forwards from external port 443 to this port)."
+    echo "Port 8443 is recommended for v4.3 HAProxy architecture."
     echo ""
 
     # Check if default port is available

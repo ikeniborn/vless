@@ -1,8 +1,8 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.0 (Optimized)
-**Last Updated:** 2025-10-19
+**Version:** 5.1 (HAProxy Port Fix)
+**Last Updated:** 2025-10-20
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
 **Рекомендации по использованию:**
@@ -319,7 +319,7 @@ PHASE N CHECKPOINT:
 Reality protocol "steals" TLS handshake from legitimate websites (google.com, microsoft.com), making VPN traffic mathematically indistinguishable from normal HTTPS. Deep Packet Inspection systems cannot detect the VPN.
 
 **HAProxy Architecture (v4.3 - Current):**
-HAProxy handles ALL TLS termination and routing in single container. **stunnel removed completely**. Port 443: SNI routing (VLESS Reality passthrough + Reverse Proxy subdomain routing). Ports 1080/8118: TLS termination for proxies. Nginx reverse proxy backends on localhost:9443-9452 (NOT exposed). Subdomain-based reverse proxy access (https://domain, NO port!). Graceful reload for zero-downtime updates.
+HAProxy handles ALL TLS termination and routing in single container. **stunnel removed completely**. Port 443 (external): SNI routing to Xray:8443 (internal) for VLESS Reality + Reverse Proxy subdomain routing. Ports 1080/8118: TLS termination for proxies → Xray:10800/18118 plaintext. Nginx reverse proxy backends on localhost:9443-9452 (NOT exposed). Subdomain-based reverse proxy access (https://domain, NO port!). Graceful reload for zero-downtime updates.
 
 🔗 **Детали:** docs/prd/00_summary.md, docs/prd/04_architecture.md
 
@@ -527,7 +527,7 @@ Client → HAProxy Frontend 443 (SNI routing, NO TLS decryption)
 
 ---
 
-### Top-3 Common Issues
+### Top-4 Common Issues
 
 #### Issue 1: UFW Blocks Docker Traffic
 **Symptoms:** Containers run, but no Internet access inside
@@ -572,6 +572,42 @@ grep "DYNAMIC_REVERSE_PROXY_ROUTES" /opt/vless/config/haproxy.cfg
 # Manual HAProxy reload
 docker exec vless_haproxy haproxy -sf $(docker exec vless_haproxy cat /var/run/haproxy.pid)
 ```
+
+---
+
+#### Issue 4: Xray Container Unhealthy - Wrong Port Configuration
+**Symptoms:** vless_xray shows (unhealthy), HAProxy logs "Connection refused"
+
+**Detection:**
+```bash
+docker ps --filter "name=vless_xray" --format "{{.Status}}"
+docker logs vless_haproxy | grep "xray_vless"
+jq -r '.inbounds[0].port' /opt/vless/config/xray_config.json
+```
+
+**Root Cause:**
+Xray configured to listen on port 443 instead of 8443 (v4.3 HAProxy architecture requires Xray on internal port 8443)
+
+**Solution:**
+```bash
+# Fix Xray port configuration
+sudo sed -i 's/"port": 443,/"port": 8443,/' /opt/vless/config/xray_config.json
+
+# Fix fallback container name
+sudo sed -i 's/"dest": "vless_nginx:80"/"dest": "vless_fake_site:80"/' /opt/vless/config/xray_config.json
+
+# Restart Xray container
+docker restart vless_xray
+
+# Verify fix
+docker ps --filter "name=vless_xray" --format "{{.Status}}"
+docker logs vless_haproxy --tail 5 | grep "UP"
+```
+
+**Permanent Fix (for future installations):**
+Update installation scripts:
+- `lib/interactive_params.sh`: DEFAULT_VLESS_PORT=8443
+- `lib/orchestrator.sh`: fallback → vless_fake_site:80
 
 🔗 **Полный список:** docs/prd/06_appendix.md (Common Failure Points)
 
@@ -658,6 +694,7 @@ sudo vless test-security --dev-mode
 
 | Версия | Дата | Ключевые изменения |
 |--------|------|--------------------|
+| **v5.1** | 2025-10-20 | HAProxy Port Fix: Xray 8443 (internal), HAProxy 443 (external) |
 | **v5.0** | 2025-10-19 | Optimized CLAUDE.md (-42% размер, -51% строки) |
 | **v4.3** | 2025-10-18 | HAProxy Unified Architecture, subdomain-based reverse proxy |
 | **v4.1** | 2025-10-07 | Heredoc config generation + Proxy URI fix |
@@ -673,6 +710,12 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.1 - 2025-10-20: HAProxy Port Configuration Fix
+  - Fixed: Xray port 443 → 8443 (internal backend for HAProxy)
+  - Fixed: Fallback container vless_nginx → vless_fake_site
+  - Updated: Installation scripts (lib/interactive_params.sh, lib/orchestrator.sh)
+  - Added: Issue 4 to Common Issues (Xray Unhealthy troubleshooting)
+
 v5.0 - 2025-10-19: Optimized version
   - Size: 60 KB → ~35 KB (↓ 42%)
   - Lines: 1719 → ~850 (↓ 51%)
