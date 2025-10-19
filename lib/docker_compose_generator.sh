@@ -77,9 +77,8 @@ generate_docker_compose() {
     fi
 
     # Generate docker-compose.yml via heredoc (v4.3)
+    # Note: 'version' attribute removed (obsolete in Docker Compose v2)
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
-version: '3.8'
-
 services:
   # ===========================================================================
   # HAProxy Service (v4.3 NEW - Unified TLS Termination)
@@ -229,13 +228,11 @@ services:
 # =============================================================================
 # Networks
 # =============================================================================
+# Network is created externally by orchestrator.sh (Step 9: create_docker_network)
+# Docker Compose uses existing network instead of trying to manage it
 networks:
   vless_reality_net:
-    name: vless_reality_net
-    driver: bridge
-    ipam:
-      config:
-        - subnet: ${DOCKER_SUBNET}
+    external: true
 EOF
 
     local exit_code=$?
