@@ -476,23 +476,23 @@ acquire_certificate_for_domain() {
         return 1
     fi
 
-    # STEP 2-5: Certificate Acquisition (via certbot_manager.sh)
+    # STEP 2-5: Certificate Acquisition (via letsencrypt_integration.sh)
     echo -e "${CYAN}[STEP 2-5/6] Certificate Acquisition${NC}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
-    # Source certbot_manager.sh if not already loaded
-    local certbot_manager_path
-    certbot_manager_path="$(dirname "${BASH_SOURCE[0]}")/certbot_manager.sh"
+    # Source letsencrypt_integration.sh if not already loaded
+    local letsencrypt_lib_path
+    letsencrypt_lib_path="$(dirname "${BASH_SOURCE[0]}")/letsencrypt_integration.sh"
 
-    if [[ ! -f "$certbot_manager_path" ]]; then
-        echo -e "${RED}ERROR: certbot_manager.sh not found${NC}" >&2
-        echo "Expected: $certbot_manager_path" >&2
+    if [[ ! -f "$letsencrypt_lib_path" ]]; then
+        echo -e "${RED}ERROR: letsencrypt_integration.sh not found${NC}" >&2
+        echo "Expected: $letsencrypt_lib_path" >&2
         return 1
     fi
 
     if ! command -v acquire_certificate &>/dev/null; then
-        source "$certbot_manager_path"
+        source "$letsencrypt_lib_path"
     fi
 
     # Run certbot acquisition workflow

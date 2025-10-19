@@ -64,19 +64,19 @@ ICON_KEY="🔑"
 # =============================================================================
 
 print_header() {
-    echo ""
-    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}${BOLD}  $1${NC}"
-    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
-    echo ""
+    echo "" >&2
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════════${NC}" >&2
+    echo -e "${CYAN}${BOLD}  $1${NC}" >&2
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════════${NC}" >&2
+    echo "" >&2
 }
 
 print_step() {
-    echo -e "${BLUE}${BOLD}▶ $1${NC}"
+    echo -e "${BLUE}${BOLD}▶ $1${NC}" >&2
 }
 
 print_success() {
-    echo -e "${GREEN}${ICON_SUCCESS} $1${NC}"
+    echo -e "${GREEN}${ICON_SUCCESS} $1${NC}" >&2
 }
 
 print_error() {
@@ -84,11 +84,11 @@ print_error() {
 }
 
 print_warning() {
-    echo -e "${YELLOW}${ICON_WARNING} $1${NC}"
+    echo -e "${YELLOW}${ICON_WARNING} $1${NC}" >&2
 }
 
 print_info() {
-    echo -e "${CYAN}${ICON_INFO} $1${NC}"
+    echo -e "${CYAN}${ICON_INFO} $1${NC}" >&2
 }
 
 # =============================================================================
@@ -118,7 +118,7 @@ check_dns_resolution() {
     print_step "Проверка DNS резолюции для $domain..."
 
     # Get server's public IP
-    server_ip=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || echo "")
+    server_ip=$(curl -s https://api.ipify.org 2>/dev/null || curl -s https://ifconfig.me 2>/dev/null || echo "")
 
     if [[ -z "$server_ip" ]]; then
         print_error "Не удалось определить публичный IP сервера"
@@ -129,7 +129,7 @@ check_dns_resolution() {
 
     # Resolve domain
     local domain_ip
-    domain_ip=$(dig +short "$domain" @8.8.8.8 | tail -1)
+    domain_ip=$(dig +short "$domain" @8.8.8.8 2>/dev/null | tail -1)
 
     if [[ -z "$domain_ip" ]]; then
         print_error "Домен $domain не резолвится"
@@ -195,11 +195,11 @@ prompt_domain() {
 
     print_header "Шаг 1: Домен для Reverse Proxy"
 
-    echo -e "${CYAN}Введите домен для reverse proxy (например, proxy.example.com):${NC}"
-    echo -e "${YELLOW}Требования:${NC}"
-    echo "  - Домен должен указывать на IP этого сервера (A-запись)"
-    echo "  - Будет автоматически получен Let's Encrypt сертификат"
-    echo ""
+    echo -e "${CYAN}Введите домен для reverse proxy (например, proxy.example.com):${NC}" >&2
+    echo -e "${YELLOW}Требования:${NC}" >&2
+    echo "  - Домен должен указывать на IP этого сервера (A-запись)" >&2
+    echo "  - Будет автоматически получен Let's Encrypt сертификат" >&2
+    echo "" >&2
 
     while true; do
         read -p "Домен: " domain
@@ -212,7 +212,7 @@ prompt_domain() {
         # Check if domain already exists
         if get_proxy "$domain" > /dev/null 2>&1; then
             print_error "Reverse proxy для домена $domain уже существует"
-            echo ""
+            echo "" >&2
             read -p "Хотите посмотреть существующую конфигурацию? [y/N]: " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -223,7 +223,7 @@ prompt_domain() {
 
         # Check DNS
         if ! check_dns_resolution "$domain"; then
-            echo ""
+            echo "" >&2
             read -p "Продолжить несмотря на DNS ошибку? [y/N]: " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -242,12 +242,12 @@ prompt_target_site() {
 
     print_header "Шаг 2: Целевой Сайт (Проксируемый)"
 
-    echo -e "${CYAN}Введите целевой сайт для проксирования (например, blocked-site.com):${NC}"
-    echo -e "${YELLOW}Что это:${NC}"
-    echo "  - Сайт, к которому нужен доступ через прокси"
-    echo "  - Все запросы будут перенаправлены на этот домен"
-    echo "  - Запросы на другие домены будут заблокированы (безопасность)"
-    echo ""
+    echo -e "${CYAN}Введите целевой сайт для проксирования (например, blocked-site.com):${NC}" >&2
+    echo -e "${YELLOW}Что это:${NC}" >&2
+    echo "  - Сайт, к которому нужен доступ через прокси" >&2
+    echo "  - Все запросы будут перенаправлены на этот домен" >&2
+    echo "  - Запросы на другие домены будут заблокированы (безопасность)" >&2
+    echo "" >&2
 
     while true; do
         read -p "Целевой сайт: " target
@@ -258,7 +258,7 @@ prompt_target_site() {
         fi
 
         if ! validate_target_site "$target"; then
-            echo ""
+            echo "" >&2
             read -p "Продолжить несмотря на ошибку валидации? [y/N]: " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -280,27 +280,27 @@ prompt_port() {
 
     proxy_count=$(get_proxy_count)
 
-    echo -e "${CYAN}Выберите localhost-only порт для nginx backend:${NC}"
-    echo -e "${YELLOW}Доступные порты: 9443-9452 (всего 10 слотов)${NC}"
-    echo "  Использовано: $proxy_count/10"
-    echo ""
-    echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Architecture:${NC}"
-    echo "  - Nginx слушает на 127.0.0.1:<port> (localhost-only)"
-    echo "  - HAProxy маршрутизирует по SNI с порта 443"
-    echo "  - Публичный доступ: https://<domain> (БЕЗ номера порта!)"
-    echo ""
+    echo -e "${CYAN}Выберите localhost-only порт для nginx backend:${NC}" >&2
+    echo -e "${YELLOW}Доступные порты: 9443-9452 (всего 10 слотов)${NC}" >&2
+    echo "  Использовано: $proxy_count/10" >&2
+    echo "" >&2
+    echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Architecture:${NC}" >&2
+    echo "  - Nginx слушает на 127.0.0.1:<port> (localhost-only)" >&2
+    echo "  - HAProxy маршрутизирует по SNI с порта 443" >&2
+    echo "  - Публичный доступ: https://<domain> (БЕЗ номера порта!)" >&2
+    echo "" >&2
 
     # Auto-suggest next available port (v4.3)
     local suggested_port
     if suggested_port=$(get_next_available_port 2>/dev/null); then
-        echo -e "${GREEN}Рекомендуется (авто-выбор): $suggested_port${NC}"
+        echo -e "${GREEN}Рекомендуется (авто-выбор): $suggested_port${NC}" >&2
     else
         # Fallback if get_next_available_port fails
         suggested_port=$((9443 + proxy_count))
-        echo -e "${YELLOW}Рекомендуется: $suggested_port${NC}"
+        echo -e "${YELLOW}Рекомендуется: $suggested_port${NC}" >&2
     fi
 
-    echo ""
+    echo "" >&2
 
     while true; do
         read -p "Порт [$suggested_port]: " port
@@ -325,12 +325,12 @@ prompt_letsencrypt_email() {
 
     print_header "Шаг 4: Let's Encrypt Email"
 
-    echo -e "${CYAN}Введите email для уведомлений Let's Encrypt:${NC}"
-    echo -e "${YELLOW}Для чего:${NC}"
-    echo "  - Уведомления об истечении сертификата"
-    echo "  - Критические безопасности обновления"
-    echo "  - Email НЕ публикуется, остаётся приватным"
-    echo ""
+    echo -e "${CYAN}Введите email для уведомлений Let's Encrypt:${NC}" >&2
+    echo -e "${YELLOW}Для чего:${NC}" >&2
+    echo "  - Уведомления об истечении сертификата" >&2
+    echo "  - Критические безопасности обновления" >&2
+    echo "  - Email НЕ публикуется, остаётся приватным" >&2
+    echo "" >&2
 
     while true; do
         read -p "Email: " email
@@ -355,31 +355,31 @@ prompt_confirmation() {
 
     print_header "Подтверждение Конфигурации"
 
-    echo -e "${CYAN}${BOLD}Проверьте параметры:${NC}"
-    echo ""
-    echo -e "  ${BOLD}Домен:${NC}           $domain"
-    echo -e "  ${BOLD}Целевой сайт:${NC}    $target"
-    echo -e "  ${BOLD}Backend порт:${NC}    $port (localhost-only)"
-    echo -e "  ${BOLD}Email:${NC}           $email"
-    echo ""
-    echo -e "  ${BOLD}Публичный URL:${NC}   ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
-    echo ""
-    echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}"
-    echo "  1. DNS validation (обязательно!)"
-    echo "  2. Получение Let's Encrypt сертификата для $domain"
-    echo "  3. Создание HAProxy combined.pem (fullchain + privkey)"
-    echo "  4. Создание Nginx reverse proxy конфигурации (localhost:$port)"
-    echo "  5. Создание Xray HTTP inbound (localhost:10080+)"
-    echo "  6. Добавление HAProxy SNI route: $domain → nginx:$port"
-    echo "  7. Настройка fail2ban защиты"
-    echo "  8. Генерация HTTP Basic Auth креденшелов"
-    echo ""
-    echo -e "${CYAN}${ICON_INFO} v4.3 Architecture:${NC}"
-    echo "  - HAProxy (port 443) принимает все HTTPS трафик"
-    echo "  - SNI routing по имени домена (TLS passthrough НЕ используется)"
-    echo "  - Nginx backend слушает ТОЛЬКО на 127.0.0.1:$port"
-    echo "  - UFW порт НЕ открывается (не нужен, HAProxy уже на 443)"
-    echo ""
+    echo -e "${CYAN}${BOLD}Проверьте параметры:${NC}" >&2
+    echo "" >&2
+    echo -e "  ${BOLD}Домен:${NC}           $domain" >&2
+    echo -e "  ${BOLD}Целевой сайт:${NC}    $target" >&2
+    echo -e "  ${BOLD}Backend порт:${NC}    $port (localhost-only)" >&2
+    echo -e "  ${BOLD}Email:${NC}           $email" >&2
+    echo "" >&2
+    echo -e "  ${BOLD}Публичный URL:${NC}   ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}" >&2
+    echo "" >&2
+    echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}" >&2
+    echo "  1. DNS validation (обязательно!)" >&2
+    echo "  2. Получение Let's Encrypt сертификата для $domain" >&2
+    echo "  3. Создание HAProxy combined.pem (fullchain + privkey)" >&2
+    echo "  4. Создание Nginx reverse proxy конфигурации (localhost:$port)" >&2
+    echo "  5. Создание Xray HTTP inbound (localhost:10080+)" >&2
+    echo "  6. Добавление HAProxy SNI route: $domain → nginx:$port" >&2
+    echo "  7. Настройка fail2ban защиты" >&2
+    echo "  8. Генерация HTTP Basic Auth креденшелов" >&2
+    echo "" >&2
+    echo -e "${CYAN}${ICON_INFO} v4.3 Architecture:${NC}" >&2
+    echo "  - HAProxy (port 443) принимает все HTTPS трафик" >&2
+    echo "  - SNI routing по имени домена (TLS passthrough НЕ используется)" >&2
+    echo "  - Nginx backend слушает ТОЛЬКО на 127.0.0.1:$port" >&2
+    echo "  - UFW порт НЕ открывается (не нужен, HAProxy уже на 443)" >&2
+    echo "" >&2
 
     read -p "Продолжить установку? [y/N]: " -n 1 -r
     echo
@@ -504,6 +504,35 @@ EOF
     reload_nginx_container  # Docker compose restart with new port
     reload_xray
 
+    # Step 10: Display success message
+    print_header "${ICON_SUCCESS} Reverse Proxy Успешно Настроен!"
+
+    echo "" >&2
+    echo -e "${GREEN}${BOLD}Reverse Proxy готов к использованию!${NC}" >&2
+    echo "" >&2
+    echo -e "${CYAN}${BOLD}Детали конфигурации (v4.3):${NC}" >&2
+    echo -e "  ${BOLD}URL:${NC}      ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}" >&2
+    echo -e "  ${BOLD}Backend:${NC}  127.0.0.1:${port} (localhost-only)" >&2
+    echo -e "  ${BOLD}Username:${NC} $username" >&2
+    echo -e "  ${BOLD}Password:${NC} $password" >&2
+    echo "" >&2
+    echo -e "${YELLOW}${BOLD}Как использовать:${NC}" >&2
+    echo "  1. Откройте браузер" >&2
+    echo "  2. Перейдите по адресу: ${GREEN}${BOLD}https://${domain}${NC}" >&2
+    echo "  3. Введите username/password при запросе" >&2
+    echo "  4. Вы будете перенаправлены на ${target}" >&2
+    echo "" >&2
+    echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Routing:${NC}" >&2
+    echo "  - HAProxy принимает HTTPS запросы на порту 443" >&2
+    echo "  - SNI-based routing: по имени домена ($domain)" >&2
+    echo "  - Nginx backend слушает только localhost (недоступен извне)" >&2
+    echo "" >&2
+    echo -e "${CYAN}Управление:${NC}" >&2
+    echo "  sudo vless-proxy show ${domain}        # Показать детали" >&2
+    echo "  sudo vless-proxy remove ${domain}      # Удалить" >&2
+    echo "  sudo vless-proxy renew-cert ${domain}  # Обновить сертификат" >&2
+    echo "" >&2
+
     return 0
 }
 
@@ -531,9 +560,9 @@ main() {
     clear
     print_header "${ICON_ROCKET} VLESS v4.3 - Reverse Proxy Setup Wizard (HAProxy Unified)"
 
-    echo -e "${CYAN}Этот wizard поможет настроить reverse proxy для доступа к заблокированным сайтам.${NC}"
-    echo -e "${YELLOW}v4.3: Unified HAProxy architecture - subdomain access без номера порта!${NC}"
-    echo ""
+    echo -e "${CYAN}Этот wizard поможет настроить reverse proxy для доступа к заблокированным сайтам.${NC}" >&2
+    echo -e "${YELLOW}v4.3: Unified HAProxy architecture - subdomain access без номера порта!${NC}" >&2
+    echo "" >&2
 
     # Collect parameters
     domain=$(prompt_domain)
@@ -544,37 +573,8 @@ main() {
     # Confirmation
     prompt_confirmation "$domain" "$target" "$port" "$email"
 
-    # Execute setup
-    if setup_reverse_proxy "$domain" "$target" "$port" "$email"; then
-        print_header "${ICON_SUCCESS} Reverse Proxy Успешно Настроен!"
-
-        echo ""
-        echo -e "${GREEN}${BOLD}Reverse Proxy готов к использованию!${NC}"
-        echo ""
-        echo -e "${CYAN}${BOLD}Детали конфигурации (v4.3):${NC}"
-        echo -e "  ${BOLD}URL:${NC}      ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
-        echo -e "  ${BOLD}Backend:${NC}  127.0.0.1:${port} (localhost-only)"
-        echo -e "  ${BOLD}Username:${NC} $username"
-        echo -e "  ${BOLD}Password:${NC} $password"
-        echo ""
-        echo -e "${YELLOW}${BOLD}Как использовать:${NC}"
-        echo "  1. Откройте браузер"
-        echo "  2. Перейдите по адресу: ${GREEN}${BOLD}https://${domain}${NC}"
-        echo "  3. Введите username/password при запросе"
-        echo "  4. Вы будете перенаправлены на ${target}"
-        echo ""
-        echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Routing:${NC}"
-        echo "  - HAProxy принимает HTTPS запросы на порту 443"
-        echo "  - SNI-based routing: по имени домена ($domain)"
-        echo "  - Nginx backend слушает только localhost (недоступен извне)"
-        echo ""
-        echo -e "${CYAN}Управление:${NC}"
-        echo "  sudo vless-proxy show ${domain}        # Показать детали"
-        echo "  sudo vless-proxy remove ${domain}      # Удалить"
-        echo "  sudo vless-proxy renew-cert ${domain}  # Обновить сертификат"
-        echo ""
-
-    else
+    # Execute setup (success message printed inside function)
+    if ! setup_reverse_proxy "$domain" "$target" "$port" "$email"; then
         print_error "Установка завершилась с ошибками"
         exit 1
     fi
