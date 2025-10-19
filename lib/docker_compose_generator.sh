@@ -118,7 +118,7 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     volumes:
-      - ${VLESS_DIR}/config/config.json:/etc/xray/config.json:ro
+      - ${VLESS_DIR}/config/xray_config.json:/etc/xray/config.json:ro
       - ${VLESS_DIR}/logs/xray/:/var/log/xray/
     ports:
       # v4.3 CHANGE: VLESS на localhost only (HAProxy forwards)
