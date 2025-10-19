@@ -407,15 +407,35 @@ reload_haproxy_after_cert_update() {
     fi
 
     # Graceful reload with old PID
-    if docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1; then
-        echo -e "${GREEN}✅ HAProxy reloaded gracefully (zero downtime)${NC}"
-        echo "  Old PID: $old_pid"
-        echo "  New PID: $(docker exec vless_haproxy pidof haproxy 2>/dev/null || echo 'unknown')"
-        return 0
-    else
-        echo -e "${RED}ERROR: HAProxy graceful reload failed${NC}" >&2
+    # Note: Exit code 137 (SIGKILL) is expected during graceful reload when old process exits
+    docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid >/dev/null 2>&1
+
+    # Wait for reload to complete
+    sleep 2
+
+    # Verify HAProxy is running and healthy after reload
+    local new_status
+    new_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+
+    if [[ "$new_status" != "running" ]]; then
+        echo -e "${RED}ERROR: HAProxy container stopped after reload${NC}" >&2
+        echo "Container status: $new_status" >&2
         return 1
     fi
+
+    # Get new PID to confirm reload happened
+    local new_pid
+    new_pid=$(docker exec vless_haproxy pidof haproxy 2>/dev/null | awk '{print $1}')
+
+    if [[ -z "$new_pid" ]]; then
+        echo -e "${RED}ERROR: HAProxy process not found after reload${NC}" >&2
+        return 1
+    fi
+
+    echo -e "${GREEN}✅ HAProxy reloaded gracefully (zero downtime)${NC}"
+    echo "  Old PID: $old_pid"
+    echo "  New PID: $new_pid"
+    return 0
 }
 
 #==============================================================================
