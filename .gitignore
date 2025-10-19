@@ -1,47 +1,206 @@
-# Working directory (should not be in repository)
+# =============================================================================
+# VLESS Reality VPN Server - Git Ignore Rules (v4.2)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Security-Critical Files (NEVER COMMIT)
+# -----------------------------------------------------------------------------
+
+# Working directory (production files)
 /opt/vless/
 
-# Environment files
+# Environment variables with private keys and passwords
 .env
 *.env.local
 *.env.production
+!.env.template
+
+# Reality private keys
+reality_keys.json
+*_private.key
+
+# User database with UUIDs and credentials
+users.json
+
+# Reverse proxy database (v4.2)
+reverse_proxies.json
+
+# Proxy passwords and htpasswd files (v4.2)
+.htpasswd*
+*password*
+
+# Let's Encrypt private keys and certificates (v4.2)
+*.pem
+*.key
+*.crt
+*.csr
+
+# SSH keys
+id_rsa
+id_ecdsa
+id_ed25519
+*.pub
+
+# Proxy credentials (init_claude script)
+scripts/.claude_proxy_credentials
+
+# -----------------------------------------------------------------------------
+# Production Data & Client Configs
+# -----------------------------------------------------------------------------
+
+# Client configuration files
+data/clients/
+qr_codes/
+*.json
+*.txt
+*.png
+*.sh
 
 # Backup files
+data/backups/
 *.bak
 *.backup
 *.tar.gz
 
-# Temporary files
+# Log files
+logs/
+*.log
+
+# Nginx reverse proxy configs (generated, contain sensitive data)
+config/reverse-proxy/
+config/reverse-proxy-http-context.conf
+
+# stunnel config (v4.0+)
+config/stunnel.conf
+
+# Xray config with user UUIDs
+config/config.json
+
+# -----------------------------------------------------------------------------
+# Development & Testing
+# -----------------------------------------------------------------------------
+
+# Test data and temporary files
+tests/tmp/
+tests/data/
+*.test
 *.tmp
 *.temp
 *~
 .*.swp
 .*.swo
 
-# OS files
-.DS_Store
-Thumbs.db
+# Security testing results (v4.2)
+pentest_results/
+security_reports/
+*.nmap
+*.xml
+*.pcap
+*.pcapng
 
-# IDE files
+# Coverage reports
+coverage/
+htmlcov/
+*.cover
+.coverage
+
+# -----------------------------------------------------------------------------
+# System & Editor Files
+# -----------------------------------------------------------------------------
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+.Trash-*
+
+# Vim
+*.swp
+*.swo
+*~
+.*.sw?
+
+# VSCode
 .idea/
 .vscode/
 *.iml
+*.code-workspace
 
-# Log files
-*.log
-logs/
+# JetBrains IDEs
+*.iml
 
-# User data
-users.json
-*.key
-*.pem
-qr_codes/
+# Emacs
+*~
+\#*\#
+.\#*
 
-# Proxy credentials (init_claude script)
-scripts/.claude_proxy_credentials
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
 
-# Docker
+# -----------------------------------------------------------------------------
+# Docker & Container Files
+# -----------------------------------------------------------------------------
+
+# Docker Compose override files
 docker-compose.override.yml
+docker-compose.local.yml
 
-# Catalog
+# Container volumes (if mounted locally)
+volumes/
+
+# -----------------------------------------------------------------------------
+# Package Managers & Dependencies
+# -----------------------------------------------------------------------------
+
+# Node.js (if used for tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python (if used for scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# -----------------------------------------------------------------------------
+# Catalog & Workflows
+# -----------------------------------------------------------------------------
+
 workflow/
+
+# =============================================================================
+# Whitelist (Force Include Despite Ignore Rules Above)
+# =============================================================================
+
+# Template files (safe to commit)
+!.env.template
+!config.json.template
+!users.json.template
+
+# Example configurations (sanitized)
+!examples/
+
+# Documentation
+!docs/
+!*.md
+
+# Test fixtures (sanitized)
+!tests/fixtures/
+
+# =============================================================================
+# END OF GITIGNORE
+# =============================================================================

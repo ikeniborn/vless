@@ -1,18 +1,19 @@
 #!/bin/bash
 #==============================================================================
 # Certificate Management Module for Let's Encrypt
-# Part of VLESS + Reality VPN v3.3
+# Part of VLESS + Reality VPN v4.3
 #
 # This module handles:
 # - Let's Encrypt certificate acquisition via certbot
 # - DNS validation before certificate requests
 # - Port 80 management for ACME HTTP-01 challenge
 # - Auto-renewal setup with cron jobs
-# - Deploy hooks for Xray restart
+# - HAProxy combined.pem creation (v4.3)
+# - Deploy hooks for HAProxy/Xray restart
 #
-# Version: 3.3
+# Version: 4.3
 # Author: VLESS Team
-# Date: 2025-10-06
+# Date: 2025-10-17
 #==============================================================================
 
 # Color codes for output (conditional to avoid conflicts when sourced by CLI)
@@ -20,6 +21,18 @@
 [[ -z "${GREEN:-}" ]] && readonly GREEN='\033[0;32m'
 [[ -z "${YELLOW:-}" ]] && readonly YELLOW='\033[1;33m'
 [[ -z "${NC:-}" ]] && readonly NC='\033[0m' # No Color
+
+# Source certificate manager for combined.pem creation (v4.3)
+CERT_MANAGER_PATH="$(dirname "${BASH_SOURCE[0]}")/certificate_manager.sh"
+if [[ -f "$CERT_MANAGER_PATH" ]]; then
+    source "$CERT_MANAGER_PATH"
+fi
+
+# Source certbot manager for Certbot Nginx service (v4.3)
+CERTBOT_MANAGER_PATH="$(dirname "${BASH_SOURCE[0]}")/certbot_manager.sh"
+if [[ -f "$CERTBOT_MANAGER_PATH" ]]; then
+    source "$CERTBOT_MANAGER_PATH"
+fi
 
 #==============================================================================
 # FUNCTION: validate_domain_dns
@@ -166,110 +179,77 @@ install_certbot() {
 # PURPOSE: Obtain Let's Encrypt certificate using ACME HTTP-01 challenge
 # USAGE: obtain_certificate <domain> <email>
 # RETURNS: 0 on success, 1 on failure
-# NOTE: Port 80 must be open before calling this function
+# NOTE: v4.3 uses Certbot Nginx service (webroot mode) instead of standalone
 #==============================================================================
 obtain_certificate() {
     local domain="$1"
     local email="$2"
 
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Let's Encrypt Certificate Acquisition"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Domain: $domain"
-    echo "Email:  $email"
-    echo ""
-    echo "Using ACME HTTP-01 challenge (requires port 80)"
-    echo "This may take 30-60 seconds..."
-    echo ""
+    # v4.3: Use Certbot Nginx service (webroot mode) via certbot_manager.sh
+    if command -v acquire_certificate &>/dev/null; then
+        # Use new certbot_manager.sh workflow
+        if acquire_certificate "$domain" "$email"; then
+            return 0
+        else
+            return 1
+        fi
+    else
+        # Fallback to standalone mode (legacy v3.3)
+        echo ""
+        echo -e "${YELLOW}WARNING: certbot_manager.sh not found, using standalone mode${NC}"
+        echo ""
 
-    # Run certbot in standalone mode
-    certbot certonly \
-        --standalone \
-        --non-interactive \
-        --agree-tos \
-        --email "$email" \
-        --domain "$domain" \
-        --preferred-challenges http
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Let's Encrypt Certificate Acquisition (Standalone Mode)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Domain: $domain"
+        echo "Email:  $email"
+        echo ""
 
-    local exit_code=$?
+        # Run certbot in standalone mode
+        certbot certonly \
+            --standalone \
+            --non-interactive \
+            --agree-tos \
+            --email "$email" \
+            --domain "$domain" \
+            --preferred-challenges http
 
-    if [ $exit_code -ne 0 ]; then
+        local exit_code=$?
+
+        if [ $exit_code -ne 0 ]; then
+            echo ""
+            echo -e "${RED}❌ CERTIFICATE ACQUISITION FAILED${NC}"
+            echo ""
+            return 1
+        fi
+
+        # Verify certificate files exist
+        local cert_path="/etc/letsencrypt/live/$domain"
+
+        if [[ ! -f "$cert_path/fullchain.pem" ]] || [[ ! -f "$cert_path/privkey.pem" ]]; then
+            echo -e "${RED}❌ Certificate files not found${NC}"
+            return 1
+        fi
+
+        # Secure permissions
+        chmod 600 "$cert_path/privkey.pem"
+        chmod 600 "$cert_path/cert.pem"
+        chmod 644 "$cert_path/fullchain.pem"
+        chmod 644 "$cert_path/chain.pem"
+
+        # Display certificate info
         echo ""
-        echo -e "${RED}❌ CERTIFICATE ACQUISITION FAILED${NC}"
+        echo -e "${GREEN}✅ CERTIFICATE OBTAINED SUCCESSFULLY!${NC}"
         echo ""
-        echo "Exit code: $exit_code"
-        echo ""
-        echo "POSSIBLE CAUSES:"
-        echo "  1. Port 80 not accessible from the internet"
-        echo "  2. DNS not pointing to this server"
-        echo "  3. Let's Encrypt rate limit hit:"
-        echo "     - 5 failed validations per hour"
-        echo "     - 50 certificates per domain per week"
-        echo "  4. Firewall blocking HTTP traffic"
-        echo "  5. Another service occupying port 80"
-        echo ""
-        echo "DEBUGGING STEPS:"
-        echo "  1. Check DNS:"
-        echo "     dig +short $domain"
-        echo ""
-        echo "  2. Check port 80 accessibility:"
-        echo "     nc -zv $domain 80"
-        echo "     curl -I http://$domain"
-        echo ""
-        echo "  3. Check certbot logs:"
-        echo "     cat /var/log/letsencrypt/letsencrypt.log"
-        echo ""
-        echo "  4. Check for services on port 80:"
-        echo "     sudo ss -tulnp | grep :80"
-        echo "     sudo lsof -i :80"
-        echo ""
-        echo "  5. Try staging environment (for testing):"
-        echo "     certbot certonly --staging --standalone -d $domain"
-        echo ""
-        return 1
+
+        # Create HAProxy combined.pem
+        if command -v create_haproxy_combined_cert &>/dev/null; then
+            create_haproxy_combined_cert "$domain"
+        fi
+
+        return 0
     fi
-
-    # Verify certificate files exist
-    local cert_path="/etc/letsencrypt/live/$domain"
-
-    if [[ ! -f "$cert_path/fullchain.pem" ]]; then
-        echo -e "${RED}❌ Certificate file not found${NC}"
-        echo "Expected: $cert_path/fullchain.pem"
-        return 1
-    fi
-
-    if [[ ! -f "$cert_path/privkey.pem" ]]; then
-        echo -e "${RED}❌ Private key not found${NC}"
-        echo "Expected: $cert_path/privkey.pem"
-        return 1
-    fi
-
-    # Secure private key permissions
-    chmod 600 "$cert_path/privkey.pem"
-    chmod 600 "$cert_path/cert.pem"
-    chmod 644 "$cert_path/fullchain.pem"
-    chmod 644 "$cert_path/chain.pem"
-
-    # Display certificate info
-    echo ""
-    echo -e "${GREEN}✅ CERTIFICATE OBTAINED SUCCESSFULLY!${NC}"
-    echo ""
-    echo "Certificate location: $cert_path"
-    echo ""
-    echo "Files:"
-    ls -lh "$cert_path" | grep -E "(fullchain|privkey|cert|chain)\.pem" | awk '{print "  " $9 " (" $5 ")"}'
-    echo ""
-
-    # Show expiry date
-    local expiry=$(openssl x509 -in "$cert_path/cert.pem" -noout -enddate | cut -d= -f2)
-    echo "Certificate expires: $expiry"
-    echo "Auto-renewal scheduled at 60 days (30 days before expiry)"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-
-    return 0
 }
 
 #==============================================================================

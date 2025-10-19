@@ -305,40 +305,60 @@ verify_docker_network() {
 verify_containers() {
     log_info "Verification 4/8: Checking container health..."
 
-    # Check xray container
-    if docker ps --format '{{.Names}}' | grep -q '^vless_xray$'; then
-        local xray_status=$(docker inspect vless_xray -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$xray_status" == "running" ]]; then
-            log_success "Container 'vless_xray' is running"
+    # Check xray container using docker inspect (more reliable)
+    local xray_status=$(docker inspect vless_xray -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$xray_status" == "running" ]]; then
+        log_success "Container 'vless_xray' is running"
 
-            # Check uptime
-            local started_at=$(docker inspect vless_xray -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
-            if [[ -n "$started_at" ]]; then
-                log_info "  Started at: $started_at"
-            fi
-        else
-            log_error "Container 'vless_xray' exists but status is: $xray_status"
+        # Check uptime
+        local started_at=$(docker inspect vless_xray -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        if [[ -n "$started_at" ]]; then
+            log_info "  Started at: $started_at"
         fi
+
+        # Check for critical errors in logs
+        local xray_logs=$(docker logs vless_xray 2>&1 | tail -20)
+        if echo "$xray_logs" | grep -qE "(CRITICAL|FATAL|panic)"; then
+            log_warning "Container 'vless_xray' has critical messages in logs"
+        fi
+    elif [[ "$xray_status" == "not-found" ]]; then
+        log_error "Container 'vless_xray' not found"
     else
-        log_error "Container 'vless_xray' is not running"
+        log_error "Container 'vless_xray' exists but status is: $xray_status"
     fi
 
-    # Check nginx container
-    if docker ps --format '{{.Names}}' | grep -q '^vless_nginx$'; then
-        local nginx_status=$(docker inspect vless_nginx -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$nginx_status" == "running" ]]; then
-            log_success "Container 'vless_nginx' is running"
+    # Check nginx container using docker inspect (more reliable)
+    local nginx_status=$(docker inspect vless_nginx -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$nginx_status" == "running" ]]; then
+        log_success "Container 'vless_nginx' is running"
 
-            # Check uptime
-            local started_at=$(docker inspect vless_nginx -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
-            if [[ -n "$started_at" ]]; then
-                log_info "  Started at: $started_at"
-            fi
-        else
-            log_error "Container 'vless_nginx' exists but status is: $nginx_status"
+        # Check uptime
+        local started_at=$(docker inspect vless_nginx -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        if [[ -n "$started_at" ]]; then
+            log_info "  Started at: $started_at"
         fi
+
+        # Check healthcheck status (added in v4.1.1)
+        local nginx_health=$(docker inspect vless_nginx -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$nginx_health" == "healthy" ]]; then
+            log_success "Container 'vless_nginx' health: healthy"
+        elif [[ "$nginx_health" == "starting" ]]; then
+            log_info "  Container 'vless_nginx' health: starting"
+        elif [[ "$nginx_health" == "unhealthy" ]]; then
+            log_error "Container 'vless_nginx' health: unhealthy"
+        fi
+
+        # Check Nginx logs for critical errors only (ignore informational warnings)
+        local nginx_logs=$(docker logs vless_nginx 2>&1 | tail -20)
+        if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
+            log_error "Container 'vless_nginx' has critical errors in logs"
+        elif echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
+            log_info "  Nginx running in read-only mode (expected for security)"
+        fi
+    elif [[ "$nginx_status" == "not-found" ]]; then
+        log_error "Container 'vless_nginx' not found"
     else
-        log_error "Container 'vless_nginx' is not running"
+        log_error "Container 'vless_nginx' exists but status is: $nginx_status"
     fi
 
     # Check if containers are on the correct network
@@ -362,6 +382,29 @@ verify_containers() {
         log_success "Container 'vless_xray' restart policy: unless-stopped"
     else
         log_warning "Container 'vless_xray' restart policy: $xray_restart (expected unless-stopped)"
+    fi
+
+    # Check HAProxy container if proxy enabled (v4.3+)
+    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        local haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+        if [[ "$haproxy_status" == "running" ]]; then
+            log_success "Container 'vless_haproxy' is running"
+
+            # Check healthcheck status (if available)
+            local haproxy_health=$(docker inspect vless_haproxy -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+            if [[ "$haproxy_health" == "healthy" ]]; then
+                log_success "Container 'vless_haproxy' health: healthy"
+            elif [[ "$haproxy_health" == "starting" ]]; then
+                log_info "  Container 'vless_haproxy' health: starting"
+            elif [[ "$haproxy_health" == "unhealthy" ]]; then
+                log_error "Container 'vless_haproxy' health: unhealthy"
+            fi
+
+            # v4.3: HAProxy runs in host network mode (no Docker network attachment)
+            log_info "  HAProxy network mode: host (direct access to ports 443, 1080, 8118)"
+        elif [[ "$haproxy_status" != "not-found" ]]; then
+            log_error "Container 'vless_haproxy' exists but status is: $haproxy_status"
+        fi
     fi
 
     echo ""
@@ -635,7 +678,7 @@ display_verification_summary() {
 # ============================================================================
 validate_mandatory_tls() {
     echo ""
-    log_info "Verification 5.6/10: Validating TLS encryption (v4.0 stunnel architecture)..."
+    log_info "Verification 5.6/10: Validating TLS encryption (v4.3 HAProxy unified architecture)..."
 
     # Only validate if public proxy mode enabled
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" != "true" ]]; then
@@ -644,41 +687,32 @@ validate_mandatory_tls() {
         return 0
     fi
 
-    # v4.0: TLS handled by stunnel, not Xray
-    if [[ "${ENABLE_PROXY_TLS:-false}" != "true" ]]; then
-        log_info "  ⊗ TLS disabled (plaintext mode), skipping TLS validation"
-        log_warning "  ⚠️  SECURITY WARNING: Proxy running in plaintext mode"
-        echo ""
-        return 0
-    fi
-
     local validation_failed=0
 
-    # Check 1: stunnel.conf exists as FILE (not directory!)
-    log_info "  [1/5] Checking stunnel configuration file..."
-    if [[ ! -f "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
-        if [[ -d "${INSTALL_ROOT}/config/stunnel.conf" ]]; then
-            log_error "    ✗ stunnel.conf is a DIRECTORY (should be FILE)"
-            log_error "    This indicates init_stunnel() was never called"
+    # Check 1: haproxy.cfg exists as FILE (not directory!)
+    log_info "  [1/5] Checking HAProxy configuration file..."
+    if [[ ! -f "${INSTALL_ROOT}/config/haproxy.cfg" ]]; then
+        if [[ -d "${INSTALL_ROOT}/config/haproxy.cfg" ]]; then
+            log_error "    ✗ haproxy.cfg is a DIRECTORY (should be FILE)"
         else
-            log_error "    ✗ stunnel.conf not found"
+            log_error "    ✗ haproxy.cfg not found"
         fi
         validation_failed=1
     else
-        log_success "    ✓ stunnel.conf exists"
+        log_success "    ✓ haproxy.cfg exists"
     fi
 
-    # Check 2: stunnel container exists
-    log_info "  [2/5] Checking stunnel container..."
-    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_stunnel$'; then
-        log_error "    ✗ stunnel container not found"
+    # Check 2: HAProxy container exists
+    log_info "  [2/5] Checking HAProxy container..."
+    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_haproxy$'; then
+        log_error "    ✗ HAProxy container not found"
         validation_failed=1
     else
-        local stunnel_status=$(docker inspect vless_stunnel -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$stunnel_status" == "running" ]]; then
-            log_success "    ✓ stunnel container running"
+        local haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        if [[ "$haproxy_status" == "running" ]]; then
+            log_success "    ✓ HAProxy container running"
         else
-            log_error "    ✗ stunnel container status: $stunnel_status"
+            log_error "    ✗ HAProxy container status: $haproxy_status"
             validation_failed=1
         fi
     fi
@@ -712,27 +746,39 @@ validate_mandatory_tls() {
         validation_failed=1
     fi
 
-    # Check 5: stunnel ports exposed to internet
-    log_info "  [5/5] Checking stunnel port mappings..."
-    local stunnel_ports=$(docker port vless_stunnel 2>/dev/null || echo "")
-    if [[ "$stunnel_ports" =~ "1080" ]] && [[ "$stunnel_ports" =~ "8118" ]]; then
-        log_success "    ✓ stunnel exposing ports 1080 and 8118"
+    # Check 5: HAProxy ports accessible (host network mode)
+    log_info "  [5/5] Checking HAProxy port accessibility..."
+    # v4.3: HAProxy runs in host network mode, ports bound directly to host
+    local haproxy_listening=0
+    if ss -tuln | grep -q ":443 "; then
+        haproxy_listening=$((haproxy_listening + 1))
+    fi
+    if ss -tuln | grep -q ":1080 "; then
+        haproxy_listening=$((haproxy_listening + 1))
+    fi
+    if ss -tuln | grep -q ":8118 "; then
+        haproxy_listening=$((haproxy_listening + 1))
+    fi
+
+    if [[ $haproxy_listening -eq 3 ]]; then
+        log_success "    ✓ HAProxy listening on ports 443, 1080, 8118"
     else
-        log_error "    ✗ stunnel ports not properly mapped"
+        log_error "    ✗ HAProxy not listening on all required ports (found $haproxy_listening/3)"
         validation_failed=1
     fi
 
     # Final result
     echo ""
     if [[ $validation_failed -eq 0 ]]; then
-        log_success "TLS validation: PASSED (v4.0 stunnel architecture)"
-        log_info "  • Architecture: Client → stunnel (TLS) → Xray (plaintext Docker network)"
-        log_info "  • SOCKS5: 0.0.0.0:1080 (TLS) → vless_xray:10800 (plaintext)"
-        log_info "  • HTTP: 0.0.0.0:8118 (TLS) → vless_xray:18118 (plaintext)"
+        log_success "TLS validation: PASSED (v4.3 HAProxy unified architecture)"
+        log_info "  • Architecture: Client → HAProxy (TLS/passthrough) → Xray (localhost)"
+        log_info "  • Port 443: SNI routing (VLESS + reverse proxies)"
+        log_info "  • Port 1080: SOCKS5 TLS termination → 127.0.0.1:10800"
+        log_info "  • Port 8118: HTTP TLS termination → 127.0.0.1:18118"
         return 0
     else
         log_error "TLS validation: FAILED"
-        log_error "v4.0 requires stunnel for TLS termination"
+        log_error "v4.3 requires HAProxy for unified TLS termination"
         return 1
     fi
 }

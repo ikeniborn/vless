@@ -7,6 +7,482 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.1] - 2025-10-20
+
+### Fixed - HAProxy v4.3 Port Configuration
+
+**Migration Type:** Non-breaking (configuration fix for existing installations)
+
+**Primary Fix:** Xray VLESS inbound port alignment with HAProxy v4.3 architecture
+
+#### Issue
+- **PROBLEM**: Xray configured to listen on port 443 (external) instead of 8443 (internal)
+- **IMPACT**: vless_xray container unhealthy, HAProxy backend down ("Connection refused")
+- **ROOT CAUSE**: Installation scripts using old port configuration (pre-v4.3)
+
+#### Fixed Components
+
+**1. Production Configuration (/opt/vless/config/xray_config.json)**
+- **FIXED**: Xray VLESS inbound port: 443 → 8443
+- **FIXED**: Fallback container name: vless_nginx → vless_fake_site
+- **REASON**: HAProxy v4.3 listens on 443 externally, forwards to Xray:8443 internally
+
+**2. Installation Scripts (lib/)**
+- **FIXED**: `lib/interactive_params.sh`
+  - DEFAULT_VLESS_PORT: 443 → 8443
+  - Added comment: "v4.3 HAProxy Architecture: Xray listens on internal port 8443, HAProxy on external 443"
+  - Updated port selection prompt to explain internal vs external ports
+
+- **FIXED**: `lib/orchestrator.sh`
+  - Fallback destination: vless_nginx:80 → vless_fake_site:80
+  - Aligns with docker-compose.yml container naming
+
+#### Documentation Updates
+
+**CLAUDE.md v5.1:**
+- Updated version: 5.0 → 5.1
+- Enhanced HAProxy Architecture description (external 443 → internal 8443)
+- Added Issue 4 to Common Issues: "Xray Container Unhealthy - Wrong Port Configuration"
+  - Detection commands
+  - Root cause explanation
+  - Step-by-step fix for existing installations
+  - Permanent fix for future installations
+
+**Architecture Diagram (already correct in docs/prd/04_architecture.md):**
+```
+Port 443 (HAProxy, external)
+  → SNI Routing → Xray:8443 (internal, VLESS Reality)
+```
+
+#### Impact & Migration
+
+**For New Installations:**
+- ✅ Automatic - scripts now use correct ports
+
+**For Existing Installations (manual fix):**
+```bash
+# 1. Fix Xray configuration
+sudo sed -i 's/"port": 443,/"port": 8443,/' /opt/vless/config/xray_config.json
+sudo sed -i 's/"dest": "vless_nginx:80"/"dest": "vless_fake_site:80"/' /opt/vless/config/xray_config.json
+
+# 2. Restart Xray
+docker restart vless_xray
+
+# 3. Verify
+docker ps --filter "name=vless_xray" --format "{{.Status}}"  # Should show (healthy)
+docker logs vless_haproxy --tail 5 | grep "UP"                # Should show "xray is UP"
+```
+
+**Affected Files:**
+- `/opt/vless/config/xray_config.json` (production)
+- `lib/interactive_params.sh` (installation)
+- `lib/orchestrator.sh` (installation)
+- `CLAUDE.md` (documentation)
+- `CHANGELOG.md` (this file)
+
+**Related Issues:**
+- See CLAUDE.md Section "Top-4 Common Issues" → Issue 4
+
+---
+
+## [5.0] - 2025-10-19
+
+### Changed - Documentation Restructuring & Optimization
+
+**Migration Type:** Non-breaking (documentation only)
+
+**Primary Feature:** User-friendly documentation with optimized project memory
+
+#### CLAUDE.md v5.0 Optimization
+- **OPTIMIZED**: CLAUDE.md project memory file
+  - **Size**: 60 KB → 28 KB (↓ 53%)
+  - **Lines**: 1719 → 688 (↓ 60%)
+  - **Removed**: ~800 lines of duplication with docs/prd/
+  - **Improved**: Navigation, readability, maintainability
+
+#### What Was Removed
+- **REMOVED**: Section 17 (PRD Documentation Structure) - 216 lines
+  - Replaced with concise Documentation Map (20 lines)
+  - Full details in docs/prd/00_summary.md
+- **REMOVED**: Section 13 (Technical Details) - 226 lines
+  - Detailed configs moved to docs/prd/04_architecture.md
+  - Kept only critical parameters and quick reference
+- **REMOVED**: Section 10 (NFR) - 91 lines
+  - Full list in docs/prd/03_nfr.md
+  - Kept top-5 NFR in Quick Reference
+- **REMOVED**: Section 12 (Testing Checklist) - 60 lines
+  - Full test suite in docs/prd/05_testing.md
+  - Kept quick checklist in Quick Reference
+
+#### What Was Compressed
+- **COMPRESSED**: Section 9 (Critical Requirements) - 346 → 150 lines
+  - Kept top-5 CRITICAL requirements (FR-001, FR-004, FR-011, FR-012, FR-014)
+  - Added links to docs/prd/02_functional_requirements.md for full details
+- **COMPRESSED**: Section 7 (Critical Parameters) - 214 → 80 lines
+  - Removed YAML/bash code examples
+  - Kept concise tables with versions and ports
+  - Added links to docs/prd/04_architecture.md
+- **COMPRESSED**: Section 11 (Failure Points) - 159 → 60 lines
+  - Kept top-3 common issues
+  - Full troubleshooting in docs/prd/06_appendix.md
+- **COMPRESSED**: Section 15 (Security & Debug) - 143 → 70 lines
+  - Kept only quick debug commands
+  - Full security details in docs/prd/06_appendix.md
+
+#### New Structure
+- **ADDED**: Section 10 (Quick Reference) - replaces sections 10-16
+  - Top-5 NFR with acceptance criteria
+  - Top-3 common issues with solutions
+  - Quick debug commands
+  - Security testing commands
+- **ADDED**: Section 11 (Documentation Map) - replaces section 17
+  - Navigation guide for all project documentation
+  - PRD quick navigation by use case
+  - Version history summary with key changes
+
+#### Benefits
+- **Faster Navigation**: Jump to details via links instead of scrolling
+- **Single Source of Truth**: docs/prd/ contains all detailed information
+- **Easier Maintenance**: Update once in docs/prd/, reference from CLAUDE.md
+- **Better Readability**: Shorter sections, clearer structure
+- **Reduced Context**: Smaller file loads faster in AI assistants
+
+#### Backup
+- Резервная копия: `CLAUDE.md.backup.20251019-104440` (58 KB)
+- Для восстановления: `cp CLAUDE.md.backup.20251019-104440 CLAUDE.md`
+
+#### README.md v5.0 Restructuring
+- **REWRITTEN**: README.md from technical reference to user-friendly guide
+  - **Approach**: "Explain how it works" for ordinary users
+  - **Language**: Simple, non-technical Russian
+  - **Structure**: What → How → Features → Quick Start → Examples → FAQ
+  - **Visuals**: ASCII diagrams explaining Reality protocol masking
+  - **Examples**: Real-world use cases (VPN, SOCKS5 proxy, reverse proxy)
+  - **FAQ**: Common questions with clear answers
+
+#### What Was Changed in README.md
+- **REMOVED**: Technical jargon and implementation details
+  - v4.1 detailed architecture descriptions
+  - Code examples and technical configurations
+  - stunnel/HAProxy implementation details
+  - Developer-focused content
+
+- **ADDED**: User-friendly explanations
+  - "Как это работает?" section with ASCII diagrams
+  - Visual explanation of Reality protocol masking
+  - Simplified architecture (v5.0 HAProxy)
+  - Real-world use case examples
+  - Comprehensive FAQ section
+  - VPS provider comparison table
+
+- **MOVED**: Installation guide to separate document
+  - **NEW**: `docs/installation.md` - Complete installation guide
+  - Step-by-step instructions with screenshots
+  - Troubleshooting section
+  - Interactive prompts explained
+  - Verification steps
+  - Common issues and solutions
+
+#### Documentation Structure (v5.0)
+```
+README.md               # User-friendly overview (what & how)
+docs/installation.md    # Detailed installation guide
+docs/prd/               # Technical documentation (for developers)
+CLAUDE.md               # Project memory (AI assistant)
+CHANGELOG.md            # Version history
+```
+
+#### Benefits of Restructuring
+- **Better UX**: Users understand WHAT and HOW without technical depth
+- **Clear separation**: User docs vs Developer docs
+- **Easier onboarding**: Quick start in README, details in docs/installation.md
+- **Improved searchability**: FAQ answers common questions directly
+- **Reduced cognitive load**: Simpler language, visual diagrams
+
+---
+
+## [4.3] - 2025-10-18
+
+### Changed - HAProxy Unified Architecture
+
+**Migration Type:** Breaking (stunnel removed, HAProxy replaces all TLS/routing)
+
+**Primary Feature:** Single HAProxy container for ALL TLS termination and routing
+
+#### HAProxy Unified Architecture (v4.3)
+- **REPLACED**: stunnel + HAProxy dual setup → Single unified HAProxy container
+  - **v4.0-v4.2**: 2 containers (stunnel for TLS termination, HAProxy for SNI routing)
+  - **v4.3**: 1 container (HAProxy handles both TLS termination AND SNI routing)
+- **ADDED**: `lib/haproxy_config_manager.sh` - Unified HAProxy configuration module
+  - `generate_haproxy_config()` - Generate haproxy.cfg via heredoc
+  - `add_reverse_proxy_route()` - Dynamic ACL/backend management
+  - `remove_reverse_proxy_route()` - Route removal with graceful reload
+  - `list_haproxy_routes()` - Active routes listing
+  - `reload_haproxy()` - Graceful reload (zero downtime, haproxy -sf)
+  - `check_haproxy_status()` - Health monitoring
+- **ADDED**: HAProxy configuration file `/opt/vless/config/haproxy.cfg`
+  - 3 frontends: vless-reality (443), socks5-tls (1080), http-tls (8118)
+  - Dynamic ACL section for reverse proxy routes
+  - TLS 1.3 only, strong cipher suites
+  - Stats page on localhost:9000
+
+#### stunnel Removal
+- **REMOVED**: stunnel container completely eliminated from docker-compose.yml
+- **REMOVED**: `lib/stunnel_setup.sh` module (deprecated)
+- **REMOVED**: `config/stunnel.conf` configuration file
+- **REMOVED**: `tests/test_stunnel_heredoc.sh` (replaced with HAProxy tests)
+- **UPDATED**: `lib/verification.sh` - Replaced stunnel checks with HAProxy verification
+- **UPDATED**: `lib/orchestrator.sh` - Removed setup_stunnel() function
+
+#### Subdomain-Based Reverse Proxy (v4.3 KEY FEATURE)
+- **CHANGED**: Reverse proxy access format: `https://subdomain.example.com` (NO port number!)
+  - **v4.2**: `https://domain:8443` (port required)
+  - **v4.3**: `https://domain` (NO port, cleaner URLs)
+- **CHANGED**: Backend port range: 8443-8452 → 9443-9452 (localhost-only)
+  - Nginx binds to 127.0.0.1:9443-9452 (NOT exposed to internet)
+  - Public access via HAProxy frontend 443 (SNI routing)
+- **ADDED**: HAProxy SNI routing for reverse proxy subdomains
+  - Dynamic ACL creation: `acl is_subdomain req.ssl_sni -i subdomain.example.com`
+  - NO TLS decryption for reverse proxy (passthrough to Nginx)
+  - Multi-layer fail2ban protection (HAProxy + Nginx filters)
+
+#### Port Reassignment
+- **CHANGED**: Xray VLESS Reality: 443 → 8443 (internal, HAProxy handles 443)
+- **CHANGED**: Nginx reverse proxy backends: 8443-8452 → 9443-9452 (localhost-only)
+- **UNCHANGED**: SOCKS5/HTTP external ports remain 1080/8118 (now via HAProxy TLS termination)
+- **UNCHANGED**: Xray plaintext ports remain 10800/18118 (localhost-only)
+
+#### Certificate Management
+- **ADDED**: `lib/certificate_manager.sh` - HAProxy certificate management
+  - `create_haproxy_combined_cert()` - Concatenate fullchain + privkey → combined.pem
+  - `validate_haproxy_cert()` - Certificate validation for HAProxy
+  - `reload_haproxy_after_cert_update()` - Graceful reload post-renewal
+- **ADDED**: Combined certificate format `/opt/vless/certs/combined.pem`
+  - HAProxy requires fullchain + privkey in single PEM file
+  - Auto-generated on certificate acquisition and renewal
+  - Permissions: 600, owner: root
+- **ADDED**: `lib/certbot_manager.sh` - Certbot Nginx service management
+  - `create_certbot_nginx_config()` - Temporary Nginx for ACME challenges
+  - `start_certbot_nginx()` / `stop_certbot_nginx()` - On-demand service
+  - `acquire_certificate()` - Automated certificate acquisition workflow
+- **UPDATED**: Certificate renewal workflow (vless-cert-renew)
+  - Regenerates combined.pem after Let's Encrypt renewal
+  - Triggers HAProxy graceful reload (NOT full restart)
+  - Zero downtime certificate updates
+
+#### fail2ban Integration
+- **ADDED**: HAProxy fail2ban filters and jails
+  - `/etc/fail2ban/filter.d/haproxy-sni.conf` - HAProxy-specific patterns
+  - `/etc/fail2ban/jail.d/haproxy.conf` - Protection for ports 443, 1080, 8118
+  - Multi-layer protection: HAProxy filter + existing Nginx filters
+- **ADDED**: `lib/fail2ban_config.sh` HAProxy functions
+  - `create_haproxy_filter()` - Filter creation for HAProxy logs
+  - `setup_haproxy_jail()` - Jail configuration
+  - `setup_haproxy_fail2ban()` - Full HAProxy fail2ban setup
+- **ADDED**: CLI commands for HAProxy fail2ban management
+  - `vless fail2ban setup-haproxy` - Configure HAProxy protection
+  - `vless fail2ban status-haproxy` - Check HAProxy jail status
+
+#### CLI Updates
+- **UPDATED**: `vless-setup-proxy` (reverse proxy setup)
+  - Subdomain-based prompts (instead of port selection)
+  - Automatic port allocation from 9443-9452 range
+  - DNS validation required before certificate acquisition
+  - HAProxy SNI route addition (replaced UFW port opening)
+  - Success message: `https://subdomain.example.com` (NO port!)
+- **UPDATED**: `vless-proxy` commands
+  - `show`: Displays subdomain URL without port
+  - `list`: Shows all reverse proxies with v4.3 architecture note
+  - `remove`: HAProxy route removal (replaced UFW port removal)
+- **UPDATED**: `vless-status`
+  - HAProxy status section added (3 frontends info)
+  - Active routes listing (parsed from haproxy.cfg)
+  - Version header: 4.3.0
+
+#### Testing
+- **ADDED**: `tests/integration/v4.3/` - Comprehensive v4.3 test suite
+  - `test_01_vless_reality_haproxy.sh` - VLESS Reality via HAProxy (8 checks)
+  - `test_02_proxy_haproxy.sh` - SOCKS5/HTTP via HAProxy TLS termination (8 checks)
+  - `test_03_reverse_proxy_subdomain.sh` - Subdomain-based reverse proxy (8 checks)
+  - `run_all_tests.sh` - Automated test runner
+  - DEV_MODE support for config validation without production environment
+- **ADDED**: `tests/integration/v4.3/README.md` - Test suite documentation
+
+#### Documentation Updates
+- **UPDATED**: `docs/prd/04_architecture.md` - Added Section 4.7 HAProxy Unified Architecture
+- **UPDATED**: `docs/prd/02_functional_requirements.md`
+  - FR-HAPROXY-001: HAProxy Unified Architecture (CRITICAL)
+  - FR-REVERSE-PROXY-001: Subdomain-Based Reverse Proxy (v4.3)
+- **UPDATED**: `docs/prd/03_nfr.md` - NFR-RPROXY-002: Reverse Proxy Performance (v4.3)
+- **UPDATED**: `docs/prd/05_testing.md` - v4.3 automated test suite documentation
+- **UPDATED**: `docs/prd/06_appendix.md` - Implementation details for v4.3
+- **UPDATED**: `docs/prd/00_summary.md` - Executive summary with v4.3 status
+- **REWRITTEN**: `docs/REVERSE_PROXY_GUIDE.md` - Complete rewrite for v4.3 subdomain access
+- **REWRITTEN**: `docs/REVERSE_PROXY_API.md` - Updated for v4.3 architecture
+- **UPDATED**: `CLAUDE.md` - Project memory updated to v4.3
+
+#### Benefits
+- ✅ **Simplified Architecture**: 1 container instead of 2 (stunnel REMOVED)
+- ✅ **Subdomain-Based Access**: `https://domain` (NO port number!)
+- ✅ **SNI Routing Security**: NO TLS decryption for reverse proxy
+- ✅ **Unified Management**: All TLS and routing in single HAProxy config
+- ✅ **Graceful Reload**: Zero-downtime route updates (haproxy -sf)
+- ✅ **Dynamic ACL Management**: Add/remove reverse proxy routes without restart
+- ✅ **Single Log Stream**: Unified HAProxy logs for all frontends
+- ✅ **Better Performance**: Industry-standard load balancer (20+ years production)
+- ✅ **Easier Troubleshooting**: One config file, one container, clear separation
+
+### Migration from v4.1.1 / v4.1 / v4.0
+
+**Prerequisites:**
+- Existing VLESS installation (v4.0, v4.1, or v4.1.1)
+- Domain name with valid DNS A record (if using reverse proxy)
+- Backup recommended: `sudo vless backup create`
+
+**Automatic Migration:**
+```bash
+# Update to v4.3 (preserves users, keys, reverse proxies)
+sudo vless update
+
+# Migration automatically:
+# 1. Removes stunnel container
+# 2. Creates HAProxy container
+# 3. Generates haproxy.cfg from scratch
+# 4. Creates combined.pem certificates (if proxies enabled)
+# 5. Updates Xray config (port 8443, localhost-only proxies)
+# 6. Updates Nginx configs (ports 9443-9452)
+# 7. Migrates reverse proxy routes to HAProxy ACLs
+# 8. Restarts services with zero user data loss
+
+# Verify migration
+sudo vless status
+# Should show: HAProxy Unified v4.3, stunnel: NOT FOUND (expected)
+```
+
+**Manual Verification:**
+```bash
+# 1. Check HAProxy container
+sudo docker ps | grep haproxy
+# Expected: vless_haproxy, status: Up
+
+# 2. Verify stunnel removed
+sudo docker ps -a | grep stunnel
+# Expected: NO OUTPUT (stunnel completely removed)
+
+# 3. Check HAProxy config
+sudo cat /opt/vless/config/haproxy.cfg | head -20
+# Expected: 3 frontends (vless-reality, socks5-tls, http-tls)
+
+# 4. Check combined.pem (if proxies enabled)
+sudo ls -lh /opt/vless/certs/combined.pem
+# Expected: File exists, 600 permissions, ~4-8 KB size
+
+# 5. Verify ports
+sudo ss -tulnp | grep -E ':(443|1080|8118|8443|9443)'
+# Expected:
+#   443  - haproxy (SNI routing)
+#   1080 - haproxy (SOCKS5 TLS termination)
+#   8118 - haproxy (HTTP TLS termination)
+#   8443 - xray (localhost, VLESS Reality backend)
+#   9443 - nginx (localhost, reverse proxy backend 1)
+
+# 6. Test VLESS connection (use existing client config)
+# Should work without changes
+
+# 7. Test SOCKS5/HTTP proxies (use existing credentials)
+curl -s --socks5 user:pass@domain:1080 https://ifconfig.me
+curl -s --proxy https://user:pass@domain:8118 https://ifconfig.me
+
+# 8. Test reverse proxy (if configured)
+# OLD: https://subdomain.example.com:8443 (DEPRECATED)
+# NEW: https://subdomain.example.com (NO port!)
+curl -I https://subdomain.example.com
+```
+
+**Rollback to v4.1.1 (if needed):**
+```bash
+# 1. Restore backup
+sudo vless backup restore /tmp/vless_backup_TIMESTAMP.tar.gz
+
+# 2. Manually add stunnel container back to docker-compose.yml
+# 3. Recreate lib/stunnel_setup.sh (from v4.1.1 release)
+# 4. Restart services
+sudo docker compose down
+sudo docker compose up -d
+```
+
+**Breaking Changes:**
+- ❌ **stunnel container removed** - No longer exists in docker-compose.yml
+- ❌ **Reverse proxy port access deprecated** - `https://domain:8443` NO LONGER WORKS
+  - Use subdomain access instead: `https://domain` (NO port)
+- ❌ **Xray VLESS port changed** - 443 → 8443 (internal, HAProxy handles 443)
+  - Client configs UNCHANGED (still connect to port 443, HAProxy forwards)
+- ❌ **Nginx backend ports changed** - 8443-8452 → 9443-9452 (localhost-only)
+  - NOT exposed to internet, accessed via HAProxy SNI routing
+- ✅ **Backward Compatible**: Existing VLESS client configs work without changes
+- ✅ **Backward Compatible**: SOCKS5/HTTP proxy credentials unchanged
+- ✅ **Data Preserved**: All users, keys, passwords, reverse proxies migrated automatically
+
+**Acceptance Criteria:**
+- [x] HAProxy container running and handling all 3 ports (443, 1080, 8118)
+- [x] stunnel container removed from docker-compose.yml
+- [x] Reverse proxy accessible via subdomain (NO port)
+- [x] VLESS Reality working via HAProxy passthrough (port 443)
+- [x] SOCKS5/HTTP proxies working via HAProxy TLS termination (ports 1080/8118)
+- [x] Certificate renewal triggers HAProxy graceful reload
+- [x] fail2ban protecting HAProxy (ports 443, 1080, 8118)
+- [x] Zero user data loss during migration
+- [x] Downtime < 30 seconds during update
+
+---
+
+## [4.1.1] - 2025-10-16
+
+### Fixed - Container Verification Logic
+
+**Migration Type:** Non-Breaking (bug fix)
+
+**Primary Fix:** Improved container health verification and error detection
+
+#### Container Health Checks
+- **FIXED**: Nginx container verification now correctly distinguishes between critical errors and informational warnings
+  - Read-only filesystem warnings (expected with security hardening) no longer cause installation failure
+  - Only critical errors (`nginx: [emerg]`) now fail verification
+  - Uses `docker inspect` instead of `grep` for more reliable status checks
+- **FIXED**: Xray container verification enhanced with health status monitoring
+- **ADDED**: stunnel container verification with healthcheck status (v4.0+)
+- **ADDED**: Nginx healthcheck endpoint (`/health`) with automated monitoring
+  - Checks every 30s with 10s timeout
+  - 3 retries before marking unhealthy
+  - 10s startup grace period
+
+#### Pre-flight Checks
+- **ADDED**: Verification of critical files before container deployment
+  - Checks for xray_config.json, nginx config, docker-compose.yml, .env, keys
+  - Checks for stunnel.conf if TLS proxy enabled
+  - Clear error messages listing missing files
+  - Prevents containers from starting with incomplete configuration
+
+#### Verification Improvements
+- **CHANGED**: Container status checks now use `docker inspect` (more reliable than `docker ps | grep`)
+- **ADDED**: Health status monitoring for containers with healthcheck (Xray, stunnel)
+- **ADDED**: Log analysis for critical errors only (ignores expected security warnings)
+- **IMPROVED**: Error messages now include container status and actionable guidance
+
+#### Benefits
+- ✅ **No False Positives**: Security warnings no longer fail installation
+- ✅ **Earlier Error Detection**: Pre-flight checks catch configuration issues before deployment
+- ✅ **Better Diagnostics**: Health status provides real-time container health information
+- ✅ **More Reliable**: docker inspect eliminates race conditions with grep-based checks
+
+### Migration from v4.1
+
+**Automatic Migration:**
+- No user action required
+- Existing installations will benefit from improved verification on next update/restart
+
+---
+
 ## [4.1] - 2025-10-14
 
 ### Changed - Heredoc Config Generation
@@ -537,8 +1013,10 @@ curl -s --proxy https://user:pass@vpn.example.com:8118 https://ifconfig.me
 
 | Version | Date | Primary Feature | Migration Type |
 |---------|------|----------------|----------------|
+| **4.3** | 2025-10-18 | HAProxy Unified Architecture | Breaking |
+| **4.1.1** | 2025-10-16 | Container verification improvements | Non-Breaking |
 | **4.1** | 2025-10-14 | Heredoc config generation | Non-Breaking |
-| **4.0** | 2025-10-10 | stunnel TLS termination | Breaking |
+| **4.0** | 2025-10-10 | stunnel TLS termination (deprecated v4.3) | Breaking |
 | **3.6** | 2025-10-06 | Server-level IP whitelisting | Breaking |
 | **3.5** | 2025-10-04 | Per-user IP whitelisting | Non-Breaking |
 | **3.4** | 2025-10-02 | Optional TLS for proxies | Non-Breaking |
@@ -551,7 +1029,7 @@ curl -s --proxy https://user:pass@vpn.example.com:8118 https://ifconfig.me
 
 ## Upgrade Path
 
-### From v3.x to v4.1 (Recommended)
+### From v3.x / v4.0 / v4.1 to v4.3 (Recommended)
 
 **Direct upgrade** (preserves all user data and keys):
 
@@ -559,33 +1037,54 @@ curl -s --proxy https://user:pass@vpn.example.com:8118 https://ifconfig.me
 # 1. Backup current installation
 sudo vless backup create
 
-# 2. Update to latest version
+# 2. Update to latest version (v4.3)
 sudo vless update
 
-# 3. Follow prompts for:
-# - Domain name (if proxy mode enabled)
-# - Let's Encrypt email
-# - Certificate issuance
+# 3. Migration automatically:
+# - Removes stunnel container (if v4.0-v4.1)
+# - Creates HAProxy unified container
+# - Generates haproxy.cfg
+# - Creates combined.pem certificates
+# - Migrates reverse proxy routes to HAProxy ACLs
+# - Updates all configs (zero user data loss)
 
 # 4. Verify services
 sudo vless status
+# Should show: HAProxy Unified v4.3
 
-# 5. Regenerate all user configs (updates URI schemes to v4.1)
-for user in $(sudo vless list-users | tail -n +2); do
-  sudo vless regenerate "$user"
-done
-
-# 6. Test proxy connections
+# 5. Test connections (existing configs work without changes)
+# VLESS Reality (port 443)
+# SOCKS5 proxy (port 1080)
 curl -s --socks5 user:pass@domain:1080 https://ifconfig.me
+# HTTP proxy (port 8118)
 curl -s --proxy https://user:pass@domain:8118 https://ifconfig.me
+# Reverse proxy (subdomain, NO port)
+curl -I https://subdomain.example.com
 ```
 
 ### Rollback Procedures
 
-**v4.1 → v4.0:**
+**v4.3 → v4.1.1:**
+```bash
+# 1. Restore backup
+sudo vless backup restore /tmp/vless_backup_TIMESTAMP.tar.gz
+
+# 2. Manually add stunnel container back to docker-compose.yml
+# 3. Recreate lib/stunnel_setup.sh (from v4.1.1 release)
+# 4. Reconfigure Xray ports (8443 → 443, 9443-9452 → 8443-8452)
+# 5. Restart services
+sudo docker compose down
+sudo docker compose up -d
+
+# NOTE: Reverse proxy URLs will change back to port-based access
+# OLD v4.3: https://subdomain.example.com (NO port)
+# NEW v4.1.1: https://subdomain.example.com:8443 (port required)
+```
+
+**v4.1.1 → v4.1 or v4.1 → v4.0:**
 ```bash
 # No breaking changes - configs compatible
-# Only heredoc generation method changed
+# Only minor verification improvements in v4.1.1
 ```
 
 **v4.0 → v3.6:**

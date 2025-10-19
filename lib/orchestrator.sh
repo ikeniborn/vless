@@ -20,6 +20,15 @@
 set -euo pipefail
 
 # =============================================================================
+# IMPORT v4.3 MODULES
+# =============================================================================
+# Source HAProxy and docker-compose generators (v4.3 unified architecture)
+# These modules are required for HAProxy configuration and docker-compose generation
+SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -f "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh"
+[[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
+
+# =============================================================================
 # GLOBAL VARIABLES
 # =============================================================================
 
@@ -48,7 +57,8 @@ readonly DOCKER_NETWORK_NAME="vless_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="vless_xray"
-readonly NGINX_CONTAINER_NAME="vless_nginx"
+readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: Full container name
+readonly HAPROXY_CONTAINER_NAME="vless_haproxy"  # v4.3: HAProxy unified TLS termination
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
@@ -85,6 +95,49 @@ orchestrate_installation() {
         echo -e "${RED}Failed to create directory structure${NC}" >&2
         return 1
     }
+
+    # Step 1.5: Set initial permissions (CRITICAL: before container deployment)
+    # Set ownership for log directories so containers can write logs
+    echo -e "${CYAN}[1.5/12] Setting initial permissions for log directories...${NC}"
+    if [[ -d "${LOGS_DIR}/xray" ]]; then
+        chown -R 65534:65534 "${LOGS_DIR}/xray" || {
+            echo -e "${RED}Failed to set xray logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/xray"
+    fi
+    if [[ -d "${LOGS_DIR}/nginx" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/nginx" || {
+            echo -e "${RED}Failed to set nginx logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/nginx"
+    fi
+    if [[ -d "${LOGS_DIR}/fake-site" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/fake-site" || {
+            echo -e "${RED}Failed to set fake-site logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/fake-site"
+    fi
+    if [[ -d "${LOGS_DIR}/haproxy" ]]; then
+        chown -R root:root "${LOGS_DIR}/haproxy" || {
+            echo -e "${RED}Failed to set haproxy logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/haproxy"
+    fi
+
+    # Set permissions on Let's Encrypt live directory for HAProxy access
+    # HAProxy (host network mode, non-root) needs rx to traverse path
+    if [[ -d "/etc/letsencrypt/live" ]]; then
+        chmod 755 /etc/letsencrypt/live || {
+            echo -e "${YELLOW}Warning: Failed to set permissions on /etc/letsencrypt/live${NC}" >&2
+            # Non-critical: Continue installation (certificates may not be configured yet)
+        }
+    fi
+
+    echo "  ✓ Log directory permissions set"
 
     # Step 2: Generate X25519 keys
     generate_reality_keys || {
@@ -123,20 +176,21 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 6.5: Initialize stunnel TLS termination (v4.0)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]] && [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        echo ""
-        echo -e "${CYAN}[6.5/12] Initializing stunnel TLS termination...${NC}"
-
-        # stunnel_setup.sh is already sourced by install.sh
-        # Required variables (TEMPLATE_DIR, CONFIG_DIR, LOG_DIR) exported by install.sh
-        # Call init_stunnel with domain
-        if ! init_stunnel "${DOMAIN}"; then
-            echo -e "${RED}Failed to initialize stunnel${NC}" >&2
-            echo -e "${YELLOW}TLS termination configuration failed${NC}" >&2
-            return 1
+    # Step 6.3: Generate Nginx reverse proxy HTTP context (v4.3)
+    # Source nginx_config_generator.sh if not already loaded
+    if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
+        source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
+        if ! generate_reverseproxy_http_context; then
+            echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
+            # Non-critical: Continue installation
         fi
     fi
+
+    # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
+    generate_haproxy_config_wrapper || {
+        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+        return 1
+    }
 
     # Step 7: Create docker-compose.yml
     create_docker_compose || {
@@ -239,12 +293,17 @@ create_directory_structure() {
     # Create subdirectories
     local directories=(
         "${CONFIG_DIR}"
+        "${CONFIG_DIR}/reverse-proxy"  # v4.3: Nginx reverse proxy configs
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"
         "${INSTALL_ROOT}/backup"
         "${INSTALL_ROOT}/lib"
         "${LOGS_DIR}"
+        "${LOGS_DIR}/xray"
+        "${LOGS_DIR}/haproxy"
+        "${LOGS_DIR}/nginx"
+        "${LOGS_DIR}/fake-site"
         "${KEYS_DIR}"
         "${SCRIPTS_DIR}"
         "${FAKESITE_DIR}"
@@ -357,13 +416,8 @@ generate_routing_json() {
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
     local docker_subnet=""
 
-    # If TLS proxy enabled, add Docker network subnet for stunnel container
-    # This allows stunnel (running in separate container) to forward traffic to Xray
-    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # Get Docker network subnet (e.g., 172.20.0.0/16)
-        docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
-        allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
-    fi
+    # v4.3: HAProxy runs in host network mode, no need for Docker subnet
+    # All traffic from HAProxy to Xray uses 127.0.0.1 (localhost)
 
     # Check if proxy_allowed_ips.json exists (user-defined overrides)
     if [[ -f "$proxy_ips_file" ]]; then
@@ -374,18 +428,18 @@ generate_routing_json() {
         if [[ -n "$user_ips" ]] && [[ "$user_ips" != "null" ]] && echo "$user_ips" | jq empty 2>/dev/null; then
             allowed_ips="$user_ips"
         else
-            # Fallback to defaults if file is corrupted
-            if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-                allowed_ips='["127.0.0.1","'${docker_subnet}'"]'
-            else
-                allowed_ips='["127.0.0.1"]'
-            fi
+            # Fallback to defaults if file is corrupted (v4.3: localhost only)
+            allowed_ips='["127.0.0.1"]'
         fi
     fi
 
     # Generate routing configuration with server-level IP whitelist
-    # Rule 1: Allow whitelisted IPs to access proxy ports
-    # Rule 2: Block all other connections to proxy ports (blackhole)
+    # v4.3+ HAProxy Architecture: Blocking rule removed because:
+    #   - Ports 10800/18118 NOT exposed publicly (HAProxy terminates TLS on 1080/8118)
+    #   - Docker network provides isolation
+    #   - HAProxy connects from Docker network IP (not whitelisted 127.0.0.1)
+    #   - Blocking rule would break HAProxy → Xray proxy connections
+    # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
     cat <<EOF
 ,
   "routing": {
@@ -396,11 +450,6 @@ generate_routing_json() {
         "inboundTag": ["socks5-proxy", "http-proxy"],
         "source": ${allowed_ips},
         "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "inboundTag": ["socks5-proxy", "http-proxy"],
-        "outboundTag": "blocked"
       }
     ]
   }
@@ -413,16 +462,16 @@ EOF
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
 # Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
 # Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
-# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
+# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
 # =============================================================================
 generate_socks5_inbound_json() {
-    # v4.0: stunnel-based TLS termination
-    # Architecture: Client → stunnel (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
+    # v4.3: HAProxy unified TLS termination
+    # Architecture: Client → HAProxy (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
     #
     # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:10800)
-    # - stunnel container exposes public port 1080 with TLS encryption
+    # - HAProxy handles TLS termination on public port 1080
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by stunnel)
+    # - No TLS streamSettings in Xray config (handled by HAProxy)
 
     cat <<'EOF'
   ,{
@@ -450,16 +499,16 @@ EOF
 # Description: Generate HTTP proxy inbound configuration for Xray
 # Returns: JSON string for HTTP inbound (to be appended to inbounds array)
 # Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
-# Note: v4.0 - TLS handled by stunnel, Xray uses plaintext localhost inbound
+# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
 # =============================================================================
 generate_http_inbound_json() {
-    # v4.0: stunnel-based TLS termination
-    # Architecture: Client → stunnel (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
+    # v4.3: HAProxy unified TLS termination
+    # Architecture: Client → HAProxy (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
     #
     # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:18118)
-    # - stunnel container exposes public port 8118 with TLS encryption
+    # - HAProxy handles TLS termination on public port 8118
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by stunnel)
+    # - No TLS streamSettings in Xray config (handled by HAProxy)
 
     cat <<'EOF'
   ,{
@@ -519,7 +568,7 @@ create_xray_config() {
       "decryption": "none",
       "fallbacks": [
         {
-          "dest": "vless_nginx:80"
+          "dest": "vless_fake_site:80"
         }
       ]
     },
@@ -564,6 +613,10 @@ EOF
         echo -e "${RED}Invalid JSON in ${XRAY_CONFIG}${NC}" >&2
         return 1
     fi
+
+    # Set permissions to 644 (readable by Xray container user: nobody)
+    chmod 644 "${XRAY_CONFIG}"
+    chown root:root "${XRAY_CONFIG}" 2>/dev/null || true
 
     echo "  ✓ Configuration file: ${XRAY_CONFIG}"
     echo "  ✓ Listen port: ${VLESS_PORT}"
@@ -710,13 +763,8 @@ init_proxy_allowed_ips() {
     local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
     local default_ips='["127.0.0.1"]'
 
-    # If TLS proxy enabled, include Docker network subnet for stunnel container
-    if [[ "${ENABLE_PROXY_TLS:-false}" == "true" ]]; then
-        # Get Docker network subnet (e.g., 172.20.0.0/16)
-        local docker_subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null | tr -d '\n' || echo "172.20.0.0/16")
-        default_ips='["127.0.0.1","'${docker_subnet}'"]'
-        echo "  ℹ TLS proxy enabled: allowing Docker subnet ${docker_subnet}"
-    fi
+    # v4.3: HAProxy runs in host network mode, only localhost needed
+    # All traffic from HAProxy to Xray uses 127.0.0.1
 
     # Create proxy_allowed_ips.json with appropriate defaults
     cat > "$proxy_ips_file" <<EOF
@@ -843,148 +891,85 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: generate_haproxy_config_wrapper
+# =============================================================================
+# Description: Wrapper for lib/haproxy_config_manager.sh::generate_haproxy_config()
+# Uses: DOMAIN (from interactive_params.sh)
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+generate_haproxy_config_wrapper() {
+    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v4.3 unified TLS)...${NC}"
+
+    # Extract main domain from DOMAIN (remove subdomain if present)
+    local main_domain="${DOMAIN}"
+    local vless_domain="${DOMAIN}"
+
+    # Generate random stats password
+    local stats_password
+    stats_password=$(openssl rand -hex 8)
+
+    # Call the imported function from haproxy_config_manager.sh
+    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}"; then
+        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+        return 1
+    fi
+
+    echo "  ✓ HAProxy config: ${CONFIG_DIR}/haproxy.cfg"
+    echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
+    echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
+    echo "  ✓ Stats URL: http://127.0.0.1:9000/stats"
+    echo "  ✓ Stats password: ${stats_password}"
+
+    echo -e "${GREEN}✓ HAProxy configuration created${NC}"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: create_docker_compose
 # =============================================================================
-# Description: Create docker-compose.yml for container orchestration
-# Uses: XRAY_IMAGE, NGINX_IMAGE, VLESS_PORT, DOCKER_NETWORK_NAME
+# Description: Wrapper for lib/docker_compose_generator.sh::generate_docker_compose()
+# Uses: XRAY_IMAGE, NGINX_IMAGE, VLESS_PORT, DOCKER_NETWORK_NAME (via env)
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_docker_compose() {
-    echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
+    echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v4.3 unified HAProxy)...${NC}"
 
-    # v4.0: stunnel-based TLS termination
-    # - Xray: ALWAYS only exposes VLESS port to host (1080/8118 NOT exposed)
-    # - stunnel: Exposes 1080/8118 when ENABLE_PUBLIC_PROXY=true
-    # - Architecture: Client → stunnel (TLS) → Xray (plaintext localhost)
+    # Set required environment variables for the external generator
+    # Note: VLESS_DIR already set in docker_compose_generator.sh (sourced at top)
+    export DOCKER_SUBNET="${DOCKER_SUBNET}"
+    export VLESS_PORT="${VLESS_PORT}"
 
-    # Xray ports (VLESS only, proxy ports NOT exposed to host)
-    local xray_ports="    ports:
-      - \"${VLESS_PORT}:${VLESS_PORT}\""
-
-    # Xray volumes (no certs needed, stunnel handles TLS)
-    local xray_volumes="    volumes:
-      - ${CONFIG_DIR}:/etc/xray:ro
-      - ${LOGS_DIR}:/var/log/xray"
-
-    # Xray healthcheck (check localhost proxy ports 10800/18118)
-    local xray_healthcheck="    healthcheck:
-      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 10800 && nc -z 127.0.0.1 18118 || exit 1\"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s"
-
-    # stunnel service (optional, only when ENABLE_PUBLIC_PROXY=true)
-    local stunnel_service=""
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        stunnel_service="
-  stunnel:
-    image: dweomer/stunnel:latest
-    container_name: vless_stunnel
-    restart: unless-stopped
-    entrypoint: [\"stunnel\"]
-    command: [\"/etc/stunnel/stunnel.conf\"]
-    ports:
-      - \"1080:1080\"
-      - \"8118:8118\"
-    volumes:
-      - ${CONFIG_DIR}/stunnel.conf:/etc/stunnel/stunnel.conf:ro
-      - /etc/letsencrypt:/certs:ro
-      - ${LOGS_DIR}/stunnel:/var/log/stunnel
-    networks:
-      - ${DOCKER_NETWORK_NAME}
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    depends_on:
-      - xray
-    healthcheck:
-      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 1080 && nc -z 127.0.0.1 8118 || exit 1\"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-"
+    # Call external generator with empty nginx_ports array (managed dynamically)
+    # nginx_ports will be added later by lib/docker_compose_manager.sh when reverse proxies are configured
+    if ! generate_docker_compose; then
+        echo -e "${RED}Failed to generate docker-compose.yml${NC}" >&2
+        return 1
     fi
 
-    # Create docker-compose.yml
-    cat > "${DOCKER_COMPOSE_FILE}" <<EOF
-services:
-  xray:
-    image: ${XRAY_IMAGE}
-    container_name: ${XRAY_CONTAINER_NAME}
-    restart: unless-stopped
-${xray_healthcheck}
-    networks:
-      - ${DOCKER_NETWORK_NAME}
-${xray_ports}
-${xray_volumes}
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-    command: xray run -c /etc/xray/xray_config.json
-
-  nginx:
-    image: ${NGINX_IMAGE}
-    container_name: ${NGINX_CONTAINER_NAME}
-    restart: unless-stopped
-    networks:
-      - ${DOCKER_NETWORK_NAME}
-    volumes:
-      - ${FAKESITE_DIR}/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - ${LOGS_DIR}/nginx:/var/log/nginx
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      - CHOWN
-      - SETGID
-      - SETUID
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/cache/nginx
-      - /var/run
-    depends_on:
-      - xray
-${stunnel_service}
-networks:
-  ${DOCKER_NETWORK_NAME}:
-    external: true
-EOF
-
+    # Verify file was created
     if [[ ! -f "${DOCKER_COMPOSE_FILE}" ]]; then
-        echo -e "${RED}Failed to create ${DOCKER_COMPOSE_FILE}${NC}" >&2
+        echo -e "${RED}Docker compose file not found after generation${NC}" >&2
         return 1
     fi
 
     echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE}"
+    echo "  ✓ HAProxy image: haproxy:2.8-alpine (NEW in v4.3)"
     echo "  ✓ Xray image: ${XRAY_IMAGE}"
     echo "  ✓ Nginx image: ${NGINX_IMAGE}"
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
 
-    # v4.0: Show architecture based on mode
+    # v4.3: HAProxy unified architecture
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo "  ✓ Mode: PUBLIC PROXY with stunnel TLS (v4.0)"
-        echo "  ✓ stunnel: Exposed ports 1080 (SOCKS5s), 8118 (HTTPS) with TLS 1.3"
-        echo "  ✓ Xray: Localhost ports 10800 (SOCKS5), 18118 (HTTP) - plaintext"
-        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to stunnel"
-        echo "  ✓ Architecture: Client → stunnel (TLS) → Xray (auth) → Internet"
+        echo "  ✓ Mode: PUBLIC PROXY with HAProxy unified TLS (v4.3)"
+        echo "  ✓ HAProxy: Handles ALL ports (443, 1080, 8118) with TLS/passthrough"
+        echo "  ✓ Xray: Localhost ports 8443 (VLESS), 10800 (SOCKS5), 18118 (HTTP)"
+        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to HAProxy"
+        echo "  ✓ Architecture: Client → HAProxy (TLS) → Xray (auth) → Internet"
     else
-        echo "  ✓ Mode: VLESS-only"
-        echo "  ✓ Exposed ports: ${VLESS_PORT} (VLESS Reality)"
+        echo "  ✓ Mode: VLESS-only with HAProxy passthrough (v4.3)"
+        echo "  ✓ Exposed ports: 443 (VLESS Reality via HAProxy)"
+        echo "  ✓ Xray: Localhost 8443 (HAProxy forwards from port 443)"
     fi
 
     echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
@@ -1135,15 +1120,63 @@ EOF
         echo "  ✓ Docker forwarding rules already present"
     fi
 
-    # Allow VLESS port (check if rule already exists first)
-    echo "  Allowing port ${VLESS_PORT}..."
-    if ufw status numbered | grep -q "${VLESS_PORT}/tcp.*ALLOW"; then
-        echo "  ✓ Port ${VLESS_PORT}/tcp already allowed"
+    # v4.3: Remove old reverse proxy port rules (8443-8452) if they exist
+    echo "  Removing old reverse proxy port rules (v4.2: 8443-8452)..."
+    local removed_count=0
+    for old_port in {8443..8452}; do
+        if ufw status numbered | grep -q "${old_port}/tcp"; then
+            # Find rule number and delete
+            local rule_nums=$(ufw status numbered | grep "${old_port}/tcp" | grep -oP '^\[\s*\K\d+' || true)
+            if [[ -n "$rule_nums" ]]; then
+                for rule_num in $rule_nums; do
+                    echo "y" | ufw delete "$rule_num" &>/dev/null || true
+                    ((removed_count++))
+                done
+            fi
+        fi
+    done
+    if [[ $removed_count -gt 0 ]]; then
+        echo "  ✓ Removed $removed_count old reverse proxy port rules"
     else
-        ufw allow "${VLESS_PORT}/tcp" comment 'VLESS Reality VPN' || {
+        echo "  ✓ No old reverse proxy port rules found"
+    fi
+
+    # v5.1: Allow HAProxy external port 443 (NOT VLESS_PORT which is internal 8443)
+    # HAProxy listens on 443 externally, forwards to Xray on 8443 internally
+    local haproxy_external_port=443
+    echo "  Allowing port ${haproxy_external_port} (HAProxy external frontend)..."
+    if ufw status numbered | grep -q "${haproxy_external_port}/tcp.*ALLOW"; then
+        echo "  ✓ Port ${haproxy_external_port}/tcp already allowed"
+    else
+        ufw allow "${haproxy_external_port}/tcp" comment 'HAProxy VLESS+Reverse Proxy (v4.3)' || {
             echo -e "${YELLOW}Warning: Failed to add UFW rule${NC}"
         }
-        echo "  ✓ Port ${VLESS_PORT}/tcp allowed"
+        echo "  ✓ Port ${haproxy_external_port}/tcp allowed"
+    fi
+
+    # v4.3: Ensure ports 9443-9452 are NOT exposed (localhost-only nginx backends)
+    echo "  Verifying nginx backend ports (9443-9452) are NOT exposed..."
+    local exposed_nginx_ports=()
+    for nginx_port in {9443..9452}; do
+        if ufw status numbered | grep -q "${nginx_port}/tcp"; then
+            exposed_nginx_ports+=("$nginx_port")
+        fi
+    done
+    if [[ ${#exposed_nginx_ports[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}  ⚠️  WARNING: Nginx backend ports exposed: ${exposed_nginx_ports[*]}${NC}"
+        echo "  These ports should be localhost-only (127.0.0.1) in v4.3"
+        echo "  Removing rules..."
+        for port in "${exposed_nginx_ports[@]}"; do
+            local rule_nums=$(ufw status numbered | grep "${port}/tcp" | grep -oP '^\[\s*\K\d+' || true)
+            if [[ -n "$rule_nums" ]]; then
+                for rule_num in $rule_nums; do
+                    echo "y" | ufw delete "$rule_num" &>/dev/null || true
+                done
+            fi
+        done
+        echo "  ✓ Nginx backend ports secured (localhost-only)"
+    else
+        echo "  ✓ Nginx backend ports are localhost-only (correct)"
     fi
 
     # Reload UFW to apply changes
@@ -1153,7 +1186,7 @@ EOF
     }
     echo "  ✓ Docker forwarding configured for ${DOCKER_SUBNET}"
 
-    echo -e "${GREEN}✓ UFW firewall configured${NC}"
+    echo -e "${GREEN}✓ UFW firewall configured (v4.3)${NC}"
     return 0
 }
 
@@ -1165,6 +1198,30 @@ EOF
 # =============================================================================
 deploy_containers() {
     echo -e "${CYAN}[11/12] Deploying Docker containers...${NC}"
+
+    # Pre-flight checks: Verify critical files exist before starting containers
+    echo "  Running pre-flight checks..."
+    local missing_files=()
+
+    # Check required configuration files
+    [[ ! -f "${XRAY_CONFIG}" ]] && missing_files+=("${XRAY_CONFIG}")
+    [[ ! -f "${NGINX_CONFIG}" ]] && missing_files+=("${NGINX_CONFIG}")
+    [[ ! -f "${DOCKER_COMPOSE_FILE}" ]] && missing_files+=("${DOCKER_COMPOSE_FILE}")
+    [[ ! -f "${ENV_FILE}" ]] && missing_files+=("${ENV_FILE}")
+    [[ ! -f "${KEYS_DIR}/private.key" ]] && missing_files+=("${KEYS_DIR}/private.key")
+    [[ ! -f "${KEYS_DIR}/public.key" ]] && missing_files+=("${KEYS_DIR}/public.key")
+
+    # v4.3: HAProxy config checked via docker-compose generator (lib/haproxy_config_manager.sh)
+
+    if [[ ${#missing_files[@]} -gt 0 ]]; then
+        echo -e "${RED}✗ Pre-flight check failed: Missing critical files (${#missing_files[@]})${NC}" >&2
+        for file in "${missing_files[@]}"; do
+            echo "    - $file"
+        done
+        echo -e "${RED}Cannot start containers without these files${NC}" >&2
+        return 1
+    fi
+    echo "  ✓ All critical files present"
 
     # Change to installation directory
     cd "${INSTALL_ROOT}" || {
@@ -1191,20 +1248,72 @@ deploy_containers() {
     echo "  Waiting for containers to start..."
     sleep 5
 
-    # Check container status
-    if docker ps | grep -q "${XRAY_CONTAINER_NAME}"; then
+    # Check container status using docker inspect (more reliable than grep)
+    local xray_status=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$xray_status" == "running" ]]; then
         echo "  ✓ Xray container running"
+
+        # Check healthcheck status (if available)
+        local xray_health=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$xray_health" == "healthy" ]]; then
+            echo "  ✓ Xray container healthy"
+        elif [[ "$xray_health" == "starting" ]]; then
+            echo "  ℹ Xray container health: starting (will be checked later)"
+        elif [[ "$xray_health" != "no-healthcheck" ]]; then
+            echo -e "${YELLOW}  ⚠ Xray container health: $xray_health${NC}"
+        fi
     else
-        echo -e "${RED}Xray container failed to start${NC}" >&2
+        echo -e "${RED}Xray container failed to start (status: $xray_status)${NC}" >&2
         docker compose logs xray
         return 1
     fi
 
-    if docker ps | grep -q "${NGINX_CONTAINER_NAME}"; then
+    local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$nginx_status" == "running" ]]; then
         echo "  ✓ Nginx container running"
+
+        # Check healthcheck status (added in v4.1.1)
+        local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$nginx_health" == "healthy" ]]; then
+            echo "  ✓ Nginx container healthy"
+        elif [[ "$nginx_health" == "starting" ]]; then
+            echo "  ℹ Nginx container health: starting (will be checked later)"
+        elif [[ "$nginx_health" != "no-healthcheck" ]]; then
+            echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
+        fi
+
+        # Check Nginx logs for critical errors (ignore informational messages)
+        local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
+        if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
+            echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
+            docker compose logs nginx
+            return 1
+        fi
+        # Ignore read-only warnings - these are expected with security-hardened containers
+        if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
+            echo "  ℹ Nginx running in read-only mode (expected for security)"
+        fi
     else
-        echo -e "${RED}Nginx container failed to start${NC}" >&2
+        echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
         docker compose logs nginx
+        return 1
+    fi
+
+    # v4.3: Check HAProxy container (unified TLS termination in bridge network)
+    local haproxy_status=$(docker inspect "${HAPROXY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$haproxy_status" == "running" ]]; then
+        echo "  ✓ HAProxy container running"
+
+        # Check for bind errors in logs (common issue: Permission denied on ports)
+        local haproxy_logs=$(docker logs "${HAPROXY_CONTAINER_NAME}" 2>&1 | tail -20)
+        if echo "$haproxy_logs" | grep -q "cannot bind socket"; then
+            echo -e "${RED}HAProxy has bind errors (check logs)${NC}" >&2
+            docker compose logs haproxy
+            return 1
+        fi
+    else
+        echo -e "${RED}HAProxy container failed to start (status: $haproxy_status)${NC}" >&2
+        docker compose logs haproxy
         return 1
     fi
 
@@ -1320,6 +1429,24 @@ set_permissions() {
     chmod 755 "${LOGS_DIR}" "${SCRIPTS_DIR}" "${FAKESITE_DIR}" \
               "${DOCS_DIR}" "${TESTS_DIR}" 2>/dev/null || true
 
+    # Set ownership for xray logs (container runs as user: nobody = UID 65534)
+    # This allows xray container to write logs without permission errors
+    if [[ -d "${LOGS_DIR}/xray" ]]; then
+        chown -R 65534:65534 "${LOGS_DIR}/xray" 2>/dev/null || true
+        chmod 755 "${LOGS_DIR}/xray" 2>/dev/null || true
+    fi
+
+    # Set ownership for nginx logs (containers run as user: nginx = UID 101)
+    # This allows nginx containers to write logs without permission errors
+    if [[ -d "${LOGS_DIR}/nginx" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/nginx" 2>/dev/null || true
+        chmod 755 "${LOGS_DIR}/nginx" 2>/dev/null || true
+    fi
+    if [[ -d "${LOGS_DIR}/fake-site" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/fake-site" 2>/dev/null || true
+        chmod 755 "${LOGS_DIR}/fake-site" 2>/dev/null || true
+    fi
+
     # Readable files: 644
     find "${LOGS_DIR}" -type f -exec chmod 644 {} \; 2>/dev/null || true
     chmod 644 "${DOCKER_COMPOSE_FILE}" 2>/dev/null || true
@@ -1330,6 +1457,8 @@ set_permissions() {
 
     echo "  ✓ Sensitive files: 600 (root only)"
     echo "  ✓ Config/keys directories: 700 (root only)"
+    echo "  ✓ Xray logs ownership: nobody:nobody (65534:65534)"
+    echo "  ✓ Nginx logs ownership: nginx:nginx (101:101)"
     echo "  ✓ Logs/scripts: 755/644 (readable)"
 
     echo -e "${GREEN}✓ Permissions set${NC}"
