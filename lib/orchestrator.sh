@@ -95,6 +95,39 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 1.5: Set initial permissions (CRITICAL: before container deployment)
+    # Set ownership for log directories so containers can write logs
+    echo -e "${CYAN}[1.5/12] Setting initial permissions for log directories...${NC}"
+    if [[ -d "${LOGS_DIR}/xray" ]]; then
+        chown -R 65534:65534 "${LOGS_DIR}/xray" || {
+            echo -e "${RED}Failed to set xray logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/xray"
+    fi
+    if [[ -d "${LOGS_DIR}/nginx" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/nginx" || {
+            echo -e "${RED}Failed to set nginx logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/nginx"
+    fi
+    if [[ -d "${LOGS_DIR}/fake-site" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/fake-site" || {
+            echo -e "${RED}Failed to set fake-site logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/fake-site"
+    fi
+    if [[ -d "${LOGS_DIR}/haproxy" ]]; then
+        chown -R root:root "${LOGS_DIR}/haproxy" || {
+            echo -e "${RED}Failed to set haproxy logs ownership${NC}" >&2
+            return 1
+        }
+        chmod 755 "${LOGS_DIR}/haproxy"
+    fi
+    echo "  ✓ Log directory permissions set"
+
     # Step 2: Generate X25519 keys
     generate_reality_keys || {
         echo -e "${RED}Failed to generate Reality keys${NC}" >&2
