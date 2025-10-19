@@ -126,6 +126,16 @@ orchestrate_installation() {
         }
         chmod 755 "${LOGS_DIR}/haproxy"
     fi
+
+    # Set permissions on Let's Encrypt live directory for HAProxy access
+    # HAProxy (host network mode, non-root) needs rx to traverse path
+    if [[ -d "/etc/letsencrypt/live" ]]; then
+        chmod 755 /etc/letsencrypt/live || {
+            echo -e "${YELLOW}Warning: Failed to set permissions on /etc/letsencrypt/live${NC}" >&2
+            # Non-critical: Continue installation (certificates may not be configured yet)
+        }
+    fi
+
     echo "  ✓ Log directory permissions set"
 
     # Step 2: Generate X25519 keys

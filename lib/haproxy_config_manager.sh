@@ -83,8 +83,9 @@ global
     # DH parameters for TLS
     tune.ssl.default-dh-param 2048
 
-    # SSL/TLS configuration
-    ssl-default-bind-ciphers TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+    # SSL/TLS configuration (TLS 1.3 ONLY per NFR-SEC-001)
+    # NOTE: ssl-default-bind-ciphers is for TLS 1.2 and below (NOT used for TLS 1.3)
+    # For TLS 1.3 ONLY, use ssl-default-bind-ciphersuites exclusively
     ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
     ssl-default-bind-options ssl-min-ver TLSv1.3
 
