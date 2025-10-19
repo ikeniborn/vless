@@ -132,6 +132,16 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 6.3: Generate Nginx reverse proxy HTTP context (v4.3)
+    # Source nginx_config_generator.sh if not already loaded
+    if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
+        source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
+        if ! generate_reverseproxy_http_context; then
+            echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
+            # Non-critical: Continue installation
+        fi
+    fi
+
     # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
     generate_haproxy_config_wrapper || {
         echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
@@ -1361,6 +1371,17 @@ set_permissions() {
         chmod 755 "${LOGS_DIR}/xray" 2>/dev/null || true
     fi
 
+    # Set ownership for nginx logs (containers run as user: nginx = UID 101)
+    # This allows nginx containers to write logs without permission errors
+    if [[ -d "${LOGS_DIR}/nginx" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/nginx" 2>/dev/null || true
+        chmod 755 "${LOGS_DIR}/nginx" 2>/dev/null || true
+    fi
+    if [[ -d "${LOGS_DIR}/fake-site" ]]; then
+        chown -R 101:101 "${LOGS_DIR}/fake-site" 2>/dev/null || true
+        chmod 755 "${LOGS_DIR}/fake-site" 2>/dev/null || true
+    fi
+
     # Readable files: 644
     find "${LOGS_DIR}" -type f -exec chmod 644 {} \; 2>/dev/null || true
     chmod 644 "${DOCKER_COMPOSE_FILE}" 2>/dev/null || true
@@ -1372,6 +1393,7 @@ set_permissions() {
     echo "  ✓ Sensitive files: 600 (root only)"
     echo "  ✓ Config/keys directories: 700 (root only)"
     echo "  ✓ Xray logs ownership: nobody:nobody (65534:65534)"
+    echo "  ✓ Nginx logs ownership: nginx:nginx (101:101)"
     echo "  ✓ Logs/scripts: 755/644 (readable)"
 
     echo -e "${GREEN}✓ Permissions set${NC}"
