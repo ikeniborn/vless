@@ -20,6 +20,15 @@
 set -euo pipefail
 
 # =============================================================================
+# IMPORT v4.3 MODULES
+# =============================================================================
+# Source HAProxy and docker-compose generators (v4.3 unified architecture)
+# These modules are required for HAProxy configuration and docker-compose generation
+SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -f "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh"
+[[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
+
+# =============================================================================
 # GLOBAL VARIABLES
 # =============================================================================
 
@@ -123,7 +132,11 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 6.5: Removed in v4.3 - stunnel replaced by HAProxy unified TLS termination
+    # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
+    generate_haproxy_config_wrapper || {
+        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+        return 1
+    }
 
     # Step 7: Create docker-compose.yml
     create_docker_compose || {
@@ -816,104 +829,69 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: generate_haproxy_config_wrapper
+# =============================================================================
+# Description: Wrapper for lib/haproxy_config_manager.sh::generate_haproxy_config()
+# Uses: DOMAIN (from interactive_params.sh)
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+generate_haproxy_config_wrapper() {
+    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v4.3 unified TLS)...${NC}"
+
+    # Extract main domain from DOMAIN (remove subdomain if present)
+    local main_domain="${DOMAIN}"
+    local vless_domain="${DOMAIN}"
+
+    # Generate random stats password
+    local stats_password
+    stats_password=$(openssl rand -hex 8)
+
+    # Call the imported function from haproxy_config_manager.sh
+    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}"; then
+        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+        return 1
+    fi
+
+    echo "  ✓ HAProxy config: ${CONFIG_DIR}/haproxy.cfg"
+    echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
+    echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
+    echo "  ✓ Stats URL: http://127.0.0.1:9000/stats"
+    echo "  ✓ Stats password: ${stats_password}"
+
+    echo -e "${GREEN}✓ HAProxy configuration created${NC}"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: create_docker_compose
 # =============================================================================
-# Description: Create docker-compose.yml for container orchestration
-# Uses: XRAY_IMAGE, NGINX_IMAGE, VLESS_PORT, DOCKER_NETWORK_NAME
+# Description: Wrapper for lib/docker_compose_generator.sh::generate_docker_compose()
+# Uses: XRAY_IMAGE, NGINX_IMAGE, VLESS_PORT, DOCKER_NETWORK_NAME (via env)
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_docker_compose() {
-    echo -e "${CYAN}[7/12] Creating Docker Compose configuration...${NC}"
+    echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v4.3 unified HAProxy)...${NC}"
 
-    # v4.3: HAProxy-based unified TLS termination
-    # - Xray: Exposes ONLY localhost ports (8443 for VLESS, 10800/18118 for proxy)
-    # - HAProxy: Handles ALL public ports (443, 1080, 8118) in host network mode
-    # - Architecture: Client → HAProxy (TLS/passthrough) → Xray (localhost)
+    # Set required environment variables for the external generator
+    export VLESS_DIR="${INSTALL_ROOT}"
+    export DOCKER_SUBNET="${DOCKER_SUBNET}"
+    export VLESS_PORT="${VLESS_PORT}"
 
-    # v4.3: Xray ports (localhost-only, HAProxy forwards from public ports)
-    local xray_ports="    ports:
-      - \"127.0.0.1:8443:${VLESS_PORT}\"
-      # Proxy ports NOT exposed - accessed by HAProxy via localhost"
+    # Call external generator with empty nginx_ports array (managed dynamically)
+    # nginx_ports will be added later by lib/docker_compose_manager.sh when reverse proxies are configured
+    if ! generate_docker_compose; then
+        echo -e "${RED}Failed to generate docker-compose.yml${NC}" >&2
+        return 1
+    fi
 
-    # Xray volumes (no certs needed, HAProxy handles TLS)
-    local xray_volumes="    volumes:
-      - ${CONFIG_DIR}:/etc/xray:ro
-      - ${LOGS_DIR}:/var/log/xray"
-
-    # Xray healthcheck (check localhost proxy ports 10800/18118)
-    local xray_healthcheck="    healthcheck:
-      test: [\"CMD\", \"sh\", \"-c\", \"nc -z 127.0.0.1 8443 && nc -z 127.0.0.1 10800 && nc -z 127.0.0.1 18118 || exit 1\"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s"
-
-    # Create docker-compose.yml
-    cat > "${DOCKER_COMPOSE_FILE}" <<EOF
-services:
-  xray:
-    image: ${XRAY_IMAGE}
-    container_name: ${XRAY_CONTAINER_NAME}
-    restart: unless-stopped
-${xray_healthcheck}
-    networks:
-      - ${DOCKER_NETWORK_NAME}
-${xray_ports}
-${xray_volumes}
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-    command: xray run -c /etc/xray/xray_config.json
-
-  nginx:
-    image: ${NGINX_IMAGE}
-    container_name: ${NGINX_CONTAINER_NAME}
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - ${DOCKER_NETWORK_NAME}
-    volumes:
-      - ${FAKESITE_DIR}/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - ${LOGS_DIR}/nginx:/var/log/nginx
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      - CHOWN
-      - SETGID
-      - SETUID
-    security_opt:
-      - no-new-privileges:true
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/cache/nginx
-      - /var/run
-    depends_on:
-      - xray
-
-networks:
-  ${DOCKER_NETWORK_NAME}:
-    external: true
-EOF
-
+    # Verify file was created
     if [[ ! -f "${DOCKER_COMPOSE_FILE}" ]]; then
-        echo -e "${RED}Failed to create ${DOCKER_COMPOSE_FILE}${NC}" >&2
+        echo -e "${RED}Docker compose file not found after generation${NC}" >&2
         return 1
     fi
 
     echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE}"
+    echo "  ✓ HAProxy image: haproxy:2.8-alpine (NEW in v4.3)"
     echo "  ✓ Xray image: ${XRAY_IMAGE}"
     echo "  ✓ Nginx image: ${NGINX_IMAGE}"
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
