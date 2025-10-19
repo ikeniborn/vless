@@ -116,10 +116,6 @@ frontend https_sni_router
     tcp-request inspect-delay 5s
     tcp-request content accept if { req_ssl_hello_type 1 }
 
-    # Static ACL for VLESS Reality
-    acl is_vless req_ssl_sni -i ${vless_domain}
-    use_backend xray_vless if is_vless
-
     # ========== Dynamic ACLs for Reverse Proxies ==========
     # Populated dynamically via add_reverse_proxy_route()
     # Format:
@@ -127,17 +123,16 @@ frontend https_sni_router
     #   use_backend nginx_<domain_safe> if is_<domain_safe>
     # =======================================================
 
-    # Default: drop unknown SNI
-    default_backend blackhole
+    # Default: forward to VLESS Reality (handles all non-reverse-proxy traffic)
+    # NOTE: VLESS Reality uses SNI of destination site (e.g., www.google.com),
+    #       NOT the server domain. Therefore, VLESS must be default backend.
+    #       Reverse proxy domains use explicit ACLs above.
+    default_backend xray_vless
 
 # Backend for VLESS Reality (TCP passthrough, NO TLS termination)
 backend xray_vless
     mode tcp
     server xray vless_xray:8443 check inter 10s fall 3 rise 2
-
-# Blackhole for unknown/invalid SNI
-backend blackhole
-    mode tcp
 
 # ==============================================================================
 # Frontend 2: Port 1080 - SOCKS5 TLS Termination
@@ -193,6 +188,12 @@ listen stats
 EOF
 
     local exit_code=$?
+
+    # Set permissions to 644 (readable by HAProxy container user)
+    if [ $exit_code -eq 0 ]; then
+        chmod 644 "${HAPROXY_CONFIG}"
+        chown root:root "${HAPROXY_CONFIG}" 2>/dev/null || true
+    fi
 
     if [ $exit_code -eq 0 ]; then
         log "✅ haproxy.cfg generated successfully"

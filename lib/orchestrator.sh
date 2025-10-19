@@ -434,8 +434,12 @@ generate_routing_json() {
     fi
 
     # Generate routing configuration with server-level IP whitelist
-    # Rule 1: Allow whitelisted IPs to access proxy ports
-    # Rule 2: Block all other connections to proxy ports (blackhole)
+    # v4.3+ HAProxy Architecture: Blocking rule removed because:
+    #   - Ports 10800/18118 NOT exposed publicly (HAProxy terminates TLS on 1080/8118)
+    #   - Docker network provides isolation
+    #   - HAProxy connects from Docker network IP (not whitelisted 127.0.0.1)
+    #   - Blocking rule would break HAProxy → Xray proxy connections
+    # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
     cat <<EOF
 ,
   "routing": {
@@ -446,11 +450,6 @@ generate_routing_json() {
         "inboundTag": ["socks5-proxy", "http-proxy"],
         "source": ${allowed_ips},
         "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "inboundTag": ["socks5-proxy", "http-proxy"],
-        "outboundTag": "blocked"
       }
     ]
   }
@@ -614,6 +613,10 @@ EOF
         echo -e "${RED}Invalid JSON in ${XRAY_CONFIG}${NC}" >&2
         return 1
     fi
+
+    # Set permissions to 644 (readable by Xray container user: nobody)
+    chmod 644 "${XRAY_CONFIG}"
+    chown root:root "${XRAY_CONFIG}" 2>/dev/null || true
 
     echo "  ✓ Configuration file: ${XRAY_CONFIG}"
     echo "  ✓ Listen port: ${VLESS_PORT}"

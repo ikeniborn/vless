@@ -581,6 +581,11 @@ regenerate_proxy_routing() {
     allowed_ips=$(jq -c '.allowed_ips // ["127.0.0.1"]' "$PROXY_IPS_FILE" 2>/dev/null)
 
     # Build routing rules (NO user field, only source)
+    # NOTE: In v4.3+ HAProxy architecture, blocking rule is removed because:
+    #       - Ports 10800/18118 NOT exposed publicly (HAProxy terminates TLS)
+    #       - Docker network provides isolation
+    #       - HAProxy connects from Docker network IP (not 127.0.0.1)
+    #       - Blocking rule would break HAProxy → Xray proxy connections
     local routing_rules
     routing_rules=$(jq -n \
         --argjson source "$allowed_ips" \
@@ -590,11 +595,6 @@ regenerate_proxy_routing() {
                 inboundTag: ["socks5-proxy", "http-proxy"],
                 source: $source,
                 outboundTag: "direct"
-            },
-            {
-                type: "field",
-                inboundTag: ["socks5-proxy", "http-proxy"],
-                outboundTag: "blocked"
             }
         ]')
 
