@@ -245,6 +245,10 @@ create_directory_structure() {
         "${INSTALL_ROOT}/backup"
         "${INSTALL_ROOT}/lib"
         "${LOGS_DIR}"
+        "${LOGS_DIR}/xray"
+        "${LOGS_DIR}/haproxy"
+        "${LOGS_DIR}/nginx"
+        "${LOGS_DIR}/fake-site"
         "${KEYS_DIR}"
         "${SCRIPTS_DIR}"
         "${FAKESITE_DIR}"
@@ -1350,6 +1354,13 @@ set_permissions() {
     chmod 755 "${LOGS_DIR}" "${SCRIPTS_DIR}" "${FAKESITE_DIR}" \
               "${DOCS_DIR}" "${TESTS_DIR}" 2>/dev/null || true
 
+    # Set ownership for xray logs (container runs as user: nobody = UID 65534)
+    # This allows xray container to write logs without permission errors
+    if [[ -d "${LOGS_DIR}/xray" ]]; then
+        chown -R 65534:65534 "${LOGS_DIR}/xray" 2>/dev/null || true
+        chmod 755 "${LOGS_DIR}/xray" 2>/dev/null || true
+    fi
+
     # Readable files: 644
     find "${LOGS_DIR}" -type f -exec chmod 644 {} \; 2>/dev/null || true
     chmod 644 "${DOCKER_COMPOSE_FILE}" 2>/dev/null || true
@@ -1360,6 +1371,7 @@ set_permissions() {
 
     echo "  ✓ Sensitive files: 600 (root only)"
     echo "  ✓ Config/keys directories: 700 (root only)"
+    echo "  ✓ Xray logs ownership: nobody:nobody (65534:65534)"
     echo "  ✓ Logs/scripts: 755/644 (readable)"
 
     echo -e "${GREEN}✓ Permissions set${NC}"
