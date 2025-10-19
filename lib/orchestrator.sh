@@ -57,7 +57,8 @@ readonly DOCKER_NETWORK_NAME="vless_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="vless_xray"
-readonly NGINX_CONTAINER_NAME="vless_nginx"
+readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: Full container name
+readonly HAPROXY_CONTAINER_NAME="vless_haproxy"  # v4.3: HAProxy unified TLS termination
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
@@ -931,7 +932,7 @@ create_docker_compose() {
     echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v4.3 unified HAProxy)...${NC}"
 
     # Set required environment variables for the external generator
-    export VLESS_DIR="${INSTALL_ROOT}"
+    # Note: VLESS_DIR already set in docker_compose_generator.sh (sourced at top)
     export DOCKER_SUBNET="${DOCKER_SUBNET}"
     export VLESS_PORT="${VLESS_PORT}"
 
@@ -1293,8 +1294,23 @@ deploy_containers() {
         return 1
     fi
 
-    # v4.3: HAProxy runs in host network mode, managed separately (not in docker-compose containers)
-    # HAProxy health check performed by lib/haproxy_config_manager.sh::check_haproxy_status()
+    # v4.3: Check HAProxy container (unified TLS termination in bridge network)
+    local haproxy_status=$(docker inspect "${HAPROXY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$haproxy_status" == "running" ]]; then
+        echo "  ✓ HAProxy container running"
+
+        # Check for bind errors in logs (common issue: Permission denied on ports)
+        local haproxy_logs=$(docker logs "${HAPROXY_CONTAINER_NAME}" 2>&1 | tail -20)
+        if echo "$haproxy_logs" | grep -q "cannot bind socket"; then
+            echo -e "${RED}HAProxy has bind errors (check logs)${NC}" >&2
+            docker compose logs haproxy
+            return 1
+        fi
+    else
+        echo -e "${RED}HAProxy container failed to start (status: $haproxy_status)${NC}" >&2
+        docker compose logs haproxy
+        return 1
+    fi
 
     echo -e "${GREEN}✓ Containers deployed successfully${NC}"
     return 0

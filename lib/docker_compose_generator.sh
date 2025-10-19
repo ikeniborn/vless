@@ -90,6 +90,8 @@ services:
     restart: unless-stopped
     networks:
       - vless_reality_net
+    cap_add:
+      - NET_BIND_SERVICE  # Required: HAProxy runs as uid=99, needs capability to bind ports < 1024
     ports:
       - "443:443"      # HTTPS SNI routing
       - "1080:1080"    # SOCKS5 with TLS
