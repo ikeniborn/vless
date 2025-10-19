@@ -64,10 +64,10 @@ validate_dns_for_domain() {
         fi
     fi
 
-    # Step 2: Detect server's public IP
+    # Step 2: Detect server's public IP (use same sequence as wizard for consistency)
     echo "Detecting server public IP..."
     local server_ip
-    server_ip=$(curl -s -4 ifconfig.me || curl -s -4 icanhazip.com || curl -s -4 checkip.amazonaws.com)
+    server_ip=$(curl -s -4 https://api.ipify.org || curl -s -4 https://ifconfig.me || echo "")
 
     if [[ -z "$server_ip" ]]; then
         echo -e "${RED}ERROR: Failed to detect server public IP${NC}" >&2
@@ -78,10 +78,10 @@ validate_dns_for_domain() {
     echo "  Server IP: $server_ip"
     echo ""
 
-    # Step 3: Query DNS A record
+    # Step 3: Query DNS A record (use Google DNS 8.8.8.8 for consistency)
     echo "Querying DNS for $domain..."
     local dns_ip
-    dns_ip=$(dig +short "$domain" A | head -1)
+    dns_ip=$(dig +short "$domain" @8.8.8.8 | tail -1)
 
     # Step 4: Validate DNS resolution
     if [[ -z "$dns_ip" ]]; then

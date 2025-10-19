@@ -1359,6 +1359,48 @@ install_cli_tools() {
         return 1
     }
 
+    # Install vless-proxy CLI tool
+    local proxy_cli_source="${project_root}/scripts/vless-proxy"
+    if [[ -f "$proxy_cli_source" ]]; then
+        # Copy vless-proxy script
+        cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
+            echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
+            return 1
+        }
+
+        # Make it executable
+        chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
+            echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
+            return 1
+        }
+
+        # Create symlink in /usr/local/bin
+        ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
+            echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
+            return 1
+        }
+    else
+        echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
+        echo "  ℹ vless-proxy installation skipped"
+    fi
+
+    # Install vless-setup-proxy helper script
+    local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
+    if [[ -f "$setup_proxy_source" ]]; then
+        cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
+            echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
+            return 1
+        }
+
+        chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
+            echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
+            return 1
+        }
+    else
+        echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
+        echo "  ℹ vless-setup-proxy installation skipped"
+    fi
+
     # Copy lib modules to installation (required for CLI to function)
     local lib_modules=(
         "user_management.sh"
@@ -1366,6 +1408,15 @@ install_cli_tools() {
         "proxy_whitelist.sh"
         "ufw_whitelist.sh"
         "security_tests.sh"
+        "reverseproxy_db.sh"
+        "xray_http_inbound.sh"
+        "letsencrypt_integration.sh"
+        "haproxy_config_manager.sh"
+        "nginx_config_generator.sh"
+        "fail2ban_config.sh"
+        "docker_compose_manager.sh"
+        "docker_compose_generator.sh"
+        "certificate_manager.sh"
     )
 
     for module in "${lib_modules[@]}"; do
@@ -1395,9 +1446,13 @@ install_cli_tools() {
         fi
     done
 
-    echo "  ✓ CLI script installed: ${SCRIPTS_DIR}/vless"
-    echo "  ✓ Symlink created: /usr/local/bin/vless"
-    echo "  ✓ Command available: vless"
+    echo "  ✓ CLI scripts installed:"
+    echo "    - ${SCRIPTS_DIR}/vless"
+    echo "    - ${SCRIPTS_DIR}/vless-proxy"
+    echo "  ✓ Symlinks created:"
+    echo "    - /usr/local/bin/vless"
+    echo "    - /usr/local/bin/vless-proxy"
+    echo "  ✓ Commands available: vless, vless-proxy"
 
     echo -e "${GREEN}✓ CLI tools installed${NC}"
     return 0
