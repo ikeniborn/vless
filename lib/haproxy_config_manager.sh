@@ -89,9 +89,9 @@ global
     ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
     ssl-default-bind-options ssl-min-ver TLSv1.3
 
-    # Run as non-root (haproxy user in container)
-    user haproxy
-    group haproxy
+    # NOTE: user/group directives removed for network_mode: host
+    # HAProxy starts as root, binds to ports 443/1080/8118, then automatically
+    # drops privileges after binding (with cap_add: NET_BIND_SERVICE)
 
 # ==============================================================================
 # Default Settings
