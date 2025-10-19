@@ -38,6 +38,9 @@ set -euo pipefail
 readonly CERTBOT_WEBROOT="/var/www/certbot"
 readonly LETSENCRYPT_DIR="/etc/letsencrypt/live"
 
+# Flag to track if we opened port 80 (used for cleanup)
+PORT_80_OPENED_BY_US=false
+
 # ==============================================================================
 # Function: validate_certificate
 # ==============================================================================
@@ -166,6 +169,181 @@ renew_certificate() {
 }
 
 # ==============================================================================
+# Function: ensure_certbot_webroot
+# ==============================================================================
+# Description: Ensure certbot webroot directory exists with proper permissions
+# Returns: 0 on success, 1 on failure
+# ==============================================================================
+ensure_certbot_webroot() {
+    if [[ ! -d "$CERTBOT_WEBROOT" ]]; then
+        echo "Creating certbot webroot directory: $CERTBOT_WEBROOT"
+        if ! mkdir -p "$CERTBOT_WEBROOT" 2>/dev/null; then
+            echo "Error: Failed to create $CERTBOT_WEBROOT" >&2
+            return 1
+        fi
+    fi
+
+    # Ensure proper permissions (755 = rwxr-xr-x)
+    # This allows certbot (running as root) to write, and nginx to read
+    chmod 755 "$CERTBOT_WEBROOT" 2>/dev/null || true
+
+    # Verify directory exists and is readable (write permission not required here)
+    if [[ ! -d "$CERTBOT_WEBROOT" ]] || [[ ! -r "$CERTBOT_WEBROOT" ]]; then
+        echo "Error: $CERTBOT_WEBROOT is not accessible" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# ==============================================================================
+# Function: open_port_80_for_certbot
+# ==============================================================================
+# Description: Temporarily open UFW port 80 for ACME HTTP-01 challenge
+# Returns: 0 on success, 1 on failure
+# Side Effect: Sets PORT_80_OPENED_BY_US=true if we open the port
+# ==============================================================================
+open_port_80_for_certbot() {
+    # Check if UFW is installed and active
+    if ! command -v ufw &>/dev/null; then
+        echo "UFW not installed, skipping port management"
+        return 0
+    fi
+
+    local ufw_status
+    ufw_status=$(ufw status 2>/dev/null | head -1)
+
+    if [[ ! "$ufw_status" =~ "Status: active" ]]; then
+        echo "UFW not active, skipping port management"
+        return 0
+    fi
+
+    # Check if port 80 is already allowed
+    if ufw status numbered | grep -qE "80/tcp.*ALLOW"; then
+        echo "Port 80 already allowed in UFW"
+        PORT_80_OPENED_BY_US=false
+        return 0
+    fi
+
+    # Open port 80 temporarily
+    echo "Temporarily opening port 80 in UFW for Let's Encrypt ACME challenge..."
+    if ! ufw allow 80/tcp comment "Let's Encrypt ACME challenge (temporary)" >/dev/null 2>&1; then
+        echo "Error: Failed to open port 80 in UFW" >&2
+        return 1
+    fi
+
+    PORT_80_OPENED_BY_US=true
+    echo "✓ Port 80 opened in UFW (will be closed automatically)"
+    return 0
+}
+
+# ==============================================================================
+# Function: close_port_80_for_certbot
+# ==============================================================================
+# Description: Close UFW port 80 if we opened it
+# Returns: 0 (always succeeds for cleanup safety)
+# ==============================================================================
+close_port_80_for_certbot() {
+    # Only close if we opened the port ourselves
+    if [[ "$PORT_80_OPENED_BY_US" != "true" ]]; then
+        return 0
+    fi
+
+    # Check if UFW is still active
+    if ! command -v ufw &>/dev/null; then
+        return 0
+    fi
+
+    echo "Closing temporary port 80 in UFW..."
+
+    # Find and delete the rule we added (match by comment)
+    local rule_number
+    rule_number=$(ufw status numbered | grep "Let's Encrypt ACME challenge (temporary)" | grep -oP '^\[\s*\K[0-9]+' | head -1)
+
+    if [[ -n "$rule_number" ]]; then
+        # Delete by rule number (requires 'yes' confirmation)
+        echo "y" | ufw delete "$rule_number" >/dev/null 2>&1 || true
+        echo "✓ Port 80 closed in UFW"
+    else
+        # Fallback: delete by specification
+        ufw delete allow 80/tcp >/dev/null 2>&1 || true
+        echo "✓ Port 80 closed in UFW (fallback method)"
+    fi
+
+    PORT_80_OPENED_BY_US=false
+    return 0
+}
+
+# ==============================================================================
+# Function: start_certbot_nginx
+# ==============================================================================
+# Description: Start temporary nginx container for ACME HTTP-01 challenge
+# Returns: 0 on success, 1 on failure
+# ==============================================================================
+start_certbot_nginx() {
+    local container_name="certbot_nginx"
+
+    # Check if container already exists and is running
+    if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo "Certbot nginx container already running"
+        return 0
+    fi
+
+    # Remove existing stopped container if present
+    if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo "Removing existing certbot nginx container..."
+        docker rm -f "$container_name" >/dev/null 2>&1 || true
+    fi
+
+    # Check if port 80 is available
+    if ss -tulnp | grep -q ":80 "; then
+        echo "Error: Port 80 is already in use" >&2
+        echo "Stop the service using port 80 and try again" >&2
+        return 1
+    fi
+
+    echo "Starting certbot nginx container on port 80..."
+    if ! docker run -d \
+        --name "$container_name" \
+        --network host \
+        -v "$CERTBOT_WEBROOT:/usr/share/nginx/html:ro" \
+        nginx:alpine >/dev/null 2>&1; then
+        echo "Error: Failed to start certbot nginx container" >&2
+        return 1
+    fi
+
+    # Wait for nginx to be ready
+    sleep 2
+
+    # Verify nginx is responding
+    if ! curl -s -o /dev/null -w "%{http_code}" http://localhost:80 | grep -q "^[2-4]"; then
+        echo "Warning: Certbot nginx may not be responding correctly"
+    fi
+
+    echo "✓ Certbot nginx started successfully"
+    return 0
+}
+
+# ==============================================================================
+# Function: stop_certbot_nginx
+# ==============================================================================
+# Description: Stop and remove certbot nginx container
+# Returns: 0 on success (always succeeds)
+# ==============================================================================
+stop_certbot_nginx() {
+    local container_name="certbot_nginx"
+
+    if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo "Stopping certbot nginx container..."
+        docker stop "$container_name" >/dev/null 2>&1 || true
+        docker rm "$container_name" >/dev/null 2>&1 || true
+        echo "✓ Certbot nginx stopped"
+    fi
+
+    return 0
+}
+
+# ==============================================================================
 # Function: acquire_certificate
 # ==============================================================================
 # Description: Acquire new Let's Encrypt certificate
@@ -184,6 +362,34 @@ acquire_certificate() {
         return 1
     fi
 
+    # Cleanup function (called on exit via trap)
+    cleanup() {
+        echo ""
+        stop_certbot_nginx
+        close_port_80_for_certbot
+    }
+
+    # Set trap to ensure cleanup on exit (success or failure)
+    trap cleanup EXIT
+
+    # Step 1: Ensure webroot directory exists
+    if ! ensure_certbot_webroot; then
+        return 1
+    fi
+
+    # Step 2: Open port 80 in UFW (if needed)
+    echo ""
+    if ! open_port_80_for_certbot; then
+        echo "Warning: Failed to open port 80 in UFW, continuing anyway..." >&2
+    fi
+
+    # Step 3: Start certbot nginx container
+    echo ""
+    echo "Starting temporary nginx for ACME challenge..."
+    if ! start_certbot_nginx; then
+        return 1
+    fi
+
     # Prepare certbot command
     local certbot_cmd="certbot certonly --webroot -w $CERTBOT_WEBROOT -d $domain --non-interactive --agree-tos"
 
@@ -193,13 +399,18 @@ acquire_certificate() {
         certbot_cmd+=" --register-unsafely-without-email"
     fi
 
-    # Acquire certificate
-    if eval "$certbot_cmd" 2>&1; then
-        return 0
-    else
+    # Step 4: Acquire certificate
+    echo ""
+    echo "Running certbot to acquire certificate..."
+    local certbot_result=0
+    if ! eval "$certbot_cmd" 2>&1; then
         echo "Error: Failed to acquire certificate for $domain" >&2
-        return 1
+        certbot_result=1
     fi
+
+    # Cleanup will be called automatically via trap
+    # Return certbot result
+    return $certbot_result
 }
 
 # ==============================================================================
@@ -251,6 +462,11 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f get_certificate_expiry
     export -f check_certificate_expiry_days
     export -f renew_certificate
+    export -f ensure_certbot_webroot
+    export -f open_port_80_for_certbot
+    export -f close_port_80_for_certbot
+    export -f start_certbot_nginx
+    export -f stop_certbot_nginx
     export -f acquire_certificate
     export -f validate_dns_for_domain
 fi
