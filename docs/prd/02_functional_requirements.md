@@ -1052,7 +1052,7 @@ action = ufw
     └── vless-reverseproxy.conf         # Nginx auth failure filter
 
 /usr/local/bin/
-└── vless-proxy → /opt/vless/cli/vless-proxy  # Unified CLI (add/list/show/remove)
+└── vless-proxy → /opt/vless/scripts/vless-proxy  # Unified CLI (add/list/show/remove)
 ```
 
 ---

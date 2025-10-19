@@ -1332,7 +1332,7 @@ install_cli_tools() {
 
     # Get the project root (assuming script is in lib/ subdirectory)
     local project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    local cli_source="${project_root}/cli/vless"
+    local cli_source="${project_root}/scripts/vless"
 
     # Check if CLI script exists in project
     if [[ ! -f "$cli_source" ]]; then
