@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.0] - 2025-10-19
 
-### Changed - CLAUDE.md Optimization
+### Changed - Documentation Restructuring & Optimization
 
 **Migration Type:** Non-breaking (documentation only)
 
-**Primary Feature:** Optimized project memory with 53% size reduction
+**Primary Feature:** User-friendly documentation with optimized project memory
 
 #### CLAUDE.md v5.0 Optimization
 - **OPTIMIZED**: CLAUDE.md project memory file
@@ -72,6 +72,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Backup
 - Резервная копия: `CLAUDE.md.backup.20251019-104440` (58 KB)
 - Для восстановления: `cp CLAUDE.md.backup.20251019-104440 CLAUDE.md`
+
+#### README.md v5.0 Restructuring
+- **REWRITTEN**: README.md from technical reference to user-friendly guide
+  - **Approach**: "Explain how it works" for ordinary users
+  - **Language**: Simple, non-technical Russian
+  - **Structure**: What → How → Features → Quick Start → Examples → FAQ
+  - **Visuals**: ASCII diagrams explaining Reality protocol masking
+  - **Examples**: Real-world use cases (VPN, SOCKS5 proxy, reverse proxy)
+  - **FAQ**: Common questions with clear answers
+
+#### What Was Changed in README.md
+- **REMOVED**: Technical jargon and implementation details
+  - v4.1 detailed architecture descriptions
+  - Code examples and technical configurations
+  - stunnel/HAProxy implementation details
+  - Developer-focused content
+
+- **ADDED**: User-friendly explanations
+  - "Как это работает?" section with ASCII diagrams
+  - Visual explanation of Reality protocol masking
+  - Simplified architecture (v5.0 HAProxy)
+  - Real-world use case examples
+  - Comprehensive FAQ section
+  - VPS provider comparison table
+
+- **MOVED**: Installation guide to separate document
+  - **NEW**: `docs/installation.md` - Complete installation guide
+  - Step-by-step instructions with screenshots
+  - Troubleshooting section
+  - Interactive prompts explained
+  - Verification steps
+  - Common issues and solutions
+
+#### Documentation Structure (v5.0)
+```
+README.md               # User-friendly overview (what & how)
+docs/installation.md    # Detailed installation guide
+docs/prd/               # Technical documentation (for developers)
+CLAUDE.md               # Project memory (AI assistant)
+CHANGELOG.md            # Version history
+```
+
+#### Benefits of Restructuring
+- **Better UX**: Users understand WHAT and HOW without technical depth
+- **Clear separation**: User docs vs Developer docs
+- **Easier onboarding**: Quick start in README, details in docs/installation.md
+- **Improved searchability**: FAQ answers common questions directly
+- **Reduced cognitive load**: Simpler language, visual diagrams
 
 ---
 
