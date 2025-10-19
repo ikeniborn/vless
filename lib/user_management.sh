@@ -641,8 +641,9 @@ generate_vless_uri() {
     local server_ip
     server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP")
 
-    local server_port
-    server_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG" 2>/dev/null || echo "443")
+    # v5.1: Hardcoded port 443 (HAProxy external port for clients)
+    # Xray listens on internal port 8443, but HAProxy forwards from 443
+    local server_port=443
 
     local public_key
     public_key=$(cat "${VLESS_HOME}/keys/public.key" 2>/dev/null || echo "PUBLIC_KEY")
@@ -1796,6 +1797,32 @@ create_user() {
     # Step 10: Export proxy configuration files (TASK-11.4)
     if ! export_all_proxy_configs "$username" "$proxy_password"; then
         log_warning "Failed to export proxy configs (continuing anyway)"
+    else
+        # v5.1: Display proxy URIs after successful export
+        local socks5_uri
+        local http_uri
+        local user_dir="${CLIENTS_DIR}/${username}"
+
+        if [[ -f "${user_dir}/socks5_config.txt" ]]; then
+            socks5_uri=$(cat "${user_dir}/socks5_config.txt")
+        fi
+
+        if [[ -f "${user_dir}/http_config.txt" ]]; then
+            http_uri=$(cat "${user_dir}/http_config.txt")
+        fi
+
+        if [[ -n "$socks5_uri" ]] || [[ -n "$http_uri" ]]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  PROXY CONFIGURATION"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            [[ -n "$socks5_uri" ]] && echo "SOCKS5: $socks5_uri"
+            [[ -n "$http_uri" ]] && echo "HTTP:   $http_uri"
+            echo ""
+            echo "Config files saved to: ${user_dir}/"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+        fi
     fi
 
     return 0

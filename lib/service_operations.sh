@@ -478,8 +478,8 @@ display_network_info() {
     echo "┌─ Network Configuration ──────────────────────────────────┐"
 
     # Read from .env
-    local vless_port
-    vless_port=$(grep "^VLESS_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "N/A")
+    local vless_port_internal
+    vless_port_internal=$(grep "^VLESS_PORT=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "N/A")
 
     local docker_subnet
     docker_subnet=$(grep "^DOCKER_SUBNET=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "N/A")
@@ -487,7 +487,8 @@ display_network_info() {
     local server_ip
     server_ip=$(grep "^SERVER_IP=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "N/A")
 
-    echo "  VLESS Port:   $vless_port"
+    # v5.1: Show external port 443 (HAProxy) for clients, internal port for reference
+    echo "  Client Port:  443 (HAProxy → Xray:$vless_port_internal)"
     echo "  Subnet:       $docker_subnet"
     echo "  Server IP:    $server_ip"
 

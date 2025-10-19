@@ -1138,15 +1138,17 @@ EOF
         echo "  ✓ No old reverse proxy port rules found"
     fi
 
-    # Allow HAProxy port 443 (check if rule already exists first)
-    echo "  Allowing port ${VLESS_PORT} (HAProxy all-in-one)..."
-    if ufw status numbered | grep -q "${VLESS_PORT}/tcp.*ALLOW"; then
-        echo "  ✓ Port ${VLESS_PORT}/tcp already allowed"
+    # v5.1: Allow HAProxy external port 443 (NOT VLESS_PORT which is internal 8443)
+    # HAProxy listens on 443 externally, forwards to Xray on 8443 internally
+    local haproxy_external_port=443
+    echo "  Allowing port ${haproxy_external_port} (HAProxy external frontend)..."
+    if ufw status numbered | grep -q "${haproxy_external_port}/tcp.*ALLOW"; then
+        echo "  ✓ Port ${haproxy_external_port}/tcp already allowed"
     else
-        ufw allow "${VLESS_PORT}/tcp" comment 'HAProxy VLESS+Reverse Proxy (v4.3)' || {
+        ufw allow "${haproxy_external_port}/tcp" comment 'HAProxy VLESS+Reverse Proxy (v4.3)' || {
             echo -e "${YELLOW}Warning: Failed to add UFW rule${NC}"
         }
-        echo "  ✓ Port ${VLESS_PORT}/tcp allowed"
+        echo "  ✓ Port ${haproxy_external_port}/tcp allowed"
     fi
 
     # v4.3: Ensure ports 9443-9452 are NOT exposed (localhost-only nginx backends)
