@@ -20,7 +20,10 @@
 set -euo pipefail
 
 # Source common utilities (if available)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Only set SCRIPT_DIR if not already defined (avoid readonly conflicts when sourced)
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 # Configuration paths
 NGINX_CONF_DIR="/opt/vless/config/reverse-proxy"
