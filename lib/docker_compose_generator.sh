@@ -186,6 +186,11 @@ services:
       retries: 3
       start_period: 10s
 
+    # Tmpfs mounts for nginx cache (required when running as user: nginx)
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
+
   # ===========================================================================
   # Certbot Nginx Service (v4.3 NEW - ACME HTTP-01 Challenges)
   # Runs only when needed for certificate acquisition
@@ -225,6 +230,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+    # Tmpfs mounts for nginx cache (required when running as user: nginx)
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
 
 # =============================================================================
 # Networks
