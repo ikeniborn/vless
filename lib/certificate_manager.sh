@@ -229,8 +229,9 @@ create_haproxy_combined_cert() {
         return 1
     fi
 
-    # Step 5: Set permissions (root read-only for private key)
-    chmod 600 "$combined" || {
+    # Step 5: Set permissions (readable by HAProxy, writable only by root)
+    # HAProxy runs as non-root in host network mode, needs read access
+    chmod 644 "$combined" || {
         echo -e "${YELLOW}WARNING: Failed to set permissions on combined.pem${NC}" >&2
     }
 

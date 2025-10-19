@@ -282,6 +282,7 @@ create_directory_structure() {
     # Create subdirectories
     local directories=(
         "${CONFIG_DIR}"
+        "${CONFIG_DIR}/reverse-proxy"  # v4.3: Nginx reverse proxy configs
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"

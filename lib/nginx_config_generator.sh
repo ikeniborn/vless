@@ -252,6 +252,12 @@ generate_reverseproxy_http_context() {
 
     log "Generating HTTP context configuration: $http_context_conf"
 
+    # Create parent directory if it doesn't exist (CRITICAL FIX)
+    mkdir -p "$NGINX_CONF_DIR" || {
+        log_error "Failed to create directory: $NGINX_CONF_DIR"
+        return 1
+    }
+
     cat > "$http_context_conf" <<'EOF'
 # HTTP Context Configuration for Reverse Proxy
 # Rate limiting zones and global settings
