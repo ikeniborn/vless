@@ -7,6 +7,226 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.11] - 2025-10-20
+
+### Added - Enhanced Security Headers (COOP, COEP, CORP, Expect-CT)
+
+**Migration Type:** Non-breaking (opt-in feature, disabled by default)
+
+**Primary Feature:** Modern browser isolation and security headers with configurable enforcement
+
+#### Changes
+
+**lib/nginx_config_generator.sh (v5.11.0)**
+
+**1. Enhanced Security Headers (Optional)**
+- **ADDED**: Configurable modern security headers via `ENHANCED_SECURITY_HEADERS` env variable
+  - `ENHANCED_SECURITY_HEADERS=false` (default): Standard security headers only
+  - `ENHANCED_SECURITY_HEADERS=true`: Enables modern browser isolation headers:
+    - `Cross-Origin-Embedder-Policy: require-corp` - prevents loading cross-origin resources without explicit permission
+    - `Cross-Origin-Opener-Policy: same-origin-allow-popups` - isolates browsing context, allows popups
+    - `Cross-Origin-Resource-Policy: cross-origin` - allows cross-origin resource sharing
+    - `Expect-CT: max-age=86400, enforce` - Certificate Transparency validation
+
+**Why disabled by default:**
+- COEP/COOP/CORP can break sites using cross-origin resources (CDNs, external APIs, iframes)
+- Modern web apps often load resources from multiple origins
+- Opt-in approach ensures compatibility while allowing advanced users to harden security
+- Useful for high-security scenarios (internal apps, known-compatible sites)
+
+**2. Backward Compatibility**
+- Existing reverse proxies continue working without changes
+- New proxies default to `ENHANCED_SECURITY_HEADERS=false`
+- Advanced users can enable via wizard or environment variable
+
+**scripts/vless-setup-proxy (v5.11.0)**
+- **ADDED**: Step 5 option #4 - "Enhanced Security Headers (v5.11)"
+  - Interactive prompt: "Включить Enhanced Security Headers? [y/N]"
+  - Default: NO (compatible with most sites)
+  - Warning: "Может не работать с сайтами, использующими cross-origin ресурсы"
+  - Recommendation: "OFF для большинства сайтов"
+
+- **ADDED**: Confirmation screen shows Enhanced Security status
+  - Summary includes: `Enhanced Security (NEW): false/true`
+  - Clear visibility of selected security level
+
+#### Use Cases (v5.11)
+
+**When to enable Enhanced Security Headers:**
+- ✅ High-security internal applications (known to work without cross-origin resources)
+- ✅ Simple sites with all resources on same origin
+- ✅ Compliance requirements (banking, healthcare, government)
+- ✅ Hardened security posture for sensitive data
+
+**When to keep disabled (default):**
+- ⚠️ Modern web apps using CDNs (jQuery, Bootstrap, fonts)
+- ⚠️ Sites with external API integrations
+- ⚠️ Sites with embedded third-party content (maps, analytics, ads)
+- ⚠️ OAuth2 flows involving external identity providers
+- ⚠️ Unknown sites (test without headers first)
+
+#### Technical Details
+
+**Cross-Origin-Embedder-Policy (COEP): require-corp**
+- **Purpose**: Prevents loading cross-origin resources without explicit opt-in
+- **Requirement**: All cross-origin resources must send `Cross-Origin-Resource-Policy` or CORS headers
+- **Impact**: May break sites loading resources from CDNs without proper headers
+- **Example**: jQuery from `cdn.jsdelivr.net` requires CORS or CORP header
+
+**Cross-Origin-Opener-Policy (COOP): same-origin-allow-popups**
+- **Purpose**: Isolates browsing context to prevent cross-origin window access
+- **Benefit**: Protects against Spectre-like attacks via `window.opener`
+- **Setting**: `same-origin-allow-popups` allows OAuth2 popups while maintaining isolation
+- **Impact**: May break sites expecting cross-origin window communication
+
+**Cross-Origin-Resource-Policy (CORP): cross-origin**
+- **Purpose**: Controls whether resource can be loaded by cross-origin pages
+- **Setting**: `cross-origin` allows embedding from any origin (permissive)
+- **Alternative**: `same-origin` (strict), `same-site` (moderate)
+- **Impact**: Minimal with `cross-origin` setting
+
+**Expect-CT: max-age=86400, enforce**
+- **Purpose**: Enforces Certificate Transparency (CT) policy
+- **Requirement**: TLS certificates must be logged in public CT logs
+- **Benefit**: Protects against misissued certificates
+- **Impact**: Minimal (Let's Encrypt already supports CT)
+
+**Security Trade-offs:**
+```
+Standard Headers (default):        Enhanced Headers (opt-in):
+- X-Frame-Options: DENY           + All standard headers
+- X-Content-Type-Options           + COEP: require-corp
+- HSTS: 1 year, preload            + COOP: same-origin-allow-popups
+- Referrer-Policy                  + CORP: cross-origin
+- Permissions-Policy               + Expect-CT: enforce
+
+Compatibility: ✅✅✅ High         Compatibility: ⚠️ Medium
+Security:      ✅✅ Good          Security:      ✅✅✅ Excellent
+Use Case:      General purpose     Use Case:      High-security
+```
+
+#### Testing Examples
+
+**Test 1: Verify Enhanced Headers Enabled**
+```bash
+# Setup reverse proxy with enhanced security
+export ENHANCED_SECURITY_HEADERS=true
+sudo vless-setup-proxy
+
+# Check generated config
+curl -I https://proxy-domain.com | grep -i "cross-origin"
+# Expected output:
+# Cross-Origin-Embedder-Policy: require-corp
+# Cross-Origin-Opener-Policy: same-origin-allow-popups
+# Cross-Origin-Resource-Policy: cross-origin
+
+curl -I https://proxy-domain.com | grep -i "expect-ct"
+# Expected output:
+# Expect-CT: max-age=86400, enforce
+```
+
+**Test 2: Verify Default (Headers Disabled)**
+```bash
+# Setup reverse proxy with defaults (no env var)
+sudo vless-setup-proxy
+# (Select defaults in wizard: Enhanced Security = N)
+
+# Check generated config
+curl -I https://proxy-domain.com | grep -i "cross-origin"
+# Expected: (no output - headers not present)
+
+# Standard headers should still be present
+curl -I https://proxy-domain.com | grep -i "x-frame-options"
+# Expected: X-Frame-Options: DENY
+```
+
+**Test 3: Compatibility Check**
+```bash
+# Test site with enhanced headers enabled
+export ENHANCED_SECURITY_HEADERS=true
+sudo vless-setup-proxy
+# Visit https://proxy-domain.com in browser
+
+# Check browser console for COEP/COOP errors:
+# ❌ Error: "Cross-Origin-Embedder-Policy blocked loading resource from CDN"
+# → Site incompatible, disable enhanced headers
+
+# ✅ No errors → Site compatible, enhanced headers working
+```
+
+**Test 4: Manual Toggle**
+```bash
+# Disable enhanced headers for existing proxy
+sudo sed -i '/Cross-Origin-Embedder-Policy/d' /opt/vless/config/reverse-proxy/domain.conf
+sudo sed -i '/Cross-Origin-Opener-Policy/d' /opt/vless/config/reverse-proxy/domain.conf
+sudo sed -i '/Cross-Origin-Resource-Policy/d' /opt/vless/config/reverse-proxy/domain.conf
+sudo sed -i '/Expect-CT/d' /opt/vless/config/reverse-proxy/domain.conf
+
+# Reload nginx
+docker exec vless_nginx_reverseproxy nginx -s reload
+```
+
+#### Migration Guide
+
+**Backward Compatible:** ✅ Existing reverse proxies unaffected
+
+**For New Proxies:**
+1. Run `sudo vless-setup-proxy`
+2. In Step 5 (Advanced Options), choose "Enhanced Security Headers" prompt
+3. Default: NO (press Enter or 'N')
+4. Advanced: YES (press 'Y' for high-security scenarios)
+
+**For Existing Proxies (Optional Upgrade):**
+```bash
+# Option 1: Recreate proxy with wizard
+sudo vless-proxy remove old-domain.com
+export ENHANCED_SECURITY_HEADERS=true
+sudo vless-setup-proxy
+# (Enter domain: old-domain.com, enable enhanced security)
+
+# Option 2: Manual edit (advanced users)
+# Add headers to /opt/vless/config/reverse-proxy/domain.conf:
+#   add_header Cross-Origin-Embedder-Policy "require-corp" always;
+#   add_header Cross-Origin-Opener-Policy "same-origin-allow-popups" always;
+#   add_header Cross-Origin-Resource-Policy "cross-origin" always;
+#   add_header Expect-CT "max-age=86400, enforce" always;
+# Reload: docker exec vless_nginx_reverseproxy nginx -s reload
+```
+
+**Rollback:** If enhanced headers break site, disable them:
+```bash
+# Method 1: Via wizard (safe)
+sudo vless-proxy remove problematic-domain.com
+sudo vless-setup-proxy  # Recreate without enhanced headers
+
+# Method 2: Manual (fast)
+sudo sed -i '/Cross-Origin-/d; /Expect-CT/d' /opt/vless/config/reverse-proxy/domain.conf
+docker exec vless_nginx_reverseproxy nginx -s reload
+```
+
+#### Performance Impact
+
+**Negligible:**
+- Additional HTTP headers add ~200 bytes per response
+- No computational overhead (headers are static)
+- No impact on throughput or latency
+- Memory usage unchanged
+
+#### Security Improvement
+
+**Threat Mitigation:**
+- ✅ Spectre-like attacks via `window.opener` (COOP)
+- ✅ Cross-origin resource leakage (COEP)
+- ✅ Misissued TLS certificates (Expect-CT)
+- ✅ Clickjacking via iframes (X-Frame-Options, already present)
+
+**Attack Surface Reduction:**
+- Browser isolation limits impact of compromised origin
+- Certificate transparency prevents certificate-based MitM
+- Resource policy prevents unauthorized embedding
+
+---
+
 ## [5.10] - 2025-10-20
 
 ### Added - Advanced Wizard, CSP Handling, Intelligent Sub-filter

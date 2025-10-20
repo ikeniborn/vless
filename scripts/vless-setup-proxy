@@ -1,21 +1,22 @@
 #!/bin/bash
 # cli/vless-setup-proxy
 #
-# VLESS v4.3 - Interactive Reverse Proxy Setup Wizard (HAProxy Unified)
+# VLESS v5.11 - Interactive Reverse Proxy Setup Wizard
 # Guides user through complete reverse proxy configuration
 #
 # Features:
 # - Domain validation (DNS mandatory via validate_dns_for_domain)
 # - Certificate acquisition (unified workflow via acquire_certificate_for_domain)
 # - Nginx config generation (security-hardened, localhost-only)
-# - Xray HTTP inbound configuration
 # - fail2ban multi-port protection
 # - HAProxy SNI routing (NO UFW port opening required)
 # - Subdomain-based access: https://domain (NO port number!)
+# - v5.10: Advanced options wizard (OAuth2, WebSocket, CSP)
+# - v5.11: Enhanced security headers (COOP, COEP, CORP, Expect-CT)
 #
-# Version: 4.3.0
+# Version: 5.11.0
 # Author: VLESS Development Team
-# Date: 2025-10-18
+# Date: 2025-10-20
 
 set -euo pipefail
 
@@ -348,7 +349,7 @@ prompt_letsencrypt_email() {
 }
 
 prompt_advanced_options() {
-    print_header "Шаг 5: Дополнительные Опции (v5.10)"
+    print_header "Шаг 5: Дополнительные Опции (v5.11)"
 
     echo -e "${CYAN}Настройте дополнительные функции для вашего reverse proxy:${NC}" >&2
     echo "" >&2
@@ -394,11 +395,27 @@ prompt_advanced_options() {
     fi
     echo "" >&2
 
+    # Enhanced Security Headers (v5.11)
+    echo -e "${YELLOW}4. Enhanced Security Headers (v5.11)${NC}" >&2
+    echo "   Современные заголовки безопасности (COOP, COEP, CORP, Expect-CT)" >&2
+    echo "   Улучшают browser isolation и защиту от атак" >&2
+    echo "   ${RED}ВНИМАНИЕ:${NC} Может не работать с сайтами, использующими cross-origin ресурсы" >&2
+    echo "   Рекомендуется: OFF для большинства сайтов" >&2
+    read -p "   Включить Enhanced Security Headers? [y/N]: " -n 1 -r security_choice
+    echo
+    if [[ $security_choice =~ ^[Yy]$ ]]; then
+        export ENHANCED_SECURITY_HEADERS="true"
+    else
+        export ENHANCED_SECURITY_HEADERS="false"
+    fi
+    echo "" >&2
+
     # Summary
     print_info "Выбранные опции:"
-    echo "  OAuth2 Support:    ${OAUTH2_SUPPORT}" >&2
-    echo "  WebSocket Support: ${ENABLE_WEBSOCKET}" >&2
-    echo "  Strip CSP:         ${STRIP_CSP}" >&2
+    echo "  OAuth2 Support:          ${OAUTH2_SUPPORT}" >&2
+    echo "  WebSocket Support:       ${ENABLE_WEBSOCKET}" >&2
+    echo "  Strip CSP:               ${STRIP_CSP}" >&2
+    echo "  Enhanced Security (NEW): ${ENHANCED_SECURITY_HEADERS}" >&2
     echo "" >&2
 }
 
@@ -419,10 +436,11 @@ prompt_confirmation() {
     echo "" >&2
     echo -e "  ${BOLD}Публичный URL:${NC}   ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}" >&2
     echo "" >&2
-    echo -e "${CYAN}${BOLD}Дополнительные опции (v5.10):${NC}" >&2
-    echo -e "  ${BOLD}OAuth2 Support:${NC}    ${OAUTH2_SUPPORT:-true}" >&2
-    echo -e "  ${BOLD}WebSocket Support:${NC} ${ENABLE_WEBSOCKET:-true}" >&2
-    echo -e "  ${BOLD}Strip CSP Headers:${NC} ${STRIP_CSP:-true}" >&2
+    echo -e "${CYAN}${BOLD}Дополнительные опции (v5.11):${NC}" >&2
+    echo -e "  ${BOLD}OAuth2 Support:${NC}          ${OAUTH2_SUPPORT:-true}" >&2
+    echo -e "  ${BOLD}WebSocket Support:${NC}       ${ENABLE_WEBSOCKET:-true}" >&2
+    echo -e "  ${BOLD}Strip CSP Headers:${NC}       ${STRIP_CSP:-true}" >&2
+    echo -e "  ${BOLD}Enhanced Security (NEW):${NC} ${ENHANCED_SECURITY_HEADERS:-false}" >&2
     echo "" >&2
     echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}" >&2
     echo "  1. DNS validation (обязательно!)" >&2

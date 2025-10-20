@@ -1,7 +1,7 @@
 #!/bin/bash
 # lib/nginx_config_generator.sh
 #
-# Nginx Reverse Proxy Configuration Generator for VLESS v5.10
+# Nginx Reverse Proxy Configuration Generator for VLESS v5.11
 # Generates secure reverse proxy configurations with heredoc templates
 #
 # Features:
@@ -19,8 +19,9 @@
 # - v5.10: CSP header handling (configurable strip/keep)
 # - v5.10: Intelligent sub-filter (protocol-relative URLs, API endpoints)
 # - v5.10: Advanced wizard support (OAuth2/WebSocket/CSP options)
+# - v5.11: Enhanced security headers (COOP, COEP, CORP, Expect-CT)
 #
-# Version: 5.10.0
+# Version: 5.11.0
 # Author: VLESS Development Team
 # Date: 2025-10-20
 
@@ -137,6 +138,11 @@ resolve_target_ipv4() {
 #   - CSP header handling: strip or keep CSP headers (configurable)
 #   - Intelligent sub-filter: protocol-relative URLs, subdomain matching
 #   - Advanced options: STRIP_CSP, ENABLE_WEBSOCKET, OAUTH2_SUPPORT (env vars)
+#
+# v5.11 Changes:
+#   - Enhanced security headers: COOP, COEP, CORP, Expect-CT (optional)
+#   - Configurable via ENHANCED_SECURITY_HEADERS environment variable
+#   - Disabled by default (may break some sites with cross-origin resources)
 # ============================================================================
 generate_reverseproxy_nginx_config() {
     local domain="$1"
@@ -150,6 +156,9 @@ generate_reverseproxy_nginx_config() {
     local strip_csp="${STRIP_CSP:-true}"           # Strip CSP headers by default
     local enable_websocket="${ENABLE_WEBSOCKET:-true}"  # WebSocket enabled by default
     local oauth2_support="${OAUTH2_SUPPORT:-true}"      # OAuth2 support by default
+
+    # v5.11: Enhanced security headers (COOP, COEP, CORP, Expect-CT)
+    local enhanced_security="${ENHANCED_SECURITY_HEADERS:-false}"  # Disabled by default (may break some sites)
 
     # Validation
     if [[ -z "$domain" || -z "$target_site" || -z "$port" || -z "$username" || -z "$password_hash" ]]; then
@@ -219,7 +228,7 @@ generate_reverseproxy_nginx_config() {
 # Target: ${target_site} → ${target_ipv4}
 # Port: ${port} (localhost-only, HAProxy SNI routing)
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-# Version: v5.9 (OAuth2, CSRF, WebSocket support)
+# Version: v5.11 (Enhanced Security Headers)
 # NOTE: Direct HTTPS proxy to target site IPv4 (prevents IPv6 unreachable errors)
 
 # v5.9: WebSocket support - connection upgrade map
@@ -260,6 +269,22 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "identity-credentials-get=*, geolocation=(), microphone=(), camera=()" always;
+
+    # v5.11: Enhanced Security Headers (conditional, may break some sites)
+EOF
+
+    # Enhanced security headers (conditional)
+    if [[ "$enhanced_security" == "true" ]]; then
+        cat >> "$nginx_conf" <<'EOF'
+    # Modern security headers (browser isolation and protection)
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+    add_header Cross-Origin-Opener-Policy "same-origin-allow-popups" always;
+    add_header Cross-Origin-Resource-Policy "cross-origin" always;
+    add_header Expect-CT "max-age=86400, enforce" always;
+EOF
+    fi
+
+    cat >> "$nginx_conf" <<EOF
 
     # v5.10: CSP Header Handling (conditional)
 EOF
