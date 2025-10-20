@@ -230,7 +230,7 @@ open_port_80_for_certbot() {
 
     # Capture UFW command output for debugging
     local ufw_output
-    ufw_output=$(ufw allow 80/tcp comment "Let's Encrypt ACME challenge (temporary)" 2>&1)
+    ufw_output=$(ufw allow 80/tcp --comment "Let's Encrypt ACME challenge (temporary)" 2>&1)
     local ufw_exit_code=$?
 
     if [[ $ufw_exit_code -ne 0 ]]; then

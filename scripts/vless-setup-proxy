@@ -413,16 +413,16 @@ setup_reverse_proxy() {
     # Step 2: Add Xray HTTP inbound
     print_step "Создание Xray HTTP inbound..."
     local inbound_info
-    if ! inbound_info=$(add_reverseproxy_inbound "$domain" "$target"); then
+    if ! inbound_info=$(add_reverseproxy_inbound "$domain"); then
         print_error "Не удалось создать Xray inbound"
         return 1
     fi
 
-    local inbound_id
+    local xray_tag
     local xray_port
-    read -r inbound_id xray_port <<< "$inbound_info"
+    read -r xray_tag xray_port <<< "$inbound_info"
 
-    print_success "Xray inbound создан: reverse-proxy-${inbound_id} (localhost:${xray_port})"
+    print_success "Xray inbound создан: ${xray_tag} (localhost:${xray_port})"
 
     # Step 3: Generate HTTP Basic Auth credentials
     print_step "Генерация креденшелов..."
@@ -443,32 +443,11 @@ setup_reverse_proxy() {
 
     # Step 5: Add entry to database
     print_step "Сохранение конфигурации в БД..."
-    local proxy_json
-    proxy_json=$(cat <<EOF
-{
-  "id": ${inbound_id},
-  "domain": "${domain}",
-  "target_site": "${target}",
-  "port": ${port},
-  "username": "${username}",
-  "password_hash": "${password_hash}",
-  "xray_inbound_port": ${xray_port},
-  "xray_inbound_tag": "reverse-proxy-${inbound_id}",
-  "nginx_config_path": "/opt/vless/config/reverse-proxy/${domain}.conf",
-  "htpasswd_path": "/opt/vless/config/reverse-proxy/.htpasswd-${domain}",
-  "certificate_path": "/etc/letsencrypt/live/${domain}/",
-  "certificate_issued": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "certificate_expires": "$(date -u -d '+90 days' +"%Y-%m-%dT%H:%M:%SZ")",
-  "last_renewed": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "fail2ban_enabled": true,
-  "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "enabled": true,
-  "notes": "Created via vless-setup-proxy wizard"
-}
-EOF
-)
+    local cert_expires
+    cert_expires="$(date -u -d '+90 days' +"%Y-%m-%dT%H:%M:%SZ")"
+    local notes="Created via vless-setup-proxy wizard"
 
-    if ! add_proxy "$proxy_json"; then
+    if ! add_proxy "$domain" "$target" "$port" "$username" "$xray_port" "$xray_tag" "$cert_expires" "$notes"; then
         print_error "Не удалось сохранить конфигурацию в БД"
         return 1
     fi

@@ -41,27 +41,75 @@ readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
 readonly XRAY_CONTAINER="vless_xray"
 
 # ==============================================================================
+# Function: get_next_xray_reverseproxy_port
+# ==============================================================================
+# Description: Get next available port for Xray reverse proxy inbound
+# Returns: Port number (starting from 10080) or 1 on failure
+# ==============================================================================
+get_next_xray_reverseproxy_port() {
+    local base_port=10080
+    local max_port=10089  # Support up to 10 reverse proxies
+
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        echo "$base_port"
+        return 0
+    fi
+
+    # Get all ports used by reverse-proxy-* inbounds
+    local used_ports=$(jq -r '.inbounds[] | select(.tag | startswith("reverse-proxy-")) | .port' "$XRAY_CONFIG" 2>/dev/null | sort -n)
+
+    # Find first available port
+    for port in $(seq $base_port $max_port); do
+        if ! echo "$used_ports" | grep -q "^${port}$"; then
+            echo "$port"
+            return 0
+        fi
+    done
+
+    # All ports occupied
+    echo "Error: All Xray reverse proxy ports occupied (10080-10089)" >&2
+    return 1
+}
+
+# ==============================================================================
 # Function: add_reverseproxy_inbound
 # ==============================================================================
 # Description: Add HTTP inbound to Xray config for reverse proxy
 # Arguments:
-#   $1 - inbound_tag (e.g., "http-in-claude")
-#   $2 - port (e.g., 18443)
-# Returns: 0 on success, 1 on failure
+#   $1 - domain (e.g., "claude.example.com")
+# Returns:
+#   Prints: "<tag> <port>" to stdout
+#   Exit code: 0 on success, 1 on failure
 # ==============================================================================
 add_reverseproxy_inbound() {
-    local tag="$1"
-    local port="$2"
+    local domain="$1"
+
+    if [[ -z "$domain" ]]; then
+        echo "Error: Domain parameter required" >&2
+        return 1
+    fi
 
     if [[ ! -f "$XRAY_CONFIG" ]]; then
         echo "Error: Xray config not found: $XRAY_CONFIG" >&2
         return 1
     fi
 
+    # Generate tag (replace dots and dashes with underscores)
+    local tag="reverse-proxy-${domain//./_}"
+    tag="${tag//-/_}"
+
     # Check if inbound already exists
     if jq -e --arg tag "$tag" '.inbounds[] | select(.tag == $tag)' "$XRAY_CONFIG" >/dev/null 2>&1; then
-        echo "Warning: Inbound '$tag' already exists" >&2
+        # Get existing port
+        local existing_port=$(jq -r --arg tag "$tag" '.inbounds[] | select(.tag == $tag) | .port' "$XRAY_CONFIG")
+        echo "$tag $existing_port"
         return 0
+    fi
+
+    # Get next available port
+    local port
+    if ! port=$(get_next_xray_reverseproxy_port); then
+        return 1
     fi
 
     # Create backup
@@ -95,6 +143,8 @@ add_reverseproxy_inbound() {
     mv "${XRAY_CONFIG}.tmp" "$XRAY_CONFIG"
     chmod 644 "$XRAY_CONFIG"
 
+    # Return tag and port
+    echo "$tag $port"
     return 0
 }
 
@@ -169,6 +219,7 @@ reload_xray() {
 
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Script is being sourced
+    export -f get_next_xray_reverseproxy_port
     export -f add_reverseproxy_inbound
     export -f remove_reverseproxy_inbound
     export -f reload_xray
