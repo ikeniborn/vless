@@ -7,6 +7,198 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.7] - 2025-10-20
+
+### Fixed - SOCKS5 Outbound IP Configuration
+
+**Migration Type:** Non-breaking (automatic, configuration change only)
+
+**Primary Fix:** Change SOCKS5 outbound IP from 127.0.0.1 to 0.0.0.0
+
+#### Changes
+
+**lib/orchestrator.sh**
+- **CHANGED**: SOCKS5 outbound listen address
+  - Before: `"listen": "127.0.0.1"`
+  - After: `"listen": "0.0.0.0"`
+  - Reason: Allow SOCKS5 proxy to bind to all interfaces (required for Docker networking)
+
+#### Technical Details
+
+**Why This Change:**
+- `127.0.0.1` restricts SOCKS5 to localhost only (not accessible from Docker network)
+- `0.0.0.0` allows binding to all interfaces (required for HAProxy to connect)
+- Xray internal port 10800 is NOT exposed publicly (docker-compose ports mapping controls this)
+
+**Security Note:**
+- No security impact: port 10800 remains localhost-only in docker-compose.yml
+- HAProxy TLS termination still protects external connections on port 1080
+
+---
+
+## [5.6] - 2025-10-20
+
+### Fixed - Installation Step Order for Xray Permissions
+
+**Migration Type:** Non-breaking (installation script improvement)
+
+**Primary Fix:** Reorder installation steps to fix Xray permission error on fresh installations
+
+#### Issue
+
+- **PROBLEM**: Xray container crashes on startup with "failed to read config: open config.json: permission denied"
+- **ROOT CAUSE**: Installation creates /opt/vless/config/xray_config.json with root:root 600 permissions BEFORE starting containers
+- **SYMPTOM**: Container user (nobody:nogroup or uid 65534) cannot read config file
+
+#### Fixed Components
+
+**HOTFIX_XRAY_PERMISSIONS.md**
+- Added detailed troubleshooting guide
+- Documented production resolution (service restart after permission fix)
+
+**lib/orchestrator.sh**
+- **CHANGED**: Installation step order
+  - Step 12: Generate Xray config (root:root 600)
+  - Step 13: **NEW** - Fix file permissions BEFORE container start
+  - Step 14: Start Docker services
+- **ADDED**: `fix_xray_config_permissions()` function call after config generation
+- No longer relying on container startup to fix permissions
+
+#### Installation Flow (v5.6)
+
+**Before (v5.5 and earlier):**
+```bash
+1. Generate xray_config.json (root:root 600)
+2. Start containers
+3. Container fails to read config → crash
+4. Wait for crash
+5. Fix permissions
+6. Restart containers
+```
+
+**After (v5.6):**
+```bash
+1. Generate xray_config.json (root:root 600)
+2. Fix permissions IMMEDIATELY (root:root 644)
+3. Start containers
+4. Container reads config successfully → no crash
+```
+
+---
+
+## [5.5] - 2025-10-20
+
+### Added - Xray Permission Verification & Debug Logging
+
+**Migration Type:** Non-breaking (monitoring improvement)
+
+**Primary Feature:** Add permission verification and debug logging to prevent Xray crashes
+
+#### Added Components
+
+**lib/orchestrator.sh**
+- **ADDED**: `fix_xray_config_permissions()` function
+  - Checks /opt/vless/config/xray_config.json permissions
+  - Sets correct permissions: 644 (root:root, readable by all)
+  - Validates file exists and is readable
+  - Logs before/after permissions
+
+- **ADDED**: Debug logging for Xray startup
+  - Logs Xray container status after startup
+  - Logs first 20 lines of Xray logs for diagnostics
+  - Helps identify permission issues early
+
+#### Technical Details
+
+**Permission Requirements:**
+- Xray config must be readable by container user (nobody:nogroup, uid 65534)
+- Recommended: 644 (root:root) - secure and readable
+- Alternative: 777 (not recommended, used only as emergency fallback)
+
+**Debug Output:**
+```bash
+[orchestrator] Xray container status: Up 2 seconds (healthy)
+[orchestrator] Xray container logs (first 20 lines):
+Xray 1.8.1 started successfully
+```
+
+---
+
+## [5.4] - 2025-10-20
+
+### Hotfix - Document Xray Container Permission Error
+
+**Migration Type:** Non-breaking (documentation only)
+
+**Primary Change:** Add hotfix documentation for Xray container permission error
+
+#### Added Documentation
+
+**HOTFIX_XRAY_PERMISSIONS.md** (NEW)
+- Comprehensive troubleshooting guide for Xray permission errors
+- Root cause analysis
+- Step-by-step resolution instructions
+- Production environment resolution example
+- Prevention recommendations for future installations
+
+#### Issue Details
+
+**Problem:**
+- Xray container crashes with "failed to read config: open config.json: permission denied"
+- File created with 600 permissions (root:root only)
+- Container runs as nobody:nogroup (uid 65534)
+
+**Resolution:**
+```bash
+# Fix permissions
+sudo chmod 644 /opt/vless/config/xray_config.json
+
+# Restart services
+docker-compose -f /opt/vless/docker-compose.yml restart vless_xray
+```
+
+---
+
+## [5.3] - 2025-10-20
+
+### Fixed - Remove Unused Xray HTTP Inbound + IPv6 Fix
+
+**Migration Type:** Non-breaking (cleanup + bug fix)
+
+**Primary Changes:**
+1. Remove unused Xray HTTP inbound creation for reverse proxy
+2. Update IPv6 nginx configuration fix
+
+#### Fixed Components
+
+**lib/nginx_config_generator.sh**
+- **IMPROVED**: IPv6 unreachable error handling documentation
+- Updated comments to reflect v5.2 IPv4-only resolution method
+
+**scripts/vless-proxy**
+- **REMOVED**: Unused call to `create_xray_http_inbound` function
+- Reverse proxy doesn't need dedicated Xray inbound (uses existing HTTP outbound)
+
+**scripts/vless-setup-proxy**
+- **REMOVED**: Unused call to `create_xray_http_inbound` function
+- Simplifies reverse proxy setup wizard
+
+#### Technical Details
+
+**Why Remove Xray HTTP Inbound Creation:**
+- Reverse proxy uses Xray's **outbound** connections (not inbound)
+- No need for dedicated inbound port for each reverse proxy
+- Reduces complexity and potential port conflicts
+- IPv4-only resolution (v5.2) already solves IPv6 unreachable errors
+
+**Architecture Clarification:**
+```
+Client → HAProxy:443 (SNI) → Nginx:9443 → Xray HTTP Outbound → Target Site
+```
+No Xray inbound needed for reverse proxy traffic.
+
+---
+
 ## [5.2] - 2025-10-20
 
 ### Fixed - IPv6 Connectivity & Added IP Monitoring

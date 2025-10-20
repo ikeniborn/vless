@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.1 (HAProxy Port Fix)
+**Version:** 5.7 (Reverse Proxy Stability + Xray Permission Fixes)
 **Last Updated:** 2025-10-20
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -527,7 +527,7 @@ Client → HAProxy Frontend 443 (SNI routing, NO TLS decryption)
 
 ---
 
-### Top-4 Common Issues
+### Top-5 Common Issues
 
 #### Issue 1: UFW Blocks Docker Traffic
 **Symptoms:** Containers run, but no Internet access inside
@@ -608,6 +608,52 @@ docker logs vless_haproxy --tail 5 | grep "UP"
 Update installation scripts:
 - `lib/interactive_params.sh`: DEFAULT_VLESS_PORT=8443
 - `lib/orchestrator.sh`: fallback → vless_fake_site:80
+
+---
+
+#### Issue 5: Nginx Reverse Proxy Container Crash Loop (v5.2+)
+**Symptoms:** vless_nginx_reverseproxy shows "Restarting", reverse proxy domains return 503
+
+**Detection:**
+```bash
+docker ps --filter "name=vless_nginx_reverseproxy" --format "{{.Status}}"
+docker logs vless_nginx_reverseproxy --tail 20
+```
+
+**Root Cause:**
+Nginx fails to start due to "zero size shared memory zone" error - missing `limit_req_zone` directive in `/opt/vless/config/reverse-proxy/http_context.conf`
+
+**Error Message:**
+```
+nginx: [emerg] zero size shared memory zone "reverseproxy_<domain>"
+```
+
+**Solution:**
+```bash
+# Add missing limit_req_zone directive (replace <domain> with actual domain)
+DOMAIN="your-domain.com"
+ZONE_NAME="reverseproxy_${DOMAIN//[.-]/_}"
+
+# Add to http_context.conf
+sudo bash -c "cat >> /opt/vless/config/reverse-proxy/http_context.conf << EOF
+
+# Rate limit zone for: ${DOMAIN}
+limit_req_zone \\\$binary_remote_addr zone=${ZONE_NAME}:10m rate=100r/s;
+EOF"
+
+# Restart nginx container
+docker restart vless_nginx_reverseproxy
+
+# Verify fix
+docker ps --filter "name=vless_nginx_reverseproxy" --format "{{.Status}}"
+docker logs vless_nginx_reverseproxy --tail 5
+```
+
+**Permanent Fix (v5.2+):**
+Function `add_rate_limit_zone()` in `lib/nginx_config_generator.sh` already handles this automatically. If you encounter this issue, it means the function was not called during setup.
+
+**Prevention:**
+The wizard script calls `add_rate_limit_zone()` for each new reverse proxy. If manually editing configs, always add the corresponding `limit_req_zone` directive.
 
 🔗 **Полный список:** docs/prd/06_appendix.md (Common Failure Points)
 
@@ -694,6 +740,12 @@ sudo vless test-security --dev-mode
 
 | Версия | Дата | Ключевые изменения |
 |--------|------|--------------------|
+| **v5.7** | 2025-10-20 | SOCKS5 outbound IP: 127.0.0.1 → 0.0.0.0 (Docker networking fix) |
+| **v5.6** | 2025-10-20 | Installation step reorder: fix Xray permissions before container start |
+| **v5.5** | 2025-10-20 | Xray permission verification + debug logging to prevent crashes |
+| **v5.4** | 2025-10-20 | Hotfix: document Xray container permission error (HOTFIX_XRAY_PERMISSIONS.md) |
+| **v5.3** | 2025-10-20 | Remove unused Xray HTTP inbound for reverse proxy + IPv6 fix |
+| **v5.2** | 2025-10-20 | Fix IPv6 unreachable errors + IP monitoring system for reverse proxy |
 | **v5.1** | 2025-10-20 | HAProxy Port Fix: Xray 8443 (internal), HAProxy 443 (external) |
 | **v5.0** | 2025-10-19 | Optimized CLAUDE.md (-42% размер, -51% строки) |
 | **v4.3** | 2025-10-18 | HAProxy Unified Architecture, subdomain-based reverse proxy |
@@ -710,6 +762,36 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.7 - 2025-10-20: SOCKS5 Outbound IP Configuration Fix
+  - Changed: SOCKS5 outbound listen from 127.0.0.1 → 0.0.0.0
+  - Reason: Allow HAProxy to connect to Xray SOCKS5 port via Docker network
+  - File: lib/orchestrator.sh
+
+v5.6 - 2025-10-20: Installation Step Reordering
+  - Fixed: Xray permission error on fresh installations
+  - Changed: Fix permissions BEFORE starting containers (not after crash)
+  - File: lib/orchestrator.sh, HOTFIX_XRAY_PERMISSIONS.md
+
+v5.5 - 2025-10-20: Xray Permission Verification & Debug Logging
+  - Added: fix_xray_config_permissions() function
+  - Added: Debug logging for Xray startup diagnostics
+  - File: lib/orchestrator.sh
+
+v5.4 - 2025-10-20: Documentation Hotfix
+  - Added: HOTFIX_XRAY_PERMISSIONS.md (comprehensive troubleshooting)
+  - Documented: Xray container permission error resolution
+
+v5.3 - 2025-10-20: Cleanup & IPv6 Fix Documentation
+  - Removed: Unused create_xray_http_inbound calls (reverse proxy doesn't need it)
+  - Improved: IPv6 unreachable error handling docs
+  - Files: scripts/vless-proxy, scripts/vless-setup-proxy, lib/nginx_config_generator.sh
+
+v5.2 - 2025-10-20: IPv6 Unreachable Error Fix + IP Monitoring
+  - Added: resolve_target_ipv4() function (hardcoded IPv4 in proxy_pass)
+  - Added: IP monitoring system (vless-monitor-reverse-proxy-ips)
+  - Added: Database fields (target_ipv4, target_ipv4_last_checked)
+  - Files: lib/nginx_config_generator.sh, lib/reverseproxy_db.sh, scripts/vless-install-ip-monitoring
+
 v5.1 - 2025-10-20: HAProxy Port Configuration Fix
   - Fixed: Xray port 443 → 8443 (internal backend for HAProxy)
   - Fixed: Fallback container vless_nginx → vless_fake_site
