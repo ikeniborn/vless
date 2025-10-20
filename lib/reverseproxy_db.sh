@@ -20,6 +20,7 @@
 #         "target_site": "https://target.com",
 #         "port": 9443,
 #         "username": "user",
+#         "password": "secretpassword",
 #         "xray_inbound_port": 18443,
 #         "xray_inbound_tag": "http-in-example",
 #         "certificate_expires": "2025-01-20T00:00:00Z",
@@ -217,10 +218,11 @@ get_next_port() {
 #   $2 - target_site
 #   $3 - port
 #   $4 - username
-#   $5 - xray_inbound_port
-#   $6 - xray_inbound_tag
-#   $7 - certificate_expires (ISO 8601)
-#   $8 - notes (optional)
+#   $5 - password
+#   $6 - xray_inbound_port
+#   $7 - xray_inbound_tag
+#   $8 - certificate_expires (ISO 8601)
+#   $9 - notes (optional)
 # Returns: 0 on success, 1 on failure
 # ==============================================================================
 add_proxy() {
@@ -228,10 +230,11 @@ add_proxy() {
     local target_site="$2"
     local port="$3"
     local username="$4"
-    local xray_port="$5"
-    local xray_tag="$6"
-    local cert_expires="$7"
-    local notes="${8:-}"
+    local password="$5"
+    local xray_port="$6"
+    local xray_tag="$7"
+    local cert_expires="$8"
+    local notes="${9:-}"
 
     init_database
 
@@ -254,6 +257,7 @@ add_proxy() {
         --arg target "$target_site" \
         --argjson port "$port" \
         --arg user "$username" \
+        --arg pass "$password" \
         --argjson xray_port "$xray_port" \
         --arg xray_tag "$xray_tag" \
         --arg cert_expires "$cert_expires" \
@@ -265,6 +269,7 @@ add_proxy() {
             target_site: $target,
             port: $port,
             username: $user,
+            password: $pass,
             xray_inbound_port: $xray_port,
             xray_inbound_tag: $xray_tag,
             certificate_expires: $cert_expires,

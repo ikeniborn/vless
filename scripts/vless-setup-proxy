@@ -447,7 +447,7 @@ setup_reverse_proxy() {
     cert_expires="$(date -u -d '+90 days' +"%Y-%m-%dT%H:%M:%SZ")"
     local notes="Created via vless-setup-proxy wizard"
 
-    if ! add_proxy "$domain" "$target" "$port" "$username" "$xray_port" "$xray_tag" "$cert_expires" "$notes"; then
+    if ! add_proxy "$domain" "$target" "$port" "$username" "$password" "$xray_port" "$xray_tag" "$cert_expires" "$notes"; then
         print_error "Не удалось сохранить конфигурацию в БД"
         return 1
     fi

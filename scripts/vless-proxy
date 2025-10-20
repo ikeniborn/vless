@@ -135,7 +135,7 @@ cmd_list() {
     echo "────────────────────────────────────────────────────────────────────────────────────────"
 
     # List all proxies
-    list_proxies | jq -r '. | "\(.id)|\(.domain)|\(.target_site)|\(.port)|\(.enabled)"' | while IFS='|' read -r id domain target port enabled; do
+    list_proxies | jq -r '.[] | "\(.id)|\(.domain)|\(.target_site)|\(.port)|\(.enabled)"' | while IFS='|' read -r id domain target port enabled; do
         local status_icon
         local status_color
 
@@ -182,11 +182,12 @@ cmd_show() {
     print_header "${ICON_GLOBE} Детали Reverse Proxy: $domain"
 
     # Parse JSON
-    local id target port username xray_port xray_tag cert_expires enabled notes
+    local id target port username password xray_port xray_tag cert_expires enabled notes
     id=$(echo "$proxy_json" | jq -r '.id')
     target=$(echo "$proxy_json" | jq -r '.target_site')
     port=$(echo "$proxy_json" | jq -r '.port')
     username=$(echo "$proxy_json" | jq -r '.username')
+    password=$(echo "$proxy_json" | jq -r '.password // "N/A"')
     xray_port=$(echo "$proxy_json" | jq -r '.xray_inbound_port')
     xray_tag=$(echo "$proxy_json" | jq -r '.xray_inbound_tag')
     cert_expires=$(echo "$proxy_json" | jq -r '.certificate_expires')
@@ -221,7 +222,7 @@ cmd_show() {
     echo -e "${CYAN}${BOLD}Публичный доступ (v4.3):${NC}"
     echo -e "  ${BOLD}URL:${NC}                ${GREEN}${BOLD}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
     echo -e "  Username:           ${BOLD}$username${NC}"
-    echo -e "  Password:           ${DIM}(хранится в .htpasswd)${NC}"
+    echo -e "  Password:           ${BOLD}${GREEN}$password${NC}"
     echo ""
     echo -e "${DIM}  HAProxy Routing:  port 443 → SNI: $domain → nginx:$port → xray:$xray_port → $target${NC}"
     echo ""
@@ -491,7 +492,7 @@ cmd_check_certs() {
     local critical_count=0
     local warning_count=0
 
-    list_proxies | jq -r '. | "\(.domain)|\(.certificate_expires)"' | while IFS='|' read -r domain cert_expires; do
+    list_proxies | jq -r '.[] | "\(.domain)|\(.certificate_expires)"' | while IFS='|' read -r domain cert_expires; do
         # Calculate days left
         local expires_epoch
         local current_epoch
