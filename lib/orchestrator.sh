@@ -245,29 +245,30 @@ orchestrate_installation() {
         }
     fi
 
-    # Step 11: Deploy containers
-    deploy_containers || {
-        echo -e "${RED}Failed to deploy containers${NC}" >&2
-        return 1
-    }
-
-    # Step 12: Install CLI tools
-    install_cli_tools || {
-        echo -e "${RED}Failed to install CLI tools${NC}" >&2
-        return 1
-    }
-
-    # Step 13: Set permissions
+    # Step 11: Set permissions (MUST run BEFORE deploy_containers!)
+    # Docker mounts files with current permissions - changing them after won't affect running containers
     set_permissions || {
         echo -e "${RED}Failed to set permissions${NC}" >&2
         return 1
     }
 
-    # Step 14: Verify critical file permissions
+    # Step 12: Verify critical file permissions (before Docker mounts them)
     verify_file_permissions || {
         echo -e "${RED}Permission verification failed${NC}" >&2
-        echo -e "${YELLOW}Installation completed but containers may fail to start${NC}" >&2
+        echo -e "${YELLOW}Cannot proceed with container deployment${NC}" >&2
         echo -e "${YELLOW}Follow manual fixes above to resolve issues${NC}" >&2
+        return 1
+    }
+
+    # Step 13: Deploy containers (now files have correct permissions)
+    deploy_containers || {
+        echo -e "${RED}Failed to deploy containers${NC}" >&2
+        return 1
+    }
+
+    # Step 14: Install CLI tools
+    install_cli_tools || {
+        echo -e "${RED}Failed to install CLI tools${NC}" >&2
         return 1
     }
 
@@ -1088,7 +1089,7 @@ create_docker_network() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 configure_ufw() {
-    echo -e "${CYAN}[10/12] Configuring UFW firewall...${NC}"
+    echo -e "${CYAN}[10/14] Configuring UFW firewall...${NC}"
 
     # Check if UFW is installed
     if ! command -v ufw &>/dev/null; then
@@ -1205,7 +1206,7 @@ EOF
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 deploy_containers() {
-    echo -e "${CYAN}[11/12] Deploying Docker containers...${NC}"
+    echo -e "${CYAN}[13/14] Deploying Docker containers...${NC}"
 
     # Pre-flight checks: Verify critical files exist before starting containers
     echo "  Running pre-flight checks..."
@@ -1336,7 +1337,7 @@ deploy_containers() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 install_cli_tools() {
-    echo -e "${CYAN}[12/13] Installing CLI tools...${NC}"
+    echo -e "${CYAN}[14/14] Installing CLI tools...${NC}"
 
     # Get the project root (assuming script is in lib/ subdirectory)
     local project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -1473,7 +1474,7 @@ install_cli_tools() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 set_permissions() {
-    echo -e "${CYAN}[13/13] Setting file permissions...${NC}"
+    echo -e "${CYAN}[11/14] Setting file permissions...${NC}"
 
     # Sensitive directories: 700 (root only)
     # Set permissions on each directory individually to ensure all exist
@@ -1577,7 +1578,7 @@ set_permissions() {
 # =============================================================================
 verify_file_permissions() {
     echo ""
-    echo -e "${CYAN}[14/14] Verifying critical file permissions...${NC}"
+    echo -e "${CYAN}[12/14] Verifying critical file permissions...${NC}"
 
     local ISSUES=0
     local WARNINGS=0

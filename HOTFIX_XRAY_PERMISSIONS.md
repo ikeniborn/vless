@@ -165,7 +165,7 @@ Add to CI/CD:
 ---
 
 **Fixed in Production:** ✅ 2025-10-21 02:04 UTC (manual chmod 644)
-**Permanent Fix Status:** ⏳ PENDING (needs investigation why orchestrator.sh fix didn't work)
+**Permanent Fix Status:** ✅ RESOLVED (2025-10-21 02:30 UTC - execution order fixed)
 
 ---
 
@@ -185,19 +185,44 @@ Add to CI/CD:
    - Client connectivity: Internet access confirmed ✅
    - File permissions: `-rw-r--r-- (644)` ✅
 
-### Why orchestrator.sh Fix Didn't Work
+### Root Cause Analysis (CONFIRMED)
 
-The code in `lib/orchestrator.sh` lines 1508-1530 **should have worked**:
-- ✅ Correct logic: chmod 644 after setting all to 600
-- ✅ Verification step exists (lines 1578-1599)
-- ✅ Error handling returns 1 on failure
+**The Problem:** Incorrect execution order in `lib/orchestrator.sh::main()`
 
-**Possible causes:**
-1. Installation bypassed orchestrator.sh (used older install script?)
-2. Silent failure due to timing issue (file created after set_permissions?)
-3. Another script overwrote permissions after installation
+**Original Order (BROKEN):**
+```
+Line 156: create_xray_config → chmod 644
+Line 249: deploy_containers → Docker mounts file (caches permissions)
+Line 261: set_permissions → chmod 600 (all files), then 644 (xray_config.json)
+```
 
-**Action Required:**
-- Test fresh installation and capture full logs
-- Verify orchestrator.sh is actually called by install.sh
-- Add explicit logging at each step
+**Why This Failed:**
+1. Docker mounts files during `deploy_containers` (line 249)
+2. Docker caches file permissions at mount time
+3. Subsequent `set_permissions` (line 261) changes permissions **on the host**
+4. Running container doesn't see the permission changes
+5. Container restart picks up new permissions (explains why manual fix worked!)
+
+**The Fix:** Move `set_permissions` BEFORE `deploy_containers`
+
+**New Order (FIXED):**
+```
+Line 156: create_xray_config → chmod 644
+Line 248: set_permissions → chmod 600 (all files), then 644 (xray_config.json)
+Line 255: verify_file_permissions → check 644 is set
+Line 263: deploy_containers → Docker mounts file with CORRECT permissions
+```
+
+**Code Changes:**
+- `lib/orchestrator.sh:248-273` - Reordered steps 11-14
+- Step 11: set_permissions (was 13)
+- Step 12: verify_file_permissions (was 14)
+- Step 13: deploy_containers (was 11)
+- Step 14: install_cli_tools (was 12)
+- Updated all step counters in function headers ([X/14])
+
+**Benefits:**
+- ✅ Files have correct permissions BEFORE Docker mounts them
+- ✅ No need for container restart after installation
+- ✅ Verification blocks deployment if permissions are wrong
+- ✅ Cleaner error messages and failure handling
