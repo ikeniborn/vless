@@ -224,12 +224,7 @@ cmd_show() {
     echo -e "  Username:           ${BOLD}$username${NC}"
     echo -e "  Password:           ${BOLD}${GREEN}$password${NC}"
     echo ""
-    echo -e "${DIM}  HAProxy Routing:  port 443 → SNI: $domain → nginx:$port → xray:$xray_port → $target${NC}"
-    echo ""
-
-    echo -e "${CYAN}${BOLD}Xray Configuration:${NC}"
-    echo -e "  Inbound Tag:        ${BOLD}$xray_tag${NC}"
-    echo -e "  Inbound Port:       ${BOLD}$xray_port${NC} (localhost only)"
+    echo -e "${DIM}  HAProxy Routing:  port 443 → SNI: $domain → nginx:$port (TLS) → https://$target (direct)${NC}"
     echo ""
 
     echo -e "${CYAN}${BOLD}Let's Encrypt Certificate:${NC}"
@@ -255,13 +250,6 @@ cmd_show() {
         print_success "Nginx слушает на порту $port"
     else
         print_error "Nginx НЕ слушает на порту $port"
-    fi
-
-    # Check if Xray inbound exists
-    if jq -e ".inbounds[] | select(.tag == \"${xray_tag}\")" /opt/vless/config/config.json > /dev/null 2>&1; then
-        print_success "Xray inbound $xray_tag активен"
-    else
-        print_error "Xray inbound $xray_tag НЕ НАЙДЕН"
     fi
 
     # Check certificate validity
@@ -301,9 +289,8 @@ cmd_remove() {
     xray_tag=$(echo "$proxy_json" | jq -r '.xray_inbound_tag')
 
     # Show what will be removed
-    echo -e "${YELLOW}${BOLD}Будет удалено (v4.3):${NC}"
+    echo -e "${YELLOW}${BOLD}Будет удалено (v5.3):${NC}"
     echo "  - Nginx конфигурация"
-    echo "  - Xray HTTP inbound ($xray_tag)"
     echo "  - HAProxy SNI route для $domain"
     echo "  - fail2ban правило для порта $port"
     echo "  - .htpasswd файл"
@@ -331,12 +318,13 @@ cmd_remove() {
         print_warning "Не удалось удалить Nginx конфигурацию"
     fi
 
-    # 2. Remove Xray inbound
-    if remove_reverseproxy_inbound "$xray_tag"; then
-        print_success "Xray inbound удалён"
-    else
-        print_warning "Не удалось удалить Xray inbound"
-    fi
+    # 2. Remove Xray inbound (DEPRECATED in v5.3)
+    # v5.3: Nginx proxies directly, no Xray inbound needed
+    # if remove_reverseproxy_inbound "$xray_tag"; then
+    #     print_success "Xray inbound удалён"
+    # else
+    #     print_warning "Не удалось удалить Xray inbound"
+    # fi
 
     # 3. Remove HAProxy SNI route (v4.3)
     print_info "Удаление HAProxy SNI route..."

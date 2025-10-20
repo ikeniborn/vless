@@ -43,7 +43,7 @@ BOLD='\033[1m'
 source "${LIB_PATH}/certificate_manager.sh"     # v4.3: DNS validation + unified cert acquisition
 source "${LIB_PATH}/haproxy_config_manager.sh"  # v4.3: HAProxy dynamic routing
 source "${LIB_PATH}/nginx_config_generator.sh"
-source "${LIB_PATH}/xray_http_inbound.sh"
+# source "${LIB_PATH}/xray_http_inbound.sh"  # v5.3: Deprecated - nginx proxies directly to target
 source "${LIB_PATH}/letsencrypt_integration.sh"
 source "${LIB_PATH}/fail2ban_config.sh"
 source "${LIB_PATH}/reverseproxy_db.sh"
@@ -410,19 +410,11 @@ setup_reverse_proxy() {
         return 1
     fi
 
-    # Step 2: Add Xray HTTP inbound
-    print_step "Создание Xray HTTP inbound..."
-    local inbound_info
-    if ! inbound_info=$(add_reverseproxy_inbound "$domain"); then
-        print_error "Не удалось создать Xray inbound"
-        return 1
-    fi
-
-    local xray_tag
-    local xray_port
-    read -r xray_tag xray_port <<< "$inbound_info"
-
-    print_success "Xray inbound создан: ${xray_tag} (localhost:${xray_port})"
+    # Step 2: Xray HTTP inbound (DEPRECATED in v5.3)
+    # v5.3: Nginx proxies directly to target site via HTTPS (IPv4-only)
+    # Xray inbound no longer needed for reverse proxy
+    local xray_tag="N/A"
+    local xray_port="N/A"
 
     # Step 3: Generate HTTP Basic Auth credentials
     print_step "Генерация креденшелов..."
@@ -436,7 +428,7 @@ setup_reverse_proxy() {
 
     # Step 4: Generate Nginx configuration
     print_step "Создание Nginx конфигурации..."
-    if ! generate_reverseproxy_nginx_config "$domain" "$target" "$port" "$xray_port" "$username" "$password_hash"; then
+    if ! generate_reverseproxy_nginx_config "$domain" "$target" "$port" "$username" "$password_hash"; then
         print_error "Не удалось создать Nginx конфигурацию"
         return 1
     fi

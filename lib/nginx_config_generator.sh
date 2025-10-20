@@ -99,9 +99,8 @@ resolve_target_ipv4() {
 #   $1 - domain: Reverse proxy domain (e.g., claude.example.com)
 #   $2 - target_site: Target site to proxy (e.g., blocked-site.com)
 #   $3 - port: Localhost listening port (e.g., 9443, v4.3 range: 9443-9452)
-#   $4 - xray_port: Xray HTTP inbound port (e.g., 10080)
-#   $5 - username: HTTP Basic Auth username
-#   $6 - password_hash: bcrypt hashed password
+#   $4 - username: HTTP Basic Auth username
+#   $5 - password_hash: bcrypt hashed password
 #
 # Output:
 #   Creates: ${NGINX_CONF_DIR}/${domain}.conf
@@ -119,14 +118,13 @@ generate_reverseproxy_nginx_config() {
     local domain="$1"
     local target_site="$2"
     local port="$3"
-    local xray_port="$4"
-    local username="$5"
-    local password_hash="$6"
+    local username="$4"
+    local password_hash="$5"
 
     # Validation
-    if [[ -z "$domain" || -z "$target_site" || -z "$port" || -z "$xray_port" || -z "$username" || -z "$password_hash" ]]; then
+    if [[ -z "$domain" || -z "$target_site" || -z "$port" || -z "$username" || -z "$password_hash" ]]; then
         log_error "Missing required parameters"
-        echo "Usage: generate_reverseproxy_nginx_config <domain> <target_site> <port> <xray_port> <username> <password_hash>"
+        echo "Usage: generate_reverseproxy_nginx_config <domain> <target_site> <port> <username> <password_hash>"
         return 1
     fi
 
@@ -240,7 +238,7 @@ server {
         # IPv4-only proxy_pass (resolved at config generation time)
         # Auto-monitored by vless-monitor-reverse-proxy-ips cron job
         proxy_pass https://${target_ipv4};
-        resolver 8.8.8.8 valid=300s;
+        resolver 8.8.8.8 ipv4=on valid=300s;
         resolver_timeout 5s;
         proxy_http_version 1.1;
 
@@ -509,7 +507,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "Usage: $0 <command> [options]"
         echo ""
         echo "Commands:"
-        echo "  generate <domain> <target_site> <port> <xray_port> <username> <password_hash>"
+        echo "  generate <domain> <target_site> <port> <username> <password_hash>"
         echo "  http-context"
         echo "  add-zone <domain>"
         echo "  remove <domain>"
