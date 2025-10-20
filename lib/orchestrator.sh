@@ -263,6 +263,14 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 14: Verify critical file permissions
+    verify_file_permissions || {
+        echo -e "${RED}Permission verification failed${NC}" >&2
+        echo -e "${YELLOW}Installation completed but containers may fail to start${NC}" >&2
+        echo -e "${YELLOW}Follow manual fixes above to resolve issues${NC}" >&2
+        return 1
+    }
+
     echo ""
     echo -e "${GREEN}✓ Installation orchestration completed successfully${NC}"
     echo ""
@@ -1483,13 +1491,42 @@ set_permissions() {
     # EXCEPTION: HAProxy config must be world-readable for haproxy user (uid=99 in container)
     # HAProxy container runs as non-root user and needs to read this file
     if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
-        chmod 644 "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || true
+        chmod 644 "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || {
+            echo -e "  ${YELLOW}⚠ WARNING: Failed to set permissions on haproxy.cfg${NC}" >&2
+        }
+        # Verify permissions were set correctly
+        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
+        if [[ "$haproxy_perms" == "644" ]]; then
+            echo "  ✓ haproxy.cfg: 644 (readable by container uid=99)"
+        else
+            echo -e "  ${RED}✗ haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}" >&2
+        fi
+    else
+        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found at ${CONFIG_DIR}/haproxy.cfg${NC}" >&2
     fi
 
     # EXCEPTION: Xray config must be world-readable for xray container user (uid=nobody/65534)
     # Xray container runs as user: nobody and needs to read this file
     if [[ -f "${XRAY_CONFIG}" ]]; then
-        chmod 644 "${XRAY_CONFIG}" 2>/dev/null || true
+        echo "  → Setting permissions on ${XRAY_CONFIG}..."
+        chmod 644 "${XRAY_CONFIG}" 2>/dev/null || {
+            echo -e "  ${RED}✗ CRITICAL: Failed to chmod 644 ${XRAY_CONFIG}${NC}" >&2
+            echo -e "  ${RED}  This will cause vless_xray container to fail!${NC}" >&2
+            return 1
+        }
+        # Verify permissions were set correctly
+        local xray_perms=$(stat -c '%a' "${XRAY_CONFIG}" 2>/dev/null || echo "000")
+        if [[ "$xray_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ xray_config.json: 644 (readable by container uid=65534)${NC}"
+        else
+            echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}" >&2
+            echo -e "  ${RED}  vless_xray container will fail to start!${NC}" >&2
+            return 1
+        fi
+    else
+        echo -e "  ${RED}✗ CRITICAL: XRAY_CONFIG not found: ${XRAY_CONFIG}${NC}" >&2
+        echo -e "  ${RED}  Variable: XRAY_CONFIG=${XRAY_CONFIG}${NC}" >&2
+        return 1
     fi
 
     # Readable directories: 755
@@ -1533,6 +1570,93 @@ set_permissions() {
 }
 
 # =============================================================================
+# FUNCTION: verify_file_permissions
+# =============================================================================
+# Description: Verify critical file permissions after installation
+# Returns: 0 on success, 1 if critical issues found
+# =============================================================================
+verify_file_permissions() {
+    echo ""
+    echo -e "${CYAN}[14/14] Verifying critical file permissions...${NC}"
+
+    local ISSUES=0
+    local WARNINGS=0
+
+    # Check xray_config.json (CRITICAL)
+    if [[ -f "${XRAY_CONFIG}" ]]; then
+        local xray_perms=$(stat -c '%a' "${XRAY_CONFIG}" 2>/dev/null || echo "000")
+        if [[ "$xray_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ xray_config.json: 644 (OK)${NC}"
+        else
+            echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}"
+            echo -e "  ${RED}  → vless_xray container will fail to start!${NC}"
+            echo -e "  ${YELLOW}  → Manual fix: sudo chmod 644 ${XRAY_CONFIG}${NC}"
+            ((ISSUES++))
+        fi
+    else
+        echo -e "  ${RED}✗ CRITICAL: xray_config.json not found${NC}"
+        ((ISSUES++))
+    fi
+
+    # Check haproxy.cfg (CRITICAL)
+    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
+        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
+        if [[ "$haproxy_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ haproxy.cfg: 644 (OK)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}"
+            echo -e "  ${YELLOW}  → HAProxy container may fail to start${NC}"
+            ((WARNINGS++))
+        fi
+    else
+        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found${NC}"
+        ((WARNINGS++))
+    fi
+
+    # Check docker-compose.yml
+    if [[ -f "${DOCKER_COMPOSE_FILE}" ]]; then
+        local compose_perms=$(stat -c '%a' "${DOCKER_COMPOSE_FILE}" 2>/dev/null || echo "000")
+        if [[ "$compose_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ docker-compose.yml: 644 (OK)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ WARNING: docker-compose.yml: $compose_perms (EXPECTED 644)${NC}"
+            ((WARNINGS++))
+        fi
+    fi
+
+    # Check xray logs directory ownership
+    if [[ -d "${LOGS_DIR}/xray" ]]; then
+        local xray_log_owner=$(stat -c '%u:%g' "${LOGS_DIR}/xray" 2>/dev/null || echo "0:0")
+        if [[ "$xray_log_owner" == "65534:65534" ]]; then
+            echo -e "  ${GREEN}✓ xray logs: owned by nobody:nobody (65534:65534)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ WARNING: xray logs: $xray_log_owner (EXPECTED 65534:65534)${NC}"
+            echo -e "  ${YELLOW}  → Xray container may fail to write logs${NC}"
+            ((WARNINGS++))
+        fi
+    fi
+
+    # Summary
+    echo ""
+    if [[ $ISSUES -eq 0 && $WARNINGS -eq 0 ]]; then
+        echo -e "${GREEN}✓ All critical permissions verified successfully${NC}"
+        return 0
+    elif [[ $ISSUES -eq 0 ]]; then
+        echo -e "${YELLOW}⚠ Verification completed with $WARNINGS warning(s)${NC}"
+        echo -e "${YELLOW}  System may still function, but review warnings above${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ Verification FAILED with $ISSUES critical issue(s) and $WARNINGS warning(s)${NC}"
+        echo -e "${RED}  Installation may not work correctly!${NC}"
+        echo ""
+        echo -e "${YELLOW}Run manual fixes above, then:${NC}"
+        echo -e "${YELLOW}  docker restart vless_xray${NC}"
+        echo -e "${YELLOW}  docker restart vless_haproxy${NC}"
+        return 1
+    fi
+}
+
+# =============================================================================
 # MODULE INITIALIZATION
 # =============================================================================
 
@@ -1556,3 +1680,4 @@ export -f configure_ufw
 export -f deploy_containers
 export -f install_cli_tools
 export -f set_permissions
+export -f verify_file_permissions
