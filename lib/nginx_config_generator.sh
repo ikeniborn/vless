@@ -1,7 +1,7 @@
 #!/bin/bash
 # lib/nginx_config_generator.sh
 #
-# Nginx Reverse Proxy Configuration Generator for VLESS v4.3
+# Nginx Reverse Proxy Configuration Generator for VLESS v5.8
 # Generates secure reverse proxy configurations with heredoc templates
 #
 # Features:
@@ -12,10 +12,11 @@
 # - Rate limiting & DoS protection (VULN-003/004/005 fix)
 # - Error logging only (no access log for privacy)
 # - v4.3: Localhost-only binding (9443-9452), SNI routing via HAProxy
+# - v5.8: Cookie/URL rewriting for complex auth (OAuth, session cookies, etc.)
 #
-# Version: 4.3.0
+# Version: 5.8.0
 # Author: VLESS Development Team
-# Date: 2025-10-18
+# Date: 2025-10-20
 
 set -euo pipefail
 
@@ -113,6 +114,12 @@ resolve_target_ipv4() {
 #   - IPv4-only proxy_pass (prevents IPv6 unreachable errors)
 #   - Resolves target_site to IPv4 at config generation time
 #   - Preserves correct Host header and SNI for target site
+#
+# v5.8 Changes:
+#   - Cookie domain rewriting (proxy_cookie_domain) for session persistence
+#   - URL rewriting (sub_filter) for absolute links in HTML/JS/CSS
+#   - Origin header rewriting for CORS compatibility
+#   - Supports: OAuth, Google Auth, session cookies, form-based auth
 # ============================================================================
 generate_reverseproxy_nginx_config() {
     local domain="$1"
@@ -189,7 +196,7 @@ generate_reverseproxy_nginx_config() {
 # Target: ${target_site} → ${target_ipv4}
 # Port: ${port} (localhost-only, HAProxy SNI routing)
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-# Version: v5.2 (IPv4-only proxy, auto-monitoring)
+# Version: v5.8 (IPv4-only proxy, cookie/URL rewriting, complex auth support)
 # NOTE: Direct HTTPS proxy to target site IPv4 (prevents IPv6 unreachable errors)
 
 # Primary server block (with Host header validation)
@@ -267,6 +274,24 @@ server {
         proxy_buffer_size 16k;
         proxy_buffers 8 16k;
         proxy_busy_buffers_size 32k;
+
+        # v5.8: Cookie domain rewrite (CRITICAL for authorization)
+        # Rewrites cookies from target site to proxy domain
+        proxy_cookie_domain ${target_site} ${domain};
+        proxy_cookie_path / /;
+        proxy_cookie_flags ~ secure httponly samesite=lax;
+
+        # v5.8: URL rewriting in HTML (for absolute links)
+        # Replaces target site URLs with proxy domain URLs
+        sub_filter 'https://${target_site}' 'https://${domain}';
+        sub_filter 'http://${target_site}' 'https://${domain}';
+        sub_filter_once off;
+        sub_filter_types text/css text/javascript application/javascript;
+
+        # v5.8: Origin header rewriting (for CORS and anti-hotlinking)
+        # Sets Origin to target site for proper CORS handling
+        proxy_set_header Origin "https://${target_site}";
+        # Note: Referer is preserved (keeps proxy domain) for tracking
     }
 
     # Error pages (optional)

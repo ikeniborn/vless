@@ -212,6 +212,46 @@ get_next_port() {
 }
 
 # ==============================================================================
+# Function: get_next_available_port
+# ==============================================================================
+# Description: Get next available port by checking both DB and actual nginx configs
+# Returns: Prints port number or empty if all used
+# v5.8: Enhanced port detection - checks both DB and nginx configs to prevent conflicts
+# ==============================================================================
+get_next_available_port() {
+    local config_dir="/opt/vless/config/reverse-proxy"
+
+    # Collect used ports from database
+    local db_ports=""
+    if [[ -f "$DB_FILE" ]]; then
+        db_ports=$(jq -r '.proxies[].port' "$DB_FILE" 2>/dev/null | sort -n)
+    fi
+
+    # Collect used ports from nginx configs (parse listen directives)
+    local nginx_ports=""
+    if [[ -d "$config_dir" ]]; then
+        nginx_ports=$(grep -h "listen.*:" "$config_dir"/*.conf 2>/dev/null | \
+                      grep -oP 'listen\s+[\d.]+:\K\d+' | \
+                      sort -n | uniq)
+    fi
+
+    # Merge both lists and remove duplicates
+    local all_ports=$(echo -e "${db_ports}\n${nginx_ports}" | sort -n | uniq | grep -v '^$')
+
+    # Find first available port
+    for port in $(seq $MIN_PORT $MAX_PORT); do
+        if ! echo "$all_ports" | grep -q "^${port}$"; then
+            echo "$port"
+            return 0
+        fi
+    done
+
+    # No ports available
+    echo "ERROR: All ports (9443-9452) are in use" >&2
+    return 1
+}
+
+# ==============================================================================
 # Function: add_proxy
 # ==============================================================================
 # Description: Add new proxy to database
@@ -489,6 +529,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f get_proxy_count
     export -f list_proxies
     export -f get_next_port
+    export -f get_next_available_port
     export -f add_proxy
     export -f remove_proxy
     export -f update_proxy

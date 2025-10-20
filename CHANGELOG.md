@@ -7,6 +7,192 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8] - 2025-10-20
+
+### Added - Reverse Proxy Cookie/URL Rewriting & Complex Auth Support
+
+**Migration Type:** Non-breaking (automatic for new proxies, manual fix for existing)
+
+**Primary Feature:** Advanced cookie and URL rewriting for complex authentication scenarios (OAuth2, Google Auth, session-based auth, CSRF protection)
+
+#### Changes
+
+**lib/nginx_config_generator.sh (v5.8.0)**
+- **ADDED**: Cookie domain rewriting (`proxy_cookie_domain`)
+  - Rewrites cookies from target site domain to proxy domain
+  - Required for: session persistence, OAuth2 state cookies, authentication cookies
+  - Example: `proxy_cookie_domain kinozal.tv kinozal-dev.ikeniborn.ru;`
+
+- **ADDED**: Cookie path and flags configuration
+  - `proxy_cookie_path / /;` - preserve cookie paths
+  - `proxy_cookie_flags ~ secure httponly samesite=lax;` - modern security standards
+  - SameSite=lax by default (prevents CSRF, allows same-site navigation)
+
+- **ADDED**: URL rewriting in HTML/JS/CSS (`sub_filter`)
+  - Replaces target site URLs with proxy domain URLs in responses
+  - Covers: https://, http://, protocol-relative URLs
+  - Applies to: text/html, text/css, text/javascript, application/javascript
+  - Example: `sub_filter 'https://kinozal.tv' 'https://kinozal-dev.ikeniborn.ru';`
+
+- **ADDED**: Origin header rewriting for CORS
+  - Sets Origin to target site for proper CORS handling
+  - Required for: POST/PUT/DELETE requests, API calls, AJAX
+  - Example: `proxy_set_header Origin "https://kinozal.tv";`
+
+- **UPDATED**: File header comments
+  - Version: 5.8.0
+  - Date: 2025-10-20
+  - Added feature description: "Cookie/URL rewriting for complex auth"
+
+**lib/reverseproxy_db.sh (v5.8.0)**
+- **ADDED**: `get_next_available_port()` function
+  - Checks occupied ports in both database AND nginx configs
+  - Prevents port conflicts when adding multiple reverse proxies
+  - Replaces naive `get_next_port()` (which only checked DB)
+  - Returns first free port in range 9443-9452
+
+- **EXPORTED**: New function in module exports
+  - Added `export -f get_next_available_port`
+
+**scripts/vless-setup-proxy**
+- **UNCHANGED**: Uses existing `get_next_available_port()` from reverseproxy_db.sh
+  - Wizard already calls this function (line 295)
+  - No code changes needed (automatic benefit from improved function)
+
+#### Technical Details
+
+**Why These Changes:**
+
+1. **Cookie Domain Rewriting**
+   - Problem: Sites set cookies for their own domain (e.g., `Set-Cookie: session=xyz; Domain=kinozal.tv`)
+   - Without rewrite: Browser won't send these cookies to proxy domain (kinozal-dev.ikeniborn.ru)
+   - Solution: `proxy_cookie_domain` rewrites Domain attribute to match proxy domain
+   - Impact: Session persistence, login state, OAuth2 state preservation
+
+2. **URL Rewriting**
+   - Problem: Sites embed absolute URLs in HTML/JS (e.g., `href="https://kinozal.tv/profile"`)
+   - Without rewrite: Clicks navigate directly to target site (bypassing proxy)
+   - Solution: `sub_filter` replaces target URLs with proxy URLs
+   - Impact: User stays on proxy domain, maintains authenticated state
+
+3. **Origin Header Rewriting**
+   - Problem: Sites validate Origin header for CSRF protection
+   - Without rewrite: Target site sees `Origin: https://kinozal-dev.ikeniborn.ru` and rejects
+   - Solution: `proxy_set_header Origin` sets correct target domain
+   - Impact: POST/PUT/DELETE requests work, APIs accept requests
+
+4. **Port Conflict Prevention**
+   - Problem: Wizard suggested port 9443 for 2nd proxy (already used by 1st)
+   - Without fix: Nginx fails to start, both proxies down
+   - Solution: Check both DB and actual configs before suggesting port
+   - Impact: Reliable multi-proxy deployments
+
+#### Migration Guide (For Existing Proxies)
+
+**Affected:** Reverse proxies created BEFORE v5.8
+
+**Symptoms:**
+- Login works but session not preserved after page refresh
+- Redirects navigate to target site instead of proxy domain
+- POST/PUT/DELETE requests fail with CORS errors
+
+**Fix (Apply to each existing proxy):**
+
+1. Edit nginx config:
+   ```bash
+   sudo nano /opt/vless/config/reverse-proxy/<domain>.conf
+   ```
+
+2. Add after `proxy_busy_buffers_size 32k;` (inside `location /` block):
+   ```nginx
+   # v5.8: Cookie domain rewrite (CRITICAL for authorization)
+   proxy_cookie_domain <target_site> <proxy_domain>;
+   proxy_cookie_path / /;
+   proxy_cookie_flags ~ secure httponly samesite=lax;
+
+   # v5.8: URL rewriting in HTML (for absolute links)
+   sub_filter 'https://<target_site>' 'https://<proxy_domain>';
+   sub_filter 'http://<target_site>' 'https://<proxy_domain>';
+   sub_filter_once off;
+   sub_filter_types text/css text/javascript application/javascript;
+
+   # v5.8: Origin header rewriting (for CORS)
+   proxy_set_header Origin "https://<target_site>";
+   ```
+
+3. Replace `<target_site>` and `<proxy_domain>` with actual values
+
+4. Test config: `docker exec vless_nginx_reverseproxy nginx -t`
+
+5. Reload: `docker restart vless_nginx_reverseproxy`
+
+**Example:**
+```nginx
+# For kinozal-dev.ikeniborn.ru → kinozal.tv
+proxy_cookie_domain kinozal.tv kinozal-dev.ikeniborn.ru;
+proxy_cookie_path / /;
+proxy_cookie_flags ~ secure httponly samesite=lax;
+
+sub_filter 'https://kinozal.tv' 'https://kinozal-dev.ikeniborn.ru';
+sub_filter 'http://kinozal.tv' 'https://kinozal-dev.ikeniborn.ru';
+sub_filter_once off;
+sub_filter_types text/css text/javascript application/javascript;
+
+proxy_set_header Origin "https://kinozal.tv";
+```
+
+#### Supported Authentication Scenarios (v5.8)
+
+**Now Working:**
+- ✅ Session-based authentication (cookie persistence)
+- ✅ Form-based login (username/password)
+- ✅ OAuth2 state cookies (basic support)
+- ✅ Google Auth session cookies
+- ✅ CSRF-protected POST requests
+- ✅ Cookie-based JWT tokens
+- ✅ Multi-step authentication flows
+
+**Requires v5.9+ (Future):**
+- ⚠️ Large cookies >4kb (OAuth2 Proxy)
+- ⚠️ WebSocket-based auth
+- ⚠️ Content Security Policy (CSP) rewriting
+- ⚠️ Regex-based URL rewriting
+
+#### Testing (v5.8)
+
+**Verified scenarios:**
+1. kinozal.tv reverse proxy (kinozal-dev.ikeniborn.ru)
+   - ✅ Login form authentication
+   - ✅ Session cookie preservation
+   - ✅ Authenticated page access
+   - ✅ POST requests (downloads, comments)
+
+**Recommended testing for your proxy:**
+```bash
+# Test 1: Login and check cookies
+curl -v -k -u "user:pass" "https://<proxy-domain>/login" -c cookies.txt
+
+# Test 2: Use saved cookies for authenticated page
+curl -k -b cookies.txt "https://<proxy-domain>/profile"
+
+# Test 3: POST request (should work)
+curl -k -b cookies.txt -X POST "https://<proxy-domain>/api/action" -d '{}'
+```
+
+#### Files Changed
+
+- `lib/nginx_config_generator.sh` (v5.8.0)
+- `lib/reverseproxy_db.sh` (v5.8.0)
+
+#### Related Documents
+
+- **REVERSE_PROXY_IMPROVEMENT_PLAN.md** - Comprehensive plan for v5.9-v6.0
+  - Research findings on OAuth2, CSRF, WebSocket, CSP
+  - 17 planned improvements across 4 priority tiers
+  - Roadmap for enterprise-grade reverse proxy features
+
+---
+
 ## [5.7] - 2025-10-20
 
 ### Fixed - SOCKS5 Outbound IP Configuration
