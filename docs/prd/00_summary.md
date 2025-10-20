@@ -1,10 +1,10 @@
-# PRD v4.3 - Executive Summary & Navigation
+# PRD v5.7 - Executive Summary & Navigation
 
 **VLESS + Reality VPN Server: Product Requirements Document**
 
-**Version:** 4.3 (HAProxy Unified Architecture)
-**Status:** ✅ 100% Implemented
-**Last Updated:** 2025-10-18
+**Version:** 5.7 (Reverse Proxy Stability + Xray Permission Fixes)
+**Status:** ✅ 100% Implemented + Hardened
+**Last Updated:** 2025-10-20
 
 ---
 
@@ -21,25 +21,29 @@
 
 ---
 
-## Ключевые характеристики v4.3
+## Ключевые характеристики v5.7
 
-### Текущая версия (Production-Ready)
+### Текущая версия (Production-Ready + Hardened)
 
-**Статус реализации:** ✅ **100% COMPLETE**
+**Статус реализации:** ✅ **100% COMPLETE + STABILITY FIXES**
 
 | Компонент | Версия | Статус |
 |-----------|--------|--------|
-| **VLESS Reality VPN** | v4.3 | ✅ Stable |
-| **HAProxy Unified Architecture** | v4.3 | ✅ Production (replaces stunnel) |
-| **Subdomain-Based Reverse Proxy** | v4.3 | ✅ https://domain (NO port!) |
-| **SNI Routing (HAProxy)** | v4.3 | ✅ TLS passthrough |
+| **VLESS Reality VPN** | v5.7 | ✅ Stable + Hardened |
+| **HAProxy Unified Architecture** | v4.3+ | ✅ Production (replaces stunnel) |
+| **Subdomain-Based Reverse Proxy** | v4.3+ | ✅ https://domain (NO port!) |
+| **Reverse Proxy Stability Fixes** | v5.2-v5.7 | ✅ Rate limiting zones, IPv6 fix, IP monitoring |
+| **Xray Permission Handling** | v5.4-v5.6 | ✅ Automated permission fix before container start |
+| **IPv6 Unreachable Fix** | v5.2-v5.3 | ✅ IPv4-only resolution + monitoring |
+| **SOCKS5 Docker Networking** | v5.7 | ✅ Outbound IP 0.0.0.0 (HAProxy compatibility) |
+| **SNI Routing (HAProxy)** | v4.3+ | ✅ TLS passthrough |
 | **Dual Proxy (SOCKS5 + HTTP)** | v4.1+ | ✅ Complete |
 | **Heredoc Config Generation** | v4.1+ | ✅ Implemented |
-| **Port Range 9443-9452 (localhost)** | v4.3 | ✅ Nginx reverse proxy backends |
-| **fail2ban Integration (HAProxy)** | v4.3 | ✅ Multi-layer protection |
+| **Port Range 9443-9452 (localhost)** | v4.3+ | ✅ Nginx reverse proxy backends |
+| **fail2ban Integration (HAProxy)** | v4.3+ | ✅ Multi-layer protection |
 | **IP Whitelisting** | v3.6+ | ✅ Server-level + UFW |
 | **Let's Encrypt Auto-Renewal** | v3.3+ | ✅ Automated |
-| **v4.3 Test Suite (automated)** | v4.3 | ✅ 3 test cases, DEV_MODE support |
+| **Automated Test Suite** | v4.3+ | ✅ 3 test cases, DEV_MODE support |
 
 ---
 
