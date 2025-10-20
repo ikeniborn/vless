@@ -492,7 +492,7 @@ generate_socks5_inbound_json() {
       "auth": "password",
       "accounts": [],
       "udp": false,
-      "ip": "127.0.0.1"
+      "ip": "0.0.0.0"
     },
     "sniffing": {
       "enabled": true,
