@@ -1,7 +1,7 @@
 #!/bin/bash
 # lib/nginx_config_generator.sh
 #
-# Nginx Reverse Proxy Configuration Generator for VLESS v5.9
+# Nginx Reverse Proxy Configuration Generator for VLESS v5.10
 # Generates secure reverse proxy configurations with heredoc templates
 #
 # Features:
@@ -16,8 +16,11 @@
 # - v5.9: Enhanced cookie handling (OAuth2, large cookies >4kb)
 # - v5.9: CSRF protection (Referer rewriting)
 # - v5.9: WebSocket support (long-lived connections)
+# - v5.10: CSP header handling (configurable strip/keep)
+# - v5.10: Intelligent sub-filter (protocol-relative URLs, API endpoints)
+# - v5.10: Advanced wizard support (OAuth2/WebSocket/CSP options)
 #
-# Version: 5.9.0
+# Version: 5.10.0
 # Author: VLESS Development Team
 # Date: 2025-10-20
 
@@ -129,6 +132,11 @@ resolve_target_ipv4() {
 #   - Large cookie support: increased buffers for OAuth2 state (>4kb)
 #   - CSRF protection: Referer header rewriting for target domain
 #   - WebSocket support: long-lived connection timeouts (1 hour)
+#
+# v5.10 Changes:
+#   - CSP header handling: strip or keep CSP headers (configurable)
+#   - Intelligent sub-filter: protocol-relative URLs, subdomain matching
+#   - Advanced options: STRIP_CSP, ENABLE_WEBSOCKET, OAUTH2_SUPPORT (env vars)
 # ============================================================================
 generate_reverseproxy_nginx_config() {
     local domain="$1"
@@ -136,6 +144,12 @@ generate_reverseproxy_nginx_config() {
     local port="$3"
     local username="$4"
     local password_hash="$5"
+
+    # v5.10: Advanced configuration options (environment variables)
+    # Set defaults if not provided
+    local strip_csp="${STRIP_CSP:-true}"           # Strip CSP headers by default
+    local enable_websocket="${ENABLE_WEBSOCKET:-true}"  # WebSocket enabled by default
+    local oauth2_support="${OAUTH2_SUPPORT:-true}"      # OAuth2 support by default
 
     # Validation
     if [[ -z "$domain" || -z "$target_site" || -z "$port" || -z "$username" || -z "$password_hash" ]]; then
@@ -247,6 +261,27 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "identity-credentials-get=*, geolocation=(), microphone=(), camera=()" always;
 
+    # v5.10: CSP Header Handling (conditional)
+EOF
+
+    # CSP handling based on strip_csp flag
+    if [[ "$strip_csp" == "true" ]]; then
+        cat >> "$nginx_conf" <<'EOF'
+    # CSP headers stripped (prevents blocking of proxy domain resources)
+    proxy_hide_header Content-Security-Policy;
+    proxy_hide_header Content-Security-Policy-Report-Only;
+    proxy_hide_header X-Content-Security-Policy;
+    proxy_hide_header X-WebKit-CSP;
+EOF
+    else
+        cat >> "$nginx_conf" <<'EOF'
+    # CSP headers preserved (may cause issues with inline scripts)
+    # Note: Target site CSP may block proxy domain resources
+EOF
+    fi
+
+    cat >> "$nginx_conf" <<EOF
+
     # VULN-003/004 FIX: Rate Limiting (increased for modern web apps)
     limit_req zone=reverseproxy_${domain//[.-]/_} burst=200 nodelay;
     limit_conn conn_limit_per_ip 200;  # Allow many parallel connections for webpack chunks (Claude.ai loads 40+ files)
@@ -304,12 +339,23 @@ server {
         proxy_cookie_path / /;
         proxy_cookie_flags ~ secure httponly samesite=lax;
 
-        # v5.8: URL rewriting in HTML (for absolute links)
-        # Replaces target site URLs with proxy domain URLs
+        # v5.10: Intelligent URL rewriting (multiple patterns for better coverage)
+        # Pattern 1: HTTPS URLs (most common)
         sub_filter 'https://${target_site}' 'https://${domain}';
+        # Pattern 2: HTTP URLs (redirect to HTTPS)
         sub_filter 'http://${target_site}' 'https://${domain}';
+        # Pattern 3: Protocol-relative URLs (//domain.com)
+        sub_filter '//${target_site}' '//${domain}';
+        # Pattern 4: Quoted URLs in JavaScript ("https://domain")
+        sub_filter '"https://${target_site}' '"https://${domain}';
+        sub_filter "'https://${target_site}" "'https://${domain}";
+        # Pattern 5: URL objects in JSON (\"https://domain\")
+        sub_filter '\\"https://${target_site}' '\\"https://${domain}';
+
+        # Apply to multiple content types
         sub_filter_once off;
-        sub_filter_types text/css text/javascript application/javascript;
+        sub_filter_types text/html text/css text/javascript application/javascript application/json;
+        sub_filter_last_modified on;
 
         # v5.9: Referer rewriting (CRITICAL for CSRF protection)
         # Rewrites Referer from proxy domain to target domain

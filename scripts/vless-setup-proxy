@@ -347,6 +347,61 @@ prompt_letsencrypt_email() {
     echo "$email"
 }
 
+prompt_advanced_options() {
+    print_header "Шаг 5: Дополнительные Опции (v5.10)"
+
+    echo -e "${CYAN}Настройте дополнительные функции для вашего reverse proxy:${NC}" >&2
+    echo "" >&2
+
+    # OAuth2 Support
+    echo -e "${YELLOW}1. OAuth2 / Large Cookie Support${NC}" >&2
+    echo "   Для сайтов с OAuth2, Google Auth, или большими cookies (>4kb)" >&2
+    echo "   Увеличивает буферы: 32k/16x32k/64k" >&2
+    read -p "   Включить OAuth2 support? [Y/n]: " -n 1 -r oauth2_choice
+    echo
+    if [[ $oauth2_choice =~ ^[Nn]$ ]]; then
+        export OAUTH2_SUPPORT="false"
+    else
+        export OAUTH2_SUPPORT="true"
+    fi
+    echo "" >&2
+
+    # WebSocket Support
+    echo -e "${YELLOW}2. WebSocket Support${NC}" >&2
+    echo "   Для real-time приложений (chat, dashboards, collaborative editing)" >&2
+    echo "   Увеличивает timeouts: 3600s (1 hour)" >&2
+    read -p "   Включить WebSocket support? [Y/n]: " -n 1 -r websocket_choice
+    echo
+    if [[ $websocket_choice =~ ^[Nn]$ ]]; then
+        export ENABLE_WEBSOCKET="false"
+    else
+        export ENABLE_WEBSOCKET="true"
+    fi
+    echo "" >&2
+
+    # CSP Header Handling
+    echo -e "${YELLOW}3. Content Security Policy (CSP) Headers${NC}" >&2
+    echo "   CSP от целевого сайта может блокировать ресурсы через прокси-домен" >&2
+    echo "   Опции:" >&2
+    echo "     - Strip (рекомендуется): Удалить CSP headers для совместимости" >&2
+    echo "     - Keep: Сохранить CSP (может не работать с некоторыми сайтами)" >&2
+    read -p "   Strip CSP headers? [Y/n]: " -n 1 -r csp_choice
+    echo
+    if [[ $csp_choice =~ ^[Nn]$ ]]; then
+        export STRIP_CSP="false"
+    else
+        export STRIP_CSP="true"
+    fi
+    echo "" >&2
+
+    # Summary
+    print_info "Выбранные опции:"
+    echo "  OAuth2 Support:    ${OAUTH2_SUPPORT}" >&2
+    echo "  WebSocket Support: ${ENABLE_WEBSOCKET}" >&2
+    echo "  Strip CSP:         ${STRIP_CSP}" >&2
+    echo "" >&2
+}
+
 prompt_confirmation() {
     local domain="$1"
     local target="$2"
@@ -363,6 +418,11 @@ prompt_confirmation() {
     echo -e "  ${BOLD}Email:${NC}           $email" >&2
     echo "" >&2
     echo -e "  ${BOLD}Публичный URL:${NC}   ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}" >&2
+    echo "" >&2
+    echo -e "${CYAN}${BOLD}Дополнительные опции (v5.10):${NC}" >&2
+    echo -e "  ${BOLD}OAuth2 Support:${NC}    ${OAUTH2_SUPPORT:-true}" >&2
+    echo -e "  ${BOLD}WebSocket Support:${NC} ${ENABLE_WEBSOCKET:-true}" >&2
+    echo -e "  ${BOLD}Strip CSP Headers:${NC} ${STRIP_CSP:-true}" >&2
     echo "" >&2
     echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}" >&2
     echo "  1. DNS validation (обязательно!)" >&2
@@ -540,6 +600,9 @@ main() {
     target=$(prompt_target_site)
     port=$(prompt_port)
     email=$(prompt_letsencrypt_email)
+
+    # v5.10: Advanced options (OAuth2, WebSocket, CSP)
+    prompt_advanced_options
 
     # Confirmation
     prompt_confirmation "$domain" "$target" "$port" "$email"
