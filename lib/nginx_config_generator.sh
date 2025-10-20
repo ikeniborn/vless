@@ -1,7 +1,7 @@
 #!/bin/bash
 # lib/nginx_config_generator.sh
 #
-# Nginx Reverse Proxy Configuration Generator for VLESS v5.8
+# Nginx Reverse Proxy Configuration Generator for VLESS v5.9
 # Generates secure reverse proxy configurations with heredoc templates
 #
 # Features:
@@ -13,8 +13,11 @@
 # - Error logging only (no access log for privacy)
 # - v4.3: Localhost-only binding (9443-9452), SNI routing via HAProxy
 # - v5.8: Cookie/URL rewriting for complex auth (OAuth, session cookies, etc.)
+# - v5.9: Enhanced cookie handling (OAuth2, large cookies >4kb)
+# - v5.9: CSRF protection (Referer rewriting)
+# - v5.9: WebSocket support (long-lived connections)
 #
-# Version: 5.8.0
+# Version: 5.9.0
 # Author: VLESS Development Team
 # Date: 2025-10-20
 
@@ -120,6 +123,12 @@ resolve_target_ipv4() {
 #   - URL rewriting (sub_filter) for absolute links in HTML/JS/CSS
 #   - Origin header rewriting for CORS compatibility
 #   - Supports: OAuth, Google Auth, session cookies, form-based auth
+#
+# v5.9 Changes:
+#   - Enhanced cookie handling: multiple Set-Cookie headers (OAuth2)
+#   - Large cookie support: increased buffers for OAuth2 state (>4kb)
+#   - CSRF protection: Referer header rewriting for target domain
+#   - WebSocket support: long-lived connection timeouts (1 hour)
 # ============================================================================
 generate_reverseproxy_nginx_config() {
     local domain="$1"
@@ -196,8 +205,14 @@ generate_reverseproxy_nginx_config() {
 # Target: ${target_site} → ${target_ipv4}
 # Port: ${port} (localhost-only, HAProxy SNI routing)
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-# Version: v5.8 (IPv4-only proxy, cookie/URL rewriting, complex auth support)
+# Version: v5.9 (OAuth2, CSRF, WebSocket support)
 # NOTE: Direct HTTPS proxy to target site IPv4 (prevents IPv6 unreachable errors)
+
+# v5.9: WebSocket support - connection upgrade map
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 
 # Primary server block (with Host header validation)
 server {
@@ -253,6 +268,10 @@ server {
         proxy_ssl_server_name on;
         proxy_ssl_name ${target_site};
 
+        # v5.9: Enhanced cookie handling (multiple Set-Cookie headers for OAuth2)
+        proxy_pass_header Set-Cookie;
+        proxy_set_header Cookie \$http_cookie;
+
         # VULN-001 FIX: Hardcoded Host header (NOT \$host or \$http_host)
         proxy_set_header Host ${target_site};  # Target site (hardcoded)
 
@@ -260,20 +279,24 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
 
-        # Upgrade headers (for potential WebSocket support in future)
+        # v5.9: CSRF Protection Headers
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Original-URL \$scheme://\$http_host\$request_uri;
+
+        # v5.9: WebSocket support (with connection upgrade map)
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection \$connection_upgrade;
 
-        # Timeouts (prevent slowloris)
+        # v5.9: Timeouts (increased for WebSocket long-lived connections)
         proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_send_timeout 3600s;  # 1 hour for WebSocket
+        proxy_read_timeout 3600s;   # 1 hour for WebSocket
 
-        # Buffering (increased for Cloudflare headers)
+        # v5.9: Buffering (increased for OAuth2 large cookies >4kb)
         proxy_buffering on;
-        proxy_buffer_size 16k;
-        proxy_buffers 8 16k;
-        proxy_busy_buffers_size 32k;
+        proxy_buffer_size 32k;      # Increased from 16k
+        proxy_buffers 16 32k;       # Increased from 8 16k
+        proxy_busy_buffers_size 64k;  # Increased from 32k
 
         # v5.8: Cookie domain rewrite (CRITICAL for authorization)
         # Rewrites cookies from target site to proxy domain
@@ -288,10 +311,17 @@ server {
         sub_filter_once off;
         sub_filter_types text/css text/javascript application/javascript;
 
+        # v5.9: Referer rewriting (CRITICAL for CSRF protection)
+        # Rewrites Referer from proxy domain to target domain
+        set \$new_referer \$http_referer;
+        if (\$http_referer ~* "^https?://${domain}(.*)$") {
+            set \$new_referer "https://${target_site}\$1";
+        }
+        proxy_set_header Referer \$new_referer;
+
         # v5.8: Origin header rewriting (for CORS and anti-hotlinking)
         # Sets Origin to target site for proper CORS handling
         proxy_set_header Origin "https://${target_site}";
-        # Note: Referer is preserved (keeps proxy domain) for tracking
     }
 
     # Error pages (optional)
