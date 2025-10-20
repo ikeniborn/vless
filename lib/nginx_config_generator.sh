@@ -170,7 +170,8 @@ server {
 
     # Proxy directly to target site (v4.3: Direct HTTPS proxy, not through Xray)
     location / {
-        proxy_pass https://${target_site};
+        set \$upstream_target ${target_site};
+        proxy_pass https://\$upstream_target;
         resolver 8.8.8.8 ipv6=off;  # IPv4-only resolver (prevents IPv6 unreachable errors)
         proxy_http_version 1.1;
 
