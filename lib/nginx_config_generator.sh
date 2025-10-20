@@ -280,7 +280,6 @@ client_max_body_size 10m;
 client_body_timeout 10s;
 client_header_timeout 10s;
 send_timeout 10s;
-keepalive_timeout 30s;
 
 # Error responses for limit violations
 limit_conn_status 429;  # Too Many Requests
@@ -290,7 +289,8 @@ limit_req_status 429;
 server_tokens off;
 
 # Include reverse proxy server blocks
-include /etc/nginx/conf.d/reverse-proxy/*.conf;
+# Include only domain configs (exclude http_context.conf)
+include /etc/nginx/conf.d/reverse-proxy/*[!t].conf;
 EOF
 
     chmod 644 "$http_context_conf"
