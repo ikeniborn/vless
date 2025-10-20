@@ -164,5 +164,40 @@ Add to CI/CD:
 
 ---
 
-**Fixed in Production:** ✅ 2025-10-21 (manual chmod)
-**Permanent Fix Status:** ⏳ PENDING (needs code changes + testing)
+**Fixed in Production:** ✅ 2025-10-21 02:04 UTC (manual chmod 644)
+**Permanent Fix Status:** ⏳ PENDING (needs investigation why orchestrator.sh fix didn't work)
+
+---
+
+## Resolution Summary (2025-10-21)
+
+### What Was Done
+
+1. **Immediate Production Fix:**
+   ```bash
+   sudo chmod 644 /opt/vless/config/xray_config.json
+   docker restart vless_xray
+   ```
+
+2. **Verification:**
+   - Container status: `Up X seconds (healthy)` ✅
+   - HAProxy backend: `Server xray_vless/xray is UP` ✅
+   - Client connectivity: Internet access confirmed ✅
+   - File permissions: `-rw-r--r-- (644)` ✅
+
+### Why orchestrator.sh Fix Didn't Work
+
+The code in `lib/orchestrator.sh` lines 1508-1530 **should have worked**:
+- ✅ Correct logic: chmod 644 after setting all to 600
+- ✅ Verification step exists (lines 1578-1599)
+- ✅ Error handling returns 1 on failure
+
+**Possible causes:**
+1. Installation bypassed orchestrator.sh (used older install script?)
+2. Silent failure due to timing issue (file created after set_permissions?)
+3. Another script overwrote permissions after installation
+
+**Action Required:**
+- Test fresh installation and capture full logs
+- Verify orchestrator.sh is actually called by install.sh
+- Add explicit logging at each step
