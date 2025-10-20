@@ -227,9 +227,19 @@ open_port_80_for_certbot() {
 
     # Open port 80 temporarily
     echo "Temporarily opening port 80 in UFW for Let's Encrypt ACME challenge..."
-    if ! ufw allow 80/tcp comment "Let's Encrypt ACME challenge (temporary)" >/dev/null 2>&1; then
+
+    # Capture UFW command output for debugging
+    local ufw_output
+    ufw_output=$(ufw allow 80/tcp comment "Let's Encrypt ACME challenge (temporary)" 2>&1)
+    local ufw_exit_code=$?
+
+    if [[ $ufw_exit_code -ne 0 ]]; then
         echo "Error: Failed to open port 80 in UFW" >&2
-        return 1
+        echo "UFW output: $ufw_output" >&2
+        echo "Note: Continuing anyway - certbot may still work if port 80 is already accessible" >&2
+        # Don't fail - let certbot try anyway
+        PORT_80_OPENED_BY_US=false
+        return 0
     fi
 
     PORT_80_OPENED_BY_US=true

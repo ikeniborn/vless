@@ -143,6 +143,10 @@ frontend socks5_tls
     mode tcp
     option tcplog
 
+    # Enable request inspection for SNI capture
+    tcp-request inspect-delay 5s
+    tcp-request content accept if TRUE
+
     # Log TLS info
     tcp-request content capture req.ssl_sni len 100
 
@@ -161,6 +165,10 @@ frontend http_proxy_tls
     bind *:8118 ssl crt /etc/letsencrypt/live/${main_domain}/combined.pem
     mode tcp
     option tcplog
+
+    # Enable request inspection for SNI capture
+    tcp-request inspect-delay 5s
+    tcp-request content accept if TRUE
 
     # Log TLS info
     tcp-request content capture req.ssl_sni len 100
@@ -414,13 +422,38 @@ reload_haproxy() {
     fi
 
     # Graceful reload: haproxy -f config.cfg -sf <old_pid>
-    if docker exec "${HAPROXY_CONTAINER}" haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf ${old_pid} > /dev/null 2>&1; then
-        log "✅ HAProxy reloaded successfully"
-        return 0
-    else
-        log_error "❌ Failed to reload HAProxy"
+    # Note: Capture output to check for errors (warnings are OK, only errors should fail)
+    local reload_output
+    reload_output=$(docker exec "${HAPROXY_CONTAINER}" haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf ${old_pid} 2>&1)
+    local exit_code=$?
+
+    # Check if reload has actual errors (not just warnings)
+    if echo "$reload_output" | grep -qi "\[ALERT\]"; then
+        log_error "❌ HAProxy reload failed with ALERT:"
+        echo "$reload_output" | grep -i "\[ALERT\]" >&2
+        echo "" >&2
+        log_error "TROUBLESHOOTING:"
+        log_error "  1. Check config permissions: sudo ls -la ${HAPROXY_CONFIG}"
+        log_error "     (Should be: -rw-r--r-- root root)"
+        log_error "  2. Test config: docker exec ${HAPROXY_CONTAINER} haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg"
         return 1
     fi
+
+    # Verify container is still running after reload
+    sleep 1
+    if ! docker ps | grep -q "${HAPROXY_CONTAINER}"; then
+        log_error "❌ HAProxy container died after reload"
+        return 1
+    fi
+
+    # Log warnings if present (but don't fail)
+    if echo "$reload_output" | grep -qi "\[WARNING\]"; then
+        log "⚠️  HAProxy reload completed with warnings (non-critical):"
+        echo "$reload_output" | grep -i "\[WARNING\]" >&2
+    fi
+
+    log "✅ HAProxy reloaded successfully"
+    return 0
 }
 
 # =============================================================================

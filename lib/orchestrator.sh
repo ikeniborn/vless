@@ -1480,6 +1480,18 @@ set_permissions() {
     find "${KEYS_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
     chmod 600 "${ENV_FILE}" 2>/dev/null || true
 
+    # EXCEPTION: HAProxy config must be world-readable for haproxy user (uid=99 in container)
+    # HAProxy container runs as non-root user and needs to read this file
+    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
+        chmod 644 "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || true
+    fi
+
+    # EXCEPTION: Xray config must be world-readable for xray container user (uid=nobody/65534)
+    # Xray container runs as user: nobody and needs to read this file
+    if [[ -f "${XRAY_CONFIG}" ]]; then
+        chmod 644 "${XRAY_CONFIG}" 2>/dev/null || true
+    fi
+
     # Readable directories: 755
     chmod 755 "${LOGS_DIR}" "${SCRIPTS_DIR}" "${FAKESITE_DIR}" \
               "${DOCS_DIR}" "${TESTS_DIR}" 2>/dev/null || true

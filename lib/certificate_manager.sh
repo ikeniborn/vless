@@ -407,8 +407,26 @@ reload_haproxy_after_cert_update() {
     fi
 
     # Graceful reload with old PID
-    # Note: Exit code 137 (SIGKILL) is expected during graceful reload when old process exits
-    docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid >/dev/null 2>&1
+    # Note: Capture output to check for errors (warnings are OK, only errors should fail)
+    local reload_output
+    reload_output=$(docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1)
+    local exit_code=$?
+
+    # Check if reload has actual errors (not just warnings)
+    if echo "$reload_output" | grep -qi "\[ALERT\]"; then
+        echo -e "${RED}ERROR: HAProxy reload failed with ALERT:${NC}" >&2
+        echo "$reload_output" | grep -i "\[ALERT\]" >&2
+        echo "" >&2
+        echo "TROUBLESHOOTING:" >&2
+        echo "  1. Check HAProxy config permissions:" >&2
+        echo "     sudo ls -la /opt/vless/config/haproxy.cfg" >&2
+        echo "     (Should be: -rw-r--r-- root root)" >&2
+        echo "  2. Verify config inside container:" >&2
+        echo "     docker exec vless_haproxy ls -la /usr/local/etc/haproxy/haproxy.cfg" >&2
+        echo "  3. Test config syntax:" >&2
+        echo "     docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg" >&2
+        return 1
+    fi
 
     # Wait for reload to complete
     sleep 2
@@ -430,6 +448,12 @@ reload_haproxy_after_cert_update() {
     if [[ -z "$new_pid" ]]; then
         echo -e "${RED}ERROR: HAProxy process not found after reload${NC}" >&2
         return 1
+    fi
+
+    # Log warnings if present (but don't fail)
+    if echo "$reload_output" | grep -qi "\[WARNING\]"; then
+        echo -e "${YELLOW}⚠️  HAProxy reload completed with warnings (non-critical):${NC}"
+        echo "$reload_output" | grep -i "\[WARNING\]" | head -3
     fi
 
     echo -e "${GREEN}✅ HAProxy reloaded gracefully (zero downtime)${NC}"
