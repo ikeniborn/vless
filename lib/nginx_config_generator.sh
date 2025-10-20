@@ -158,11 +158,11 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header Permissions-Policy "identity-credentials-get=*, geolocation=(), microphone=(), camera=()" always;
 
     # VULN-003/004 FIX: Rate Limiting (increased for modern web apps)
-    limit_req zone=reverseproxy_${domain//[.-]/_} burst=100 nodelay;
-    limit_conn conn_limit_per_ip 50;  # Allow more parallel connections for webpack chunks
+    limit_req zone=reverseproxy_${domain//[.-]/_} burst=200 nodelay;
+    limit_conn conn_limit_per_ip 200;  # Allow many parallel connections for webpack chunks (Claude.ai loads 40+ files)
 
     # Logging (error log only, no access log)
     access_log off;  # Privacy: no access logging
@@ -171,6 +171,7 @@ server {
     # Proxy directly to target site (v4.3: Direct HTTPS proxy, not through Xray)
     location / {
         proxy_pass https://${target_site};
+        resolver 8.8.8.8 ipv6=off;  # IPv4-only resolver (prevents IPv6 unreachable errors)
         proxy_http_version 1.1;
 
         # SSL settings for upstream (target site)
@@ -339,7 +340,7 @@ add_rate_limit_zone() {
     # Append rate limit zone
     echo "" >> "$http_context_conf"
     echo "# Rate limit zone for: ${domain}" >> "$http_context_conf"
-    echo "limit_req_zone \$binary_remote_addr zone=${zone_name}:10m rate=10r/s;" >> "$http_context_conf"
+    echo "limit_req_zone \$binary_remote_addr zone=${zone_name}:10m rate=100r/s;" >> "$http_context_conf"
 
     log "✅ Rate limit zone added: $zone_name"
 
