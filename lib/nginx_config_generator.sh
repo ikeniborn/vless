@@ -40,6 +40,58 @@ log_error() {
 }
 
 # ============================================================================
+# Function: resolve_target_ipv4
+# Description: Resolves target site to IPv4 address (IPv6-safe)
+#
+# Parameters:
+#   $1 - target_site: Target site hostname
+#
+# Output:
+#   Prints IPv4 address to stdout
+#
+# Returns:
+#   0 on success, 1 on failure
+# ============================================================================
+resolve_target_ipv4() {
+    local target_site="$1"
+
+    if [[ -z "$target_site" ]]; then
+        log_error "Missing target_site parameter"
+        return 1
+    fi
+
+    # Try to resolve using dig (preferred)
+    if command -v dig &> /dev/null; then
+        local ipv4=$(dig +short "$target_site" A @8.8.8.8 | head -1)
+        if [[ -n "$ipv4" ]] && [[ "$ipv4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$ipv4"
+            return 0
+        fi
+    fi
+
+    # Fallback to getent (system resolver)
+    if command -v getent &> /dev/null; then
+        local ipv4=$(getent ahostsv4 "$target_site" | awk '{print $1}' | head -1)
+        if [[ -n "$ipv4" ]] && [[ "$ipv4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$ipv4"
+            return 0
+        fi
+    fi
+
+    # Fallback to host command
+    if command -v host &> /dev/null; then
+        local ipv4=$(host -t A "$target_site" 8.8.8.8 | awk '/has address/ {print $NF}' | head -1)
+        if [[ -n "$ipv4" ]] && [[ "$ipv4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$ipv4"
+            return 0
+        fi
+    fi
+
+    log_error "Failed to resolve IPv4 for: $target_site"
+    return 1
+}
+
+# ============================================================================
 # Function: generate_reverseproxy_nginx_config
 # Description: Generates Nginx reverse proxy configuration for a domain
 #
@@ -57,6 +109,11 @@ log_error() {
 #
 # Returns:
 #   0 on success, 1 on failure
+#
+# v5.2 Changes:
+#   - IPv4-only proxy_pass (prevents IPv6 unreachable errors)
+#   - Resolves target_site to IPv4 at config generation time
+#   - Preserves correct Host header and SNI for target site
 # ============================================================================
 generate_reverseproxy_nginx_config() {
     local domain="$1"
@@ -99,6 +156,16 @@ generate_reverseproxy_nginx_config() {
         return 1
     fi
 
+    # Resolve target site to IPv4 (CRITICAL: prevents IPv6 unreachable errors)
+    log "Resolving target site to IPv4: $target_site"
+    local target_ipv4
+    if ! target_ipv4=$(resolve_target_ipv4 "$target_site"); then
+        log_error "Failed to resolve IPv4 for target: $target_site"
+        log_error "Cannot generate configuration without valid IPv4 address"
+        return 1
+    fi
+    log "✅ Resolved $target_site → $target_ipv4"
+
     # Create directories if not exist
     mkdir -p "$NGINX_CONF_DIR" || {
         log_error "Failed to create directory: $NGINX_CONF_DIR"
@@ -121,11 +188,11 @@ generate_reverseproxy_nginx_config() {
     cat > "$nginx_conf" <<EOF
 # Nginx Reverse Proxy Configuration
 # Domain: ${domain}
-# Target: ${target_site}
+# Target: ${target_site} → ${target_ipv4}
 # Port: ${port} (localhost-only, HAProxy SNI routing)
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-# Version: v4.3 (HAProxy Unified Architecture)
-# NOTE: Direct HTTPS proxy to target site (no Xray inbound needed)
+# Version: v5.2 (IPv4-only proxy, auto-monitoring)
+# NOTE: Direct HTTPS proxy to target site IPv4 (prevents IPv6 unreachable errors)
 
 # Primary server block (with Host header validation)
 server {
@@ -168,11 +235,13 @@ server {
     access_log off;  # Privacy: no access logging
     error_log /var/log/nginx/reverse-proxy-${domain}-error.log warn;
 
-    # Proxy directly to target site (v4.3: Direct HTTPS proxy, not through Xray)
+    # Proxy directly to target site (v5.2: IPv4-only, prevents IPv6 unreachable errors)
     location / {
-        set \$upstream_target ${target_site};
-        proxy_pass https://\$upstream_target;
-        resolver 8.8.8.8 ipv6=off;  # IPv4-only resolver (prevents IPv6 unreachable errors)
+        # IPv4-only proxy_pass (resolved at config generation time)
+        # Auto-monitored by vless-monitor-reverse-proxy-ips cron job
+        proxy_pass https://${target_ipv4};
+        resolver 8.8.8.8 valid=300s;
+        resolver_timeout 5s;
         proxy_http_version 1.1;
 
         # SSL settings for upstream (target site)
@@ -402,7 +471,7 @@ remove_reverseproxy_config() {
 validate_nginx_config() {
     log "Validating Nginx configuration..."
 
-    if docker exec vless_nginx nginx -t 2>&1; then
+    if docker exec vless_nginx_reverseproxy nginx -t 2>&1; then
         log "✅ Nginx configuration is valid"
         return 0
     else
@@ -413,16 +482,16 @@ validate_nginx_config() {
 
 # ============================================================================
 # Function: reload_nginx
-# Description: Reloads Nginx configuration
+# Description: Reloads Nginx configuration (graceful reload)
 #
 # Returns:
 #   0 on success, 1 on failure
 # ============================================================================
 reload_nginx() {
-    log "Reloading Nginx..."
+    log "Reloading Nginx (graceful)..."
 
-    if docker exec vless_nginx nginx -s reload 2>&1; then
-        log "✅ Nginx reloaded successfully"
+    if docker exec vless_nginx_reverseproxy nginx -s reload 2>&1; then
+        log "✅ Nginx reloaded successfully (zero downtime)"
         return 0
     else
         log_error "❌ Failed to reload Nginx"

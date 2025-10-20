@@ -1,0 +1,205 @@
+#!/bin/bash
+# ==============================================================================
+# VLESS v5.2 - Install IP Monitoring Cron Job
+# ==============================================================================
+#
+# Purpose:
+#   Install cron job for automatic reverse proxy IP monitoring
+#   Runs every 30 minutes to check for IP changes
+#
+# Usage:
+#   sudo /opt/vless/scripts/vless-install-ip-monitoring
+#
+# Version: 5.2.0
+# Date: 2025-10-20
+# ==============================================================================
+
+set -euo pipefail
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Icons
+ICON_SUCCESS="✅"
+ICON_INFO="ℹ️"
+ICON_WARNING="⚠️"
+ICON_ERROR="❌"
+
+# Configuration
+INSTALL_PATH="/opt/vless"
+MONITOR_SCRIPT="${INSTALL_PATH}/scripts/vless-monitor-reverse-proxy-ips"
+CRON_FILE="/etc/cron.d/vless-ip-monitoring"
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
+print_success() {
+    echo -e "${GREEN}${ICON_SUCCESS} $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}${ICON_ERROR} $1${NC}" >&2
+}
+
+print_warning() {
+    echo -e "${YELLOW}${ICON_WARNING} $1${NC}"
+}
+
+print_info() {
+    echo -e "${CYAN}${ICON_INFO} $1${NC}"
+}
+
+print_header() {
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  $1${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+}
+
+# ==============================================================================
+# Main Installation
+# ==============================================================================
+
+install_monitoring() {
+    print_header "VLESS v5.2 - IP Monitoring Installation"
+
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        print_error "Please run as root (use sudo)"
+        exit 1
+    fi
+
+    # Check if monitoring script exists
+    if [ ! -f "$MONITOR_SCRIPT" ]; then
+        print_error "Monitoring script not found: $MONITOR_SCRIPT"
+        print_error "Please install VLESS first"
+        exit 1
+    fi
+
+    # Make monitoring script executable
+    chmod +x "$MONITOR_SCRIPT"
+    print_success "Monitoring script is executable"
+
+    # Check if cron job already exists
+    if [ -f "$CRON_FILE" ]; then
+        print_warning "Cron job already exists: $CRON_FILE"
+        echo ""
+        read -p "Do you want to reinstall? (y/N): " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Installation cancelled"
+            exit 0
+        fi
+        rm -f "$CRON_FILE"
+    fi
+
+    # Create cron job
+    print_info "Creating cron job: $CRON_FILE"
+
+    cat > "$CRON_FILE" <<EOF
+# VLESS v5.2 - Reverse Proxy IP Monitoring
+# Checks for IP changes every 30 minutes and auto-updates configs
+# Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Run every 30 minutes
+*/30 * * * * root ${MONITOR_SCRIPT} >/dev/null 2>&1
+
+# Run on system reboot (after 5 minutes)
+@reboot root sleep 300 && ${MONITOR_SCRIPT} >/dev/null 2>&1
+EOF
+
+    chmod 644 "$CRON_FILE"
+    print_success "Cron job created successfully"
+
+    # Restart cron service
+    print_info "Restarting cron service..."
+    if systemctl restart cron 2>/dev/null || systemctl restart cronie 2>/dev/null; then
+        print_success "Cron service restarted"
+    else
+        print_warning "Could not restart cron service automatically"
+        print_info "Please restart cron manually: sudo systemctl restart cron"
+    fi
+
+    # Test monitoring script
+    print_info "Testing monitoring script..."
+    if "$MONITOR_SCRIPT"; then
+        print_success "Monitoring script test passed"
+    else
+        print_error "Monitoring script test failed"
+        print_error "Please check logs: ${INSTALL_PATH}/logs/reverse-proxy-ip-monitor.log"
+        exit 1
+    fi
+
+    # Show summary
+    echo ""
+    print_header "Installation Complete"
+    echo ""
+    echo -e "${GREEN}${ICON_SUCCESS} IP monitoring installed successfully!${NC}"
+    echo ""
+    echo "Schedule:"
+    echo "  - Every 30 minutes"
+    echo "  - On system reboot (after 5 minutes)"
+    echo ""
+    echo "Monitoring script: $MONITOR_SCRIPT"
+    echo "Cron file: $CRON_FILE"
+    echo "Log file: ${INSTALL_PATH}/logs/reverse-proxy-ip-monitor.log"
+    echo ""
+    echo "Manual commands:"
+    echo "  - Run now:        sudo $MONITOR_SCRIPT"
+    echo "  - View logs:      sudo tail -f ${INSTALL_PATH}/logs/reverse-proxy-ip-monitor.log"
+    echo "  - List cron jobs: sudo crontab -l"
+    echo "  - Uninstall:      sudo rm $CRON_FILE && sudo systemctl restart cron"
+    echo ""
+}
+
+# ==============================================================================
+# Uninstall Function
+# ==============================================================================
+
+uninstall_monitoring() {
+    print_header "VLESS v5.2 - IP Monitoring Uninstallation"
+
+    if [ ! -f "$CRON_FILE" ]; then
+        print_error "Cron job not found: $CRON_FILE"
+        print_info "IP monitoring is not installed"
+        exit 1
+    fi
+
+    rm -f "$CRON_FILE"
+    print_success "Cron job removed: $CRON_FILE"
+
+    # Restart cron service
+    if systemctl restart cron 2>/dev/null || systemctl restart cronie 2>/dev/null; then
+        print_success "Cron service restarted"
+    fi
+
+    print_success "IP monitoring uninstalled successfully"
+}
+
+# ==============================================================================
+# Entry Point
+# ==============================================================================
+
+case "${1:-install}" in
+    install)
+        install_monitoring
+        ;;
+    uninstall)
+        uninstall_monitoring
+        ;;
+    *)
+        echo "Usage: $0 {install|uninstall}"
+        exit 1
+        ;;
+esac
+
+exit 0

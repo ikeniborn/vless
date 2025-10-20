@@ -7,6 +7,208 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.2] - 2025-10-20
+
+### Fixed - IPv6 Connectivity & Added IP Monitoring
+
+**Migration Type:** Non-breaking (automatic configuration regeneration + optional monitoring)
+
+**Primary Fix:** IPv6-related "Network unreachable" errors in reverse proxy configurations
+
+#### Issue
+
+- **PROBLEM**: Nginx reverse proxy attempting IPv6 connections to target sites (e.g., claude.ai)
+- **SYMPTOM**: Authentication failures, "connect() to [2607:6bc0::10]:443 failed (101: Network unreachable)"
+- **ROOT CAUSE**: DNS resolver returns both IPv4 and IPv6 addresses, nginx tries IPv6 first
+- **IMPACT**: Reverse proxy authentication fails, upstream temporarily disabled
+
+#### Fixed Components
+
+**1. Nginx Configuration Generator (lib/nginx_config_generator.sh)**
+
+- **ADDED**: `resolve_target_ipv4()` function - resolves target site to IPv4 at config generation time
+  - Tries `dig` (preferred), `getent`, then `host` command
+  - Returns only IPv4 address (filters out IPv6)
+  - Validates IP format with regex
+
+- **CHANGED**: `generate_reverseproxy_nginx_config()` function
+  - Now resolves target site to IPv4 **before** generating config
+  - `proxy_pass https://$upstream_target` → `proxy_pass https://${target_ipv4}` (hardcoded IPv4)
+  - Preserves correct `Host` header and SNI for target site
+  - Updated resolver: `resolver 8.8.8.8 valid=300s; resolver_timeout 5s;`
+  - Version updated: v4.3 → v5.2
+
+- **FIXED**: Container names in `validate_nginx_config()` and `reload_nginx()`
+  - `vless_nginx` → `vless_nginx_reverseproxy` (correct v4.3 container name)
+
+**2. Reverse Proxy Database (lib/reverseproxy_db.sh)**
+
+- **ADDED**: Database schema fields (v5.2)
+  - `target_ipv4`: Current IPv4 address of target site
+  - `target_ipv4_last_checked`: Timestamp of last IP resolution
+
+- **CHANGED**: `add_proxy()` function
+  - Now accepts optional `target_ipv4` parameter (9th argument)
+  - Auto-resolves IPv4 if not provided
+  - Stores IPv4 in database for monitoring
+
+- **ADDED**: `update_target_ipv4()` function
+  - Updates target_ipv4 and target_ipv4_last_checked fields
+  - Used by IP monitoring script
+
+**3. IP Monitoring System (NEW)**
+
+**scripts/vless-monitor-reverse-proxy-ips** (NEW)
+- Automated IP change detection and config regeneration
+- Checks all reverse proxies from database
+- Resolves current IPv4 for each target site
+- Compares with nginx config `proxy_pass` IP
+- Auto-regenerates config if IP changed
+- Graceful nginx reload (zero downtime)
+- Comprehensive logging to `/opt/vless/logs/reverse-proxy-ip-monitor.log`
+
+**scripts/vless-install-ip-monitoring** (NEW)
+- Installs cron job for automatic monitoring
+- Schedule: Every 30 minutes + on system reboot (after 5 minutes)
+- Creates `/etc/cron.d/vless-ip-monitoring`
+- Includes test run during installation
+- Uninstall command available
+
+#### New Features
+
+**Automatic IP Monitoring (v5.2)**
+- Prevents service disruption from target site IP changes
+- Runs every 30 minutes via cron
+- Logs all IP changes for audit trail
+- Updates database with current IPs
+- Zero configuration after installation
+
+#### Installation & Usage
+
+**For New Installations:**
+```bash
+# IP monitoring installed automatically (future feature)
+# For now, install manually after deployment:
+sudo /opt/vless/scripts/vless-install-ip-monitoring install
+```
+
+**For Existing Installations:**
+```bash
+# 1. Update scripts (copy from development repo)
+sudo cp /home/user/vless/lib/nginx_config_generator.sh /opt/vless/lib/
+sudo cp /home/user/vless/lib/reverseproxy_db.sh /opt/vless/lib/
+sudo cp /home/user/vless/scripts/vless-monitor-reverse-proxy-ips /opt/vless/scripts/
+sudo cp /home/user/vless/scripts/vless-install-ip-monitoring /opt/vless/scripts/
+sudo chmod +x /opt/vless/scripts/vless-*.sh
+
+# 2. Update database with IPv4 field (one-time)
+sudo jq --arg ip "$(dig +short target-site.com A @8.8.8.8 | head -1)" \
+  --arg time "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  '.proxies[] |= . + {target_ipv4: $ip, target_ipv4_last_checked: $time}' \
+  /opt/vless/config/reverse_proxies.json > /tmp/rp_updated.json
+sudo mv /tmp/rp_updated.json /opt/vless/config/reverse_proxies.json
+sudo chmod 600 /opt/vless/config/reverse_proxies.json
+
+# 3. Regenerate nginx configs for all reverse proxies
+# (will automatically use IPv4-only proxy_pass)
+# Example:
+sudo vless-proxy remove your-domain.com
+sudo vless-proxy add  # Re-add with wizard
+
+# 4. Install IP monitoring
+sudo /opt/vless/scripts/vless-install-ip-monitoring install
+```
+
+**Manual Monitoring Commands:**
+```bash
+# Run monitoring now
+sudo /opt/vless/scripts/vless-monitor-reverse-proxy-ips
+
+# View monitoring logs
+sudo tail -f /opt/vless/logs/reverse-proxy-ip-monitor.log
+
+# Check cron job status
+cat /etc/cron.d/vless-ip-monitoring
+
+# Uninstall monitoring
+sudo /opt/vless/scripts/vless-install-ip-monitoring uninstall
+```
+
+#### Technical Details
+
+**IPv4 Resolution Method:**
+1. Config generation time: Resolve target site to IPv4
+2. Hardcode IPv4 in `proxy_pass` directive
+3. Preserve original hostname in `Host` header and SNI
+4. Monitor IP changes via cron (every 30 min)
+
+**Before (v4.3):**
+```nginx
+location / {
+    set $upstream_target target-site.com;
+    proxy_pass https://$upstream_target;  # DNS resolver returns IPv6 first!
+    resolver 8.8.8.8 ipv6=off;  # Does NOT prevent IPv6 usage
+}
+```
+
+**After (v5.2):**
+```nginx
+location / {
+    proxy_pass https://1.2.3.4;  # IPv4 hardcoded (resolved at generation time)
+    resolver 8.8.8.8 valid=300s;
+    resolver_timeout 5s;
+    proxy_ssl_server_name on;
+    proxy_ssl_name target-site.com;  # Correct SNI for target
+    proxy_set_header Host target-site.com;  # Correct Host header
+}
+```
+
+#### Affected Files
+
+**Updated:**
+- `lib/nginx_config_generator.sh` - IPv4 resolution + config generation
+- `lib/reverseproxy_db.sh` - Database schema + IP tracking functions
+
+**New:**
+- `scripts/vless-monitor-reverse-proxy-ips` - IP monitoring daemon
+- `scripts/vless-install-ip-monitoring` - Cron job installer
+
+**Database:**
+- `/opt/vless/config/reverse_proxies.json` - Added `target_ipv4`, `target_ipv4_last_checked` fields
+
+**Logs:**
+- `/opt/vless/logs/reverse-proxy-ip-monitor.log` - Monitoring activity log
+
+**Cron:**
+- `/etc/cron.d/vless-ip-monitoring` - Automated monitoring schedule
+
+#### Migration Path
+
+**Automatic (future):**
+- New installations will include IP monitoring by default
+
+**Manual (current):**
+1. Copy updated scripts to `/opt/vless/`
+2. Update database schema (add `target_ipv4` fields)
+3. Regenerate nginx configs (automatic IPv4-only)
+4. Install IP monitoring cron job
+5. Test monitoring: `sudo /opt/vless/scripts/vless-monitor-reverse-proxy-ips`
+
+#### Benefits
+
+- ✅ **No more IPv6 unreachable errors** - only IPv4 used
+- ✅ **Automatic IP change detection** - prevents outages from IP changes
+- ✅ **Zero downtime updates** - graceful nginx reload
+- ✅ **Comprehensive logging** - audit trail for all IP changes
+- ✅ **Self-healing** - auto-regenerates configs when IPs change
+
+#### Related Issues
+
+- Fixes: Reverse proxy authentication failures on systems without IPv6 routing
+- Prevents: Service disruption from target site IP changes (e.g., CDN rotation)
+
+---
+
 ## [5.1] - 2025-10-20
 
 ### Fixed - HAProxy v4.3 Port Configuration

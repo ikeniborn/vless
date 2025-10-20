@@ -18,6 +18,8 @@
 #         "id": 1,
 #         "domain": "example.com",
 #         "target_site": "https://target.com",
+#         "target_ipv4": "1.2.3.4",
+#         "target_ipv4_last_checked": "2025-10-20T00:00:00Z",
 #         "port": 9443,
 #         "username": "user",
 #         "password": "secretpassword",
@@ -222,8 +224,10 @@ get_next_port() {
 #   $6 - xray_inbound_port
 #   $7 - xray_inbound_tag
 #   $8 - certificate_expires (ISO 8601)
-#   $9 - notes (optional)
+#   $9 - target_ipv4 (optional, resolved if empty)
+#   $10 - notes (optional)
 # Returns: 0 on success, 1 on failure
+# v5.2: Added target_ipv4 and target_ipv4_last_checked fields
 # ==============================================================================
 add_proxy() {
     local domain="$1"
@@ -234,7 +238,8 @@ add_proxy() {
     local xray_port="$6"
     local xray_tag="$7"
     local cert_expires="$8"
-    local notes="${9:-}"
+    local target_ipv4="${9:-}"
+    local notes="${10:-}"
 
     init_database
 
@@ -242,6 +247,11 @@ add_proxy() {
     if proxy_exists "$domain"; then
         echo "Error: Proxy for domain '$domain' already exists" >&2
         return 1
+    fi
+
+    # Resolve target_ipv4 if not provided (requires nginx_config_generator.sh sourced)
+    if [[ -z "$target_ipv4" ]] && type resolve_target_ipv4 &>/dev/null; then
+        target_ipv4=$(resolve_target_ipv4 "$target_site" 2>/dev/null) || target_ipv4=""
     fi
 
     db_lock
@@ -255,6 +265,7 @@ add_proxy() {
         --argjson id "$next_id" \
         --arg domain "$domain" \
         --arg target "$target_site" \
+        --arg target_ip "$target_ipv4" \
         --argjson port "$port" \
         --arg user "$username" \
         --arg pass "$password" \
@@ -267,6 +278,8 @@ add_proxy() {
             id: $id,
             domain: $domain,
             target_site: $target,
+            target_ipv4: $target_ip,
+            target_ipv4_last_checked: $created,
             port: $port,
             username: $user,
             password: $pass,
@@ -422,6 +435,49 @@ update_certificate_info() {
 }
 
 # ==============================================================================
+# Function: update_target_ipv4
+# ==============================================================================
+# Description: Update target site IPv4 address and last checked timestamp
+# Arguments:
+#   $1 - domain
+#   $2 - target_ipv4 (new IPv4 address)
+# Returns: 0 on success, 1 on failure
+# v5.2: New function for IP monitoring
+# ==============================================================================
+update_target_ipv4() {
+    local domain="$1"
+    local target_ipv4="$2"
+
+    if [[ ! -f "$DB_FILE" ]]; then
+        return 1
+    fi
+
+    if ! proxy_exists "$domain"; then
+        return 1
+    fi
+
+    db_lock
+
+    local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    jq --arg domain "$domain" \
+       --arg ipv4 "$target_ipv4" \
+       --arg time "$now" \
+       '(.proxies[] | select(.domain == $domain)) |=
+        (.target_ipv4 = $ipv4 |
+         .target_ipv4_last_checked = $time) |
+        .updated_at = $time' \
+       "$DB_FILE" > "${DB_FILE}.tmp"
+
+    mv "${DB_FILE}.tmp" "$DB_FILE"
+    chmod 600 "$DB_FILE"
+
+    db_unlock
+
+    return 0
+}
+
+# ==============================================================================
 # Export Functions
 # ==============================================================================
 
@@ -437,4 +493,5 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_proxy
     export -f update_proxy
     export -f update_certificate_info
+    export -f update_target_ipv4
 fi

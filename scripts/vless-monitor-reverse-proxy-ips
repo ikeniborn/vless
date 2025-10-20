@@ -1,0 +1,219 @@
+#!/bin/bash
+# ==============================================================================
+# VLESS v5.2 - Reverse Proxy IP Monitoring & Auto-Update Script
+# ==============================================================================
+#
+# Purpose:
+#   Monitor target site IP addresses for reverse proxies
+#   Auto-regenerate nginx configs when IP changes detected
+#   Prevents "Network unreachable" errors from IPv6 or IP changes
+#
+# Features:
+#   - Checks all reverse proxies from database
+#   - Resolves target sites to current IPv4
+#   - Compares with nginx config proxy_pass IP
+#   - Auto-regenerates config if IP changed
+#   - Graceful nginx reload (zero downtime)
+#   - Logs all changes for audit
+#
+# Usage:
+#   Manual: sudo /opt/vless/scripts/vless-monitor-reverse-proxy-ips
+#   Cron:   */30 * * * * /opt/vless/scripts/vless-monitor-reverse-proxy-ips >/dev/null 2>&1
+#
+# Version: 5.2.0
+# Author: VLESS Development Team
+# Date: 2025-10-20
+# ==============================================================================
+
+set -euo pipefail
+
+# ==============================================================================
+# Configuration
+# ==============================================================================
+
+INSTALL_PATH="/opt/vless"
+LIB_PATH="${INSTALL_PATH}/lib"
+LOG_FILE="${INSTALL_PATH}/logs/reverse-proxy-ip-monitor.log"
+NGINX_CONF_DIR="${INSTALL_PATH}/config/reverse-proxy"
+
+# Source libraries
+source "${LIB_PATH}/reverseproxy_db.sh"
+source "${LIB_PATH}/nginx_config_generator.sh"
+
+# ==============================================================================
+# Logging
+# ==============================================================================
+
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ip-monitor] $*" | tee -a "$LOG_FILE"
+}
+
+log_error() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ip-monitor] ERROR: $*" | tee -a "$LOG_FILE" >&2
+}
+
+log_warning() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ip-monitor] WARNING: $*" | tee -a "$LOG_FILE"
+}
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
+# Extract proxy_pass IP from nginx config
+extract_proxy_pass_ip() {
+    local domain="$1"
+    local nginx_conf="${NGINX_CONF_DIR}/${domain}.conf"
+
+    if [[ ! -f "$nginx_conf" ]]; then
+        return 1
+    fi
+
+    # Extract IP from: proxy_pass https://1.2.3.4;
+    grep -oP 'proxy_pass\s+https://\K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' "$nginx_conf" | head -1 || true
+}
+
+# ==============================================================================
+# Main Function
+# ==============================================================================
+
+monitor_and_update() {
+    log "========================================"
+    log "Starting reverse proxy IP monitoring"
+    log "========================================"
+
+    # Get all proxies from database
+    local proxies_json
+    if ! proxies_json=$(list_proxies); then
+        log_error "Failed to get proxies from database"
+        return 1
+    fi
+
+    local proxy_count=$(echo "$proxies_json" | jq '. | length')
+    log "Found $proxy_count reverse proxy(ies) to monitor"
+
+    if [ "$proxy_count" -eq 0 ]; then
+        log "No reverse proxies configured, exiting"
+        return 0
+    fi
+
+    local changes_made=0
+    local errors=0
+
+    # Iterate over each proxy
+    echo "$proxies_json" | jq -c '.[]' | while read -r proxy; do
+        local domain=$(echo "$proxy" | jq -r '.domain')
+        local target_site=$(echo "$proxy" | jq -r '.target_site')
+        local port=$(echo "$proxy" | jq -r '.port')
+        local username=$(echo "$proxy" | jq -r '.username')
+        local password=$(echo "$proxy" | jq -r '.password')
+        local xray_port=$(echo "$proxy" | jq -r '.xray_inbound_port')
+        local enabled=$(echo "$proxy" | jq -r '.enabled')
+
+        log "---"
+        log "Checking: $domain → $target_site"
+
+        # Skip if disabled
+        if [ "$enabled" != "true" ]; then
+            log "Skipped (disabled)"
+            continue
+        fi
+
+        # Resolve current IPv4
+        local current_ipv4
+        if ! current_ipv4=$(resolve_target_ipv4 "$target_site"); then
+            log_error "Failed to resolve IPv4 for: $target_site"
+            ((errors++)) || true
+            continue
+        fi
+        log "Current IPv4: $current_ipv4"
+
+        # Get configured IP from nginx config
+        local configured_ip
+        if ! configured_ip=$(extract_proxy_pass_ip "$domain"); then
+            log_warning "Failed to extract IP from nginx config: $domain"
+            log "Regenerating config..."
+
+            # Generate bcrypt hash for password (Apache format)
+            local password_hash=$(htpasswd -nbB "$username" "$password" | cut -d: -f2)
+
+            if generate_reverseproxy_nginx_config "$domain" "$target_site" "$port" "$xray_port" "$username" "$password_hash"; then
+                log "✅ Config regenerated successfully"
+                ((changes_made++)) || true
+            else
+                log_error "Failed to regenerate config"
+                ((errors++)) || true
+            fi
+            continue
+        fi
+        log "Configured IPv4: $configured_ip"
+
+        # Compare IPs
+        if [ "$current_ipv4" == "$configured_ip" ]; then
+            log "✅ IP unchanged, no action needed"
+            continue
+        fi
+
+        # IP changed - regenerate config
+        log "⚠️  IP CHANGED: $configured_ip → $current_ipv4"
+        log "Regenerating nginx configuration..."
+
+        # Generate bcrypt hash for password
+        local password_hash=$(htpasswd -nbB "$username" "$password" | cut -d: -f2)
+
+        if generate_reverseproxy_nginx_config "$domain" "$target_site" "$port" "$xray_port" "$username" "$password_hash"; then
+            log "✅ Config regenerated: $domain"
+            ((changes_made++)) || true
+
+            # Update database with new IP
+            if update_target_ipv4 "$domain" "$current_ipv4"; then
+                log "✅ Database updated with new IP: $current_ipv4"
+            else
+                log_warning "Failed to update database (non-critical)"
+            fi
+        else
+            log_error "Failed to regenerate config for: $domain"
+            ((errors++)) || true
+        fi
+    done
+
+    # If any changes were made, reload nginx
+    if [ "$changes_made" -gt 0 ]; then
+        log "---"
+        log "$changes_made config(s) updated, reloading nginx..."
+
+        if validate_nginx_config; then
+            if reload_nginx; then
+                log "✅ Nginx reloaded successfully (zero downtime)"
+            else
+                log_error "Failed to reload nginx"
+                ((errors++)) || true
+            fi
+        else
+            log_error "Nginx configuration validation failed"
+            log_error "Skipping reload to prevent service disruption"
+            ((errors++)) || true
+        fi
+    else
+        log "No IP changes detected"
+    fi
+
+    log "========================================"
+    log "Monitoring complete"
+    log "Changes: $changes_made | Errors: $errors"
+    log "========================================"
+
+    return 0
+}
+
+# ==============================================================================
+# Entry Point
+# ==============================================================================
+
+# Ensure log directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Run monitoring
+monitor_and_update
+
+exit $?
