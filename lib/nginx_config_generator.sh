@@ -111,7 +111,7 @@ generate_reverseproxy_nginx_config() {
         log_error "Failed to create htpasswd file: $htpasswd_file"
         return 1
     }
-    chmod 600 "$htpasswd_file"
+    chmod 644 "$htpasswd_file"  # Make readable by nginx user
 
     # Generate Nginx configuration using heredoc
     local nginx_conf="${NGINX_CONF_DIR}/${domain}.conf"
@@ -125,15 +125,12 @@ generate_reverseproxy_nginx_config() {
 # Port: ${port} (localhost-only, HAProxy SNI routing)
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 # Version: v4.3 (HAProxy Unified Architecture)
-
-upstream xray_reverseproxy_${domain//[.-]/_} {
-    server vless_xray:${xray_port};
-    keepalive 32;
-}
+# NOTE: Direct HTTPS proxy to target site (no Xray inbound needed)
 
 # Primary server block (with Host header validation)
 server {
-    listen 0.0.0.0:${port} ssl http2;  # v4.3: Bridge network (HAProxy routes by SNI)
+    listen 0.0.0.0:${port} ssl;  # v4.3: Bridge network (HAProxy routes by SNI)
+    http2 on;  # Modern HTTP/2 syntax (Nginx 1.25+)
     server_name ${domain};  # EXACT match required
 
     # TLS Configuration (TLS 1.3 only)
@@ -141,11 +138,11 @@ server {
     ssl_certificate_key ${cert_path}/privkey.pem;
     ssl_protocols TLSv1.3;
     ssl_prefer_server_ciphers off;
-    ssl_ciphers TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256;
+    # TLS 1.3 cipher suites configured automatically (no ssl_ciphers directive needed)
 
     # HTTP Basic Auth
     auth_basic "Restricted Access";
-    auth_basic_user_file ${htpasswd_file};
+    auth_basic_user_file /etc/nginx/conf.d/reverse-proxy/.htpasswd-${domain};  # Path inside container
 
     # VULN-001 FIX: Host Header Validation (CRITICAL)
     # Defense-in-depth: Explicit Host validation
@@ -163,18 +160,22 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
 
-    # VULN-003/004 FIX: Rate Limiting
-    limit_req zone=reverseproxy_${domain//[.-]/_} burst=20 nodelay;
-    limit_conn conn_limit_per_ip 5;
+    # VULN-003/004 FIX: Rate Limiting (increased for modern web apps)
+    limit_req zone=reverseproxy_${domain//[.-]/_} burst=100 nodelay;
+    limit_conn conn_limit_per_ip 50;  # Allow more parallel connections for webpack chunks
 
     # Logging (error log only, no access log)
     access_log off;  # Privacy: no access logging
     error_log /var/log/nginx/reverse-proxy-${domain}-error.log warn;
 
-    # Proxy to Xray
+    # Proxy directly to target site (v4.3: Direct HTTPS proxy, not through Xray)
     location / {
-        proxy_pass http://xray_reverseproxy_${domain//[.-]/_};
+        proxy_pass https://${target_site};
         proxy_http_version 1.1;
+
+        # SSL settings for upstream (target site)
+        proxy_ssl_server_name on;
+        proxy_ssl_name ${target_site};
 
         # VULN-001 FIX: Hardcoded Host header (NOT \$host or \$http_host)
         proxy_set_header Host ${target_site};  # Target site (hardcoded)
@@ -192,11 +193,11 @@ server {
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
 
-        # Buffering
+        # Buffering (increased for Cloudflare headers)
         proxy_buffering on;
-        proxy_buffer_size 4k;
-        proxy_buffers 8 4k;
-        proxy_busy_buffers_size 8k;
+        proxy_buffer_size 16k;
+        proxy_buffers 8 16k;
+        proxy_busy_buffers_size 32k;
     }
 
     # Error pages (optional)
@@ -217,11 +218,13 @@ server {
 
 # VULN-001 FIX: Default server block (catch invalid Host headers)
 server {
-    listen 0.0.0.0:${port} ssl http2 default_server;  # v4.3: Bridge network
+    listen 0.0.0.0:${port} ssl default_server;  # v4.3: Bridge network
+    http2 on;  # Modern HTTP/2 syntax (Nginx 1.25+)
     server_name _;
 
     ssl_certificate ${cert_path}/fullchain.pem;
     ssl_certificate_key ${cert_path}/privkey.pem;
+    ssl_protocols TLSv1.3;
 
     # Reject all requests with invalid Host header
     return 444;  # No response
@@ -270,7 +273,7 @@ limit_conn_zone $binary_remote_addr zone=conn_limit_per_ip:10m;
 
 # VULN-004 FIX: Request rate limit zones (per domain)
 # Each reverse proxy domain gets its own rate limit zone
-# Rate: 10 requests per second per IP
+# Rate: 100 requests per second per IP (increased for modern web apps)
 # Note: Actual limit_req_zone directives are generated per domain
 
 # VULN-005 FIX: Maximum request body size
