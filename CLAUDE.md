@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.20 (Automatic Library Installation Fix)
+**Version:** 5.21 (Port Cleanup & HAProxy UX Fix)
 **Last Updated:** 2025-10-21
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -772,6 +772,17 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.21 - 2025-10-21: Port Cleanup & HAProxy UX (CRITICAL BUGFIX + UX Enhancement)
+  - Fixed: Ports NOT freed after reverse proxy removal (re-add fails with "port occupied")
+  - Problem 1: get_current_nginx_ports() used grep -A 20, but ports at line 21+ (NOT captured)
+  - Problem 2: Constant "⚠️ HAProxy reload timed out" warnings (normal, but confusing)
+  - Solution 1: lib/docker_compose_generator.sh:334 - grep -A 20 → grep -A 30
+  - Solution 2: lib/haproxy_config_manager.sh:427 - Added --silent mode for reload_haproxy()
+  - Solution 3: scripts/vless-proxy:364-373 - Port removal verification step
+  - Impact: Ports freed correctly, no timeout warnings in wizards, better UX (ℹ️ vs ❌)
+  - Files: docker_compose_generator.sh, haproxy_config_manager.sh, certificate_manager.sh, vless-proxy
+  - Testing: vless-proxy remove → docker ps | grep 9443 (should be empty)
+
 v5.20 - 2025-10-21: Incomplete Library Installation (CRITICAL BUGFIX)
   - Fixed: Only 14 of 28 library modules copied during installation
   - Problem: Hardcoded module list in orchestrator.sh (missed 14 modules)

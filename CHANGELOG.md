@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.21] - 2025-10-21
+
+### Fixed - Port Cleanup & HAProxy UX (CRITICAL BUGFIX + UX Enhancement)
+
+**Migration Type:** Automatic (applies to all proxy removal operations)
+
+**Problem 1: Ports not freed after reverse proxy removal**
+- After `vless-proxy remove <domain>`, port remains bound in docker-compose.yml
+- Re-adding proxy to same domain fails with "port already occupied" error
+- Root Cause: `get_current_nginx_ports()` used `grep -A 20`, but ports section is at line 21+
+
+**Problem 2: Constant HAProxy reload warnings**
+- Every proxy add/remove shows: `"⚠️ HAProxy reload timed out (graceful shutdown in progress)"`
+- This is NORMAL behavior with active connections, but looks like an error
+- Users confused: is this a problem or not?
+
+**Solutions:**
+
+**1. lib/docker_compose_generator.sh:334** - Fix port detection:
+```bash
+# Before (v5.20 and earlier):
+grep -A 20 "^  nginx:" "${DOCKER_COMPOSE_FILE}" \
+
+# After (v5.21):
+grep -A 30 "^  nginx:" "${DOCKER_COMPOSE_FILE}" \
+# Now captures ports section even with many volumes
+```
+
+**2. lib/haproxy_config_manager.sh:427** - Silent mode for wizards:
+```bash
+# New --silent parameter suppresses info/warning messages
+reload_haproxy --silent  # Only errors shown
+```
+
+**Changes:**
+- `lib/haproxy_config_manager.sh:306,362` - Use `reload_haproxy --silent` in add/remove routes
+- `lib/haproxy_config_manager.sh:463` - Changed timeout warning to info style (⚠️ → ℹ️)
+- `lib/certificate_manager.sh:420` - Changed timeout warning to info style in cert renewal
+
+**3. scripts/vless-proxy:364-373** - Verification after port removal:
+```bash
+# v5.21: Verify port actually removed from container
+sleep 2
+if docker ps | grep "127.0.0.1:${port}"; then
+    print_warning "Port still present, try manual restart"
+else
+    print_success "Port successfully freed"
+fi
+```
+
+**Impact:**
+- ✅ Ports now correctly freed after removal (can re-add immediately)
+- ✅ No more confusing timeout warnings in wizards
+- ✅ Verification step catches rare docker-compose reload failures
+- ✅ Better UX: clear distinction between info (ℹ️) and errors (❌)
+
+**Testing:**
+```bash
+# Test 1: Port cleanup
+sudo vless-proxy add     # Add kinozal-dev.ikeniborn.ru on port 9443
+sudo vless-proxy remove kinozal-dev.ikeniborn.ru
+docker ps | grep 9443    # Should be empty
+sudo vless-proxy add     # Re-add same domain - should work!
+
+# Test 2: Silent reload
+# Should see NO timeout warnings during add/remove
+```
+
+**Files Changed:**
+- `lib/docker_compose_generator.sh` - grep -A 20 → 30
+- `lib/haproxy_config_manager.sh` - Silent mode implementation
+- `lib/certificate_manager.sh` - Info style for timeout
+- `scripts/vless-proxy` - Verification step
+
+---
+
 ## [5.20] - 2025-10-21
 
 ### Fixed - Incomplete Library Installation (CRITICAL BUGFIX)

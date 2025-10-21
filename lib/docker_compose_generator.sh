@@ -330,7 +330,8 @@ get_current_nginx_ports() {
 
     # Extract ports from nginx service using grep/sed
     # v4.3 Format: - "127.0.0.1:9443:9443" → 9443
-    grep -A 20 "^  nginx:" "${DOCKER_COMPOSE_FILE}" \
+    # v5.21: Increased -A 20 → -A 30 to ensure ports section is captured
+    grep -A 30 "^  nginx:" "${DOCKER_COMPOSE_FILE}" \
         | grep -E '^\s+- "(127\.0\.0\.1:)?[0-9]+:[0-9]+"' \
         | sed -E 's/.*"(127\.0\.0\.1:)?([0-9]+):[0-9]+".*/\2/' \
         | grep -E '^94[4-5][0-9]$' \

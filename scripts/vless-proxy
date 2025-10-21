@@ -361,6 +361,17 @@ cmd_remove() {
     reload_nginx_container  # Docker compose restart with removed port
     reload_xray
 
+    # 6.5. Verify port removed (v5.21)
+    print_info "Проверка удаления порта..."
+    sleep 2  # Wait for container restart
+
+    if docker ps --format "{{.Ports}}" --filter "name=vless_nginx_reverseproxy" | grep -q "127.0.0.1:${port}"; then
+        print_warning "Порт $port все еще присутствует в контейнере"
+        print_info "Попробуйте вручную перезапустить: docker compose -f /opt/vless/docker-compose.yml up -d nginx"
+    else
+        print_success "Порт $port успешно освобожден"
+    fi
+
     print_header "${ICON_SUCCESS} Reverse Proxy Удалён"
 
     echo ""

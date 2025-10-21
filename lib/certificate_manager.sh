@@ -415,8 +415,9 @@ reload_haproxy_after_cert_update() {
 
     # Exit code 124 means timeout occurred (reload is still in progress, but that's OK)
     # The new HAProxy process started successfully and will finish gracefully in background
+    # v5.21: Changed warning to info style (less alarming for users)
     if [ $exit_code -eq 124 ]; then
-        echo -e "${YELLOW}⚠️  HAProxy reload timed out (graceful shutdown in progress)${NC}"
+        echo -e "${CYAN}ℹ️  HAProxy reload: graceful shutdown in progress${NC}"
         echo "This is normal when active VPN connections are present."
         exit_code=0  # Consider it success
     fi

@@ -302,8 +302,8 @@ EOF
         return 1
     fi
 
-    # Graceful reload
-    if ! reload_haproxy; then
+    # Graceful reload (v5.21: silent mode to suppress timeout warnings)
+    if ! reload_haproxy --silent; then
         log_error "Failed to reload HAProxy"
         mv "${HAPROXY_CONFIG}.bak" "${HAPROXY_CONFIG}"
         return 1
@@ -358,7 +358,8 @@ remove_reverse_proxy_route() {
         return 1
     fi
 
-    if ! reload_haproxy; then
+    # v5.21: Silent mode to suppress timeout warnings during removal
+    if ! reload_haproxy --silent; then
         log_error "Failed to reload HAProxy"
         mv "${HAPROXY_CONFIG}.bak" "${HAPROXY_CONFIG}"
         return 1
@@ -418,16 +419,28 @@ validate_haproxy_config() {
 # Function: reload_haproxy
 # Description: Gracefully reloads HAProxy without downtime
 #
+# Parameters:
+#   --silent : Suppress info/warning messages (only show errors)
+#
 # Returns:
 #   0 on success, 1 on failure
 # =============================================================================
 reload_haproxy() {
+    local silent_mode=false
+
+    # Parse parameters
+    if [[ "${1:-}" == "--silent" ]]; then
+        silent_mode=true
+    fi
+
     if ! docker ps | grep -q "${HAPROXY_CONTAINER}"; then
         log_error "HAProxy container not running"
         return 1
     fi
 
-    log "Reloading HAProxy (graceful, no downtime)..."
+    if [[ "$silent_mode" == "false" ]]; then
+        log "Reloading HAProxy (graceful, no downtime)..."
+    fi
 
     # Get current PID
     local old_pid=$(docker exec "${HAPROXY_CONTAINER}" pidof haproxy 2>/dev/null)
@@ -447,8 +460,9 @@ reload_haproxy() {
     # Exit code 124 means timeout occurred (reload is still in progress, but that's OK)
     # The new HAProxy process started successfully and will finish gracefully in background
     if [ $exit_code -eq 124 ]; then
-        log "⚠️  HAProxy reload timed out (graceful shutdown in progress)"
-        log "This is normal when active VPN connections are present."
+        if [[ "$silent_mode" == "false" ]]; then
+            log "ℹ️  HAProxy reload: graceful shutdown in progress (normal with active connections)"
+        fi
         exit_code=0  # Consider it success
     fi
 
@@ -472,12 +486,15 @@ reload_haproxy() {
     fi
 
     # Log warnings if present (but don't fail)
-    if echo "$reload_output" | grep -qi "\[WARNING\]"; then
-        log "⚠️  HAProxy reload completed with warnings (non-critical):"
-        echo "$reload_output" | grep -i "\[WARNING\]" >&2
+    if [[ "$silent_mode" == "false" ]]; then
+        if echo "$reload_output" | grep -qi "\[WARNING\]"; then
+            log "⚠️  HAProxy reload completed with warnings (non-critical):"
+            echo "$reload_output" | grep -i "\[WARNING\]" >&2
+        fi
+
+        log "✅ HAProxy reloaded successfully"
     fi
 
-    log "✅ HAProxy reloaded successfully"
     return 0
 }
 
