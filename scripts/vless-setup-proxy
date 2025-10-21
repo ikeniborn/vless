@@ -902,9 +902,10 @@ EOF"
     local haproxy_config="/opt/vless/config/haproxy.cfg"
 
     if [ -f "$haproxy_config" ]; then
-        # Validate syntax using docker run (haproxy -c)
+        # Validate syntax using running HAProxy container (has access to certificates)
+        # v5.16: Changed from 'docker run' to 'docker exec' to access mounted certificates
         local validation_output
-        validation_output=$(docker run --rm -v "$haproxy_config:/tmp/haproxy.cfg:ro" haproxy:latest haproxy -c -f /tmp/haproxy.cfg 2>&1)
+        validation_output=$(docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg 2>&1)
         local validation_exit=$?
 
         if [ $validation_exit -eq 0 ]; then
