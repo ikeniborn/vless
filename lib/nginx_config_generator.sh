@@ -335,6 +335,9 @@ EOF
         # VULN-001 FIX: Hardcoded Host header (NOT \$host or \$http_host)
         proxy_set_header Host ${target_site};  # Target site (hardcoded)
 
+        # v5.13: Custom User-Agent (bypass Cloudflare/bot detection)
+        proxy_set_header User-Agent "${CUSTOM_USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36}";
+
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;

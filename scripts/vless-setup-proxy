@@ -437,12 +437,34 @@ prompt_advanced_options() {
     fi
     echo "" >&2
 
+    # Custom User-Agent (v5.13)
+    echo -e "${YELLOW}5. Custom User-Agent (v5.13)${NC}" >&2
+    echo "   Некоторые сайты блокируют прокси запросы (Cloudflare защита)" >&2
+    echo "   Пример: claude.ai, chatgpt.com требуют реалистичный User-Agent" >&2
+    echo "   По умолчанию: Mozilla/5.0 Chrome (современный браузер)" >&2
+    echo -e "   ${YELLOW}ПРИМЕЧАНИЕ:${NC} Для сайтов с Cloudflare Bot Management может не помочь" >&2
+    read -p "   Изменить User-Agent? [y/N]: " -n 1 -r ua_choice
+    echo
+    if [[ $ua_choice =~ ^[Yy]$ ]]; then
+        echo -n "   Введите User-Agent (или Enter для default): " >&2
+        read -r custom_ua
+        if [[ -n "$custom_ua" ]]; then
+            export CUSTOM_USER_AGENT="$custom_ua"
+        else
+            export CUSTOM_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        fi
+    else
+        export CUSTOM_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    fi
+    echo "" >&2
+
     # Summary
     print_info "Выбранные опции:"
     echo "  OAuth2 Support:          ${OAUTH2_SUPPORT}" >&2
     echo "  WebSocket Support:       ${ENABLE_WEBSOCKET}" >&2
     echo "  Strip CSP:               ${STRIP_CSP}" >&2
     echo "  Enhanced Security (NEW): ${ENHANCED_SECURITY_HEADERS}" >&2
+    echo "  Custom User-Agent:       ${CUSTOM_USER_AGENT:0:50}..." >&2
     echo "" >&2
 }
 
@@ -463,11 +485,12 @@ prompt_confirmation() {
     echo "" >&2
     echo -e "  ${BOLD}Публичный URL:${NC}   ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}" >&2
     echo "" >&2
-    echo -e "${CYAN}${BOLD}Дополнительные опции (v5.11):${NC}" >&2
+    echo -e "${CYAN}${BOLD}Дополнительные опции (v5.13):${NC}" >&2
     echo -e "  ${BOLD}OAuth2 Support:${NC}          ${OAUTH2_SUPPORT:-true}" >&2
     echo -e "  ${BOLD}WebSocket Support:${NC}       ${ENABLE_WEBSOCKET:-true}" >&2
     echo -e "  ${BOLD}Strip CSP Headers:${NC}       ${STRIP_CSP:-true}" >&2
-    echo -e "  ${BOLD}Enhanced Security (NEW):${NC} ${ENHANCED_SECURITY_HEADERS:-false}" >&2
+    echo -e "  ${BOLD}Enhanced Security:${NC}       ${ENHANCED_SECURITY_HEADERS:-false}" >&2
+    echo -e "  ${BOLD}Custom User-Agent:${NC}       ${CUSTOM_USER_AGENT:0:60}..." >&2
     echo "" >&2
     echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}" >&2
     echo "  1. DNS validation (обязательно!)" >&2
@@ -535,6 +558,15 @@ setup_reverse_proxy() {
     print_step "Создание Nginx конфигурации..."
     if ! generate_reverseproxy_nginx_config "$domain" "$target" "$port" "$username" "$password_hash"; then
         print_error "Не удалось создать Nginx конфигурацию"
+        return 1
+    fi
+
+    # Step 4.5: Add rate limit zone (CRITICAL FIX v5.13)
+    # This MUST be called after generate_reverseproxy_nginx_config
+    # to add limit_req_zone directive to http_context.conf
+    print_step "Добавление rate limit zone..."
+    if ! add_rate_limit_zone "$domain"; then
+        print_error "Не удалось добавить rate limit zone"
         return 1
     fi
 
