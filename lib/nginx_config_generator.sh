@@ -379,7 +379,8 @@ EOF
 
         # Apply to multiple content types
         sub_filter_once off;
-        sub_filter_types text/html text/css text/javascript application/javascript application/json;
+        # Note: text/html is included by default, no need to specify it explicitly
+        sub_filter_types text/css text/javascript application/javascript application/json;
         sub_filter_last_modified on;
 
         # v5.9: Referer rewriting (CRITICAL for CSRF protection)
@@ -531,10 +532,13 @@ add_rate_limit_zone() {
 
     log "Adding rate limit zone: $zone_name"
 
-    # Append rate limit zone
-    echo "" >> "$http_context_conf"
-    echo "# Rate limit zone for: ${domain}" >> "$http_context_conf"
-    echo "limit_req_zone \$binary_remote_addr zone=${zone_name}:10m rate=100r/s;" >> "$http_context_conf"
+    # Insert rate limit zone BEFORE the include directive
+    # This is CRITICAL: zones must be defined before server blocks that use them
+    local zone_definition="# Rate limit zone for: ${domain}\nlimit_req_zone \\\$binary_remote_addr zone=${zone_name}:10m rate=100r/s;\n"
+
+    # Insert before the "# Include reverse proxy server blocks" line
+    sed -i "/# Include reverse proxy server blocks/i \\
+${zone_definition}" "$http_context_conf"
 
     log "✅ Rate limit zone added: $zone_name"
 
