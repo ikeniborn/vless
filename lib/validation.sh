@@ -122,7 +122,13 @@ validate_reverse_proxy() {
     local port_bound=false
 
     while [ $attempt -le $max_attempts ]; do
-        if docker ps --format "{{.Ports}}" --filter "name=vless_nginx_reverseproxy" | grep -q "127.0.0.1:${port}"; then
+        # v5.23 FIX: Support Docker port ranges (e.g., 9443-9444)
+        # Use word boundary \b to match exact port number
+        # Pattern matches:
+        #   - Individual port: 127.0.0.1:9444
+        #   - Port at start of range: 127.0.0.1:9444-9445
+        #   - Port at end of range: 127.0.0.1:9443-9444
+        if docker ps --format "{{.Ports}}" --filter "name=vless_nginx_reverseproxy" | grep -qE "\b${port}\b"; then
             port_bound=true
             log "  ✅ Port $port is bound to nginx container"
             checks_passed=$((checks_passed + 1))
@@ -257,7 +263,13 @@ validate_reverse_proxy_removed() {
     # -------------------------------------------------------------------------
     log "  [3/3] Verifying port freed..."
 
-    if docker ps --format "{{.Ports}}" --filter "name=vless_nginx_reverseproxy" | grep -q "127.0.0.1:${port}"; then
+    # v5.23 FIX: Support Docker port ranges (same pattern as validate_reverse_proxy)
+    # Use word boundary \b to match exact port number
+    # Check that the specific port is NOT present in any form:
+    #   - Individual port: 127.0.0.1:9444
+    #   - Port at start of range: 127.0.0.1:9444-9445
+    #   - Port at end of range: 127.0.0.1:9443-9444
+    if docker ps --format "{{.Ports}}" --filter "name=vless_nginx_reverseproxy" | grep -qE "\b${port}\b"; then
         log_error "  ❌ Port $port still bound to nginx container"
         log_error "     Check: docker ps --format '{{.Ports}}' --filter 'name=vless_nginx_reverseproxy'"
         log_error "     Action: docker restart vless_nginx_reverseproxy"
