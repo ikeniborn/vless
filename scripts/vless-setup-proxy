@@ -1,7 +1,7 @@
 #!/bin/bash
 # cli/vless-setup-proxy
 #
-# VLESS v5.14 - Interactive Reverse Proxy Setup Wizard
+# VLESS v5.15 - Interactive Reverse Proxy Setup Wizard
 # Guides user through complete reverse proxy configuration
 #
 # Features:
@@ -21,8 +21,13 @@
 #   * Domain uniqueness verification
 #   * Cloudflare Bot Management detection (4 methods)
 #   * Target site reachability check
+# - v5.15: Enhanced pre-flight checks (4 NEW CHECKS)
+#   * DNS pre-validation (A/AAAA records, IP verification)
+#   * fail2ban status check (brute-force protection awareness)
+#   * Rate limit zone validation (nginx crash loop prevention + auto-fix)
+#   * HAProxy config syntax validation (prevent startup failures)
 #
-# Version: 5.14.0
+# Version: 5.15.0
 # Author: VLESS Development Team
 # Date: 2025-10-21
 
@@ -758,6 +763,183 @@ check_proxy_limitations() {
     else
         warnings+=("⚠️  Не удалось подключиться к $target")
         warnings+=("   Сайт может быть недоступен, заблокирован или требует VPN")
+    fi
+
+    # Check 7: DNS Pre-validation (v5.15 - Critical)
+    print_step "Проверка DNS записей для $domain..."
+
+    local dns_check_passed=false
+    local a_record=""
+    local aaaa_record=""
+
+    # Method 1: dig command
+    if command -v dig >/dev/null 2>&1; then
+        a_record=$(dig +short A "$domain" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+        aaaa_record=$(dig +short AAAA "$domain" 2>/dev/null | grep -E '^[0-9a-f:]+$' | head -1)
+    fi
+
+    # Method 2: nslookup fallback (if dig not available)
+    if [ -z "$a_record" ] && [ -z "$aaaa_record" ]; then
+        if command -v nslookup >/dev/null 2>&1; then
+            a_record=$(nslookup "$domain" 2>/dev/null | grep -A1 "Name:" | grep "Address:" | awk '{print $2}' | grep -v ':' | head -1)
+        fi
+    fi
+
+    if [ -n "$a_record" ] || [ -n "$aaaa_record" ]; then
+        # DNS records found
+        dns_check_passed=true
+
+        # Get current server IP
+        local server_ip
+        server_ip=$(timeout 5 curl -s ifconfig.me 2>/dev/null || timeout 5 curl -s icanhazip.com 2>/dev/null || echo "unknown")
+
+        if [ -n "$a_record" ]; then
+            if [ "$a_record" = "$server_ip" ]; then
+                print_success "DNS A-запись указывает на этот сервер ($a_record)"
+            else
+                warnings+=("⚠️  DNS A-запись указывает на другой IP")
+                warnings+=("   DNS запись: $a_record")
+                warnings+=("   Этот сервер: $server_ip")
+                warnings+=("")
+                warnings+=("   ${YELLOW}Let's Encrypt будет проверять $a_record!${NC}")
+                warnings+=("   Если это не этот сервер, сертификат НЕ БУДЕТ получен.")
+            fi
+        fi
+
+        if [ -n "$aaaa_record" ]; then
+            print_success "DNS AAAA-запись найдена ($aaaa_record)"
+        fi
+    else
+        # No DNS records found - CRITICAL ERROR
+        limitation_messages+=("❌ КРИТИЧНО: DNS записи не найдены для $domain")
+        limitation_messages+=("")
+        limitation_messages+=("   ${BOLD}Требуемые действия:${NC}")
+        limitation_messages+=("   1. Добавьте A-запись в DNS провайдере:")
+        limitation_messages+=("      Type: A")
+        limitation_messages+=("      Name: $domain")
+        limitation_messages+=("      Value: \$(curl -s ifconfig.me)  # IP этого сервера")
+        limitation_messages+=("      TTL: 300 (или авто)")
+        limitation_messages+=("")
+        limitation_messages+=("   2. Дождитесь распространения DNS (5-60 минут):")
+        limitation_messages+=("      $ dig +short $domain")
+        limitation_messages+=("      # Должен вернуть IP этого сервера")
+        limitation_messages+=("")
+        limitation_messages+=("   3. Запустите wizard снова после настройки DNS")
+        has_limitations=true
+    fi
+
+    # Check 8: fail2ban Status (v5.15 - Warning)
+    print_step "Проверка fail2ban защиты..."
+
+    local fail2ban_ok=false
+
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
+        # fail2ban is running
+        if sudo fail2ban-client status vless-reverseproxy >/dev/null 2>&1; then
+            # Jail is configured
+            local jail_info
+            jail_info=$(sudo fail2ban-client status vless-reverseproxy 2>/dev/null)
+            local banned_count
+            banned_count=$(echo "$jail_info" | grep "Currently banned:" | awk '{print $NF}')
+
+            print_success "fail2ban активен (защита от brute-force)"
+            print_info "  Jail: vless-reverseproxy | Забанено IP: ${banned_count:-0}"
+            fail2ban_ok=true
+        else
+            warnings+=("⚠️  fail2ban запущен, но jail vless-reverseproxy не настроен")
+            warnings+=("   Reverse proxy будет работать БЕЗ защиты от brute-force атак")
+        fi
+    else
+        warnings+=("⚠️  ВНИМАНИЕ: fail2ban не запущен")
+        warnings+=("")
+        warnings+=("   Reverse proxy будет работать, но БЕЗ защиты от brute-force!")
+        warnings+=("")
+        warnings+=("   ${CYAN}Рекомендуемые действия:${NC}")
+        warnings+=("   1. Запустить fail2ban:")
+        warnings+=("      $ sudo systemctl start fail2ban")
+        warnings+=("      $ sudo systemctl enable fail2ban")
+        warnings+=("")
+        warnings+=("   2. Проверить статус:")
+        warnings+=("      $ sudo fail2ban-client status vless-reverseproxy")
+    fi
+
+    # Check 9: Rate Limit Zone (v5.15 - Critical with auto-fix)
+    print_step "Проверка rate limit zone конфигурации..."
+
+    local zone_name="reverseproxy_${domain//[.-]/_}"
+    local http_context="/opt/vless/config/reverse-proxy/http_context.conf"
+
+    if [ -f "$http_context" ]; then
+        if grep -q "limit_req_zone.*zone=${zone_name}" "$http_context" 2>/dev/null; then
+            print_success "Rate limit zone уже существует"
+        else
+            print_warning "Rate limit zone отсутствует, выполняем auto-fix..."
+
+            # Auto-fix: Add rate limit zone
+            sudo bash -c "cat >> $http_context << EOF
+
+# Rate limit zone for: ${domain} (v5.15 auto-added)
+limit_req_zone \\\$binary_remote_addr zone=${zone_name}:10m rate=100r/s;
+EOF"
+
+            if grep -q "limit_req_zone.*zone=${zone_name}" "$http_context" 2>/dev/null; then
+                print_success "Rate limit zone добавлена автоматически"
+            else
+                limitation_messages+=("❌ КРИТИЧНО: Не удалось добавить rate limit zone")
+                limitation_messages+=("   Nginx может не запуститься из-за отсутствующей зоны")
+                limitation_messages+=("   Требуется ручная настройка: $http_context")
+                has_limitations=true
+            fi
+        fi
+    else
+        warnings+=("⚠️  Файл http_context.conf не найден")
+        warnings+=("   Создастся автоматически при генерации конфигурации")
+    fi
+
+    # Check 10: HAProxy Config Syntax (v5.15 - Critical)
+    print_step "Проверка синтаксиса HAProxy конфигурации..."
+
+    local haproxy_config="/opt/vless/config/haproxy.cfg"
+
+    if [ -f "$haproxy_config" ]; then
+        # Validate syntax using docker run (haproxy -c)
+        local validation_output
+        validation_output=$(docker run --rm -v "$haproxy_config:/tmp/haproxy.cfg:ro" haproxy:latest haproxy -c -f /tmp/haproxy.cfg 2>&1)
+        local validation_exit=$?
+
+        if [ $validation_exit -eq 0 ]; then
+            print_success "HAProxy конфигурация валидна"
+
+            # Check if certificate exists
+            if [ -f "/opt/vless/certs/combined.pem" ]; then
+                print_success "HAProxy сертификат найден"
+            else
+                warnings+=("⚠️  HAProxy сертификат отсутствует")
+                warnings+=("   Будет создан автоматически при получении Let's Encrypt сертификата")
+            fi
+        else
+            limitation_messages+=("❌ КРИТИЧНО: HAProxy конфигурация содержит ошибки")
+            limitation_messages+=("")
+            limitation_messages+=("   ${BOLD}Вывод проверки:${NC}")
+            echo "$validation_output" | head -10 | while read line; do
+                limitation_messages+=("   $line")
+            done
+            limitation_messages+=("")
+            limitation_messages+=("   ${BOLD}Требуемые действия:${NC}")
+            limitation_messages+=("   1. Проверьте синтаксис вручную:")
+            limitation_messages+=("      $ docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg")
+            limitation_messages+=("")
+            limitation_messages+=("   2. Восстановите из бэкапа (если доступен):")
+            limitation_messages+=("      $ sudo cp /opt/vless/config/haproxy.cfg.bak /opt/vless/config/haproxy.cfg")
+            limitation_messages+=("")
+            limitation_messages+=("   3. НЕ продолжайте установку до исправления!")
+            has_limitations=true
+        fi
+    else
+        limitation_messages+=("❌ КРИТИЧНО: HAProxy конфигурация не найдена")
+        limitation_messages+=("   Файл отсутствует: $haproxy_config")
+        limitation_messages+=("   Требуется переустановка VLESS VPN сервера")
+        has_limitations=true
     fi
 
     # Display results
