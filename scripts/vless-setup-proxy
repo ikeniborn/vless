@@ -313,8 +313,35 @@ prompt_port() {
             continue
         fi
 
-        # Check if port is available (should not be bound externally)
-        # Port binding check relaxed since nginx binds to localhost only
+        # Check if port is already occupied (database + nginx configs)
+        # v5.8: Enhanced port detection - checks both DB and nginx configs to prevent conflicts
+        local config_dir="/opt/vless/config/reverse-proxy"
+        local db_file="/opt/vless/config/reverse_proxies.json"
+
+        # Collect used ports from database
+        local db_ports=""
+        if [[ -f "$db_file" ]]; then
+            db_ports=$(jq -r '.proxies[].port' "$db_file" 2>/dev/null | sort -n)
+        fi
+
+        # Collect used ports from nginx configs
+        local nginx_ports=""
+        if [[ -d "$config_dir" ]]; then
+            nginx_ports=$(grep -h "listen.*:" "$config_dir"/*.conf 2>/dev/null | \
+                          grep -oP 'listen\s+[\d.]+:\K\d+' | \
+                          sort -n | uniq)
+        fi
+
+        # Merge both lists
+        local all_ports=$(echo -e "${db_ports}\n${nginx_ports}" | sort -n | uniq | grep -v '^$')
+
+        # Check if port is occupied
+        if echo "$all_ports" | grep -q "^${port}$"; then
+            print_error "Порт $port уже занят другим reverse proxy"
+            print_info "Используйте команду: sudo vless-proxy list"
+            continue
+        fi
+
         break
     done
 
@@ -517,7 +544,9 @@ setup_reverse_proxy() {
     cert_expires="$(date -u -d '+90 days' +"%Y-%m-%dT%H:%M:%SZ")"
     local notes="Created via vless-setup-proxy wizard"
 
-    if ! add_proxy "$domain" "$target" "$port" "$username" "$password" "$xray_port" "$xray_tag" "$cert_expires" "$notes"; then
+    # add_proxy: domain, target_site, port, username, password, xray_port, xray_tag, cert_expires, target_ipv4, notes
+    # target_ipv4 is resolved automatically inside add_proxy() if empty
+    if ! add_proxy "$domain" "$target" "$port" "$username" "$password" "$xray_port" "$xray_tag" "$cert_expires" "" "$notes"; then
         print_error "Не удалось сохранить конфигурацию в БД"
         return 1
     fi
@@ -551,7 +580,7 @@ setup_reverse_proxy() {
     # Step 9: Reload services
     print_step "Перезагрузка сервисов..."
     reload_nginx_container  # Docker compose restart with new port
-    reload_xray
+    # Note: reload_xray() not needed (v5.3+: nginx proxies directly to target, no Xray HTTP inbound)
 
     # Step 10: Display success message
     print_header "${ICON_SUCCESS} Reverse Proxy Успешно Настроен!"
