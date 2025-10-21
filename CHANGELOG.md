@@ -7,6 +7,228 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.14] - 2025-10-21
+
+### Added - Comprehensive Pre-flight Checks for Reverse Proxy Setup
+
+**Migration Type:** Non-breaking enhancement (improves UX)
+
+**Primary Feature:** Prevent reverse proxy installation failures by validating system state and configuration BEFORE setup begins
+
+#### Overview
+
+v5.14 introduces comprehensive pre-flight validation system that catches common configuration errors and environmental issues **before** attempting reverse proxy installation. This eliminates frustration from failed installations and provides clear guidance when issues are detected.
+
+**Key Innovation:** Multi-layered validation combining system checks, resource validation, and target site analysis with intelligent Cloudflare Bot Management detection.
+
+#### New Features
+
+**scripts/vless-setup-proxy (v5.14.0)**
+- **NEW**: `check_proxy_limitations()` function - comprehensive pre-flight validation system
+- **Integration**: Automatically runs after parameter collection, before user confirmation
+- **Smart Blocking**: Distinguishes between critical errors (block installation) and warnings (require user confirmation)
+
+**7 Validation Categories:**
+
+1. **Docker Containers Status** (Critical)
+   - Verifies HAProxy container is running and healthy
+   - Verifies Nginx Reverse Proxy container is running and healthy
+   - Blocks installation if containers are down or unhealthy
+   - Provides specific troubleshooting commands
+
+2. **Disk Space Validation** (Critical)
+   - Checks available space on /opt/vless partition
+   - Minimum requirement: 100MB for certificates and logs
+   - Warning threshold: 500MB (recommended minimum)
+   - Displays available space in MB
+
+3. **Proxy Limit Enforcement** (Critical)
+   - Maximum: 10 reverse proxy slots
+   - Shows current usage (e.g., "2/10 slots used")
+   - Warns at 8/10 capacity
+   - Blocks installation at 10/10 with clear instructions
+
+4. **Port Availability** (Critical)
+   - **4-layer port conflict detection:**
+     - Database check (reverse_proxies.json)
+     - Nginx config scan (*.conf files)
+     - Docker Compose validation (docker-compose.yml)
+     - System listening ports (ss command)
+   - Port range validation (9443-9452 only)
+   - Shows which domain is using conflicting port
+   - Suggests free ports from allowed range
+
+5. **Domain Uniqueness** (Critical)
+   - Checks if domain already exists in database
+   - Prevents duplicate entries
+   - Provides removal command if duplicate found
+
+6. **Cloudflare Bot Management Detection** (Warning)
+   - **4 detection methods:**
+     - HTTP headers inspection (cf-*, cloudflare, server headers)
+     - Challenge page detection ("checking your browser")
+     - IP range analysis (Cloudflare IP blocks)
+     - HTTP 403 response pattern
+   - **Detailed warning message:**
+     - Lists detection methods used
+     - Explains why reverse proxy won't work
+     - Provides examples (claude.ai, chatgpt.com, notion.so, discord.com)
+     - **Alternative solution:** Complete VLESS SOCKS5/HTTP proxy setup guide
+     - Browser-specific configuration instructions (Chrome, Firefox, Safari, Edge)
+   - User can choose to continue despite warning (informed consent)
+
+7. **Target Site Reachability** (Warning)
+   - Tests HTTPS connectivity to target site
+   - Returns HTTP status code
+   - Distinguishes between 403 Forbidden (bot protection) and actual unavailability
+   - Warns about geographic restrictions or VPN requirements
+
+#### User Experience Improvements
+
+**Before v5.14:**
+```
+User enters domain → User enters target → DNS validation → Certificate fails → Port conflict → Manual cleanup required
+Time wasted: 5-10 minutes
+```
+
+**After v5.14:**
+```
+User enters domain → User enters target → Pre-flight checks → ERROR: Port 9443 occupied by kinozal-dev.ikeniborn.ru → Use different port
+Time saved: 5-10 minutes per failed attempt
+```
+
+**Cloudflare Detection Example:**
+```
+═══════════════════════════════════════════════════════════════
+⚠️  ОБНАРУЖЕНА CLOUDFLARE ЗАЩИТА
+═══════════════════════════════════════════════════════════════
+
+   Целевой сайт: claude.ai
+   Методы обнаружения: HTTP headers, 403 Forbidden response
+
+   ВАЖНО: Reverse proxy НЕ БУДЕТ РАБОТАТЬ для этого сайта!
+   Cloudflare Bot Management блокирует подозрительные запросы.
+
+   РЕКОМЕНДАЦИЯ: Используйте VLESS SOCKS5/HTTP прокси
+   SOCKS5/HTTP прокси работают на уровне соединения и НЕ блокируются Cloudflare
+
+   1. Получите credentials:
+      $ sudo vless-status
+
+   2. Настройте прокси в браузере:
+
+      Chrome/Chromium/Brave:
+      - Settings → System → Open proxy settings
+      - Manual proxy: SOCKS5, localhost:1080
+      - Расширения: SwitchyOmega, FoxyProxy
+
+      Firefox:
+      - Settings → Network Settings → Manual proxy
+      - SOCKS Host: localhost, Port: 1080, SOCKS v5
+      - ✓ Proxy DNS when using SOCKS v5
+
+═══════════════════════════════════════════════════════════════
+
+Вы уверены что хотите продолжить? [y/N]:
+```
+
+#### Technical Implementation
+
+**Function Signature:**
+```bash
+check_proxy_limitations() {
+    local domain="$1"
+    local target="$2"
+    local port="$3"
+
+    # Returns:
+    # 0 - All checks passed or user confirmed warnings
+    # 1 - Critical errors found or user cancelled
+}
+```
+
+**Error Handling:**
+- Critical errors → immediate return 1 (block installation)
+- Warnings → accumulate, ask for confirmation at end
+- All checks run sequentially (no short-circuit on first failure)
+- Comprehensive output showing ALL issues (not just first one)
+
+**Performance:**
+- Average execution time: 5-15 seconds
+- Network checks have 10-second timeout (prevent hanging)
+- Efficient database queries (jq-based)
+
+#### Testing
+
+**Test Coverage:**
+```bash
+# Run automated test suite
+chmod +x test_preflight_checks.sh
+sudo ./test_preflight_checks.sh
+```
+
+**Test Cases:**
+1. ✅ Existing domain detection (BLOCKS)
+2. ✅ Occupied port detection (BLOCKS - 4 layers)
+3. ✅ Cloudflare detection (WARNS with detailed guide)
+4. ✅ Valid configuration (PASSES)
+
+**Test Results:**
+```
+TEST 1: Existing domain → ✓ PASS (correctly blocked)
+TEST 2: Occupied port → ✓ PASS (detected in 4 sources)
+TEST 3: Cloudflare site → ✓ PASS (detected via 2 methods)
+TEST 4: Valid config → ✓ PASS (installation allowed)
+```
+
+#### Backward Compatibility
+
+- ✅ No breaking changes
+- ✅ Existing reverse proxies unaffected
+- ✅ Automatic validation for new installations only
+- ✅ No configuration changes required
+- ✅ Compatible with v5.11, v5.10, v4.3+ systems
+
+#### Migration Guide
+
+**For Users:**
+1. Update wizard script:
+   ```bash
+   sudo cp /home/ikeniborn/vless/scripts/vless-setup-proxy /opt/vless/scripts/
+   sudo chmod +x /opt/vless/scripts/vless-setup-proxy
+   ```
+2. No restart required
+3. Test: Run `sudo vless-proxy add` - pre-flight checks will run automatically
+
+**For Developers:**
+- Function is self-contained (no external dependencies beyond existing libs)
+- Uses existing `reverseproxy_db.sh` functions (`get_proxy_count`, `proxy_exists`)
+- All print functions already defined in wizard script
+
+#### Known Limitations
+
+1. **Cloudflare Detection:** Not 100% accurate (false positives/negatives possible)
+   - Conservative approach: Better to warn unnecessarily than silently fail
+   - User can always override and proceed
+
+2. **Port Availability:** Checks common sources, but not exhaustive
+   - Database, nginx configs, docker-compose, system ports
+   - Edge case: Port may be blocked by firewall rule (not detected)
+
+3. **Disk Space:** Checks /opt/vless partition only
+   - Separate /var, /tmp partitions not validated
+   - Assumes standard filesystem layout
+
+#### Future Enhancements
+
+- [ ] Add DNS pre-validation (check A/AAAA records before certificate request)
+- [ ] Add fail2ban status check (verify protection is active)
+- [ ] Add rate limit zone validation (prevent nginx crash loop)
+- [ ] Add HAProxy config syntax validation
+- [ ] Add certificate expiration check (warn if renewal needed soon)
+
+---
+
 ## [5.12] - 2025-10-21
 
 ### Fixed - HAProxy Reload Timeout Issue

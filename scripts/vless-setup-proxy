@@ -1,7 +1,7 @@
 #!/bin/bash
 # cli/vless-setup-proxy
 #
-# VLESS v5.11 - Interactive Reverse Proxy Setup Wizard
+# VLESS v5.14 - Interactive Reverse Proxy Setup Wizard
 # Guides user through complete reverse proxy configuration
 #
 # Features:
@@ -13,10 +13,18 @@
 # - Subdomain-based access: https://domain (NO port number!)
 # - v5.10: Advanced options wizard (OAuth2, WebSocket, CSP)
 # - v5.11: Enhanced security headers (COOP, COEP, CORP, Expect-CT)
+# - v5.14: Comprehensive pre-flight checks (CRITICAL BEFORE INSTALLATION)
+#   * Docker containers status (HAProxy, Nginx)
+#   * Disk space validation (100MB minimum)
+#   * Proxy limit enforcement (10 slots max)
+#   * Port availability (database, nginx, docker-compose, system)
+#   * Domain uniqueness verification
+#   * Cloudflare Bot Management detection (4 methods)
+#   * Target site reachability check
 #
-# Version: 5.11.0
+# Version: 5.14.0
 # Author: VLESS Development Team
-# Date: 2025-10-20
+# Date: 2025-10-21
 
 set -euo pipefail
 
@@ -468,6 +476,343 @@ prompt_advanced_options() {
     echo "" >&2
 }
 
+# =============================================================================
+# Pre-flight Checks (v5.14)
+# =============================================================================
+
+check_proxy_limitations() {
+    local domain="$1"
+    local target="$2"
+    local port="$3"
+
+    local has_limitations=false
+    local limitation_messages=()
+    local warnings=()
+
+    print_header "Проверка Ограничений (v5.14)"
+
+    # Check 0: Docker containers status
+    print_step "Проверка статуса Docker контейнеров..."
+
+    local haproxy_status
+    haproxy_status=$(docker ps --filter "name=vless_haproxy" --format "{{.Status}}" 2>/dev/null)
+
+    if [ -z "$haproxy_status" ]; then
+        limitation_messages+=("❌ КРИТИЧНО: HAProxy контейнер не запущен")
+        limitation_messages+=("   Запустите VPN сервер: cd /opt/vless && docker compose up -d")
+        has_limitations=true
+    elif ! echo "$haproxy_status" | grep -q "Up"; then
+        limitation_messages+=("❌ КРИТИЧНО: HAProxy контейнер не работает (статус: $haproxy_status)")
+        limitation_messages+=("   Проверьте логи: docker logs vless_haproxy --tail 50")
+        has_limitations=true
+    else
+        print_success "HAProxy контейнер работает"
+    fi
+
+    local nginx_status
+    nginx_status=$(docker ps --filter "name=vless_nginx_reverseproxy" --format "{{.Status}}" 2>/dev/null)
+
+    if [ -z "$nginx_status" ]; then
+        limitation_messages+=("❌ КРИТИЧНО: Nginx Reverse Proxy контейнер не запущен")
+        limitation_messages+=("   Запустите VPN сервер: cd /opt/vless && docker compose up -d")
+        has_limitations=true
+    elif ! echo "$nginx_status" | grep -q "Up"; then
+        limitation_messages+=("❌ КРИТИЧНО: Nginx контейнер не работает (статус: $nginx_status)")
+        limitation_messages+=("   Проверьте логи: docker logs vless_nginx_reverseproxy --tail 50")
+        has_limitations=true
+    else
+        print_success "Nginx Reverse Proxy контейнер работает"
+    fi
+
+    # Check 1: Disk space
+    print_step "Проверка свободного места..."
+
+    local disk_free_mb
+    disk_free_mb=$(df -BM /opt/vless | tail -1 | awk '{print $4}' | sed 's/M//')
+
+    if [ "$disk_free_mb" -lt 100 ]; then
+        limitation_messages+=("❌ КРИТИЧНО: Недостаточно места на диске (/opt/vless: ${disk_free_mb}MB)")
+        limitation_messages+=("   Требуется минимум 100MB для сертификатов и логов")
+        has_limitations=true
+    elif [ "$disk_free_mb" -lt 500 ]; then
+        warnings+=("⚠️  Мало свободного места: ${disk_free_mb}MB (рекомендуется >500MB)")
+    else
+        print_success "Свободно: ${disk_free_mb}MB"
+    fi
+
+    # Check 2: Maximum proxy limit (10 slots)
+    print_step "Проверка лимита прокси..."
+
+    local proxy_count
+    proxy_count=$(get_proxy_count 2>/dev/null || echo "0")
+
+    if [ "$proxy_count" -ge 10 ]; then
+        limitation_messages+=("❌ КРИТИЧНО: Достигнут лимит прокси (10/10)")
+        limitation_messages+=("   Необходимо удалить существующий прокси перед добавлением нового")
+        limitation_messages+=("   Команда: sudo vless-proxy list")
+        has_limitations=true
+    elif [ "$proxy_count" -ge 8 ]; then
+        warnings+=("⚠️  Осталось слотов: $((10 - proxy_count))/10")
+    else
+        print_success "Использовано слотов: $proxy_count/10"
+    fi
+
+    # Check 3: Port availability (comprehensive check)
+    print_step "Проверка доступности порта $port..."
+
+    local port_check_failed=false
+    local port_check_details=()
+
+    # Validate port range
+    if [ "$port" -lt 9443 ] || [ "$port" -gt 9452 ]; then
+        limitation_messages+=("❌ КРИТИЧНО: Порт $port вне допустимого диапазона")
+        limitation_messages+=("   Допустимый диапазон: 9443-9452")
+        has_limitations=true
+        port_check_failed=true
+    fi
+
+    if [ "$port_check_failed" = false ]; then
+        # Check in database
+        if [ -f "/opt/vless/config/reverse_proxies.json" ]; then
+            local db_ports
+            db_ports=$(jq -r '.proxies[].port' /opt/vless/config/reverse_proxies.json 2>/dev/null | grep "^${port}$")
+            if [ -n "$db_ports" ]; then
+                port_check_failed=true
+                local domain_using_port
+                domain_using_port=$(jq -r ".proxies[] | select(.port == $port) | .domain" /opt/vless/config/reverse_proxies.json 2>/dev/null)
+                port_check_details+=("   - База данных: порт занят доменом $domain_using_port")
+            fi
+        fi
+
+        # Check in nginx configs
+        if [ -d "/opt/vless/config/reverse-proxy" ]; then
+            local nginx_config_with_port
+            nginx_config_with_port=$(grep -l "listen.*:${port}" /opt/vless/config/reverse-proxy/*.conf 2>/dev/null | head -1)
+            if [ -n "$nginx_config_with_port" ]; then
+                port_check_failed=true
+                port_check_details+=("   - Nginx config: порт занят в $(basename "$nginx_config_with_port")")
+            fi
+        fi
+
+        # Check in docker-compose.yml
+        if [ -f "/opt/vless/docker-compose.yml" ]; then
+            local docker_ports
+            docker_ports=$(grep ":${port}" /opt/vless/docker-compose.yml 2>/dev/null)
+            if [ -n "$docker_ports" ]; then
+                port_check_failed=true
+                port_check_details+=("   - Docker Compose: порт уже проброшен")
+            fi
+        fi
+
+        # Check if port is actually listening (netstat/ss)
+        if command -v ss >/dev/null 2>&1; then
+            local listening_port
+            listening_port=$(ss -tuln | grep ":${port} " 2>/dev/null)
+            if [ -n "$listening_port" ]; then
+                port_check_failed=true
+                port_check_details+=("   - Система: порт уже прослушивается")
+            fi
+        fi
+    fi
+
+    if [ "$port_check_failed" = true ]; then
+        limitation_messages+=("❌ КРИТИЧНО: Порт $port недоступен")
+        for detail in "${port_check_details[@]}"; do
+            limitation_messages+=("$detail")
+        done
+        limitation_messages+=("   Используйте другой порт из диапазона 9443-9452")
+        limitation_messages+=("   Свободные порты можно посмотреть: sudo vless-proxy list")
+        has_limitations=true
+    else
+        print_success "Порт $port доступен"
+    fi
+
+    # Check 4: Domain already exists
+    print_step "Проверка существования домена в БД..."
+
+    if proxy_exists "$domain" 2>/dev/null; then
+        limitation_messages+=("❌ КРИТИЧНО: Домен $domain уже существует в БД")
+        limitation_messages+=("   Удалите существующий прокси: sudo vless-proxy remove $domain")
+        has_limitations=true
+    else
+        print_success "Домен $domain доступен"
+    fi
+
+    # Check 5: Cloudflare Bot Management detection
+    print_step "Проверка Cloudflare защиты на $target..."
+
+    local has_cloudflare=false
+    local cloudflare_details=""
+    local cf_detection_methods=()
+
+    # Method 1: Check HTTP headers
+    local cf_headers
+    cf_headers=$(timeout 10 curl -sI --max-time 10 "https://$target" 2>/dev/null | grep -iE "cf-|cloudflare|server: cloudflare")
+
+    if [ -n "$cf_headers" ]; then
+        has_cloudflare=true
+        cf_detection_methods+=("HTTP headers")
+    fi
+
+    # Method 2: Check for Cloudflare challenge page
+    local cf_challenge
+    cf_challenge=$(timeout 10 curl -sL --max-time 10 "https://$target" 2>/dev/null | grep -i "checking your browser\|cloudflare" | head -1)
+
+    if [ -n "$cf_challenge" ]; then
+        has_cloudflare=true
+        cf_detection_methods+=("Challenge page detected")
+    fi
+
+    # Method 3: DNS resolution check (Cloudflare IP ranges)
+    if command -v dig >/dev/null 2>&1; then
+        local target_ip
+        target_ip=$(dig +short "$target" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+
+        if [ -n "$target_ip" ]; then
+            # Check if IP is in Cloudflare ranges (simplified check for common ranges)
+            if echo "$target_ip" | grep -qE '^(104\.1[6-9]\.|104\.2[0-9]\.|104\.3[0-1]\.|172\.6[4-7]\.|173\.245\.|188\.114\.|190\.93\.|197\.234\.|198\.41\.|162\.158\.|104\.244\.)'; then
+                has_cloudflare=true
+                cf_detection_methods+=("IP in Cloudflare range: $target_ip")
+            fi
+        fi
+    fi
+
+    # Method 4: Try simple request with curl (403 Forbidden check)
+    local http_code
+    http_code=$(timeout 10 curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://$target" 2>/dev/null)
+
+    if [ "$http_code" = "403" ]; then
+        has_cloudflare=true
+        cf_detection_methods+=("403 Forbidden response")
+    fi
+
+    if [ "$has_cloudflare" = true ]; then
+        cloudflare_details="Методы обнаружения: ${cf_detection_methods[*]}"
+
+        warnings+=("")
+        warnings+=("═══════════════════════════════════════════════════════════════")
+        warnings+=("⚠️  ${BOLD}ОБНАРУЖЕНА CLOUDFLARE ЗАЩИТА${NC}")
+        warnings+=("═══════════════════════════════════════════════════════════════")
+        warnings+=("")
+        warnings+=("   Целевой сайт: ${BOLD}$target${NC}")
+        warnings+=("   $cloudflare_details")
+        warnings+=("")
+        warnings+=("   ${RED}${BOLD}ВАЖНО:${NC} Reverse proxy ${RED}НЕ БУДЕТ РАБОТАТЬ${NC} для этого сайта!")
+        warnings+=("   Cloudflare Bot Management блокирует подозрительные запросы.")
+        warnings+=("")
+        warnings+=("   ${YELLOW}Примеры сайтов с Cloudflare защитой:${NC}")
+        warnings+=("   - claude.ai")
+        warnings+=("   - chatgpt.com")
+        warnings+=("   - notion.so")
+        warnings+=("   - discord.com")
+        warnings+=("")
+        warnings+=("   ${GREEN}${BOLD}РЕКОМЕНДАЦИЯ: Используйте VLESS SOCKS5/HTTP прокси${NC}")
+        warnings+=("   SOCKS5/HTTP прокси работают на уровне соединения и НЕ блокируются Cloudflare")
+        warnings+=("")
+        warnings+=("   ${CYAN}${BOLD}1. Получите credentials:${NC}")
+        warnings+=("      $ sudo vless-status")
+        warnings+=("")
+        warnings+=("   ${CYAN}${BOLD}2. Настройте прокси в браузере:${NC}")
+        warnings+=("")
+        warnings+=("      ${BOLD}Chrome/Chromium/Brave:${NC}")
+        warnings+=("      - Settings → System → Open proxy settings")
+        warnings+=("      - Manual proxy: SOCKS5, localhost:1080")
+        warnings+=("      - Расширения: SwitchyOmega, FoxyProxy")
+        warnings+=("")
+        warnings+=("      ${BOLD}Firefox:${NC}")
+        warnings+=("      - Settings → Network Settings → Manual proxy")
+        warnings+=("      - SOCKS Host: localhost, Port: 1080, SOCKS v5")
+        warnings+=("      - ✓ Proxy DNS when using SOCKS v5")
+        warnings+=("")
+        warnings+=("      ${BOLD}Safari (macOS):${NC}")
+        warnings+=("      - System Preferences → Network → Advanced → Proxies")
+        warnings+=("      - SOCKS Proxy: localhost:1080")
+        warnings+=("")
+        warnings+=("      ${BOLD}Edge:${NC}")
+        warnings+=("      - Settings → System → Open proxy settings")
+        warnings+=("      - Manual proxy: SOCKS5, localhost:1080")
+        warnings+=("")
+        warnings+=("═══════════════════════════════════════════════════════════════")
+        warnings+=("")
+    else
+        print_success "Cloudflare защита не обнаружена"
+    fi
+
+    # Check 6: Target site reachability
+    print_step "Проверка доступности $target..."
+
+    local target_reachable=false
+    local target_http_code
+    target_http_code=$(timeout 10 curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://$target" 2>/dev/null)
+
+    if [ -n "$target_http_code" ] && [ "$target_http_code" != "000" ]; then
+        if [ "$target_http_code" -ge 200 ] && [ "$target_http_code" -lt 400 ]; then
+            target_reachable=true
+            print_success "Целевой сайт доступен (HTTP $target_http_code)"
+        elif [ "$target_http_code" -eq 403 ]; then
+            warnings+=("⚠️  Сайт доступен, но возвращает 403 Forbidden")
+            warnings+=("   Возможна защита от ботов или географические ограничения")
+        else
+            warnings+=("⚠️  Сайт вернул HTTP $target_http_code")
+        fi
+    else
+        warnings+=("⚠️  Не удалось подключиться к $target")
+        warnings+=("   Сайт может быть недоступен, заблокирован или требует VPN")
+    fi
+
+    # Display results
+    echo "" >&2
+    echo "═══════════════════════════════════════════════════════════════" >&2
+
+    # Show critical limitations
+    if [ "$has_limitations" = true ]; then
+        echo -e "${RED}${BOLD}ОБНАРУЖЕНЫ КРИТИЧЕСКИЕ ОГРАНИЧЕНИЯ:${NC}" >&2
+        echo "" >&2
+        for msg in "${limitation_messages[@]}"; do
+            echo -e "${RED}$msg${NC}" >&2
+        done
+        echo "" >&2
+        echo "═══════════════════════════════════════════════════════════════" >&2
+        echo "" >&2
+
+        print_error "Невозможно продолжить установку из-за критических ограничений"
+        print_info "Исправьте проблемы и запустите wizard снова"
+
+        return 1  # Block installation
+    fi
+
+    # Show warnings (non-blocking)
+    if [ ${#warnings[@]} -gt 0 ]; then
+        echo -e "${YELLOW}${BOLD}ПРЕДУПРЕЖДЕНИЯ:${NC}" >&2
+        echo "" >&2
+        for msg in "${warnings[@]}"; do
+            echo -e "${YELLOW}$msg${NC}" >&2
+        done
+        echo "" >&2
+        echo "═══════════════════════════════════════════════════════════════" >&2
+        echo "" >&2
+
+        # Ask for confirmation
+        echo -e "${YELLOW}${BOLD}Обнаружены потенциальные проблемы.${NC}" >&2
+        echo "" >&2
+        read -p "Вы уверены что хотите продолжить? [y/N]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_warning "Установка отменена пользователем"
+            return 1
+        fi
+
+        echo "" >&2
+    else
+        echo -e "${GREEN}${BOLD}✅ ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ${NC}" >&2
+        echo "" >&2
+        echo "═══════════════════════════════════════════════════════════════" >&2
+        echo "" >&2
+    fi
+
+    return 0
+}
+
 prompt_confirmation() {
     local domain="$1"
     local target="$2"
@@ -682,6 +1027,12 @@ main() {
 
     # v5.10: Advanced options (OAuth2, WebSocket, CSP)
     prompt_advanced_options
+
+    # v5.14: Pre-flight checks (blocking if critical issues found)
+    if ! check_proxy_limitations "$domain" "$target" "$port"; then
+        print_error "Установка прервана из-за ограничений"
+        exit 1
+    fi
 
     # Confirmation
     prompt_confirmation "$domain" "$target" "$port" "$email"

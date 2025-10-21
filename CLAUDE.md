@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.12 (HAProxy Reload Timeout Fix)
+**Version:** 5.14 (Pre-flight Checks)
 **Last Updated:** 2025-10-21
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -766,6 +766,16 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.14 - 2025-10-21: Comprehensive Pre-flight Checks (UX Enhancement)
+  - Added: check_proxy_limitations() function - 7 validation categories
+  - Integration: Runs automatically after parameter collection, before user confirmation
+  - Checks: Docker containers, disk space, proxy limits, port conflicts, domain uniqueness, Cloudflare detection, target reachability
+  - Port Conflict Detection: 4-layer validation (database, nginx configs, docker-compose, system)
+  - Cloudflare Detection: 4 methods (HTTP headers, challenge page, IP range, 403 pattern)
+  - Smart Blocking: Critical errors block installation, warnings require user confirmation
+  - UX Impact: Prevents failed installations, saves 5-10 minutes per error
+  - File: scripts/vless-setup-proxy
+
 v5.12 - 2025-10-21: HAProxy Reload Timeout Fix (CRITICAL BUGFIX)
   - Fixed: Indefinite hanging when reloading HAProxy with active VPN connections
   - Added: 10-second timeout to reload_haproxy_after_cert_update() (certificate_manager.sh:413)
