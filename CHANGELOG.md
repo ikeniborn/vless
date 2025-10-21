@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.18] - 2025-10-21
+
+### Fixed - Xray Container Permission Errors (CRITICAL BUGFIX)
+
+**Migration Type:** Automatic (applies to fresh installations and reinstalls)
+
+**Problem:** Xray container failed to start with permission denied errors:
+```
+Failed to start: main: failed to load config files: [/etc/xray/config.json] > permission denied
+Failed to start: main: failed to create server > app/log: failed to initialize access logger > permission denied
+```
+
+**Root Cause:**
+1. **docker-compose.yml** - Container ran as `user: nobody` (UID 65534)
+2. **xray_config.json** - File owned by `root:root` with permissions 600
+3. **logs/xray/** - Directory owned by `nobody:nogroup` (65534:65534)
+4. **Docker volume conflict** - Anonymous volume on `/etc/xray` conflicted with bind mount `/etc/xray/config.json`
+5. After removing `user: nobody`, container ran as root but logs directory still owned by nobody
+
+**Solution:**
+
+1. **lib/docker_compose_generator.sh**:
+   - Removed `user: nobody` from xray service definition
+   - Container now runs as root (default) for proper file access
+   - Security maintained via `cap_drop: ALL` and `cap_add: NET_BIND_SERVICE`
+
+2. **lib/orchestrator.sh** - Permission Updates:
+   - `create_directory_structure()`: Changed `logs/xray/` ownership to `root:root` (was 65534:65534)
+   - `set_file_permissions()`: Updated comments to reflect root ownership
+   - `set_file_permissions()`: Changed `logs/xray/` ownership to `root:root`
+   - `verify_permissions()`: Changed expected ownership check to `0:0` (was 65534:65534)
+   - Updated all comments mentioning "user: nobody" to reflect v5.18 changes
+
+3. **xray_config.json permissions**: Already correct at 644 (world-readable)
+
+**Impact:**
+- Xray container starts successfully after fresh installation
+- No permission errors on config read or log writes
+- Prevents "Restarting (exit code 23)" loop
+- No internet connectivity issues for clients after user creation
+
+**Files Changed:**
+- `lib/docker_compose_generator.sh` - Removed `user: nobody`
+- `lib/orchestrator.sh` - 6 locations updated (ownership + comments)
+- `/opt/vless/docker-compose.yml` - Regenerated without `user: nobody` (production)
+
+**Testing Note:**
+After this fix, on fresh installations:
+- `docker ps --filter "name=vless_xray"` shows `Up (healthy)` status
+- `sudo ls -la /opt/vless/logs/xray/` shows `root:root` ownership
+- VLESS + SOCKS5/HTTP proxies work immediately after user creation
+
+---
+
 ## [5.17] - 2025-10-21
 
 ### Fixed - Installation Failure: VERSION Variable Conflict (CRITICAL BUGFIX)

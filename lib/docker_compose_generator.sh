@@ -122,7 +122,6 @@ services:
     image: teddysun/xray:24.11.30
     container_name: vless_xray
     restart: unless-stopped
-    user: nobody
     cap_drop:
       - ALL
     cap_add:

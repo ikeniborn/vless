@@ -766,6 +766,17 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.18 - 2025-10-21: Xray Container Permission Errors (CRITICAL BUGFIX)
+  - Fixed: Xray container failed to start with permission denied on config and logs
+  - Root Cause: Container ran as user: nobody (UID 65534), files owned by root:root
+  - Solution 1: Removed user: nobody from docker-compose.yml (container runs as root)
+  - Solution 2: Changed logs/xray ownership to root:root in orchestrator.sh (was 65534:65534)
+  - Solution 3: Updated 6 locations in orchestrator.sh (ownership checks + comments)
+  - Impact: Prevents "Restarting (exit code 23)" loop, no internet for clients after user creation
+  - Security: Maintained via cap_drop: ALL and cap_add: NET_BIND_SERVICE
+  - Files: lib/docker_compose_generator.sh, lib/orchestrator.sh
+  - Note: curl does NOT support socks5s:// protocol (SOCKS5 over TLS), use specialized SOCKS5 clients instead
+
 v5.17 - 2025-10-21: Installation Failure - VERSION Variable Conflict (CRITICAL BUGFIX)
   - Fixed: Installation crash at "Detecting operating system" step
   - Root Cause: readonly VERSION="5.15" in install.sh conflicted with VERSION in /etc/os-release

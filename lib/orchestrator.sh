@@ -100,7 +100,7 @@ orchestrate_installation() {
     # Set ownership for log directories so containers can write logs
     echo -e "${CYAN}[1.5/12] Setting initial permissions for log directories...${NC}"
     if [[ -d "${LOGS_DIR}/xray" ]]; then
-        chown -R 65534:65534 "${LOGS_DIR}/xray" || {
+        chown -R root:root "${LOGS_DIR}/xray" || {
             echo -e "${RED}Failed to set xray logs ownership${NC}" >&2
             return 1
         }
@@ -1486,7 +1486,7 @@ set_permissions() {
     done
 
     # CONFIG_DIR and subdirectories: 755 (readable by container users)
-    # This allows Xray (uid=65534) and HAProxy (uid=99) containers to read config files
+    # This allows Xray (root) and HAProxy (uid=99) containers to read config files
     if [[ -d "${CONFIG_DIR}" ]]; then
         chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
     fi
@@ -1516,8 +1516,8 @@ set_permissions() {
         echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found at ${CONFIG_DIR}/haproxy.cfg${NC}" >&2
     fi
 
-    # EXCEPTION: Xray config must be world-readable for xray container user (uid=nobody/65534)
-    # Xray container runs as user: nobody and needs to read this file
+    # EXCEPTION: Xray config must be world-readable (chmod 644)
+    # After v5.18, xray container runs as root (removed user: nobody from docker-compose)
     if [[ -f "${XRAY_CONFIG}" ]]; then
         echo "  → Setting permissions on ${XRAY_CONFIG}..."
         chmod 644 "${XRAY_CONFIG}" 2>/dev/null || {
@@ -1528,7 +1528,7 @@ set_permissions() {
         # Verify permissions were set correctly
         local xray_perms=$(stat -c '%a' "${XRAY_CONFIG}" 2>/dev/null || echo "000")
         if [[ "$xray_perms" == "644" ]]; then
-            echo -e "  ${GREEN}✓ xray_config.json: 644 (readable by container uid=65534)${NC}"
+            echo -e "  ${GREEN}✓ xray_config.json: 644 (readable by container)${NC}"
         else
             echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}" >&2
             echo -e "  ${RED}  vless_xray container will fail to start!${NC}" >&2
@@ -1544,10 +1544,10 @@ set_permissions() {
     chmod 755 "${LOGS_DIR}" "${SCRIPTS_DIR}" "${FAKESITE_DIR}" \
               "${DOCS_DIR}" "${TESTS_DIR}" 2>/dev/null || true
 
-    # Set ownership for xray logs (container runs as user: nobody = UID 65534)
-    # This allows xray container to write logs without permission errors
+    # Set ownership for xray logs (container runs as root after v5.18 fix)
+    # xray container must run as root to avoid permission denied errors with config/logs
     if [[ -d "${LOGS_DIR}/xray" ]]; then
-        chown -R 65534:65534 "${LOGS_DIR}/xray" 2>/dev/null || true
+        chown -R root:root "${LOGS_DIR}/xray" 2>/dev/null || true
         chmod 755 "${LOGS_DIR}/xray" 2>/dev/null || true
     fi
 
@@ -1572,7 +1572,7 @@ set_permissions() {
 
     echo "  ✓ Sensitive files: 600 (root only)"
     echo "  ✓ Config/keys directories: 700 (root only)"
-    echo "  ✓ Xray logs ownership: nobody:nobody (65534:65534)"
+    echo "  ✓ Xray logs ownership: root:root (container runs as root since v5.18)"
     echo "  ✓ Nginx logs ownership: nginx:nginx (101:101)"
     echo "  ✓ Logs/scripts: 755/644 (readable)"
 
@@ -1651,13 +1651,13 @@ verify_file_permissions() {
         fi
     fi
 
-    # Check xray logs directory ownership
+    # Check xray logs directory ownership (v5.18: changed to root after removing user: nobody)
     if [[ -d "${LOGS_DIR}/xray" ]]; then
         local xray_log_owner=$(stat -c '%u:%g' "${LOGS_DIR}/xray" 2>/dev/null || echo "0:0")
-        if [[ "$xray_log_owner" == "65534:65534" ]]; then
-            echo -e "  ${GREEN}✓ xray logs: owned by nobody:nobody (65534:65534)${NC}"
+        if [[ "$xray_log_owner" == "0:0" ]]; then
+            echo -e "  ${GREEN}✓ xray logs: owned by root:root (0:0) - container runs as root${NC}"
         else
-            echo -e "  ${YELLOW}⚠ WARNING: xray logs: $xray_log_owner (EXPECTED 65534:65534)${NC}"
+            echo -e "  ${YELLOW}⚠ WARNING: xray logs: $xray_log_owner (EXPECTED 0:0 after v5.18)${NC}"
             echo -e "  ${YELLOW}  → Xray container may fail to write logs${NC}"
             ((WARNINGS++))
         fi
