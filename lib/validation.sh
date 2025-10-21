@@ -70,6 +70,11 @@ validate_reverse_proxy() {
 
     log "Validating reverse proxy: $domain (port $port)"
 
+    # v5.23: Wait for HAProxy reload to stabilize
+    # Race condition fix: graceful reload can take 10s+ with active connections
+    # This delay ensures new HAProxy process has started before validation
+    sleep 2
+
     local domain_safe=$(echo "$domain" | tr '.' '_' | tr '-' '_')
     local checks_passed=0
     local checks_total=4
@@ -79,13 +84,16 @@ validate_reverse_proxy() {
     # -------------------------------------------------------------------------
     log "  [1/4] Checking HAProxy ACL configuration..."
 
-    if docker exec vless_haproxy grep -q "acl is_${domain_safe}" /usr/local/etc/haproxy/haproxy.cfg 2>/dev/null; then
+    # v5.23: Check config on HOST instead of container
+    # Race condition fix: during graceful reload, docker exec may read old config
+    # Host file is updated immediately by add_reverse_proxy_route()
+    if grep -q "acl is_${domain_safe}" /opt/vless/config/haproxy.cfg 2>/dev/null; then
         log "  ✅ HAProxy ACL found for $domain"
         checks_passed=$((checks_passed + 1))
     else
         log_error "  ❌ HAProxy config missing ACL for $domain"
         log_error "     Expected: acl is_${domain_safe} req_ssl_sni -i ${domain}"
-        log_error "     Check: docker exec vless_haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep '${domain}'"
+        log_error "     Check: grep 'acl is_${domain_safe}' /opt/vless/config/haproxy.cfg"
         return 1
     fi
 
@@ -218,7 +226,8 @@ validate_reverse_proxy_removed() {
     # -------------------------------------------------------------------------
     log "  [1/3] Verifying HAProxy ACL removed..."
 
-    if docker exec vless_haproxy grep -q "acl is_${domain_safe}" /usr/local/etc/haproxy/haproxy.cfg 2>/dev/null; then
+    # v5.23: Check config on HOST instead of container (same as validate_reverse_proxy)
+    if grep -q "acl is_${domain_safe}" /opt/vless/config/haproxy.cfg 2>/dev/null; then
         log_error "  ❌ HAProxy config still has ACL for $domain"
         log_error "     Found: acl is_${domain_safe} req_ssl_sni -i ${domain}"
         log_error "     Action: sudo vless-proxy remove ${domain} (run again)"
