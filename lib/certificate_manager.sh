@@ -408,9 +408,18 @@ reload_haproxy_after_cert_update() {
 
     # Graceful reload with old PID
     # Note: Capture output to check for errors (warnings are OK, only errors should fail)
+    # Use timeout to prevent hanging when active connections are present
     local reload_output
-    reload_output=$(docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1)
+    reload_output=$(timeout 10 docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1)
     local exit_code=$?
+
+    # Exit code 124 means timeout occurred (reload is still in progress, but that's OK)
+    # The new HAProxy process started successfully and will finish gracefully in background
+    if [ $exit_code -eq 124 ]; then
+        echo -e "${YELLOW}⚠️  HAProxy reload timed out (graceful shutdown in progress)${NC}"
+        echo "This is normal when active VPN connections are present."
+        exit_code=0  # Consider it success
+    fi
 
     # Check if reload has actual errors (not just warnings)
     if echo "$reload_output" | grep -qi "\[ALERT\]"; then

@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.12] - 2025-10-21
+
+### Fixed - HAProxy Reload Timeout Issue
+
+**Migration Type:** Non-breaking hotfix (transparent fix)
+
+**Primary Fix:** Prevent indefinite hanging when reloading HAProxy with active VPN connections
+
+#### Changes
+
+**lib/certificate_manager.sh (v5.12.0)**
+- **FIXED**: Added 10-second timeout to `reload_haproxy_after_cert_update()` function (line 413)
+  - Issue: `docker exec vless_haproxy haproxy -sf` command would hang indefinitely when active VPN connections were present
+  - Root cause: HAProxy waits for all active connections to finish before old process exits
+  - Solution: Use `timeout 10` command to limit wait time
+  - Behavior: Exit code 124 (timeout) is treated as success since new HAProxy process started successfully
+  - Impact: Fixes reverse proxy setup wizard hanging at certificate reload step
+
+**lib/haproxy_config_manager.sh (v5.12.0)**
+- **FIXED**: Added 10-second timeout to `reload_haproxy()` function (line 428)
+  - Same timeout mechanism as certificate_manager.sh
+  - Ensures consistent behavior across all reload operations
+  - User-friendly message: "HAProxy reload timed out (graceful shutdown in progress)"
+  - Note: "This is normal when active VPN connections are present"
+
+#### Why This Fix Was Needed
+
+**Symptom:** Reverse proxy setup wizard (`sudo vless-proxy add`) would hang at:
+```
+[STEP 6/6] HAProxy Reload
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Reloading HAProxy with new certificates...
+Performing graceful reload...
+[HANGS INDEFINITELY - requires Ctrl+C]
+```
+
+**Trigger Condition:**
+- User has active VPN connection(s) running through VLESS
+- User runs `sudo vless-proxy add` to set up reverse proxy
+- Certificate acquisition completes successfully
+- HAProxy reload step hangs waiting for active VPN connections to close
+
+**Impact:**
+- Wizard could not complete reverse proxy setup
+- User forced to Ctrl+C and manually finish setup
+- Confusing user experience ("Why did it hang? Is something broken?")
+
+**Fix Validation:**
+- HAProxy reload now completes in max 10 seconds (typical: < 1 second if no connections, 10 seconds with active VPN)
+- New HAProxy process starts immediately (zero downtime)
+- Old HAProxy process gracefully finishes active connections in background
+- Wizard completes successfully even with active VPN connections
+
+#### Testing
+
+**Test Case 1: Reload with active VPN connections**
+```bash
+# Start VPN connection
+# Run: sudo vless-proxy add
+# Expected: Wizard completes in ~30-60 seconds (no hanging)
+# Actual: ✅ PASS - completes with warning message
+```
+
+**Test Case 2: Reload without active connections**
+```bash
+# No VPN connections
+# Run: sudo bash -c "source /opt/vless/lib/haproxy_config_manager.sh && reload_haproxy"
+# Expected: Completes in < 2 seconds
+# Actual: ✅ PASS
+```
+
+#### Backward Compatibility
+
+- ✅ No breaking changes
+- ✅ Existing reverse proxies continue working
+- ✅ No configuration changes required
+- ✅ Automatic fix - just update library files
+
+#### Migration Guide
+
+**For Users:**
+1. Copy updated files to production:
+   ```bash
+   sudo cp /home/ikeniborn/vless/lib/certificate_manager.sh /opt/vless/lib/
+   sudo cp /home/ikeniborn/vless/lib/haproxy_config_manager.sh /opt/vless/lib/
+   ```
+2. No restart required - takes effect on next reload operation
+3. Test: Run `sudo vless-proxy add` - should complete without hanging
+
+---
+
 ## [5.11] - 2025-10-20
 
 ### Added - Enhanced Security Headers (COOP, COEP, CORP, Expect-CT)

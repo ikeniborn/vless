@@ -1,8 +1,8 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.11 (Advanced Reverse Proxy Complete)
-**Last Updated:** 2025-10-20
+**Version:** 5.12 (HAProxy Reload Timeout Fix)
+**Last Updated:** 2025-10-21
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
 **Рекомендации по использованию:**
@@ -766,6 +766,14 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.12 - 2025-10-21: HAProxy Reload Timeout Fix (CRITICAL BUGFIX)
+  - Fixed: Indefinite hanging when reloading HAProxy with active VPN connections
+  - Added: 10-second timeout to reload_haproxy_after_cert_update() (certificate_manager.sh:413)
+  - Added: 10-second timeout to reload_haproxy() (haproxy_config_manager.sh:428)
+  - Impact: vless-proxy add wizard no longer hangs at "Reloading HAProxy..." step
+  - Exit code 124 (timeout) treated as success - new process starts, old process finishes gracefully in background
+  - Files: lib/certificate_manager.sh, lib/haproxy_config_manager.sh
+
 v5.11 - 2025-10-20: Enhanced Security Headers (Reverse Proxy)
   - Added: Optional COOP, COEP, CORP, Expect-CT headers (disabled by default)
   - Added: ENHANCED_SECURITY_HEADERS environment variable
