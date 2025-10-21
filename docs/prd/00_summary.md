@@ -1,9 +1,9 @@
-# PRD v5.7 - Executive Summary & Navigation
+# PRD v5.11 - Executive Summary & Navigation
 
 **VLESS + Reality VPN Server: Product Requirements Document**
 
-**Version:** 5.7 (Reverse Proxy Stability + Xray Permission Fixes)
-**Status:** ✅ 100% Implemented + Hardened
+**Version:** 5.11 (Reverse Proxy Advanced Features Complete)
+**Status:** ✅ 100% Implemented + Production-Ready
 **Last Updated:** 2025-10-20
 
 ---
@@ -21,17 +21,26 @@
 
 ---
 
-## Ключевые характеристики v5.7
+## Ключевые характеристики v5.11
 
-### Текущая версия (Production-Ready + Hardened)
+### Текущая версия (Production-Ready + Advanced Reverse Proxy)
 
-**Статус реализации:** ✅ **100% COMPLETE + STABILITY FIXES**
+**Статус реализации:** ✅ **100% COMPLETE + ADVANCED FEATURES**
 
 | Компонент | Версия | Статус |
 |-----------|--------|--------|
-| **VLESS Reality VPN** | v5.7 | ✅ Stable + Hardened |
+| **VLESS Reality VPN** | v5.7+ | ✅ Stable + Hardened |
 | **HAProxy Unified Architecture** | v4.3+ | ✅ Production (replaces stunnel) |
 | **Subdomain-Based Reverse Proxy** | v4.3+ | ✅ https://domain (NO port!) |
+| **Advanced Reverse Proxy Features** | v5.8-v5.11 | ✅ OAuth2, CSRF, WebSocket, CSP, Security Headers |
+| **Cookie/URL Rewriting** | v5.8 | ✅ Complex auth support (OAuth2, sessions, cookies) |
+| **Enhanced Cookie Handling** | v5.9 | ✅ Multiple Set-Cookie headers (OAuth2/Google Auth) |
+| **CSRF Protection** | v5.9 | ✅ Referer rewriting for target domain |
+| **WebSocket Support** | v5.9 | ✅ Long-lived connections (3600s timeout) |
+| **CSP Header Handling** | v5.10 | ✅ Configurable strip/keep (default: strip) |
+| **Intelligent Sub-filter** | v5.10 | ✅ 5 URL patterns (protocol-relative, JSON, JS) |
+| **Advanced Wizard** | v5.10 | ✅ Interactive options (OAuth2/WebSocket/CSP) |
+| **Enhanced Security Headers** | v5.11 | ✅ COOP, COEP, CORP, Expect-CT (opt-in) |
 | **Reverse Proxy Stability Fixes** | v5.2-v5.7 | ✅ Rate limiting zones, IPv6 fix, IP monitoring |
 | **Xray Permission Handling** | v5.4-v5.6 | ✅ Automated permission fix before container start |
 | **IPv6 Unreachable Fix** | v5.2-v5.3 | ✅ IPv4-only resolution + monitoring |
@@ -185,6 +194,75 @@
 | **NFR-RELIABILITY-001** | Cert renewal success > 99% | ✅ Monitored |
 
 **Детали:** [→ Non-Functional Requirements](03_nfr.md)
+
+---
+
+## Reverse Proxy Advanced Features (v5.8-v5.11)
+
+### Feature Evolution
+
+**v5.8 - Cookie/URL Rewriting Foundation**
+- **Cookie Domain Rewriting**: `proxy_cookie_domain` for session persistence
+- **URL Rewriting**: `sub_filter` for HTML/JS/CSS links
+- **Origin Header**: CORS compatibility for target site
+- **Use Case**: Session-based auth, form-based login
+
+**v5.9 - Complex Authentication Support**
+- **Enhanced Cookie Handling**: Multiple Set-Cookie headers (OAuth2/Google Auth)
+- **Large Cookie Support**: Increased buffers (32k/16x32k/64k) for OAuth2 state >4kb
+- **CSRF Protection**: Referer header rewriting from proxy domain → target domain
+- **WebSocket Support**: Long-lived connections (3600s timeout), connection upgrade map
+- **Use Case**: OAuth2, Google Auth, CSRF-protected APIs, real-time apps
+
+**v5.10 - CSP & Intelligent Rewriting**
+- **CSP Header Handling**: Configurable strip/keep (default: strip for compatibility)
+- **Intelligent Sub-filter**: 5 URL patterns (protocol-relative, JSON, JS strings)
+- **Advanced Wizard**: Interactive options (OAuth2/WebSocket/CSP)
+- **JSON Content Type**: API responses properly rewritten
+- **Use Case**: Modern SPAs (React, Vue, Angular), API-heavy sites
+
+**v5.11 - Enhanced Security Headers**
+- **Modern Isolation Headers**: COOP, COEP, CORP, Expect-CT (opt-in)
+- **Browser Isolation**: Protects against Spectre-like attacks
+- **Certificate Transparency**: Enforced CT validation
+- **Configurable**: Default OFF (compatibility first), opt-in via wizard
+- **Use Case**: High-security internal apps, compliance requirements
+
+### Supported Authentication Scenarios
+
+| Scenario | Status | Version | Notes |
+|----------|--------|---------|-------|
+| **Session Cookies** | ✅ Working | v5.8+ | Cookie domain rewriting |
+| **Form-based Login** | ✅ Working | v5.8+ | POST/PUT/DELETE with CSRF |
+| **OAuth2 / OIDC** | ✅ Working | v5.9+ | Multiple cookies, large buffers |
+| **Google Auth** | ✅ Working | v5.9+ | OAuth2 state cookies >4kb |
+| **CSRF-protected APIs** | ✅ Working | v5.9+ | Referer rewriting |
+| **WebSocket Auth** | ✅ Working | v5.9+ | Long-lived connections |
+| **Modern SPAs** | ✅ Working | v5.10+ | CSP stripping, intelligent rewriting |
+| **HTTP Basic Auth** | ✅ Working | v4.3+ | Native nginx support |
+| **JWT (cookie-based)** | ✅ Working | v5.9+ | Large cookie support |
+
+**Not Supported:**
+- ❌ Client-side certificates (mTLS)
+- ❌ Kerberos / NTLM
+- ❌ SAML (requires XML rewriting)
+
+### Configuration Options (v5.10+)
+
+**Environment Variables:**
+- `OAUTH2_SUPPORT` (default: true) - Large buffers, multiple Set-Cookie headers
+- `ENABLE_WEBSOCKET` (default: true) - Long timeouts, connection upgrade map
+- `STRIP_CSP` (default: true) - Remove CSP headers for compatibility
+- `ENHANCED_SECURITY_HEADERS` (default: false) - Modern isolation headers (v5.11)
+
+**Interactive Wizard (vless-setup-proxy):**
+- Step 5: Advanced Options (v5.10+)
+  - OAuth2 / Large Cookie Support [Y/n]
+  - WebSocket Support [Y/n]
+  - Strip CSP Headers [Y/n]
+  - Enhanced Security Headers [y/N] (v5.11)
+
+**Детали:** [→ REVERSE_PROXY_IMPROVEMENT_PLAN.md](../REVERSE_PROXY_IMPROVEMENT_PLAN.md), [→ CHANGELOG.md](../CHANGELOG.md)
 
 ---
 

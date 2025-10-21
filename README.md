@@ -1,6 +1,6 @@
 # VLESS + Reality VPN Server
 
-**Версия**: 5.0 (HAProxy Unified Architecture)
+**Версия**: 5.11 (Advanced Reverse Proxy Complete)
 **Статус**: Production Ready
 **Лицензия**: MIT
 
@@ -99,7 +99,10 @@
 | Возможность | Описание | Use Case |
 |-------------|----------|----------|
 | **SOCKS5/HTTP Proxy** | Доступ без VPN клиента | VSCode, Docker, Git через прокси |
-| **Reverse Proxy** | Доступ к сайтам через поддомены | `https://claude.example.com` вместо VPN |
+| **Reverse Proxy (v5.11)** | Доступ к сайтам через поддомены | `https://claude.example.com` вместо VPN |
+| **Advanced Auth Support (v5.8-v5.11)** | OAuth2, Google Auth, WebSocket, CSRF | Проксирование сложных сайтов с авторизацией |
+| **CSP Header Handling (v5.10)** | Автоматическая совместимость с SPA | React, Vue, Angular сайты работают |
+| **Enhanced Security (v5.11)** | COOP, COEP, CORP, Expect-CT | Дополнительная изоляция браузера |
 | **IP Whitelisting** | Ограничение по IP | Доступ только с офисного IP |
 | **fail2ban защита** | Автобан по IP после 5 неудач | Защита от брут-форса |
 
@@ -260,15 +263,22 @@ git config --global http.proxy socks5s://maria:PASSWORD@vpn.example.com:1080
 # Готово! VSCode и Git работают через прокси
 ```
 
-### Reverse Proxy для доступа к Claude AI
+### Reverse Proxy для доступа к Claude AI (с поддержкой OAuth2/WebSocket - v5.11)
 
 ```bash
-# 1. Создайте reverse proxy
+# 1. Создайте reverse proxy с advanced options
 sudo vless-proxy add
 
-# Вводите:
+# Интерактивный wizard (v5.10+):
 # Subdomain: claude.example.com
 # Target: claude.ai
+# Email: your@email.com
+#
+# Advanced Options (Step 5):
+#   OAuth2 Support: [Y]       # Для Google Auth, large cookies
+#   WebSocket Support: [Y]    # Для real-time updates
+#   Strip CSP Headers: [Y]    # Для совместимости с SPA
+#   Enhanced Security: [N]    # По умолчанию OFF (совместимость)
 
 # 2. Получите credentials
 sudo vless-proxy show claude.example.com
@@ -277,8 +287,21 @@ sudo vless-proxy show claude.example.com
 https://claude.example.com
 # (браузер спросит username/password)
 
-# Готово! Доступ к Claude AI без VPN клиента
+# Готово! Полная поддержка:
+# ✅ OAuth2 / Google Auth
+# ✅ WebSocket (real-time updates)
+# ✅ Session cookies
+# ✅ CSRF-protected forms
+# ✅ Modern SPAs (React/Vue/Angular)
 ```
+
+**Новое в v5.8-v5.11:**
+- ✅ **OAuth2 / Google Auth** - автоматическая поддержка множественных cookies и больших state параметров (>4kb)
+- ✅ **WebSocket** - real-time connections для chat apps, collaborative editing
+- ✅ **CSRF Protection** - автоматический rewriting Referer headers для форм
+- ✅ **CSP Handling** - удаление Content-Security-Policy headers для совместимости
+- ✅ **Intelligent URL Rewriting** - 5 паттернов (protocol-relative, JSON, JS strings)
+- ✅ **Enhanced Security** - опциональные COOP/COEP/CORP headers для high-security scenarios
 
 ---
 
@@ -489,5 +512,7 @@ MIT License - делайте что хотите, но без гарантий.
 
 **Готовы начать?** → [Инструкция по установке](docs/installation.md)
 
-**Версия:** 5.0 (HAProxy Unified Architecture)
-**Дата:** 2025-10-19
+**Версия:** 5.11 (Advanced Reverse Proxy Complete)
+**Дата:** 2025-10-20
+
+**История изменений:** [CHANGELOG.md](CHANGELOG.md) | **Детальная документация:** [docs/prd/00_summary.md](docs/prd/00_summary.md)

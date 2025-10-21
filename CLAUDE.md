@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.7 (Reverse Proxy Stability + Xray Permission Fixes)
+**Version:** 5.11 (Advanced Reverse Proxy Complete)
 **Last Updated:** 2025-10-20
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -740,6 +740,10 @@ sudo vless test-security --dev-mode
 
 | Версия | Дата | Ключевые изменения |
 |--------|------|--------------------|
+| **v5.11** | 2025-10-20 | Enhanced Security Headers (COOP, COEP, CORP, Expect-CT) opt-in via wizard |
+| **v5.10** | 2025-10-20 | Advanced Wizard + CSP handling + Intelligent sub-filter (5 patterns) |
+| **v5.9** | 2025-10-20 | OAuth2, CSRF protection, WebSocket support for reverse proxy |
+| **v5.8** | 2025-10-20 | Cookie/URL rewriting foundation for complex auth (sessions, OAuth2) |
 | **v5.7** | 2025-10-20 | SOCKS5 outbound IP: 127.0.0.1 → 0.0.0.0 (Docker networking fix) |
 | **v5.6** | 2025-10-20 | Installation step reorder: fix Xray permissions before container start |
 | **v5.5** | 2025-10-20 | Xray permission verification + debug logging to prevent crashes |
@@ -762,6 +766,33 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.11 - 2025-10-20: Enhanced Security Headers (Reverse Proxy)
+  - Added: Optional COOP, COEP, CORP, Expect-CT headers (disabled by default)
+  - Added: ENHANCED_SECURITY_HEADERS environment variable
+  - Added: Wizard Step 5 option #4 for enhanced security
+  - File: lib/nginx_config_generator.sh, scripts/vless-setup-proxy
+
+v5.10 - 2025-10-20: Advanced Wizard + CSP + Intelligent Sub-filter
+  - Added: Advanced configuration wizard (OAuth2/WebSocket/CSP options)
+  - Added: CSP header stripping (configurable via STRIP_CSP)
+  - Added: Intelligent sub-filter with 5 URL patterns (protocol-relative, JSON, JS)
+  - Added: application/json content type support
+  - File: lib/nginx_config_generator.sh, scripts/vless-setup-proxy
+
+v5.9 - 2025-10-20: OAuth2, CSRF Protection, WebSocket Support
+  - Added: Enhanced cookie handling (multiple Set-Cookie headers)
+  - Added: Large cookie support (32k/16x32k/64k buffers for OAuth2 state >4kb)
+  - Added: CSRF protection (Referer header rewriting)
+  - Added: WebSocket support (3600s timeout, connection upgrade map)
+  - File: lib/nginx_config_generator.sh
+
+v5.8 - 2025-10-20: Cookie/URL Rewriting Foundation
+  - Added: Cookie domain rewriting (proxy_cookie_domain)
+  - Added: URL rewriting (sub_filter for HTML/JS/CSS)
+  - Added: Origin header rewriting for CORS
+  - Use Case: Session-based auth, form-based login, OAuth2 foundation
+  - File: lib/nginx_config_generator.sh
+
 v5.7 - 2025-10-20: SOCKS5 Outbound IP Configuration Fix
   - Changed: SOCKS5 outbound listen from 127.0.0.1 → 0.0.0.0
   - Reason: Allow HAProxy to connect to Xray SOCKS5 port via Docker network
