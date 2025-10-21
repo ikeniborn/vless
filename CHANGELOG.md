@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.17] - 2025-10-21
+
+### Fixed - Version Tracking Bug (CRITICAL BUGFIX)
+
+**Migration Type:** Non-breaking fix (applies to all installations)
+
+**Problem:** Hardcoded version "3.4" in `install.sh` prevented correct version tracking, causing:
+- Confusion during troubleshooting (installed version showed 3.4 vs actual code 5.15+)
+- Difficulty identifying which fixes were applied
+- Inability to track compatibility with features
+
+**Root Cause:** Version number was hardcoded in `install.sh:422` instead of using a constant
+
+**Solution:**
+1. Added `VERSION` constant to `install.sh` (line 46)
+2. Changed version file creation to use `${VERSION}` variable (line 425)
+3. Updated header comment to match CHANGELOG.md version (line 31)
+
+**Files Changed:**
+- `install.sh`: +3 lines (VERSION constant, dynamic version writing)
+- `CLAUDE.md`: Updated to v5.17 with fix documentation
+
+**Impact:**
+- ✅ Version tracking now accurate for all new installations
+- ✅ Easier troubleshooting and compatibility checks
+- ✅ Consistent versioning across codebase
+
+**Triggered By:** Permission error diagnosis (vless_xray crash loop investigation)
+
+**Related Issues:** Issue 4 (Xray Container Unhealthy - Wrong Port Configuration)
+
+---
+
 ## [5.15] - 2025-10-21
 
 ### Added - Enhanced Pre-flight Checks (4 New Validations)

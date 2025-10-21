@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.15 (Enhanced Pre-flight Checks)
+**Version:** 5.17 (Version Tracking Fix)
 **Last Updated:** 2025-10-21
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -766,6 +766,14 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.17 - 2025-10-21: Version Tracking Fix (CRITICAL BUGFIX)
+  - Fixed: Hardcoded version "3.4" in install.sh preventing correct version tracking
+  - Added: VERSION constant matching CHANGELOG.md (currently 5.15)
+  - Changed: install.sh:422 from echo "3.4" → echo "${VERSION}"
+  - Impact: Correct version tracking for troubleshooting and compatibility checks
+  - Root Cause: Version mismatch caused confusion during permission error diagnosis
+  - Files: install.sh (+3 lines)
+
 v5.15 - 2025-10-21: Enhanced Pre-flight Checks (4 NEW Validations)
   - Added: 4 new checks to check_proxy_limitations() (total: 10 checks)
   - Check 7: DNS Pre-validation (A/AAAA records, IP verification) - CRITICAL
