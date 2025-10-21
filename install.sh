@@ -43,7 +43,8 @@ readonly COLOR_CYAN='\033[0;36m'
 readonly COLOR_RESET='\033[0m'
 
 # Version tracking (matches CHANGELOG.md)
-readonly VERSION="5.15"
+# Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
+readonly VLESS_VERSION="5.17"
 
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -422,9 +423,9 @@ main() {
     print_success "Installation verified"
 
     # Step 9.5: Save version file
-    echo "${VERSION}" > "${INSTALL_ROOT}/.version"
+    echo "${VLESS_VERSION}" > "${INSTALL_ROOT}/.version"
     chmod 644 "${INSTALL_ROOT}/.version"
-    print_message "${COLOR_CYAN}" "Version file saved: v${VERSION}"
+    print_message "${COLOR_CYAN}" "Version file saved: v${VLESS_VERSION}"
 
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"
