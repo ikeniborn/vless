@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.17 (Installation Bugfix - VERSION Conflict)
+**Version:** 5.20 (Automatic Library Installation Fix)
 **Last Updated:** 2025-10-21
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -740,6 +740,12 @@ sudo vless test-security --dev-mode
 
 | Версия | Дата | Ключевые изменения |
 |--------|------|--------------------|
+| **v5.19** | 2025-10-21 | Reverse Proxy Database Save Failure Fix (CRITICAL) - jq --argjson error with "N/A" |
+| **v5.18** | 2025-10-21 | Xray Container Permission Errors Fix (CRITICAL) - removed user: nobody |
+| **v5.17** | 2025-10-21 | Installation Crash Fix (CRITICAL) - VERSION variable conflict with /etc/os-release |
+| **v5.15** | 2025-10-21 | Enhanced Pre-flight Checks (4 NEW validations: DNS, fail2ban, rate limit, HAProxy) |
+| **v5.14** | 2025-10-21 | Comprehensive Pre-flight Checks (7 categories: containers, disk, limits, ports, domains, Cloudflare, reachability) |
+| **v5.12** | 2025-10-21 | HAProxy Reload Timeout Fix (10s timeout prevents indefinite hanging) |
 | **v5.11** | 2025-10-20 | Enhanced Security Headers (COOP, COEP, CORP, Expect-CT) opt-in via wizard |
 | **v5.10** | 2025-10-20 | Advanced Wizard + CSP handling + Intelligent sub-filter (5 patterns) |
 | **v5.9** | 2025-10-20 | OAuth2, CSRF protection, WebSocket support for reverse proxy |
@@ -766,6 +772,27 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.20 - 2025-10-21: Incomplete Library Installation (CRITICAL BUGFIX)
+  - Fixed: Only 14 of 28 library modules copied during installation
+  - Problem: Hardcoded module list in orchestrator.sh (missed 14 modules)
+  - Impact: Wizards used outdated libraries, latest features NOT available
+  - Solution: Automatic copying of ALL *.sh from lib/ (with smart exclusion)
+  - Exclusions: 8 installation-only modules (dependencies.sh, os_detection.sh, etc.)
+  - Permissions: 755 for executable (security_tests.sh), 644 for sourced (rest)
+  - Summary output: Shows copied/skipped counts (e.g., "20 modules copied, 8 skipped")
+  - Files: lib/orchestrator.sh:1413-1488 (install_cli_tools function rewritten)
+  - Testing: ls -l /opt/vless/lib/*.sh | wc -l (should be 20, was 14 before)
+
+v5.19 - 2025-10-21: Reverse Proxy Database Save Failure (CRITICAL BUGFIX)
+  - Fixed: Configurations NOT saved to database after wizard completion (jq --argjson error)
+  - Root Cause 1: add_proxy() used --argjson for parameters, but received string "N/A" instead of JSON
+  - Root Cause 2: init_database() skipped initialization for empty files (0 bytes)
+  - Solution 1: Rewrote add_proxy() - use --arg + jq type conversion (tonumber, if-then-else)
+  - Solution 2: Enhanced init_database() - check file exists AND not empty AND valid JSON
+  - Impact: All reverse proxy configs now saved correctly, CLI commands work (list/show/remove)
+  - Files: lib/reverseproxy_db.sh (2 functions: init_database, add_proxy)
+  - Note: Handles "N/A" → JSON null conversion safely
+
 v5.18 - 2025-10-21: Xray Container Permission Errors (CRITICAL BUGFIX)
   - Fixed: Xray container failed to start with permission denied on config and logs
   - Root Cause: Container ran as user: nobody (UID 65534), files owned by root:root

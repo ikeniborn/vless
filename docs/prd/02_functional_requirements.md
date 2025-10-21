@@ -847,15 +847,18 @@ If migration fails:
 - [ ] .htpasswd file: `htpasswd -bc .htpasswd-${DOMAIN} username password`
 - [ ] Credentials saved to `/opt/vless/config/reverse_proxies.json`
 
-**AC-4: Configuration Updates (v4.3 UPDATED)**
+**AC-4: Configuration Updates (v4.3 UPDATED, v5.2+ SIMPLIFIED)**
 - [ ] **NEW v4.3:** HAProxy ACL added dynamically (sed-based)
 - [ ] **NEW v4.3:** HAProxy backend added for Nginx port
 - [ ] Nginx config created (server block for localhost:9443-9452)
-- [ ] Xray config updated (new inbound + routing rules)
+- [ ] **v5.2+:** Nginx proxy_pass to target site IPv4 (DIRECT, no Xray inbound)
+- [ ] **v5.2+:** IPv4 resolution at config generation time (prevents IPv6 unreachable)
+- [ ] **v5.2+:** Database entry created (reverse_proxies.json with target_ipv4)
 - [ ] docker-compose.yml updated (Nginx port mapping via lib/docker_compose_manager.sh)
 - [ ] fail2ban jail config created (multi-port support, HAProxy + Nginx filters)
 - [ ] **REMOVED:** UFW rule for reverse proxy port (все через HAProxy port 443)
-- [ ] Config validation: `nginx -t`, `xray run -test -c config.json`, `haproxy -c -f haproxy.cfg`
+- [ ] **REMOVED:** Xray config update (no inbound/routing rules since v5.2+)
+- [ ] Config validation: `nginx -t`, `haproxy -c -f haproxy.cfg`
 
 **AC-5: Service Restart (v4.3 UPDATED)**
 - [ ] `docker compose up -d` applies changes
@@ -882,8 +885,8 @@ curl -I -u wrong:credentials https://claude.ikeniborn.ru  # NO :9443!
 # Expected: HTTP/1.1 401 Unauthorized
 ```
 
-**AC-9: Domain Restriction (UNCHANGED)**
-- User cannot access other sites via reverse proxy (blocked by Xray routing)
+**AC-9: Domain Restriction (v5.2+ UPDATED)**
+- User cannot access other sites via reverse proxy (Nginx proxy_pass hardcoded to specific target IP)
 
 **AC-10: CLI - vless-proxy add (v4.3 UPDATED)**
 ```bash
@@ -909,10 +912,11 @@ sudo vless-proxy show subdomain.example.com
 # Output: Shows credentials, certificate expiry, fail2ban status
 ```
 
-**AC-13: CLI - vless-proxy remove <domain> (v4.3 UPDATED)**
+**AC-13: CLI - vless-proxy remove <domain> (v4.3 UPDATED, v5.2+ SIMPLIFIED)**
 ```bash
 sudo vless-proxy remove subdomain.example.com
-# Output: Removes HAProxy ACL, Nginx config, Xray inbound, docker-compose.yml entry
+# Output: Removes HAProxy ACL, Nginx config, database entry, docker-compose.yml port
+# REMOVED: Xray inbound removal (no inbound since v5.2+)
 # NO UFW rule removal (все через HAProxy port 443)
 ```
 
@@ -957,9 +961,10 @@ sudo vless-proxy remove subdomain.example.com
 - [ ] bcrypt hashed in .htpasswd
 - [ ] No plaintext password storage
 
-**SEC-3: Domain Restriction (UNCHANGED)**
-- [ ] Xray routing: ONLY specified target domain allowed
-- [ ] Catch-all rule: `outboundTag: block`
+**SEC-3: Domain Restriction (v5.2+ UPDATED)**
+- [ ] **v5.2+:** Nginx proxy_pass hardcoded to specific target IPv4 (resolved at config time)
+- [ ] **v5.2+:** Host header hardcoded to target domain (prevents domain hopping)
+- [ ] **REMOVED:** Xray routing rules (no inbound since v5.2+)
 - [ ] No wildcard domains
 
 **SEC-4: Rate Limiting (v4.3 UPDATED)**
@@ -1059,39 +1064,52 @@ action = ufw
 
 #### 6. Configuration File Formats
 
-**reverse_proxies.json (v4.3 UPDATED):**
+**reverse_proxies.json (v4.3 UPDATED, v5.2+ SIMPLIFIED):**
 ```json
 {
   "version": "1.0",
-  "reverse_proxies": [
+  "proxies": [
     {
+      "id": 1,
       "domain": "claude.ikeniborn.ru",
       "target_site": "claude.ai",
-      "nginx_backend_port": 9443,
-      "xray_inbound_port": 10080,
-      "username": "a3f9c2e1",
-      "password_hash": "$2y$10$...",
-      "created_at": "2025-10-16T21:00:00Z",
-      "certificate": "/etc/letsencrypt/live/claude.ikeniborn.ru/",
+      "target_ipv4": "104.21.9.2",
+      "target_ipv4_last_checked": "2025-10-21T14:00:00Z",
+      "port": 9443,
+      "username": "user_a3f9c2e1",
+      "password": "6c5513ee9dfdfb04415f2976b6e050df",
+      "xray_inbound_port": null,
+      "xray_inbound_tag": null,
       "certificate_expires": "2026-01-14T21:00:00Z",
-      "last_renewed": "2025-10-16T21:00:00Z",
-      "enabled": true
+      "certificate_renewed_at": "2025-10-16T21:00:00Z",
+      "enabled": true,
+      "created_at": "2025-10-16T21:00:00Z",
+      "notes": ""
     }
-  ]
+  ],
+  "created_at": "2025-10-16T21:00:00Z",
+  "updated_at": "2025-10-21T14:00:00Z"
 }
 ```
 
-**Note:** `nginx_backend_port` is NEW in v4.3 (replaces `port` field from v4.2). This port is localhost-only (NOT exposed to internet).
+**Notes:**
+- `port` is Nginx backend port (9443-9452, localhost-only, NOT exposed to internet)
+- **v5.2+:** `target_ipv4` added - resolved IPv4 at config generation time (prevents IPv6 unreachable errors)
+- **v5.2+:** `target_ipv4_last_checked` - timestamp for IP monitoring cron job
+- **v5.2+:** `xray_inbound_port` and `xray_inbound_tag` are `null` (no Xray inbound since v5.2+)
+- `password` is plaintext (NOT bcrypt hash) - used for generating .htpasswd file
 
 ---
 
 #### 7. Implementation Scope
 
-**In Scope (v4.3):**
+**In Scope (v4.3, v5.2+ UPDATED):**
 - ✅ CLI tools: `vless-proxy` (add/list/show/remove) - subdomain-based
 - ✅ HAProxy ACL management (lib/haproxy_config_manager.sh)
 - ✅ Nginx config generation via heredoc (lib/nginx_config_generator.sh)
-- ✅ Xray HTTP inbound management (lib/xray_http_inbound.sh)
+- ✅ **v5.2+:** IPv4 resolution at config time (lib/nginx_config_generator.sh)
+- ✅ **v5.2+:** IP monitoring cron job (scripts/vless-monitor-reverse-proxy-ips)
+- ❌ **REMOVED v5.2+:** Xray HTTP inbound management (no inbound needed for direct proxy)
 - ✅ Let's Encrypt integration (extends FR-CERT-001/002)
 - ✅ fail2ban multi-port support (HAProxy + Nginx filters)
 - ✅ **REMOVED:** UFW firewall rules per domain (все через HAProxy port 443)

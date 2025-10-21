@@ -7,6 +7,177 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.20] - 2025-10-21
+
+### Fixed - Incomplete Library Installation (CRITICAL BUGFIX)
+
+**Migration Type:** Automatic (applies to new installations)
+
+**Problem:** Only 14 of 28 library modules were copied during installation
+- `lib/orchestrator.sh:1414-1429` had **hardcoded** list of modules to copy
+- **Missing 14 modules** that are required for wizards to work with latest features
+- Changes in development directory NOT reflected after full reinstall
+
+**Root Cause:**
+Hardcoded module list in `install_cli_tools()` function:
+```bash
+local lib_modules=(
+    "user_management.sh"
+    "qr_generator.sh"
+    # ... only 14 modules total
+)
+```
+
+**Missing Modules (NOT copied):**
+- `cert_renewal_monitor.sh` - Certificate auto-renewal monitoring
+- `certbot_setup.sh` - Certbot integration
+- `fail2ban_setup.sh` - fail2ban configuration
+- `service_operations.sh` - Service management utilities
+- `xray_http_inbound_no-op.sh` - No-op placeholder for removed feature
+- ... and others needed for runtime
+
+**Impact:**
+- Wizards (vless-setup-proxy) used outdated library versions after reinstall
+- Latest features (v5.11, v5.10, v5.9, v5.13) NOT available in production
+- Confusing: changes in dev directory NOT applied even after full reinstall
+
+**Solution:**
+
+**lib/orchestrator.sh:1413-1488** - Automatic library copying:
+```bash
+# v5.20: Copy ALL lib modules automatically
+for lib_file in "${project_root}/lib/"*.sh; do
+    # Skip installation-only modules
+    # Copy everything else with correct permissions
+done
+```
+
+**Features:**
+1. **Automatic Discovery**: Copies ALL `*.sh` files from `lib/` directory
+2. **Smart Exclusion**: Skips installation-only modules:
+   - `dependencies.sh`, `os_detection.sh`, `interactive_params.sh`
+   - `old_install_detect.sh`, `sudoers_info.sh`, `verification.sh`
+   - `orchestrator.sh`, `network_params.sh`
+3. **Correct Permissions**:
+   - Executable modules: `755` (`security_tests.sh`)
+   - Sourced modules: `644` (all others)
+4. **Summary Output**: Shows copied/skipped counts
+
+**Before (v5.19):**
+```
+Copying 14 modules (hardcoded list)...
+✓ Copied user_management.sh
+✓ Copied qr_generator.sh
+...
+```
+
+**After (v5.20):**
+```
+📁 Copying ALL library modules from /home/ikeniborn/vless/lib/...
+⊘ Skipped dependencies.sh (installation-only)
+⊘ Skipped os_detection.sh (installation-only)
+✓ Copied user_management.sh (sourced: 644)
+✓ Copied qr_generator.sh (sourced: 644)
+✓ Copied nginx_config_generator.sh (sourced: 644)
+...
+📊 Summary: 20 modules copied, 8 skipped
+```
+
+**Testing:**
+```bash
+# Test full installation
+sudo ./install.sh
+
+# Verify all modules copied
+ls -l /opt/vless/lib/*.sh | wc -l  # Should be 20
+
+# Verify wizard uses latest libraries
+sudo vless-setup-proxy  # Should have v5.11-v5.13 features
+```
+
+**Benefits:**
+- ✅ ALL runtime libraries copied automatically
+- ✅ No more manual module list maintenance
+- ✅ Latest features available immediately after install
+- ✅ Prevents missing library errors
+
+---
+
+## [5.19] - 2025-10-21
+
+### Fixed - Reverse Proxy Database Save Failure (CRITICAL BUGFIX)
+
+**Migration Type:** Automatic (applies immediately to existing installations)
+
+**Problem:** Reverse proxy wizard completed successfully but configurations were NOT saved to database:
+```
+▶ Сохранение конфигурации в БД...
+jq: invalid JSON text passed to --argjson
+```
+
+**Root Cause:**
+1. **lib/reverseproxy_db.sh:304-333** - Function `add_proxy()` used `--argjson` for all parameters
+2. **scripts/vless-setup-proxy:1072-1073** - Variables `xray_port` and `xray_tag` set to string "N/A"
+3. **jq behavior** - `--argjson` expects valid JSON (number, boolean, object), but received unquoted string "N/A"
+4. **Database not initialized** - `init_database()` returned early if file existed but was empty (0 bytes)
+
+**Impact:**
+- All reverse proxy configurations LOST after wizard completion
+- `sudo vless-proxy list` showed empty list
+- `sudo vless-proxy show <domain>` failed with "not found"
+- Nginx configs created, HAProxy routes added, but NO database record
+
+**Solution:**
+
+1. **lib/reverseproxy_db.sh:302-336** - Rewrote `add_proxy()` function:
+   - Changed from `--argjson` to `--arg` for ALL parameters (strings only)
+   - Added type conversion inside jq expression:
+     ```jq
+     port: ($port | tonumber)
+     xray_inbound_port: (if $xray_port == "N/A" or $xray_port == "" then null else ($xray_port | tonumber) end)
+     xray_inbound_tag: (if $xray_tag == "N/A" or $xray_tag == "" then null else $xray_tag end)
+     ```
+   - Handles "N/A" strings → JSON null safely
+
+2. **lib/reverseproxy_db.sh:85-111** - Fixed `init_database()` function:
+   - Changed condition from:
+     ```bash
+     if [[ -f "$DB_FILE" ]]; then
+     ```
+   - To:
+     ```bash
+     if [[ -f "$DB_FILE" ]] && [[ -s "$DB_FILE" ]] && jq empty "$DB_FILE" 2>/dev/null; then
+     ```
+   - Now checks: file exists AND not empty AND valid JSON
+   - Reinitializes database if any condition fails
+
+**Files Changed:**
+- `lib/reverseproxy_db.sh` - 2 functions fixed (`init_database`, `add_proxy`)
+
+**PRD Documentation Updated:**
+- `docs/prd/04_architecture.md` - Section 4.6: Marked as DEPRECATED, removed Xray inbound, updated to direct proxy
+- `docs/prd/02_functional_requirements.md` - FR-REVERSE-PROXY-001: Updated AC-4/9/13, SEC-3, database schema
+- Architecture choice: **Variant B (Direct Proxy)** - Nginx → Target Site (no Xray inbound)
+
+**Testing:**
+```bash
+# Manual test after fix
+sudo bash -c 'cd /opt/vless && source lib/reverseproxy_db.sh && \
+  add_proxy "test.example.com" "target.com" 9444 "user" "pass" "N/A" "N/A" \
+  "2026-01-20T00:00:00Z" "1.2.3.4" "Test proxy"'
+
+sudo vless-proxy list  # Shows 1 proxy
+sudo cat /opt/vless/config/reverse_proxies.json | jq .  # Valid JSON with null values
+```
+
+**Notes:**
+- Existing reverse proxies (created before v5.19) need manual database recovery
+- Run `sudo vless-proxy list` to check if database is populated
+- If empty, use installation wizard to re-add proxies (configs already exist)
+- PRD now correctly documents v5.2+ direct proxy architecture (no Xray inbound)
+
+---
+
 ## [5.18] - 2025-10-21
 
 ### Fixed - Xray Container Permission Errors (CRITICAL BUGFIX)

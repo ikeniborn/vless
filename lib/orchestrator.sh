@@ -1410,50 +1410,82 @@ install_cli_tools() {
         echo "  ℹ vless-setup-proxy installation skipped"
     fi
 
-    # Copy lib modules to installation (required for CLI to function)
-    local lib_modules=(
-        "user_management.sh"
-        "qr_generator.sh"
-        "proxy_whitelist.sh"
-        "ufw_whitelist.sh"
-        "security_tests.sh"
-        "reverseproxy_db.sh"
-        "xray_http_inbound.sh"
-        "letsencrypt_integration.sh"
-        "haproxy_config_manager.sh"
-        "nginx_config_generator.sh"
-        "fail2ban_config.sh"
-        "docker_compose_manager.sh"
-        "docker_compose_generator.sh"
-        "certificate_manager.sh"
+    # v5.20: Copy ALL lib modules automatically (except installation-only modules)
+    # Installation-only modules (excluded from copy):
+    local exclude_modules=(
+        "dependencies.sh"       # Only for install.sh
+        "os_detection.sh"       # Only for install.sh
+        "interactive_params.sh" # Only for install.sh
+        "old_install_detect.sh" # Only for install.sh
+        "sudoers_info.sh"       # Only for install.sh
+        "verification.sh"       # Only for install.sh
+        "orchestrator.sh"       # This file itself
+        "network_params.sh"     # Only for install.sh
     )
 
-    for module in "${lib_modules[@]}"; do
-        if [[ -f "${project_root}/lib/${module}" ]]; then
-            cp "${project_root}/lib/${module}" "${INSTALL_ROOT}/lib/" || {
+    # Executable modules (need 755 permissions)
+    local executable_modules=(
+        "security_tests.sh"
+    )
+
+    echo "  📁 Copying ALL library modules from ${project_root}/lib/..."
+    local copied_count=0
+    local skipped_count=0
+
+    # Copy all *.sh files from lib/
+    for lib_file in "${project_root}/lib/"*.sh; do
+        local module=$(basename "$lib_file")
+
+        # Check if module should be excluded
+        local should_exclude=false
+        for excluded in "${exclude_modules[@]}"; do
+            if [[ "$module" == "$excluded" ]]; then
+                should_exclude=true
+                echo "  ⊘ Skipped ${module} (installation-only)"
+                ((skipped_count++))
+                break
+            fi
+        done
+
+        if [[ "$should_exclude" == "true" ]]; then
+            continue
+        fi
+
+        # Copy module
+        if [[ -f "$lib_file" ]]; then
+            cp "$lib_file" "${INSTALL_ROOT}/lib/" || {
                 echo -e "${RED}Failed to copy ${module}${NC}" >&2
                 return 1
             }
 
-            # Set permissions: 755 for executable scripts, 644 for sourced modules
-            if [[ "${module}" == "security_tests.sh" ]]; then
+            # Set permissions based on module type
+            local is_executable=false
+            for exec_module in "${executable_modules[@]}"; do
+                if [[ "$module" == "$exec_module" ]]; then
+                    is_executable=true
+                    break
+                fi
+            done
+
+            if [[ "$is_executable" == "true" ]]; then
                 chmod 755 "${INSTALL_ROOT}/lib/${module}" || {
                     echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
                     return 1
                 }
+                echo "  ✓ Copied ${module} (executable: 755)"
             else
                 chmod 644 "${INSTALL_ROOT}/lib/${module}" || {
                     echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
                     return 1
                 }
+                echo "  ✓ Copied ${module} (sourced: 644)"
             fi
 
-            echo "  ✓ Copied ${module} to ${INSTALL_ROOT}/lib/"
-        else
-            echo -e "${RED}Required module not found: ${module}${NC}" >&2
-            return 1
+            ((copied_count++))
         fi
     done
+
+    echo "  📊 Summary: ${copied_count} modules copied, ${skipped_count} skipped"
 
     echo "  ✓ CLI scripts installed:"
     echo "    - ${SCRIPTS_DIR}/vless"

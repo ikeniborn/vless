@@ -44,7 +44,7 @@ readonly COLOR_RESET='\033[0m'
 
 # Version tracking (matches CHANGELOG.md)
 # Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
-readonly VLESS_VERSION="5.18"
+readonly VLESS_VERSION="5.20"
 
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

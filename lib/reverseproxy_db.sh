@@ -83,7 +83,8 @@ db_unlock() {
 # Returns: 0 on success
 # ==============================================================================
 init_database() {
-    if [[ -f "$DB_FILE" ]]; then
+    # Check if file exists AND is not empty AND is valid JSON
+    if [[ -f "$DB_FILE" ]] && [[ -s "$DB_FILE" ]] && jq empty "$DB_FILE" 2>/dev/null; then
         return 0
     fi
 
@@ -301,30 +302,33 @@ add_proxy() {
 
     # Build proxy entry
     local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Use --arg for all parameters and handle type conversion in jq
+    # This avoids --argjson issues with "N/A" strings
     local proxy_entry=$(jq -n \
-        --argjson id "$next_id" \
+        --arg id "$next_id" \
         --arg domain "$domain" \
         --arg target "$target_site" \
         --arg target_ip "$target_ipv4" \
-        --argjson port "$port" \
+        --arg port "$port" \
         --arg user "$username" \
         --arg pass "$password" \
-        --argjson xray_port "$xray_port" \
+        --arg xray_port "$xray_port" \
         --arg xray_tag "$xray_tag" \
         --arg cert_expires "$cert_expires" \
         --arg created "$now" \
         --arg notes "$notes" \
         '{
-            id: $id,
+            id: ($id | tonumber),
             domain: $domain,
             target_site: $target,
             target_ipv4: $target_ip,
             target_ipv4_last_checked: $created,
-            port: $port,
+            port: ($port | tonumber),
             username: $user,
             password: $pass,
-            xray_inbound_port: $xray_port,
-            xray_inbound_tag: $xray_tag,
+            xray_inbound_port: (if $xray_port == "N/A" or $xray_port == "" then null else ($xray_port | tonumber) end),
+            xray_inbound_tag: (if $xray_tag == "N/A" or $xray_tag == "" then null else $xray_tag end),
             certificate_expires: $cert_expires,
             certificate_renewed_at: $created,
             enabled: true,
