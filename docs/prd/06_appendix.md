@@ -519,6 +519,33 @@ The following are explicitly NOT included:
 - **[CLAUDE.md Section 11](../../CLAUDE.md#11-common-failure-points--solutions)** - Issue detection, solutions, debug workflows
 - **[CHANGELOG.md](../../CHANGELOG.md)** - Historical rollback scenarios (v3.2 → v3.3, v3.5 → v3.6, v4.2 → v4.3)
 
+### v5.21 Known Issues & Fixes
+
+**Issue 1: Ports not freed after reverse proxy removal (FIXED in v5.21)**
+- **Symptom:** After `vless-proxy remove`, port remains bound, re-add fails with "port occupied"
+- **Root Cause:** `get_current_nginx_ports()` used `grep -A 20`, but ports section at line 21+
+- **Fix:** `lib/docker_compose_generator.sh:334` - Changed `grep -A 20` → `grep -A 30`
+- **Impact:** Ports now correctly freed after removal, can re-add immediately
+
+**Issue 2: Confusing HAProxy reload warnings (FIXED in v5.21)**
+- **Symptom:** Every add/remove shows `"⚠️ HAProxy reload timed out"` (normal, but alarming)
+- **Root Cause:** Timeout warnings shown even when reload succeeds (active connections)
+- **Fix:** `lib/haproxy_config_manager.sh:427` - Added `--silent` mode for wizards
+- **Impact:** Cleaner UX, no timeout warnings in wizards, better info (ℹ️) vs error (❌) distinction
+
+**Verification:**
+```bash
+# Test port cleanup
+sudo vless-proxy remove <domain>
+docker ps | grep 9443  # Should be empty
+sudo vless-proxy add   # Re-add should work without "port occupied" error
+
+# Test silent reload
+# No timeout warnings during add/remove operations
+```
+
+---
+
 **v4.3 Rollback Procedures:**
 
 ### Rollback v4.3 → v4.2 (if needed)

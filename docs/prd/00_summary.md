@@ -1,10 +1,10 @@
-# PRD v5.11 - Executive Summary & Navigation
+# PRD v5.21 - Executive Summary & Navigation
 
 **VLESS + Reality VPN Server: Product Requirements Document**
 
-**Version:** 5.11 (Reverse Proxy Advanced Features Complete)
+**Version:** 5.21 (Port Cleanup & HAProxy UX Fixes)
 **Status:** ✅ 100% Implemented + Production-Ready
-**Last Updated:** 2025-10-20
+**Last Updated:** 2025-10-21
 
 ---
 
@@ -21,17 +21,19 @@
 
 ---
 
-## Ключевые характеристики v5.11
+## Ключевые характеристики v5.21
 
-### Текущая версия (Production-Ready + Advanced Reverse Proxy)
+### Текущая версия (Production-Ready + Stability & UX Fixes)
 
-**Статус реализации:** ✅ **100% COMPLETE + ADVANCED FEATURES**
+**Статус реализации:** ✅ **100% COMPLETE + ADVANCED FEATURES + STABILITY FIXES**
 
 | Компонент | Версия | Статус |
 |-----------|--------|--------|
 | **VLESS Reality VPN** | v5.7+ | ✅ Stable + Hardened |
 | **HAProxy Unified Architecture** | v4.3+ | ✅ Production (replaces stunnel) |
 | **Subdomain-Based Reverse Proxy** | v4.3+ | ✅ https://domain (NO port!) |
+| **Port Cleanup on Removal** | v5.21 | ✅ Ports freed correctly after vless-proxy remove |
+| **HAProxy Silent Mode** | v5.21 | ✅ No timeout warnings in wizards (better UX) |
 | **Advanced Reverse Proxy Features** | v5.8-v5.11 | ✅ OAuth2, CSRF, WebSocket, CSP, Security Headers |
 | **Cookie/URL Rewriting** | v5.8 | ✅ Complex auth support (OAuth2, sessions, cookies) |
 | **Enhanced Cookie Handling** | v5.9 | ✅ Multiple Set-Cookie headers (OAuth2/Google Auth) |
@@ -115,6 +117,12 @@
 
 | Версия | Дата | Основное изменение | Impact |
 |--------|------|-------------------|--------|
+| **v5.21** | 2025-10-21 | Port Cleanup & HAProxy UX Fixes | Порты корректно освобождаются после удаления, silent mode для reload_haproxy(), улучшенная UX (нет timeout warnings) |
+| **v5.20** | 2025-10-21 | Automatic Library Installation | Копирование всех lib/ модулей (было 14, стало 20+), wizards всегда используют последние версии |
+| **v5.11** | 2025-10-20 | Enhanced Security Headers | COOP, COEP, CORP, Expect-CT (opt-in) |
+| **v5.10** | 2025-10-20 | Advanced Wizard + CSP | Интерактивные опции OAuth2/WebSocket/CSP, intelligent sub-filter (5 паттернов) |
+| **v5.9** | 2025-10-20 | OAuth2 & Complex Auth | Large cookie support (OAuth2 state >4kb), CSRF protection, WebSocket |
+| **v5.8** | 2025-10-20 | Cookie/URL Rewriting | Foundation для session-based auth, form login, OAuth2 |
 | **v4.3** | 2025-10-18 | HAProxy Unified Architecture | 1 контейнер вместо 2 (stunnel REMOVED), subdomain-based reverse proxy (https://domain, NO port!), ports 9443-9452 |
 | **v4.2** | 2025-10-17 | Reverse proxy planning | Промежуточная версия (см. v4.3 для реализации) |
 | **v4.1** | 2025-10-07 | Heredoc config generation + URI fix | Упрощение (удален envsubst), исправлен баг URI |
