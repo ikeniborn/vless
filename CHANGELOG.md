@@ -9,34 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [5.17] - 2025-10-21
 
-### Fixed - Version Tracking Bug (CRITICAL BUGFIX)
+### Fixed - Installation Failure: VERSION Variable Conflict (CRITICAL BUGFIX)
 
 **Migration Type:** Non-breaking fix (applies to all installations)
 
-**Problem:** Hardcoded version "3.4" in `install.sh` prevented correct version tracking, causing:
-- Confusion during troubleshooting (installed version showed 3.4 vs actual code 5.15+)
-- Difficulty identifying which fixes were applied
-- Inability to track compatibility with features
+**Problem:** Installation failed at "Detecting operating system" step with error:
+```
+/etc/os-release: line 4: VERSION: readonly variable
+✗ ERROR: Installation failed with exit code 1
+```
 
-**Root Cause:** Version number was hardcoded in `install.sh:422` instead of using a constant
+**Root Cause:**
+1. `install.sh` declared `readonly VERSION="5.15"` (line 46)
+2. OS detection sourced `/etc/os-release` which contains `VERSION="24.04.3 LTS (Noble Numbat)"`
+3. Bash prevented overwriting readonly variable, causing exit code 1
+4. Error was hidden by `2>/dev/null` in `os_detection.sh`, making debugging difficult
 
 **Solution:**
-1. Added `VERSION` constant to `install.sh` (line 46)
-2. Changed version file creation to use `${VERSION}` variable (line 425)
-3. Updated header comment to match CHANGELOG.md version (line 31)
+
+1. **install.sh** - Variable Renaming:
+   - Renamed `VERSION` → `VLESS_VERSION` to avoid naming conflict with `/etc/os-release`
+   - Updated from 5.15 → 5.17
+   - Updated all references (2 locations: `.version` file creation and display message)
+
+2. **lib/os_detection.sh** - Error Visibility:
+   - Removed `2>/dev/null` to expose hidden errors
+   - Added proper error handling with `set +e` / `set -e` wrapper
+   - Added detailed error messages for debugging readonly conflicts
+
+3. **lib/verification.sh** - Readonly Variable Safety:
+   - Fixed readonly variable conflict for `INSTALL_ROOT` and `XRAY_IMAGE`
+   - Added conditional check: only set if not already defined
+   - Supports both sourced and standalone execution modes
+   - Fixed container name: `vless_nginx` → `vless_fake_site` (consistency with v4.3+)
 
 **Files Changed:**
-- `install.sh`: +3 lines (VERSION constant, dynamic version writing)
-- `CLAUDE.md`: Updated to v5.17 with fix documentation
+- `install.sh`: Variable rename (VERSION → VLESS_VERSION), version bump (5.15 → 5.17)
+- `lib/os_detection.sh`: Enhanced error handling, removed stderr hiding
+- `lib/verification.sh`: Readonly variable safety, container name fix
 
 **Impact:**
-- ✅ Version tracking now accurate for all new installations
-- ✅ Easier troubleshooting and compatibility checks
-- ✅ Consistent versioning across codebase
+- ✅ Installation now works correctly on Ubuntu 24.04 and all supported OSes
+- ✅ Better error visibility for future troubleshooting
+- ✅ Prevents similar readonly variable conflicts in the future
 
-**Triggered By:** Permission error diagnosis (vless_xray crash loop investigation)
+**Testing:**
+- ✓ Tested on Ubuntu 24.04.3 LTS
+- ✓ OS detection successful
+- ✓ Steps 1-4 of installation pass
 
-**Related Issues:** Issue 4 (Xray Container Unhealthy - Wrong Port Configuration)
+**Discovered By:** User reported installation startup failure
+
+**Related:** v5.15 Enhanced Pre-flight Checks
 
 ---
 

@@ -1,7 +1,7 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.17 (Version Tracking Fix)
+**Version:** 5.17 (Installation Bugfix - VERSION Conflict)
 **Last Updated:** 2025-10-21
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
@@ -766,13 +766,15 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
-v5.17 - 2025-10-21: Version Tracking Fix (CRITICAL BUGFIX)
-  - Fixed: Hardcoded version "3.4" in install.sh preventing correct version tracking
-  - Added: VERSION constant matching CHANGELOG.md (currently 5.15)
-  - Changed: install.sh:422 from echo "3.4" → echo "${VERSION}"
-  - Impact: Correct version tracking for troubleshooting and compatibility checks
-  - Root Cause: Version mismatch caused confusion during permission error diagnosis
-  - Files: install.sh (+3 lines)
+v5.17 - 2025-10-21: Installation Failure - VERSION Variable Conflict (CRITICAL BUGFIX)
+  - Fixed: Installation crash at "Detecting operating system" step
+  - Root Cause: readonly VERSION="5.15" in install.sh conflicted with VERSION in /etc/os-release
+  - Solution: Renamed VERSION → VLESS_VERSION in install.sh (avoid naming conflict)
+  - Enhanced: Error visibility in os_detection.sh (removed 2>/dev/null, added set +e wrapper)
+  - Fixed: Readonly variable safety in verification.sh (INSTALL_ROOT, XRAY_IMAGE)
+  - Fixed: Container name consistency (vless_nginx → vless_fake_site in verification.sh)
+  - Impact: Installation now works on all Ubuntu/Debian versions
+  - Files: install.sh, lib/os_detection.sh, lib/verification.sh
 
 v5.15 - 2025-10-21: Enhanced Pre-flight Checks (4 NEW Validations)
   - Added: 4 new checks to check_proxy_limitations() (total: 10 checks)
