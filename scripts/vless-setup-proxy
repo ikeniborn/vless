@@ -62,6 +62,8 @@ source "${LIB_PATH}/letsencrypt_integration.sh"
 source "${LIB_PATH}/fail2ban_config.sh"
 source "${LIB_PATH}/reverseproxy_db.sh"
 source "${LIB_PATH}/docker_compose_manager.sh"
+source "${LIB_PATH}/container_management.sh"    # v5.22: Container health checks
+source "${LIB_PATH}/validation.sh"              # v5.22: Post-operation validation
 
 # Icons
 ICON_INFO="ℹ️"
@@ -1128,19 +1130,38 @@ setup_reverse_proxy() {
         print_success "Порт $port добавлен в docker-compose.yml"
     fi
 
+    # Step 7.5: Ensure all containers are running (v5.22)
+    print_step "Проверка статуса контейнеров..."
+    if ! ensure_all_containers_running; then
+        print_error "Не удалось запустить необходимые контейнеры"
+        print_warning "Проверьте статус: docker ps -a"
+        return 1
+    fi
+
     # Step 8: Add HAProxy SNI route (v4.3)
     print_step "Добавление HAProxy SNI route..."
     if ! add_reverse_proxy_route "$domain" "$port"; then
         print_error "Не удалось добавить HAProxy route"
         print_warning "Маршрут придётся добавить вручную"
-    else
-        print_success "HAProxy route добавлен: $domain → nginx:$port"
+        return 1
     fi
+    print_success "HAProxy route добавлен: $domain → nginx:$port"
 
     # Step 9: Reload services
     print_step "Перезагрузка сервисов..."
     reload_nginx_container  # Docker compose restart with new port
     # Note: reload_xray() not needed (v5.3+: nginx proxies directly to target, no Xray HTTP inbound)
+
+    # Step 9.5: Validate reverse proxy (v5.22 - CRITICAL)
+    print_step "Проверка работоспособности reverse proxy..."
+    if ! retry_operation 3 "validate_reverse_proxy" validate_reverse_proxy "$domain" "$port"; then
+        print_error "Reverse proxy не прошёл валидацию"
+        print_warning "Проверьте вручную: curl -k -u '$username:$password' https://${domain}"
+        print_warning "Проверьте статус: docker ps | grep vless"
+        print_warning "Проверьте логи: docker logs vless_nginx_reverseproxy --tail 20"
+        return 1
+    fi
+    print_success "Reverse proxy проверен и работает корректно"
 
     # Step 10: Display success message
     print_header "${ICON_SUCCESS} Reverse Proxy Успешно Настроен!"

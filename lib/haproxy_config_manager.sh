@@ -21,6 +21,12 @@ VLESS_DIR="${VLESS_DIR:-/opt/vless}"
 HAPROXY_CONFIG="${VLESS_DIR}/config/haproxy.cfg"
 HAPROXY_CONTAINER="vless_haproxy"
 
+# Source container management module (v5.22)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/container_management.sh" ]; then
+    source "${SCRIPT_DIR}/container_management.sh"
+fi
+
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] [haproxy-config] $*" >&2
@@ -246,6 +252,14 @@ add_reverse_proxy_route() {
 
     log "Adding reverse proxy route: ${domain} → 127.0.0.1:${port}"
 
+    # v5.22: Ensure HAProxy container is running before adding route
+    if command -v ensure_container_running &> /dev/null; then
+        if ! ensure_container_running "vless_haproxy"; then
+            log_error "Cannot add route: HAProxy container not available"
+            return 1
+        fi
+    fi
+
     # Backup current config
     cp "${HAPROXY_CONFIG}" "${HAPROXY_CONFIG}.bak"
 
@@ -332,6 +346,14 @@ remove_reverse_proxy_route() {
     fi
 
     log "Removing reverse proxy route: ${domain}"
+
+    # v5.22: Ensure HAProxy container is running before removing route
+    if command -v ensure_container_running &> /dev/null; then
+        if ! ensure_container_running "vless_haproxy"; then
+            log_error "Cannot remove route: HAProxy container not available"
+            return 1
+        fi
+    fi
 
     # Backup
     cp "${HAPROXY_CONFIG}" "${HAPROXY_CONFIG}.bak"

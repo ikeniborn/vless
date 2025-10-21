@@ -41,6 +41,8 @@ source "${LIB_PATH}/letsencrypt_integration.sh"
 source "${LIB_PATH}/fail2ban_config.sh"
 source "${LIB_PATH}/reverseproxy_db.sh"
 source "${LIB_PATH}/docker_compose_manager.sh"
+source "${LIB_PATH}/container_management.sh"    # v5.22: Container health checks
+source "${LIB_PATH}/validation.sh"              # v5.22: Post-operation validation
 
 # =============================================================================
 # Colors & Formatting
@@ -370,6 +372,17 @@ cmd_remove() {
         print_info "Попробуйте вручную перезапустить: docker compose -f /opt/vless/docker-compose.yml up -d nginx"
     else
         print_success "Порт $port успешно освобожден"
+    fi
+
+    # 6.6. Validate complete removal (v5.22 - CRITICAL)
+    print_info "Финальная валидация удаления..."
+    if ! validate_reverse_proxy_removed "$domain" "$port"; then
+        print_warning "Некоторые компоненты reverse proxy не удалены полностью"
+        print_info "Проверьте вручную: sudo vless-proxy list"
+        print_info "HAProxy config: docker exec vless_haproxy grep '${domain}' /usr/local/etc/haproxy/haproxy.cfg"
+        print_info "Nginx config: ls -la /opt/vless/config/reverse-proxy/${domain}.conf"
+    else
+        print_success "Все компоненты успешно удалены - валидация пройдена"
     fi
 
     print_header "${ICON_SUCCESS} Reverse Proxy Удалён"
