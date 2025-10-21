@@ -1477,12 +1477,22 @@ set_permissions() {
     echo -e "${CYAN}[11/14] Setting file permissions...${NC}"
 
     # Sensitive directories: 700 (root only)
+    # EXCEPTION: CONFIG_DIR must be 755 to allow container users to read files inside
     # Set permissions on each directory individually to ensure all exist
-    for sensitive_dir in "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/clients" "${DATA_DIR}/backups" "${KEYS_DIR}" "${INSTALL_ROOT}/backup"; do
+    for sensitive_dir in "${DATA_DIR}" "${DATA_DIR}/clients" "${DATA_DIR}/backups" "${KEYS_DIR}" "${INSTALL_ROOT}/backup"; do
         if [[ -d "$sensitive_dir" ]]; then
             chmod 700 "$sensitive_dir" 2>/dev/null || true
         fi
     done
+
+    # CONFIG_DIR and subdirectories: 755 (readable by container users)
+    # This allows Xray (uid=65534) and HAProxy (uid=99) containers to read config files
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
+    fi
+    if [[ -d "${CONFIG_DIR}/reverse-proxy" ]]; then
+        chmod 755 "${CONFIG_DIR}/reverse-proxy" 2>/dev/null || true
+    fi
 
     # Sensitive files: 600 (root read/write only)
     find "${CONFIG_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
@@ -1582,6 +1592,22 @@ verify_file_permissions() {
 
     local ISSUES=0
     local WARNINGS=0
+
+    # Check CONFIG_DIR directory permissions (CRITICAL)
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        local config_dir_perms=$(stat -c '%a' "${CONFIG_DIR}" 2>/dev/null || echo "000")
+        if [[ "$config_dir_perms" == "755" ]]; then
+            echo -e "  ${GREEN}✓ config directory: 755 (OK)${NC}"
+        else
+            echo -e "  ${RED}✗ CRITICAL: config directory: $config_dir_perms (EXPECTED 755)${NC}"
+            echo -e "  ${RED}  → Containers cannot read config files (permission denied)${NC}"
+            echo -e "  ${YELLOW}  → Manual fix: sudo chmod 755 ${CONFIG_DIR}${NC}"
+            ((ISSUES++))
+        fi
+    else
+        echo -e "  ${RED}✗ CRITICAL: config directory not found${NC}"
+        ((ISSUES++))
+    fi
 
     # Check xray_config.json (CRITICAL)
     if [[ -f "${XRAY_CONFIG}" ]]; then
