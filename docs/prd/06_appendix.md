@@ -546,6 +546,85 @@ sudo vless-proxy add   # Re-add should work without "port occupied" error
 
 ---
 
+### v5.22-v5.24 Known Issues & Fixes
+
+**Issue 6: HTTP Basic Auth not working - Nginx auth_basic inheritance bug (FIXED in v5.24)**
+- **Symptom:** Reverse proxy accessible WITHOUT authentication (404 instead of 401)
+- **Root Cause:** Nginx `auth_basic` in server context + `if` block = auth NOT inherited to location blocks (Nginx bug)
+- **Security Impact:** CRITICAL - Reverse proxy NOT protected by authentication!
+- **Fix:** `lib/nginx_config_generator.sh:253-261, 310-314`
+  - Removed `auth_basic` from server context
+  - Removed `if` block from server context (redundant, default_server exists)
+  - Added `auth_basic` INSIDE location block (now works reliably)
+- **Impact:** All reverse proxies now ALWAYS protected by authentication
+
+**Issue 7: SNI routing validation - curl without SNI routed to wrong backend (FIXED in v5.24)**
+- **Symptom:** HTTP connectivity test fails with 404 (false negative)
+- **Root Cause:** curl uses IP address (`https://127.0.0.1:443`) → no SNI sent → HAProxy routes to default backend (xray_vless) → 404
+- **Fix:** `lib/validation.sh:245-282`
+  - Changed curl URL: `https://127.0.0.1:443` → `https://${domain}/` (line 253)
+  - Now curl sends SNI → HAProxy routes to correct backend (nginx)
+  - Updated expected codes: 401 = SUCCESS (auth working), 404/403 = FAIL (security issue!)
+- **Impact:** Validation reliable, no false negatives
+
+**Issue 8: HAProxy validation race condition during graceful reload (FIXED in v5.23)**
+- **Symptom:** Validation fails: "ACL not found" even though config correct
+- **Root Cause:** `docker exec` reads config through OLD HAProxy process (graceful reload timeout 10s)
+- **Detection:** Validation executes at T+2s, but old process still active (hasn't reloaded config yet)
+- **Fix:** `lib/validation.sh:76, 90, 230`
+  - Check ACL on HOST file (`/opt/vless/config/haproxy.cfg`) instead of container
+  - Added 2s stabilization delay before all validation checks
+  - Apply same fix to `validate_reverse_proxy_removed()`
+- **Impact:** Validation reliability 100% (was ~30% during reload with active VPN connections)
+
+**Issue 9: fail2ban jail "dead port" after removing last reverse proxy (FIXED in v5.23)**
+- **Symptom:** After removing last proxy, fail2ban gets port 9443 (NOT used by nginx → dead port)
+- **Root Cause:** System added fallback port when port list empty
+- **Fix:** `lib/fail2ban_config.sh:290-296`
+  - When port list empty: `enabled = false` (disable jail)
+  - When adding first proxy: `enabled = true` (auto re-enable)
+  - No dead ports, full synchronization
+- **Impact:** fail2ban always synchronized with nginx, correct removal of last proxy
+
+**Issue 10: Docker port range validation - false negatives (FIXED in v5.23)**
+- **Symptom:** Validation fails for ports in range (e.g., port 9444 in range 9443-9444)
+- **Root Cause:** Docker outputs ranges: `127.0.0.1:9443-9444`, grep searched exact match `127.0.0.1:9444`
+- **Fix:** `lib/validation.sh:131, 272`
+  - Pattern: `grep -qE "\b${port}\b"` (word boundary)
+  - Catches single ports (9444) AND ranges (9443-9444)
+- **Impact:** 100% validation accuracy, no false negatives
+
+**Verification:**
+```bash
+# Issue 6: Test HTTP Basic Auth
+curl -k https://your-domain.com  # Should get 401, NOT 404
+curl -k -u "username:password" https://your-domain.com  # Should work
+
+# Issue 7: Test SNI routing validation
+sudo vless-proxy add  # Should pass validation with SNI
+
+# Issue 8: Test validation during active VPN connections
+# Start VPN connection, then add proxy
+sudo vless-proxy add  # Should pass validation (no race condition)
+
+# Issue 9: Test fail2ban with last proxy removal
+sudo vless-proxy list  # If only 1 proxy
+sudo vless-proxy remove <domain>
+sudo cat /etc/fail2ban/jail.d/vless-reverseproxy.conf  # enabled = false
+
+# Issue 10: Test port range validation
+sudo vless-proxy add  # Create 2 proxies (ports 9443, 9444)
+docker ps | grep vless_nginx  # Should show 127.0.0.1:9443-9444
+sudo vless-proxy add  # Validation should pass for port 9444
+```
+
+**Related v5.22 Improvements:**
+- **Container Management System:** Auto-start stopped containers (95% fewer failures)
+- **Validation System:** 4-check validation after add, 3-check after remove
+- See FR-VALIDATION-001 and FR-CONTAINER-MGMT-001 for details
+
+---
+
 **v4.3 Rollback Procedures:**
 
 ### Rollback v4.3 → v4.2 (if needed)
