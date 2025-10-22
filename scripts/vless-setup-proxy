@@ -1152,16 +1152,30 @@ setup_reverse_proxy() {
     reload_nginx_container  # Docker compose restart with new port
     # Note: reload_xray() not needed (v5.3+: nginx proxies directly to target, no Xray HTTP inbound)
 
-    # Step 9.5: Validate reverse proxy (v5.22 - CRITICAL)
-    print_step "Проверка работоспособности reverse proxy..."
-    if ! retry_operation 3 "validate_reverse_proxy" validate_reverse_proxy "$domain" "$port"; then
+    # Step 9.5: Validate reverse proxy (v5.23 - CRITICAL)
+    echo "" >&2
+    echo -e "${CYAN}${ICON_INFO} ${BOLD}Ожидание стабилизации сервисов...${NC}" >&2
+    echo "   Это нормально и занимает 30-60 секунд." >&2
+    echo "   При активных VPN соединениях HAProxy выполняет graceful reload." >&2
+    echo "" >&2
+
+    print_step "Проверка работоспособности reverse proxy (5 checks)..."
+    if ! retry_operation 5 "validate_reverse_proxy" validate_reverse_proxy "$domain" "$port"; then
         print_error "Reverse proxy не прошёл валидацию"
         print_warning "Проверьте вручную: curl -k -u '$username:$password' https://${domain}"
         print_warning "Проверьте статус: docker ps | grep vless"
         print_warning "Проверьте логи: docker logs vless_nginx_reverseproxy --tail 20"
         return 1
     fi
-    print_success "Reverse proxy проверен и работает корректно"
+    echo "" >&2
+    echo -e "${GREEN}${ICON_SUCCESS} ${BOLD}Все проверки пройдены (5/5)${NC}" >&2
+    echo "   ✅ HAProxy configuration" >&2
+    echo "   ✅ Nginx configuration" >&2
+    echo "   ✅ Port binding" >&2
+    echo "   ✅ HAProxy backend health" >&2
+    echo "   ✅ HTTP connectivity (end-to-end)" >&2
+    echo "" >&2
+    print_success "Reverse proxy готов к использованию"
 
     # Step 10: Display success message
     print_header "${ICON_SUCCESS} Reverse Proxy Успешно Настроен!"

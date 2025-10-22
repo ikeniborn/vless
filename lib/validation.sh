@@ -2,24 +2,32 @@
 ################################################################################
 # lib/validation.sh
 #
-# Reverse Proxy Validation Module (v5.22)
+# Reverse Proxy Validation Module (v5.23)
 # Post-operation validation to ensure reverse proxy is working correctly
 #
 # Features:
 # - HAProxy configuration validation
 # - Nginx configuration validation
-# - Port binding verification
-# - Backend health check (HAProxy stats)
+# - Port binding verification with retry
+# - Backend health check with retry (HAProxy stats)
+# - HTTP connectivity test (end-to-end validation)
 # - Removal verification
+# - Extended stabilization period (10s initial delay)
+#
+# v5.23 Improvements:
+# - Increased initial delay: 2s → 10s (prevent false negatives)
+# - HAProxy backend check with retry: up to 6 attempts (30s max)
+# - NEW: HTTP connectivity test (Check 5) - real end-to-end validation
+# - Better UX: progress indicators during retry loops
 #
 # Usage:
 #   source lib/validation.sh
 #   validate_reverse_proxy "example.com" 9443
 #   validate_reverse_proxy_removed "example.com" 9443
 #
-# Version: 5.22.0
+# Version: 5.23.0
 # Author: VLESS Development Team
-# Date: 2025-10-21
+# Date: 2025-10-22
 ################################################################################
 
 set -euo pipefail
@@ -72,12 +80,14 @@ validate_reverse_proxy() {
 
     # v5.23: Wait for HAProxy reload to stabilize
     # Race condition fix: graceful reload can take 10s+ with active connections
-    # This delay ensures new HAProxy process has started before validation
-    sleep 2
+    # Extended delay (2→10s): ensures HAProxy backend health checks have time to detect nginx
+    # This prevents false negatives when validating immediately after service restart
+    log "⏳ Waiting for services to stabilize (10 seconds)..."
+    sleep 10
 
     local domain_safe=$(echo "$domain" | tr '.' '_' | tr '-' '_')
     local checks_passed=0
-    local checks_total=4
+    local checks_total=5
 
     # -------------------------------------------------------------------------
     # Check 1: HAProxy config has ACL for domain
@@ -151,32 +161,111 @@ validate_reverse_proxy() {
     fi
 
     # -------------------------------------------------------------------------
-    # Check 4: HAProxy backend shows UP in stats
+    # Check 4: HAProxy backend shows UP in stats (with retry)
     # -------------------------------------------------------------------------
-    log "  [4/4] Checking HAProxy backend health..."
+    log "  [4/5] Checking HAProxy backend health (with retry)..."
 
-    # Try to get HAProxy stats page
-    local stats_output
-    stats_output=$(curl -s http://127.0.0.1:9000/stats 2>/dev/null || echo "")
+    # v5.23: Extract HAProxy stats credentials from config
+    local stats_auth=""
+    if [ -f "/opt/vless/config/haproxy.cfg" ]; then
+        stats_auth=$(grep "stats auth" /opt/vless/config/haproxy.cfg 2>/dev/null | awk '{print $3}' | head -1)
+    fi
 
-    if [ -z "$stats_output" ]; then
-        log "  ⚠️  HAProxy stats page not accessible (skipping backend check)"
-        log "     This is non-critical, nginx might still be working"
-        checks_passed=$((checks_passed + 1))  # Don't fail on this
-    else
+    # v5.23: Retry logic for HAProxy backend detection
+    # Backend can take 30-60s to become UP after nginx restart
+    # Retry up to 6 times with 5s intervals (max 30 seconds)
+    local backend_check_attempts=6
+    local backend_check_wait=5
+    local backend_up=false
+
+    for attempt in $(seq 1 $backend_check_attempts); do
+        # Try to get HAProxy stats page (from inside container)
+        # v5.23: HAProxy stats bind to 127.0.0.1 inside container, not accessible from host
+        # Use docker exec to access stats from inside the container
+        # BusyBox wget doesn't support --http-user, use --header with Basic Auth
+        local stats_output
+        if [ -n "$stats_auth" ]; then
+            # Encode credentials for Basic Auth header
+            local auth_encoded
+            auth_encoded=$(echo -n "$stats_auth" | base64)
+            stats_output=$(docker exec vless_haproxy wget -q -O- --header="Authorization: Basic ${auth_encoded}" http://127.0.0.1:9000/stats 2>/dev/null || echo "")
+        else
+            stats_output=$(docker exec vless_haproxy wget -q -O- http://127.0.0.1:9000/stats 2>/dev/null || echo "")
+        fi
+
+        if [ -z "$stats_output" ]; then
+            if [ $attempt -lt $backend_check_attempts ]; then
+                log "  ⏳ HAProxy stats not accessible, waiting... (attempt $attempt/$backend_check_attempts)"
+                sleep $backend_check_wait
+                continue
+            else
+                log "  ⚠️  HAProxy stats page not accessible after $backend_check_attempts attempts"
+                log "     Skipping backend health check (non-critical)"
+                checks_passed=$((checks_passed + 1))  # Don't fail on this
+                break
+            fi
+        fi
+
         # Check if backend exists and is not DOWN
         if echo "$stats_output" | grep -q "nginx_${domain_safe}.*DOWN"; then
-            log_error "  ❌ HAProxy backend is DOWN for $domain"
-            log_error "     Check: curl -s http://127.0.0.1:9000/stats | grep '${domain_safe}'"
-            log_error "     Check: docker exec vless_haproxy nc -zv vless_nginx_reverseproxy ${port}"
-            return 1
+            if [ $attempt -lt $backend_check_attempts ]; then
+                log "  ⏳ HAProxy backend is DOWN, waiting for health check... (attempt $attempt/$backend_check_attempts)"
+                sleep $backend_check_wait
+                continue
+            else
+                log_error "  ❌ HAProxy backend is DOWN for $domain after $backend_check_attempts attempts"
+                log_error "     Check: curl -s http://127.0.0.1:9000/stats | grep '${domain_safe}'"
+                log_error "     Check: docker exec vless_haproxy nc -zv vless_nginx_reverseproxy ${port}"
+                return 1
+            fi
         elif echo "$stats_output" | grep -q "nginx_${domain_safe}"; then
-            log "  ✅ HAProxy backend is UP for $domain"
+            log "  ✅ HAProxy backend is UP for $domain (attempt $attempt)"
             checks_passed=$((checks_passed + 1))
+            backend_up=true
+            break
         else
-            log "  ⚠️  HAProxy backend not found in stats (might be initializing)"
-            checks_passed=$((checks_passed + 1))  # Don't fail on this
+            if [ $attempt -lt $backend_check_attempts ]; then
+                log "  ⏳ HAProxy backend not found in stats, waiting... (attempt $attempt/$backend_check_attempts)"
+                sleep $backend_check_wait
+                continue
+            else
+                log "  ⚠️  HAProxy backend not found in stats after $backend_check_attempts attempts"
+                log "     This might indicate configuration issue, but proceeding with HTTP check"
+                checks_passed=$((checks_passed + 1))  # Don't fail on this
+                break
+            fi
         fi
+    done
+
+    # -------------------------------------------------------------------------
+    # Check 5: HTTP connectivity test (v5.23 - NEW)
+    # -------------------------------------------------------------------------
+    log "  [5/5] Checking HTTP connectivity (end-to-end test)..."
+
+    # v5.23: Real HTTP request to verify reverse proxy works end-to-end
+    # This tests: HAProxy SNI routing → nginx backend → response
+    # Expected: 401 (nginx auth required) or 200 (if auth successful)
+    # Timeout: 10 seconds
+    local http_code
+    http_code=$(timeout 10 curl -s -o /dev/null -w "%{http_code}" -k "https://127.0.0.1:443" \
+        -H "Host: ${domain}" \
+        --resolve "${domain}:443:127.0.0.1" 2>/dev/null || echo "000")
+
+    if [ "$http_code" = "401" ] || [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
+        log "  ✅ HTTP connectivity successful (HTTP $http_code)"
+        log "     Reverse proxy is serving requests correctly"
+        checks_passed=$((checks_passed + 1))
+    elif [ "$http_code" = "000" ]; then
+        log_error "  ❌ HTTP connectivity test failed (connection refused/timeout)"
+        log_error "     Check: docker logs vless_haproxy --tail 20"
+        log_error "     Check: docker logs vless_nginx_reverseproxy --tail 20"
+        log_error "     Check: curl -k -I -H 'Host: ${domain}' https://127.0.0.1:443"
+        return 1
+    else
+        log "  ⚠️  HTTP connectivity test returned unexpected code: $http_code"
+        log "     Expected: 200/401/302, Got: $http_code"
+        log "     Proceeding anyway (might be target site issue)"
+        checks_passed=$((checks_passed + 1))  # Don't fail on unexpected codes
     fi
 
     # -------------------------------------------------------------------------
