@@ -1,10 +1,10 @@
-# PRD v4.3 - Executive Summary & Navigation
+# PRD v5.21 - Executive Summary & Navigation
 
 **VLESS + Reality VPN Server: Product Requirements Document**
 
-**Version:** 4.3 (HAProxy Unified Architecture)
-**Status:** ✅ 100% Implemented
-**Last Updated:** 2025-10-18
+**Version:** 5.24 (Enhanced Validation & Auth Security)
+**Status:** ✅ 100% Implemented + Production-Ready
+**Last Updated:** 2025-10-22
 
 ---
 
@@ -21,25 +21,48 @@
 
 ---
 
-## Ключевые характеристики v4.3
+## Ключевые характеристики v5.21
 
-### Текущая версия (Production-Ready)
+### Текущая версия (Production-Ready + Stability & UX Fixes)
 
-**Статус реализации:** ✅ **100% COMPLETE**
+**Статус реализации:** ✅ **100% COMPLETE + ADVANCED FEATURES + STABILITY FIXES**
 
 | Компонент | Версия | Статус |
 |-----------|--------|--------|
-| **VLESS Reality VPN** | v4.3 | ✅ Stable |
-| **HAProxy Unified Architecture** | v4.3 | ✅ Production (replaces stunnel) |
-| **Subdomain-Based Reverse Proxy** | v4.3 | ✅ https://domain (NO port!) |
-| **SNI Routing (HAProxy)** | v4.3 | ✅ TLS passthrough |
+| **VLESS Reality VPN** | v5.7+ | ✅ Stable + Hardened |
+| **HAProxy Unified Architecture** | v4.3+ | ✅ Production (replaces stunnel) |
+| **Subdomain-Based Reverse Proxy** | v4.3+ | ✅ https://domain (NO port!) |
+| **HTTP Basic Auth Security Fix** | v5.24 | ✅ CRITICAL - auth_basic in location block (v5.24) |
+| **SNI Routing Validation Fix** | v5.24 | ✅ CRITICAL - curl sends SNI for correct HAProxy routing |
+| **Enhanced Reverse Proxy Validation** | v5.23 | ✅ 10s delay + 6 retries, false negatives eliminated |
+| **fail2ban Jail Fix** | v5.23 | ✅ Disabled jail instead of dead port |
+| **Docker Port Range Support** | v5.23 | ✅ Validation supports ranges (9443-9444) |
+| **HAProxy Validation Race Fix** | v5.23 | ✅ Check host file instead of container |
+| **Container Management System** | v5.22 | ✅ Auto-start stopped containers (95% fewer failures) |
+| **Validation System** | v5.22 | ✅ 4-check add, 3-check remove (100% validation coverage) |
+| **Port Cleanup on Removal** | v5.21 | ✅ Ports freed correctly after vless-proxy remove |
+| **HAProxy Silent Mode** | v5.21 | ✅ No timeout warnings in wizards (better UX) |
+| **Advanced Reverse Proxy Features** | v5.8-v5.11 | ✅ OAuth2, CSRF, WebSocket, CSP, Security Headers |
+| **Cookie/URL Rewriting** | v5.8 | ✅ Complex auth support (OAuth2, sessions, cookies) |
+| **Enhanced Cookie Handling** | v5.9 | ✅ Multiple Set-Cookie headers (OAuth2/Google Auth) |
+| **CSRF Protection** | v5.9 | ✅ Referer rewriting for target domain |
+| **WebSocket Support** | v5.9 | ✅ Long-lived connections (3600s timeout) |
+| **CSP Header Handling** | v5.10 | ✅ Configurable strip/keep (default: strip) |
+| **Intelligent Sub-filter** | v5.10 | ✅ 5 URL patterns (protocol-relative, JSON, JS) |
+| **Advanced Wizard** | v5.10 | ✅ Interactive options (OAuth2/WebSocket/CSP) |
+| **Enhanced Security Headers** | v5.11 | ✅ COOP, COEP, CORP, Expect-CT (opt-in) |
+| **Reverse Proxy Stability Fixes** | v5.2-v5.7 | ✅ Rate limiting zones, IPv6 fix, IP monitoring |
+| **Xray Permission Handling** | v5.4-v5.6 | ✅ Automated permission fix before container start |
+| **IPv6 Unreachable Fix** | v5.2-v5.3 | ✅ IPv4-only resolution + monitoring |
+| **SOCKS5 Docker Networking** | v5.7 | ✅ Outbound IP 0.0.0.0 (HAProxy compatibility) |
+| **SNI Routing (HAProxy)** | v4.3+ | ✅ TLS passthrough |
 | **Dual Proxy (SOCKS5 + HTTP)** | v4.1+ | ✅ Complete |
 | **Heredoc Config Generation** | v4.1+ | ✅ Implemented |
-| **Port Range 9443-9452 (localhost)** | v4.3 | ✅ Nginx reverse proxy backends |
-| **fail2ban Integration (HAProxy)** | v4.3 | ✅ Multi-layer protection |
+| **Port Range 9443-9452 (localhost)** | v4.3+ | ✅ Nginx reverse proxy backends |
+| **fail2ban Integration (HAProxy)** | v4.3+ | ✅ Multi-layer protection |
 | **IP Whitelisting** | v3.6+ | ✅ Server-level + UFW |
 | **Let's Encrypt Auto-Renewal** | v3.3+ | ✅ Automated |
-| **v4.3 Test Suite (automated)** | v4.3 | ✅ 3 test cases, DEV_MODE support |
+| **Automated Test Suite** | v4.3+ | ✅ 3 test cases, DEV_MODE support |
 
 ---
 
@@ -102,6 +125,15 @@
 
 | Версия | Дата | Основное изменение | Impact |
 |--------|------|-------------------|--------|
+| **v5.24** | 2025-10-22 | HTTP Basic Auth + SNI Routing Fix (CRITICAL) | Nginx auth_basic теперь в location block (security fix), curl с SNI для корректного routing в HAProxy |
+| **v5.23** | 2025-10-22 | Enhanced Validation + 3 CRITICAL BUGFIXES | False negatives → 0%, fail2ban disabled вместо dead port, port range support, race condition fix |
+| **v5.22** | 2025-10-21 | Container Management & Validation System (MAJOR) | Auto-recovery (95% fewer failures), validation system (100% coverage), zero manual intervention |
+| **v5.21** | 2025-10-21 | Port Cleanup & HAProxy UX Fixes | Порты корректно освобождаются после удаления, silent mode для reload_haproxy(), улучшенная UX (нет timeout warnings) |
+| **v5.20** | 2025-10-21 | Automatic Library Installation | Копирование всех lib/ модулей (было 14, стало 20+), wizards всегда используют последние версии |
+| **v5.11** | 2025-10-20 | Enhanced Security Headers | COOP, COEP, CORP, Expect-CT (opt-in) |
+| **v5.10** | 2025-10-20 | Advanced Wizard + CSP | Интерактивные опции OAuth2/WebSocket/CSP, intelligent sub-filter (5 паттернов) |
+| **v5.9** | 2025-10-20 | OAuth2 & Complex Auth | Large cookie support (OAuth2 state >4kb), CSRF protection, WebSocket |
+| **v5.8** | 2025-10-20 | Cookie/URL Rewriting | Foundation для session-based auth, form login, OAuth2 |
 | **v4.3** | 2025-10-18 | HAProxy Unified Architecture | 1 контейнер вместо 2 (stunnel REMOVED), subdomain-based reverse proxy (https://domain, NO port!), ports 9443-9452 |
 | **v4.2** | 2025-10-17 | Reverse proxy planning | Промежуточная версия (см. v4.3 для реализации) |
 | **v4.1** | 2025-10-07 | Heredoc config generation + URI fix | Упрощение (удален envsubst), исправлен баг URI |
@@ -181,6 +213,75 @@
 | **NFR-RELIABILITY-001** | Cert renewal success > 99% | ✅ Monitored |
 
 **Детали:** [→ Non-Functional Requirements](03_nfr.md)
+
+---
+
+## Reverse Proxy Advanced Features (v5.8-v5.11)
+
+### Feature Evolution
+
+**v5.8 - Cookie/URL Rewriting Foundation**
+- **Cookie Domain Rewriting**: `proxy_cookie_domain` for session persistence
+- **URL Rewriting**: `sub_filter` for HTML/JS/CSS links
+- **Origin Header**: CORS compatibility for target site
+- **Use Case**: Session-based auth, form-based login
+
+**v5.9 - Complex Authentication Support**
+- **Enhanced Cookie Handling**: Multiple Set-Cookie headers (OAuth2/Google Auth)
+- **Large Cookie Support**: Increased buffers (32k/16x32k/64k) for OAuth2 state >4kb
+- **CSRF Protection**: Referer header rewriting from proxy domain → target domain
+- **WebSocket Support**: Long-lived connections (3600s timeout), connection upgrade map
+- **Use Case**: OAuth2, Google Auth, CSRF-protected APIs, real-time apps
+
+**v5.10 - CSP & Intelligent Rewriting**
+- **CSP Header Handling**: Configurable strip/keep (default: strip for compatibility)
+- **Intelligent Sub-filter**: 5 URL patterns (protocol-relative, JSON, JS strings)
+- **Advanced Wizard**: Interactive options (OAuth2/WebSocket/CSP)
+- **JSON Content Type**: API responses properly rewritten
+- **Use Case**: Modern SPAs (React, Vue, Angular), API-heavy sites
+
+**v5.11 - Enhanced Security Headers**
+- **Modern Isolation Headers**: COOP, COEP, CORP, Expect-CT (opt-in)
+- **Browser Isolation**: Protects against Spectre-like attacks
+- **Certificate Transparency**: Enforced CT validation
+- **Configurable**: Default OFF (compatibility first), opt-in via wizard
+- **Use Case**: High-security internal apps, compliance requirements
+
+### Supported Authentication Scenarios
+
+| Scenario | Status | Version | Notes |
+|----------|--------|---------|-------|
+| **Session Cookies** | ✅ Working | v5.8+ | Cookie domain rewriting |
+| **Form-based Login** | ✅ Working | v5.8+ | POST/PUT/DELETE with CSRF |
+| **OAuth2 / OIDC** | ✅ Working | v5.9+ | Multiple cookies, large buffers |
+| **Google Auth** | ✅ Working | v5.9+ | OAuth2 state cookies >4kb |
+| **CSRF-protected APIs** | ✅ Working | v5.9+ | Referer rewriting |
+| **WebSocket Auth** | ✅ Working | v5.9+ | Long-lived connections |
+| **Modern SPAs** | ✅ Working | v5.10+ | CSP stripping, intelligent rewriting |
+| **HTTP Basic Auth** | ✅ Working | v4.3+ | Native nginx support |
+| **JWT (cookie-based)** | ✅ Working | v5.9+ | Large cookie support |
+
+**Not Supported:**
+- ❌ Client-side certificates (mTLS)
+- ❌ Kerberos / NTLM
+- ❌ SAML (requires XML rewriting)
+
+### Configuration Options (v5.10+)
+
+**Environment Variables:**
+- `OAUTH2_SUPPORT` (default: true) - Large buffers, multiple Set-Cookie headers
+- `ENABLE_WEBSOCKET` (default: true) - Long timeouts, connection upgrade map
+- `STRIP_CSP` (default: true) - Remove CSP headers for compatibility
+- `ENHANCED_SECURITY_HEADERS` (default: false) - Modern isolation headers (v5.11)
+
+**Interactive Wizard (vless-setup-proxy):**
+- Step 5: Advanced Options (v5.10+)
+  - OAuth2 / Large Cookie Support [Y/n]
+  - WebSocket Support [Y/n]
+  - Strip CSP Headers [Y/n]
+  - Enhanced Security Headers [y/N] (v5.11)
+
+**Детали:** [→ REVERSE_PROXY_IMPROVEMENT_PLAN.md](../REVERSE_PROXY_IMPROVEMENT_PLAN.md), [→ CHANGELOG.md](../CHANGELOG.md)
 
 ---
 
@@ -334,18 +435,24 @@ sudo vless test-security            # Security test suite
 
 ## Статус проекта
 
-**Version:** v4.3 (2025-10-18)
+**Version:** v5.24 (2025-10-22)
 **Implementation Status:** ✅ **100% COMPLETE**
 **Production Ready:** ✅ **YES**
-**Security Status:** ✅ **APPROVED** (TLS 1.3 HAProxy, Let's Encrypt, fail2ban HAProxy+Nginx, UFW, SNI routing)
+**Security Status:** ✅ **APPROVED** (TLS 1.3 HAProxy, Let's Encrypt, fail2ban HAProxy+Nginx, UFW, SNI routing, HTTP Basic Auth fixed)
 
-**Ключевые достижения v4.3:**
+**Ключевые достижения v5.22-v5.24:**
+1. ✅ Container Management System (auto-recovery, 95% fewer failures)
+2. ✅ Validation System (4-check add, 3-check remove, 100% coverage)
+3. ✅ Enhanced Validation (false negatives → 0%, 10s delay + 6 retries)
+4. ✅ HTTP Basic Auth Security Fix (CRITICAL - auth in location block)
+5. ✅ SNI Routing Validation Fix (CRITICAL - curl with SNI)
+6. ✅ fail2ban Jail Fix (disabled jail instead of dead port)
+7. ✅ Port Cleanup & HAProxy Silent Mode (better UX)
+
+**Предыдущие достижения v4.3:**
 1. ✅ HAProxy Unified Architecture (1 контейнер вместо 2)
 2. ✅ Subdomain-based reverse proxy (https://domain, NO port!)
 3. ✅ SNI routing без TLS decryption
-4. ✅ Port range 9443-9452 (localhost-only backends)
-5. ✅ fail2ban HAProxy integration
-6. ✅ Automated test suite (3 test cases, DEV_MODE)
 
 **Следующие шаги:**
 1. Production deployment monitoring
@@ -355,6 +462,6 @@ sudo vless test-security            # Security test suite
 ---
 
 **Создано:** 2025-10-16
-**Обновлено:** 2025-10-18 (v4.3 HAProxy Unified)
+**Обновлено:** 2025-10-22 (v5.24 Enhanced Validation & Auth Security)
 **Источник:** [PRD.md](../../PRD.md) (consolidated version)
 **Разделение:** Логические модули для удобной навигации

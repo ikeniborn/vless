@@ -484,5 +484,5 @@ set_ufw_proxy_ips() {
 #   - check_ufw_active()               # Check UFW status
 
 # This module is sourced by:
-#   - cli/vless (UFW commands)
+#   - scripts/vless (UFW commands)
 #   - lib/orchestrator.sh (optional during installation)

@@ -52,9 +52,20 @@ detect_os() {
     fi
 
     # Source the os-release file to get variables
-    # Use a subshell to avoid polluting current environment
+    # Use a subshell to avoid polluting current environment with OS-specific variables
     local os_info
-    os_info=$(source "${os_release_file}" 2>/dev/null && echo "${NAME}|${VERSION_ID}|${VERSION_CODENAME}|${ID}")
+    # Note: Don't use 2>/dev/null as it hides important errors (e.g., readonly variable conflicts)
+    set +e  # Temporarily disable exit on error to capture actual error
+    os_info=$(source "${os_release_file}" && echo "${NAME}|${VERSION_ID}|${VERSION_CODENAME}|${ID}" 2>&1)
+    local source_exit=$?
+    set -e  # Re-enable exit on error
+
+    if [[ $source_exit -ne 0 ]]; then
+        echo -e "${RED}ERROR: Failed to source ${os_release_file}${NC}" >&2
+        echo -e "${RED}Details: $os_info${NC}" >&2
+        echo -e "${RED}This may indicate a conflict with existing shell variables${NC}" >&2
+        return 1
+    fi
 
     # Check if we got valid output
     if [[ -z "${os_info}" ]]; then

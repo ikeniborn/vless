@@ -14,7 +14,7 @@
 #
 # Test Coverage:
 #   1. TLS 1.3 Configuration (Reality Protocol)
-#   2. stunnel TLS Termination (Public Proxy Mode)
+#   2. HAProxy TLS Termination (Public Proxy Mode, v4.3 Unified Architecture)
 #   3. Traffic Encryption Validation
 #   4. Certificate Security
 #   5. DPI Resistance (Deep Packet Inspection)
@@ -94,7 +94,8 @@ else
     readonly XRAY_CONFIG="${CONFIG_DIR}/config.json"  # Default location
 fi
 
-readonly STUNNEL_CONFIG="${CONFIG_DIR}/stunnel.conf"
+# readonly STUNNEL_CONFIG="${CONFIG_DIR}/stunnel.conf"  # DEPRECATED v4.3 - replaced by HAProxy
+readonly HAPROXY_CONFIG="${CONFIG_DIR}/haproxy.cfg"  # v4.3: Unified TLS termination
 readonly REALITY_KEYS="${CONFIG_DIR}/reality_keys.json"
 readonly PCAP_DIR="/tmp/vless_security_test_$$"
 
@@ -511,34 +512,35 @@ test_01_reality_tls_config() {
 }
 
 # ============================================================================
-# TEST 2: STUNNEL TLS TERMINATION (PUBLIC PROXY MODE)
+# TEST 2: HAPROXY TLS TERMINATION (PUBLIC PROXY MODE - v4.3+)
 # ============================================================================
 
-test_02_stunnel_tls() {
-    print_header "TEST 2: stunnel TLS Termination Configuration"
+test_02_haproxy_tls() {
+    print_header "TEST 2: HAProxy TLS Termination Configuration (v4.3)"
 
     if ! is_public_proxy_enabled; then
-        print_skip "Public proxy not enabled - stunnel tests skipped"
+        print_skip "Public proxy not enabled - HAProxy TLS tests skipped"
         return 0
     fi
 
-    print_test "Verifying stunnel TLS termination for proxy services"
+    print_test "Verifying HAProxy TLS termination for proxy services"
 
-    # Check if stunnel config exists
-    if [[ ! -f "$STUNNEL_CONFIG" ]]; then
-        print_failure "stunnel config not found: $STUNNEL_CONFIG"
+    # Check if HAProxy config exists (v4.3)
+    local haproxy_config="${CONFIG_DIR}/haproxy.cfg"
+    if [[ ! -f "$haproxy_config" ]]; then
+        print_failure "HAProxy config not found: $haproxy_config"
         return 1
     fi
-    print_verbose "stunnel config found"
+    print_verbose "HAProxy config found"
 
-    # Check if stunnel container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "stunnel"; then
-        print_failure "stunnel container not running"
+    # Check if HAProxy container is running
+    if ! docker ps --format '{{.Names}}' | grep -q "vless_haproxy"; then
+        print_failure "HAProxy container not running"
         return 1
     fi
-    print_success "stunnel container is running"
+    print_success "HAProxy container is running"
 
-    # Verify stunnel configuration
+    # Verify HAProxy configuration
     local domain
     domain=$(get_domain)
     if [[ -z "$domain" ]]; then
@@ -547,12 +549,13 @@ test_02_stunnel_tls() {
     fi
     print_verbose "Domain configured: $domain"
 
-    # Check certificate paths in stunnel config
-    if ! grep -q "cert = /certs/live/${domain}/fullchain.pem" "$STUNNEL_CONFIG"; then
-        print_failure "stunnel certificate path not configured correctly"
+    # Check certificate path in HAProxy config (v4.3 uses combined.pem)
+    local combined_cert="/opt/vless/certs/combined.pem"
+    if [[ ! -f "$combined_cert" ]]; then
+        print_failure "HAProxy combined.pem not found: $combined_cert"
         return 1
     fi
-    print_success "stunnel certificate configuration valid"
+    print_success "HAProxy combined certificate found"
 
     # Verify certificates exist
     local cert_dir="/etc/letsencrypt/live/${domain}"
@@ -588,21 +591,21 @@ test_02_stunnel_tls() {
         print_success "Certificate uses Elliptic Curve (modern, secure)"
     fi
 
-    # Test stunnel ports are listening
+    # Test HAProxy ports are listening
     local socks5_port="1080"
     local http_port="8118"
 
     if ss -tlnp | grep -q ":${socks5_port}"; then
-        print_success "stunnel SOCKS5 port listening: $socks5_port"
+        print_success "HAProxy SOCKS5 port listening: $socks5_port"
     else
-        print_failure "stunnel SOCKS5 port not listening: $socks5_port"
+        print_failure "HAProxy SOCKS5 port not listening: $socks5_port"
         return 1
     fi
 
     if ss -tlnp | grep -q ":${http_port}"; then
-        print_success "stunnel HTTP port listening: $http_port"
+        print_success "HAProxy HTTP port listening: $http_port"
     else
-        print_failure "stunnel HTTP port not listening: $http_port"
+        print_failure "HAProxy HTTP port not listening: $http_port"
         return 1
     fi
 
@@ -618,7 +621,7 @@ test_02_stunnel_tls() {
     if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_3 </dev/null 2>&1 | grep -q "Protocol.*TLSv1.3"; then
         print_success "TLS 1.3 is accepted"
     else
-        print_warning "TLS 1.3 connection failed (check stunnel configuration)"
+        print_warning "TLS 1.3 connection failed (check HAProxy configuration)"
     fi
 
     # Test allowed ciphersuites
@@ -639,7 +642,7 @@ test_02_stunnel_tls() {
         print_warning "None of the recommended ciphersuites detected"
     fi
 
-    print_success "stunnel TLS termination configuration valid"
+    print_success "HAProxy TLS termination configuration valid (v4.3)"
     return 0
 }
 
@@ -695,7 +698,7 @@ test_03_traffic_encryption() {
         local domain
         domain=$(get_domain)
 
-        print_info "Testing proxy encrypted traffic via stunnel..."
+        print_info "Testing proxy encrypted traffic via HAProxy..."
 
         # Make request through HTTPS proxy
         if ! timeout 10 curl -x "https://${test_user}:${proxy_password}@${domain}:8118" \
@@ -794,7 +797,7 @@ test_04_certificate_security() {
         return 0
     fi
 
-    print_test "Validating TLS certificates for stunnel"
+    print_test "Validating TLS certificates for HAProxy"
 
     local domain
     domain=$(get_domain)
@@ -862,8 +865,8 @@ test_04_certificate_security() {
         print_warning "Domain not found in certificate SAN"
     fi
 
-    # Test TLS connection to stunnel ports
-    print_info "Testing TLS connection to stunnel SOCKS5 port (1080)..."
+    # Test TLS connection to HAProxy TLS ports
+    print_info "Testing TLS connection to HAProxy SOCKS5 port (1080)..."
 
     if timeout 5 openssl s_client -connect "${domain}:1080" -tls1_3 </dev/null 2>&1 | grep -q "Verify return code: 0"; then
         print_success "TLS connection to SOCKS5 port successful (certificate valid)"
@@ -1097,14 +1100,14 @@ test_07_proxy_protocol_security() {
     print_info "Checking proxy listen addresses..."
 
     if is_public_proxy_enabled; then
-        # Public mode: should listen on 0.0.0.0 with stunnel in front
+        # Public mode: should listen on 0.0.0.0 with HAProxy in front (v4.3)
         print_info "Public proxy mode detected"
 
-        # Verify stunnel is handling external connections
-        if docker ps --format '{{.Names}}' | grep -q "stunnel"; then
-            print_success "stunnel container running (TLS termination active)"
+        # Verify HAProxy is handling external connections
+        if docker ps --format '{{.Names}}' | grep -q "vless_haproxy"; then
+            print_success "HAProxy container running (TLS termination active)"
         else
-            print_critical "stunnel container not running - PUBLIC PROXY UNPROTECTED"
+            print_critical "HAProxy container not running - PUBLIC PROXY UNPROTECTED"
             return 1
         fi
 
@@ -1383,7 +1386,7 @@ main() {
 
     # Run test suite
     test_01_reality_tls_config || true
-    test_02_stunnel_tls || true
+    test_02_haproxy_tls || true  # v4.3: HAProxy TLS termination
 
     if [[ "$QUICK_MODE" != "true" ]]; then
         test_03_traffic_encryption || true

@@ -318,7 +318,10 @@ networks:
 - ✅ **REMOVED:** Xray `/etc/letsencrypt` mount (stunnel handles TLS)
 - ✅ **Architecture:** Client → stunnel (TLS) → Xray (plaintext) → Internet
 
-### 4.6 Reverse Proxy Architecture (v4.2)
+### 4.6 Reverse Proxy Architecture (v4.2 - DEPRECATED)
+
+**⚠️ DEPRECATED:** This section describes v4.2 architecture (before HAProxy unified).
+**Current Implementation:** See Section 4.7 for v4.3 HAProxy architecture.
 
 **Feature Status:** 📝 DRAFT v3 (Security Hardened - 2025-10-17)
 **Security Review:** ✅ APPROVED (VULN-001/002/003/004/005 mitigated)
@@ -350,42 +353,21 @@ networks:
 │  Server 1: listen 8443 ssl; server_name proxy1.example.com│
 │    - TLS Termination (Let's Encrypt cert 1)               │
 │    - HTTP Basic Auth (credentials 1)                       │
-│    - proxy_pass to Xray localhost:10080                    │
+│    - proxy_pass https://target1-ip (DIRECT, resolved IPv4)│
 │    - error_log ONLY (no access_log)                        │
 │                                                             │
 │  Server 2: listen 8444 ssl; server_name proxy2.example.com│
 │    - TLS Termination (Let's Encrypt cert 2)               │
 │    - HTTP Basic Auth (credentials 2)                       │
-│    - proxy_pass to Xray localhost:10081                    │
+│    - proxy_pass https://target2-ip (DIRECT, resolved IPv4)│
 │                                                             │
 │  Server 3: listen 9443 ssl; server_name proxy3.example.com│
 │    - TLS Termination (Let's Encrypt cert 3)               │
 │    - HTTP Basic Auth (credentials 3)                       │
-│    - proxy_pass to Xray localhost:10082                    │
+│    - proxy_pass https://target3-ip (DIRECT, resolved IPv4)│
 └─────────────────────┬───────────────────────────────────────┘
                       │
-                      │ 3. HTTP (plaintext, localhost)
-                      ↓
-┌─────────────────────────────────────────────────────────────┐
-│         XRAY CONTAINER (vless_xray)                         │
-│  Multiple inbounds (one per reverse proxy):                │
-│                                                             │
-│  Inbound 1:                                                 │
-│    - Tag: reverse-proxy-1                                  │
-│    - Listen: 127.0.0.1:10080                               │
-│  Routing 1:                                                 │
-│    - InboundTag: reverse-proxy-1                           │
-│    - Domain: target1.com ONLY                              │
-│                                                             │
-│  Inbound 2:                                                 │
-│    - Tag: reverse-proxy-2                                  │
-│    - Listen: 127.0.0.1:10081                               │
-│  Routing 2:                                                 │
-│    - InboundTag: reverse-proxy-2                           │
-│    - Domain: target2.com ONLY                              │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-                      │ 4. HTTP/HTTPS to target sites
+                      │ 3. HTTPS (upstream SSL, hardcoded IPv4)
                       ↓
 ┌─────────────────────────────────────────────────────────────┐
 │     TARGET SITES (target1.com, target2.com, ...)          │
@@ -394,7 +376,8 @@ networks:
 SECURITY LAYERS:
   ✅ TLS 1.3 Encryption (Nginx)
   ✅ HTTP Basic Auth (Nginx)
-  ✅ Domain restriction (Xray routing per inbound)
+  ✅ IPv4-only resolution (prevents IPv6 unreachable errors)
+  ✅ IP monitoring (auto-update when DNS changes)
   ✅ Rate limiting (UFW + Nginx)
   ✅ fail2ban (MANDATORY, multi-port)
   ✅ Error logging only (privacy)
@@ -414,11 +397,7 @@ SECURITY LAYERS:
 
 ```nginx
 # /opt/vless/config/reverse-proxy/myproxy.example.com.conf
-
-upstream xray_reverseproxy_1 {
-    server vless_xray:10080;
-    keepalive 32;
-}
+# v5.2+: Direct proxy to target site (NO Xray inbound)
 
 # Primary server block (with Host header validation)
 server {
@@ -456,10 +435,18 @@ server {
     access_log off;  # Privacy: no access logging
     error_log /var/log/nginx/reverse-proxy-error.log warn;
 
-    # Proxy to Xray
+    # Direct proxy to target site (v5.2+)
     location / {
-        proxy_pass http://xray_reverseproxy_1;
+        # IPv4-only proxy_pass (resolved at config generation time)
+        # Auto-monitored by vless-monitor-reverse-proxy-ips cron job
+        proxy_pass https://1.2.3.4;  # Resolved IPv4 of blocked-site.com
+        resolver 8.8.8.8 ipv4=on valid=300s;
+        resolver_timeout 5s;
         proxy_http_version 1.1;
+
+        # SSL settings for upstream (target site)
+        proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        proxy_ssl_server_name on;  # Enable SNI for upstream
 
         # VULN-001 FIX: Hardcoded Host header (NOT $host)
         proxy_set_header Host blocked-site.com;  # Target site (hardcoded)
@@ -516,82 +503,33 @@ http {
 }
 ```
 
-**Xray Reverse Proxy Inbound Configuration:**
+**⚠️ DEPRECATED - Xray Inbound Configuration (v4.2 only)**
 
-```json
-{
-  "inbounds": [
-    {
-      "tag": "reverse-proxy-1",
-      "protocol": "http",
-      "listen": "127.0.0.1",
-      "port": 10080,
-      "settings": {
-        "allowTransparent": false,
-        "userLevel": 0
-      }
-    },
-    {
-      "tag": "reverse-proxy-2",
-      "protocol": "http",
-      "listen": "127.0.0.1",
-      "port": 10081,
-      "settings": {
-        "allowTransparent": false,
-        "userLevel": 0
-      }
-    }
-  ],
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
-      {
-        "type": "field",
-        "inboundTag": ["reverse-proxy-1"],
-        "domain": ["target1.com"],
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "inboundTag": ["reverse-proxy-1"],
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
-        "inboundTag": ["reverse-proxy-2"],
-        "domain": ["target2.com"],
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "inboundTag": ["reverse-proxy-2"],
-        "outboundTag": "block"
-      }
-    ]
-  }
-}
-```
+This section is kept for historical reference only. **v5.2+ uses direct proxy** (Nginx → Target Site) without Xray inbound.
 
-#### 4.6.3 Port Mapping Strategy
+**Current Implementation (v5.2+):**
+- Nginx proxies directly to target site via `proxy_pass https://target-ip`
+- IPv4 resolution at config generation time (prevents IPv6 unreachable errors)
+- IP monitoring via cron job (auto-update when DNS changes)
+- See Section 4.7 for current architecture
+
+#### 4.6.3 Port Mapping Strategy (v4.3+)
 
 Each reverse proxy domain gets its own unique port mapping:
 
 ```
-Public Port    →    Nginx    →    Xray Inbound Port
-8443           →    proxy1   →    127.0.0.1:10080
-8444           →    proxy2   →    127.0.0.1:10081
-8445           →    proxy3   →    127.0.0.1:10082
-...
-8452 (or custom) →  proxy10  →   127.0.0.1:10089
+Public Access     →    HAProxy (SNI)    →    Nginx Backend    →    Target Site
+https://domain    →    Port 443         →    localhost:9443   →    https://target-ip
 ```
 
-**Xray Inbound Port Allocation:**
-- Base: 10080
-- Domain N: 10080 + (N - 1)
-- Range: 10080-10089 (10 inbounds max)
+**Nginx Backend Port Allocation:**
+- Base: 9443
+- Domain N: 9443 + (N - 1)
+- Range: 9443-9452 (10 backends max)
 
 **Port Validation:**
-- Reserved: 443 (VLESS), 1080 (SOCKS5), 8118 (HTTP)
+- Reserved: 443 (HAProxy), 1080 (SOCKS5), 8118 (HTTP), 9000 (HAProxy stats)
+- Backend ports: 9443-9452 (localhost-only, NOT exposed to internet)
 - Min: 1024 (unprivileged)
 - Max: 65535
 - Max domains: 10 per server

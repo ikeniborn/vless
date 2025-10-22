@@ -47,6 +47,14 @@ set -euo pipefail
 # ============================================================================
 
 VLESS_HOME="/opt/vless"
+# INSTALL_ROOT and XRAY_IMAGE are set as readonly in orchestrator.sh (loaded before verification.sh)
+# Only set them if not already defined (standalone execution mode)
+if [[ -z "${INSTALL_ROOT:-}" ]]; then
+    INSTALL_ROOT="/opt/vless"
+fi
+if [[ -z "${XRAY_IMAGE:-}" ]]; then
+    XRAY_IMAGE="teddysun/xray:24.11.30"
+fi
 VERIFICATION_PASSED=true
 VERIFICATION_ERRORS=()
 
@@ -328,37 +336,37 @@ verify_containers() {
     fi
 
     # Check nginx container using docker inspect (more reliable)
-    local nginx_status=$(docker inspect vless_nginx -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    local nginx_status=$(docker inspect vless_fake_site -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
     if [[ "$nginx_status" == "running" ]]; then
-        log_success "Container 'vless_nginx' is running"
+        log_success "Container 'vless_fake_site' is running"
 
         # Check uptime
-        local started_at=$(docker inspect vless_nginx -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        local started_at=$(docker inspect vless_fake_site -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
         if [[ -n "$started_at" ]]; then
             log_info "  Started at: $started_at"
         fi
 
         # Check healthcheck status (added in v4.1.1)
-        local nginx_health=$(docker inspect vless_nginx -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        local nginx_health=$(docker inspect vless_fake_site -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
         if [[ "$nginx_health" == "healthy" ]]; then
-            log_success "Container 'vless_nginx' health: healthy"
+            log_success "Container 'vless_fake_site' health: healthy"
         elif [[ "$nginx_health" == "starting" ]]; then
-            log_info "  Container 'vless_nginx' health: starting"
+            log_info "  Container 'vless_fake_site' health: starting"
         elif [[ "$nginx_health" == "unhealthy" ]]; then
-            log_error "Container 'vless_nginx' health: unhealthy"
+            log_error "Container 'vless_fake_site' health: unhealthy"
         fi
 
         # Check Nginx logs for critical errors only (ignore informational warnings)
-        local nginx_logs=$(docker logs vless_nginx 2>&1 | tail -20)
+        local nginx_logs=$(docker logs vless_fake_site 2>&1 | tail -20)
         if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
-            log_error "Container 'vless_nginx' has critical errors in logs"
+            log_error "Container 'vless_fake_site' has critical errors in logs"
         elif echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
             log_info "  Nginx running in read-only mode (expected for security)"
         fi
     elif [[ "$nginx_status" == "not-found" ]]; then
-        log_error "Container 'vless_nginx' not found"
+        log_error "Container 'vless_fake_site' not found"
     else
-        log_error "Container 'vless_nginx' exists but status is: $nginx_status"
+        log_error "Container 'vless_fake_site' exists but status is: $nginx_status"
     fi
 
     # Check if containers are on the correct network
@@ -369,11 +377,11 @@ verify_containers() {
         log_error "Container 'vless_xray' is not connected to vless_reality_net (networks: $xray_networks)"
     fi
 
-    local nginx_networks=$(docker inspect vless_nginx -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
+    local nginx_networks=$(docker inspect vless_fake_site -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
     if [[ "$nginx_networks" =~ vless_reality_net ]]; then
-        log_success "Container 'vless_nginx' is connected to vless_reality_net"
+        log_success "Container 'vless_fake_site' is connected to vless_reality_net"
     else
-        log_error "Container 'vless_nginx' is not connected to vless_reality_net (networks: $nginx_networks)"
+        log_error "Container 'vless_fake_site' is not connected to vless_reality_net (networks: $nginx_networks)"
     fi
 
     # Check restart policy
@@ -436,12 +444,12 @@ verify_xray_config() {
     log_success "Xray configuration JSON syntax is valid"
 
     # Validate with xray -test
-    if docker exec vless_xray xray -test -config=/etc/xray/xray_config.json &>/dev/null; then
+    if docker exec vless_xray xray -test -config=/etc/xray/config.json &>/dev/null; then
         log_success "Xray configuration validation passed (xray -test)"
     else
         log_error "Xray configuration validation failed (xray -test)"
         # Show detailed error
-        local error_output=$(docker exec vless_xray xray -test -config=/etc/xray/xray_config.json 2>&1 || true)
+        local error_output=$(docker exec vless_xray xray -test -config=/etc/xray/config.json 2>&1 || true)
         echo "    Error details:"
         echo "$error_output" | sed 's/^/    /'
     fi
@@ -501,12 +509,25 @@ verify_ufw_rules() {
         return 0
     fi
 
-    # Check VLESS port rule
-    local vless_port=$(jq -r '.inbounds[0].port' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "443")
-    if ufw status numbered | grep -q "${vless_port}/tcp.*ALLOW"; then
-        log_success "UFW allows port $vless_port/tcp"
+    # Check VLESS port rule (v4.3: HAProxy on 443, Xray on 8443 internal)
+    local vless_port=$(jq -r '.inbounds[0].port' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "8443")
+
+    # In v4.3: Port 443 must be in UFW (HAProxy frontend), port 8443 is internal
+    if [[ "$vless_port" == "8443" ]]; then
+        # v4.3 architecture: Check port 443 (HAProxy) instead
+        if ufw status numbered | grep -q "443/tcp.*ALLOW"; then
+            log_success "UFW allows port 443/tcp (HAProxy frontend)"
+            log_info "  Port 8443 is internal (HAProxy → Xray, not in UFW) - expected for v4.3"
+        else
+            log_error "UFW does not allow port 443/tcp (required for HAProxy)"
+        fi
     else
-        log_error "UFW does not allow port $vless_port/tcp"
+        # Legacy architecture or custom port
+        if ufw status numbered | grep -q "${vless_port}/tcp.*ALLOW"; then
+            log_success "UFW allows port $vless_port/tcp"
+        else
+            log_error "UFW does not allow port $vless_port/tcp"
+        fi
     fi
 
     # Check Docker forwarding rules in after.rules
@@ -562,10 +583,10 @@ verify_container_internet() {
     fi
 
     # Test connectivity from nginx container
-    if docker exec vless_nginx ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
-        log_success "Container 'vless_nginx' can reach internet (ping 8.8.8.8)"
+    if docker exec vless_fake_site ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
+        log_success "Container 'vless_fake_site' can reach internet (ping 8.8.8.8)"
     else
-        log_error "Container 'vless_nginx' cannot reach internet (ping 8.8.8.8 failed)"
+        log_error "Container 'vless_fake_site' cannot reach internet (ping 8.8.8.8 failed)"
     fi
 
     # Test connection to Reality destination
@@ -593,21 +614,47 @@ verify_port_listening() {
 
     local vless_port=$(jq -r '.inbounds[0].port' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "443")
 
-    # Check if port is listening on host
-    if ss -tuln | grep -q ":${vless_port} "; then
-        log_success "Port $vless_port is listening on host"
-    elif netstat -tuln 2>/dev/null | grep -q ":${vless_port} "; then
-        log_success "Port $vless_port is listening on host"
+    # Check if port is listening on host (v4.3: check HAProxy ports, not Xray)
+    if [[ "$vless_port" == "8443" ]]; then
+        # v4.3 architecture: Port 8443 is internal (Docker-only), check port 443 instead
+        if ss -tuln | grep -q ":443 "; then
+            log_success "Port 443 is listening on host (HAProxy frontend)"
+            log_info "  Port 8443 is Docker-internal only (not on host) - expected for v4.3"
+        elif netstat -tuln 2>/dev/null | grep -q ":443 "; then
+            log_success "Port 443 is listening on host (HAProxy frontend)"
+            log_info "  Port 8443 is Docker-internal only (not on host) - expected for v4.3"
+        else
+            log_error "Port 443 is not listening on host (HAProxy not running)"
+        fi
     else
-        log_error "Port $vless_port is not listening on host"
+        # Legacy architecture or custom port
+        if ss -tuln | grep -q ":${vless_port} "; then
+            log_success "Port $vless_port is listening on host"
+        elif netstat -tuln 2>/dev/null | grep -q ":${vless_port} "; then
+            log_success "Port $vless_port is listening on host"
+        else
+            log_error "Port $vless_port is not listening on host"
+        fi
     fi
 
-    # Check port bindings in Docker
-    local port_bindings=$(docker inspect vless_xray -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
-    if [[ "$port_bindings" =~ "$vless_port" ]]; then
-        log_success "Container 'vless_xray' port binding: $port_bindings"
+    # Check port bindings in Docker (v4.3: Xray uses 'expose', HAProxy uses 'ports')
+    if [[ "$vless_port" == "8443" ]]; then
+        # v4.3 architecture: Xray port 8443 is exposed (not bound), HAProxy port 443 is bound
+        local haproxy_bindings=$(docker inspect vless_haproxy -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
+        if [[ "$haproxy_bindings" =~ "443" ]]; then
+            log_success "Container 'vless_haproxy' port binding: $haproxy_bindings"
+            log_info "  Container 'vless_xray' port 8443 uses 'expose' (Docker-internal) - expected for v4.3"
+        else
+            log_error "Container 'vless_haproxy' port 443 is not bound to host"
+        fi
     else
-        log_error "Container 'vless_xray' port $vless_port is not bound to host"
+        # Legacy architecture or custom port
+        local port_bindings=$(docker inspect vless_xray -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
+        if [[ "$port_bindings" =~ "$vless_port" ]]; then
+            log_success "Container 'vless_xray' port binding: $port_bindings"
+        else
+            log_error "Container 'vless_xray' port $vless_port is not bound to host"
+        fi
     fi
 
     # Check if port is accessible from outside (basic check)
@@ -810,7 +857,8 @@ test_xray_config() {
     log_info "  [2/2] Running Xray configuration test..."
 
     # Prepare volume mounts for test
-    local volume_args="-v ${INSTALL_ROOT}/config:/etc/xray:ro"
+    # Mount config file directly (xray_config.json -> /etc/xray/config.json)
+    local volume_args="-v ${INSTALL_ROOT}/config/xray_config.json:/etc/xray/config.json:ro"
 
     # Add certificate volume if public proxy enabled
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
@@ -819,7 +867,7 @@ test_xray_config() {
 
     # Run xray test
     local test_output
-    if test_output=$(docker run --rm $volume_args "${XRAY_IMAGE}" xray run -test -c /etc/xray/xray_config.json 2>&1); then
+    if test_output=$(docker run --rm $volume_args "${XRAY_IMAGE}" xray run -test -c /etc/xray/config.json 2>&1); then
         log_success "    ✓ Xray configuration test passed"
         return 0
     else

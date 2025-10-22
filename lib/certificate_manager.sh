@@ -64,10 +64,10 @@ validate_dns_for_domain() {
         fi
     fi
 
-    # Step 2: Detect server's public IP
+    # Step 2: Detect server's public IP (use same sequence as wizard for consistency)
     echo "Detecting server public IP..."
     local server_ip
-    server_ip=$(curl -s -4 ifconfig.me || curl -s -4 icanhazip.com || curl -s -4 checkip.amazonaws.com)
+    server_ip=$(curl -s -4 https://api.ipify.org || curl -s -4 https://ifconfig.me || echo "")
 
     if [[ -z "$server_ip" ]]; then
         echo -e "${RED}ERROR: Failed to detect server public IP${NC}" >&2
@@ -78,10 +78,10 @@ validate_dns_for_domain() {
     echo "  Server IP: $server_ip"
     echo ""
 
-    # Step 3: Query DNS A record
+    # Step 3: Query DNS A record (use Google DNS 8.8.8.8 for consistency)
     echo "Querying DNS for $domain..."
     local dns_ip
-    dns_ip=$(dig +short "$domain" A | head -1)
+    dns_ip=$(dig +short "$domain" @8.8.8.8 | tail -1)
 
     # Step 4: Validate DNS resolution
     if [[ -z "$dns_ip" ]]; then
@@ -407,15 +407,69 @@ reload_haproxy_after_cert_update() {
     fi
 
     # Graceful reload with old PID
-    if docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1; then
-        echo -e "${GREEN}✅ HAProxy reloaded gracefully (zero downtime)${NC}"
-        echo "  Old PID: $old_pid"
-        echo "  New PID: $(docker exec vless_haproxy pidof haproxy 2>/dev/null || echo 'unknown')"
-        return 0
-    else
-        echo -e "${RED}ERROR: HAProxy graceful reload failed${NC}" >&2
+    # Note: Capture output to check for errors (warnings are OK, only errors should fail)
+    # Use timeout to prevent hanging when active connections are present
+    local reload_output
+    reload_output=$(timeout 10 docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1)
+    local exit_code=$?
+
+    # Exit code 124 means timeout occurred (reload is still in progress, but that's OK)
+    # The new HAProxy process started successfully and will finish gracefully in background
+    # v5.21: Changed warning to info style (less alarming for users)
+    if [ $exit_code -eq 124 ]; then
+        echo -e "${CYAN}ℹ️  HAProxy reload: graceful shutdown in progress${NC}"
+        echo "This is normal when active VPN connections are present."
+        exit_code=0  # Consider it success
+    fi
+
+    # Check if reload has actual errors (not just warnings)
+    if echo "$reload_output" | grep -qi "\[ALERT\]"; then
+        echo -e "${RED}ERROR: HAProxy reload failed with ALERT:${NC}" >&2
+        echo "$reload_output" | grep -i "\[ALERT\]" >&2
+        echo "" >&2
+        echo "TROUBLESHOOTING:" >&2
+        echo "  1. Check HAProxy config permissions:" >&2
+        echo "     sudo ls -la /opt/vless/config/haproxy.cfg" >&2
+        echo "     (Should be: -rw-r--r-- root root)" >&2
+        echo "  2. Verify config inside container:" >&2
+        echo "     docker exec vless_haproxy ls -la /usr/local/etc/haproxy/haproxy.cfg" >&2
+        echo "  3. Test config syntax:" >&2
+        echo "     docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg" >&2
         return 1
     fi
+
+    # Wait for reload to complete
+    sleep 2
+
+    # Verify HAProxy is running and healthy after reload
+    local new_status
+    new_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+
+    if [[ "$new_status" != "running" ]]; then
+        echo -e "${RED}ERROR: HAProxy container stopped after reload${NC}" >&2
+        echo "Container status: $new_status" >&2
+        return 1
+    fi
+
+    # Get new PID to confirm reload happened
+    local new_pid
+    new_pid=$(docker exec vless_haproxy pidof haproxy 2>/dev/null | awk '{print $1}')
+
+    if [[ -z "$new_pid" ]]; then
+        echo -e "${RED}ERROR: HAProxy process not found after reload${NC}" >&2
+        return 1
+    fi
+
+    # Log warnings if present (but don't fail)
+    if echo "$reload_output" | grep -qi "\[WARNING\]"; then
+        echo -e "${YELLOW}⚠️  HAProxy reload completed with warnings (non-critical):${NC}"
+        echo "$reload_output" | grep -i "\[WARNING\]" | head -3
+    fi
+
+    echo -e "${GREEN}✅ HAProxy reloaded gracefully (zero downtime)${NC}"
+    echo "  Old PID: $old_pid"
+    echo "  New PID: $new_pid"
+    return 0
 }
 
 #==============================================================================
@@ -476,23 +530,23 @@ acquire_certificate_for_domain() {
         return 1
     fi
 
-    # STEP 2-5: Certificate Acquisition (via certbot_manager.sh)
+    # STEP 2-5: Certificate Acquisition (via letsencrypt_integration.sh)
     echo -e "${CYAN}[STEP 2-5/6] Certificate Acquisition${NC}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
-    # Source certbot_manager.sh if not already loaded
-    local certbot_manager_path
-    certbot_manager_path="$(dirname "${BASH_SOURCE[0]}")/certbot_manager.sh"
+    # Source letsencrypt_integration.sh if not already loaded
+    local letsencrypt_lib_path
+    letsencrypt_lib_path="$(dirname "${BASH_SOURCE[0]}")/letsencrypt_integration.sh"
 
-    if [[ ! -f "$certbot_manager_path" ]]; then
-        echo -e "${RED}ERROR: certbot_manager.sh not found${NC}" >&2
-        echo "Expected: $certbot_manager_path" >&2
+    if [[ ! -f "$letsencrypt_lib_path" ]]; then
+        echo -e "${RED}ERROR: letsencrypt_integration.sh not found${NC}" >&2
+        echo "Expected: $letsencrypt_lib_path" >&2
         return 1
     fi
 
     if ! command -v acquire_certificate &>/dev/null; then
-        source "$certbot_manager_path"
+        source "$letsencrypt_lib_path"
     fi
 
     # Run certbot acquisition workflow

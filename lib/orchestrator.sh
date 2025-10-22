@@ -100,7 +100,7 @@ orchestrate_installation() {
     # Set ownership for log directories so containers can write logs
     echo -e "${CYAN}[1.5/12] Setting initial permissions for log directories...${NC}"
     if [[ -d "${LOGS_DIR}/xray" ]]; then
-        chown -R 65534:65534 "${LOGS_DIR}/xray" || {
+        chown -R root:root "${LOGS_DIR}/xray" || {
             echo -e "${RED}Failed to set xray logs ownership${NC}" >&2
             return 1
         }
@@ -245,21 +245,30 @@ orchestrate_installation() {
         }
     fi
 
-    # Step 11: Deploy containers
+    # Step 11: Set permissions (MUST run BEFORE deploy_containers!)
+    # Docker mounts files with current permissions - changing them after won't affect running containers
+    set_permissions || {
+        echo -e "${RED}Failed to set permissions${NC}" >&2
+        return 1
+    }
+
+    # Step 12: Verify critical file permissions (before Docker mounts them)
+    verify_file_permissions || {
+        echo -e "${RED}Permission verification failed${NC}" >&2
+        echo -e "${YELLOW}Cannot proceed with container deployment${NC}" >&2
+        echo -e "${YELLOW}Follow manual fixes above to resolve issues${NC}" >&2
+        return 1
+    }
+
+    # Step 13: Deploy containers (now files have correct permissions)
     deploy_containers || {
         echo -e "${RED}Failed to deploy containers${NC}" >&2
         return 1
     }
 
-    # Step 12: Install CLI tools
+    # Step 14: Install CLI tools
     install_cli_tools || {
         echo -e "${RED}Failed to install CLI tools${NC}" >&2
-        return 1
-    }
-
-    # Step 13: Set permissions
-    set_permissions || {
-        echo -e "${RED}Failed to set permissions${NC}" >&2
         return 1
     }
 
@@ -483,7 +492,7 @@ generate_socks5_inbound_json() {
       "auth": "password",
       "accounts": [],
       "udp": false,
-      "ip": "127.0.0.1"
+      "ip": "0.0.0.0"
     },
     "sniffing": {
       "enabled": true,
@@ -1080,7 +1089,7 @@ create_docker_network() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 configure_ufw() {
-    echo -e "${CYAN}[10/12] Configuring UFW firewall...${NC}"
+    echo -e "${CYAN}[10/14] Configuring UFW firewall...${NC}"
 
     # Check if UFW is installed
     if ! command -v ufw &>/dev/null; then
@@ -1197,7 +1206,7 @@ EOF
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 deploy_containers() {
-    echo -e "${CYAN}[11/12] Deploying Docker containers...${NC}"
+    echo -e "${CYAN}[13/14] Deploying Docker containers...${NC}"
 
     # Pre-flight checks: Verify critical files exist before starting containers
     echo "  Running pre-flight checks..."
@@ -1328,11 +1337,11 @@ deploy_containers() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 install_cli_tools() {
-    echo -e "${CYAN}[12/13] Installing CLI tools...${NC}"
+    echo -e "${CYAN}[14/14] Installing CLI tools...${NC}"
 
     # Get the project root (assuming script is in lib/ subdirectory)
     local project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    local cli_source="${project_root}/cli/vless"
+    local cli_source="${project_root}/scripts/vless"
 
     # Check if CLI script exists in project
     if [[ ! -f "$cli_source" ]]; then
@@ -1359,45 +1368,132 @@ install_cli_tools() {
         return 1
     }
 
-    # Copy lib modules to installation (required for CLI to function)
-    local lib_modules=(
-        "user_management.sh"
-        "qr_generator.sh"
-        "proxy_whitelist.sh"
-        "ufw_whitelist.sh"
+    # Install vless-proxy CLI tool
+    local proxy_cli_source="${project_root}/scripts/vless-proxy"
+    if [[ -f "$proxy_cli_source" ]]; then
+        # Copy vless-proxy script
+        cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
+            echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
+            return 1
+        }
+
+        # Make it executable
+        chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
+            echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
+            return 1
+        }
+
+        # Create symlink in /usr/local/bin
+        ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
+            echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
+            return 1
+        }
+    else
+        echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
+        echo "  ℹ vless-proxy installation skipped"
+    fi
+
+    # Install vless-setup-proxy helper script
+    local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
+    if [[ -f "$setup_proxy_source" ]]; then
+        cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
+            echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
+            return 1
+        }
+
+        chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
+            echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
+            return 1
+        }
+    else
+        echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
+        echo "  ℹ vless-setup-proxy installation skipped"
+    fi
+
+    # v5.20: Copy ALL lib modules automatically (except installation-only modules)
+    # Installation-only modules (excluded from copy):
+    local exclude_modules=(
+        "dependencies.sh"       # Only for install.sh
+        "os_detection.sh"       # Only for install.sh
+        "interactive_params.sh" # Only for install.sh
+        "old_install_detect.sh" # Only for install.sh
+        "sudoers_info.sh"       # Only for install.sh
+        "verification.sh"       # Only for install.sh
+        "orchestrator.sh"       # This file itself
+        "network_params.sh"     # Only for install.sh
+    )
+
+    # Executable modules (need 755 permissions)
+    local executable_modules=(
         "security_tests.sh"
     )
 
-    for module in "${lib_modules[@]}"; do
-        if [[ -f "${project_root}/lib/${module}" ]]; then
-            cp "${project_root}/lib/${module}" "${INSTALL_ROOT}/lib/" || {
+    echo "  📁 Copying ALL library modules from ${project_root}/lib/..."
+    local copied_count=0
+    local skipped_count=0
+
+    # Copy all *.sh files from lib/
+    for lib_file in "${project_root}/lib/"*.sh; do
+        local module=$(basename "$lib_file")
+
+        # Check if module should be excluded
+        local should_exclude=false
+        for excluded in "${exclude_modules[@]}"; do
+            if [[ "$module" == "$excluded" ]]; then
+                should_exclude=true
+                echo "  ⊘ Skipped ${module} (installation-only)"
+                ((skipped_count++))
+                break
+            fi
+        done
+
+        if [[ "$should_exclude" == "true" ]]; then
+            continue
+        fi
+
+        # Copy module
+        if [[ -f "$lib_file" ]]; then
+            cp "$lib_file" "${INSTALL_ROOT}/lib/" || {
                 echo -e "${RED}Failed to copy ${module}${NC}" >&2
                 return 1
             }
 
-            # Set permissions: 755 for executable scripts, 644 for sourced modules
-            if [[ "${module}" == "security_tests.sh" ]]; then
+            # Set permissions based on module type
+            local is_executable=false
+            for exec_module in "${executable_modules[@]}"; do
+                if [[ "$module" == "$exec_module" ]]; then
+                    is_executable=true
+                    break
+                fi
+            done
+
+            if [[ "$is_executable" == "true" ]]; then
                 chmod 755 "${INSTALL_ROOT}/lib/${module}" || {
                     echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
                     return 1
                 }
+                echo "  ✓ Copied ${module} (executable: 755)"
             else
                 chmod 644 "${INSTALL_ROOT}/lib/${module}" || {
                     echo -e "${RED}Failed to set permissions on ${module}${NC}" >&2
                     return 1
                 }
+                echo "  ✓ Copied ${module} (sourced: 644)"
             fi
 
-            echo "  ✓ Copied ${module} to ${INSTALL_ROOT}/lib/"
-        else
-            echo -e "${RED}Required module not found: ${module}${NC}" >&2
-            return 1
+            ((copied_count++))
         fi
     done
 
-    echo "  ✓ CLI script installed: ${SCRIPTS_DIR}/vless"
-    echo "  ✓ Symlink created: /usr/local/bin/vless"
-    echo "  ✓ Command available: vless"
+    echo "  📊 Summary: ${copied_count} modules copied, ${skipped_count} skipped"
+
+    echo "  ✓ CLI scripts installed:"
+    echo "    - ${SCRIPTS_DIR}/vless"
+    echo "    - ${SCRIPTS_DIR}/vless-proxy"
+    echo "  ✓ Symlinks created:"
+    echo "    - /usr/local/bin/vless"
+    echo "    - /usr/local/bin/vless-proxy"
+    echo "  ✓ Commands available: vless, vless-proxy"
 
     echo -e "${GREEN}✓ CLI tools installed${NC}"
     return 0
@@ -1410,29 +1506,80 @@ install_cli_tools() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 set_permissions() {
-    echo -e "${CYAN}[13/13] Setting file permissions...${NC}"
+    echo -e "${CYAN}[11/14] Setting file permissions...${NC}"
 
     # Sensitive directories: 700 (root only)
+    # EXCEPTION: CONFIG_DIR must be 755 to allow container users to read files inside
     # Set permissions on each directory individually to ensure all exist
-    for sensitive_dir in "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/clients" "${DATA_DIR}/backups" "${KEYS_DIR}" "${INSTALL_ROOT}/backup"; do
+    for sensitive_dir in "${DATA_DIR}" "${DATA_DIR}/clients" "${DATA_DIR}/backups" "${KEYS_DIR}" "${INSTALL_ROOT}/backup"; do
         if [[ -d "$sensitive_dir" ]]; then
             chmod 700 "$sensitive_dir" 2>/dev/null || true
         fi
     done
+
+    # CONFIG_DIR and subdirectories: 755 (readable by container users)
+    # This allows Xray (root) and HAProxy (uid=99) containers to read config files
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
+    fi
+    if [[ -d "${CONFIG_DIR}/reverse-proxy" ]]; then
+        chmod 755 "${CONFIG_DIR}/reverse-proxy" 2>/dev/null || true
+    fi
 
     # Sensitive files: 600 (root read/write only)
     find "${CONFIG_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
     find "${KEYS_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
     chmod 600 "${ENV_FILE}" 2>/dev/null || true
 
+    # EXCEPTION: HAProxy config must be world-readable for haproxy user (uid=99 in container)
+    # HAProxy container runs as non-root user and needs to read this file
+    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
+        chmod 644 "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || {
+            echo -e "  ${YELLOW}⚠ WARNING: Failed to set permissions on haproxy.cfg${NC}" >&2
+        }
+        # Verify permissions were set correctly
+        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
+        if [[ "$haproxy_perms" == "644" ]]; then
+            echo "  ✓ haproxy.cfg: 644 (readable by container uid=99)"
+        else
+            echo -e "  ${RED}✗ haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}" >&2
+        fi
+    else
+        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found at ${CONFIG_DIR}/haproxy.cfg${NC}" >&2
+    fi
+
+    # EXCEPTION: Xray config must be world-readable (chmod 644)
+    # After v5.18, xray container runs as root (removed user: nobody from docker-compose)
+    if [[ -f "${XRAY_CONFIG}" ]]; then
+        echo "  → Setting permissions on ${XRAY_CONFIG}..."
+        chmod 644 "${XRAY_CONFIG}" 2>/dev/null || {
+            echo -e "  ${RED}✗ CRITICAL: Failed to chmod 644 ${XRAY_CONFIG}${NC}" >&2
+            echo -e "  ${RED}  This will cause vless_xray container to fail!${NC}" >&2
+            return 1
+        }
+        # Verify permissions were set correctly
+        local xray_perms=$(stat -c '%a' "${XRAY_CONFIG}" 2>/dev/null || echo "000")
+        if [[ "$xray_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ xray_config.json: 644 (readable by container)${NC}"
+        else
+            echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}" >&2
+            echo -e "  ${RED}  vless_xray container will fail to start!${NC}" >&2
+            return 1
+        fi
+    else
+        echo -e "  ${RED}✗ CRITICAL: XRAY_CONFIG not found: ${XRAY_CONFIG}${NC}" >&2
+        echo -e "  ${RED}  Variable: XRAY_CONFIG=${XRAY_CONFIG}${NC}" >&2
+        return 1
+    fi
+
     # Readable directories: 755
     chmod 755 "${LOGS_DIR}" "${SCRIPTS_DIR}" "${FAKESITE_DIR}" \
               "${DOCS_DIR}" "${TESTS_DIR}" 2>/dev/null || true
 
-    # Set ownership for xray logs (container runs as user: nobody = UID 65534)
-    # This allows xray container to write logs without permission errors
+    # Set ownership for xray logs (container runs as root after v5.18 fix)
+    # xray container must run as root to avoid permission denied errors with config/logs
     if [[ -d "${LOGS_DIR}/xray" ]]; then
-        chown -R 65534:65534 "${LOGS_DIR}/xray" 2>/dev/null || true
+        chown -R root:root "${LOGS_DIR}/xray" 2>/dev/null || true
         chmod 755 "${LOGS_DIR}/xray" 2>/dev/null || true
     fi
 
@@ -1457,12 +1604,115 @@ set_permissions() {
 
     echo "  ✓ Sensitive files: 600 (root only)"
     echo "  ✓ Config/keys directories: 700 (root only)"
-    echo "  ✓ Xray logs ownership: nobody:nobody (65534:65534)"
+    echo "  ✓ Xray logs ownership: root:root (container runs as root since v5.18)"
     echo "  ✓ Nginx logs ownership: nginx:nginx (101:101)"
     echo "  ✓ Logs/scripts: 755/644 (readable)"
 
     echo -e "${GREEN}✓ Permissions set${NC}"
     return 0
+}
+
+# =============================================================================
+# FUNCTION: verify_file_permissions
+# =============================================================================
+# Description: Verify critical file permissions after installation
+# Returns: 0 on success, 1 if critical issues found
+# =============================================================================
+verify_file_permissions() {
+    echo ""
+    echo -e "${CYAN}[12/14] Verifying critical file permissions...${NC}"
+
+    local ISSUES=0
+    local WARNINGS=0
+
+    # Check CONFIG_DIR directory permissions (CRITICAL)
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        local config_dir_perms=$(stat -c '%a' "${CONFIG_DIR}" 2>/dev/null || echo "000")
+        if [[ "$config_dir_perms" == "755" ]]; then
+            echo -e "  ${GREEN}✓ config directory: 755 (OK)${NC}"
+        else
+            echo -e "  ${RED}✗ CRITICAL: config directory: $config_dir_perms (EXPECTED 755)${NC}"
+            echo -e "  ${RED}  → Containers cannot read config files (permission denied)${NC}"
+            echo -e "  ${YELLOW}  → Manual fix: sudo chmod 755 ${CONFIG_DIR}${NC}"
+            ((ISSUES++))
+        fi
+    else
+        echo -e "  ${RED}✗ CRITICAL: config directory not found${NC}"
+        ((ISSUES++))
+    fi
+
+    # Check xray_config.json (CRITICAL)
+    if [[ -f "${XRAY_CONFIG}" ]]; then
+        local xray_perms=$(stat -c '%a' "${XRAY_CONFIG}" 2>/dev/null || echo "000")
+        if [[ "$xray_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ xray_config.json: 644 (OK)${NC}"
+        else
+            echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}"
+            echo -e "  ${RED}  → vless_xray container will fail to start!${NC}"
+            echo -e "  ${YELLOW}  → Manual fix: sudo chmod 644 ${XRAY_CONFIG}${NC}"
+            ((ISSUES++))
+        fi
+    else
+        echo -e "  ${RED}✗ CRITICAL: xray_config.json not found${NC}"
+        ((ISSUES++))
+    fi
+
+    # Check haproxy.cfg (CRITICAL)
+    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
+        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
+        if [[ "$haproxy_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ haproxy.cfg: 644 (OK)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}"
+            echo -e "  ${YELLOW}  → HAProxy container may fail to start${NC}"
+            ((WARNINGS++))
+        fi
+    else
+        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found${NC}"
+        ((WARNINGS++))
+    fi
+
+    # Check docker-compose.yml
+    if [[ -f "${DOCKER_COMPOSE_FILE}" ]]; then
+        local compose_perms=$(stat -c '%a' "${DOCKER_COMPOSE_FILE}" 2>/dev/null || echo "000")
+        if [[ "$compose_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ docker-compose.yml: 644 (OK)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ WARNING: docker-compose.yml: $compose_perms (EXPECTED 644)${NC}"
+            ((WARNINGS++))
+        fi
+    fi
+
+    # Check xray logs directory ownership (v5.18: changed to root after removing user: nobody)
+    if [[ -d "${LOGS_DIR}/xray" ]]; then
+        local xray_log_owner=$(stat -c '%u:%g' "${LOGS_DIR}/xray" 2>/dev/null || echo "0:0")
+        if [[ "$xray_log_owner" == "0:0" ]]; then
+            echo -e "  ${GREEN}✓ xray logs: owned by root:root (0:0) - container runs as root${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ WARNING: xray logs: $xray_log_owner (EXPECTED 0:0 after v5.18)${NC}"
+            echo -e "  ${YELLOW}  → Xray container may fail to write logs${NC}"
+            ((WARNINGS++))
+        fi
+    fi
+
+    # Summary
+    echo ""
+    if [[ $ISSUES -eq 0 && $WARNINGS -eq 0 ]]; then
+        echo -e "${GREEN}✓ All critical permissions verified successfully${NC}"
+        return 0
+    elif [[ $ISSUES -eq 0 ]]; then
+        echo -e "${YELLOW}⚠ Verification completed with $WARNINGS warning(s)${NC}"
+        echo -e "${YELLOW}  System may still function, but review warnings above${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ Verification FAILED with $ISSUES critical issue(s) and $WARNINGS warning(s)${NC}"
+        echo -e "${RED}  Installation may not work correctly!${NC}"
+        echo ""
+        echo -e "${YELLOW}Run manual fixes above, then:${NC}"
+        echo -e "${YELLOW}  docker restart vless_xray${NC}"
+        echo -e "${YELLOW}  docker restart vless_haproxy${NC}"
+        return 1
+    fi
 }
 
 # =============================================================================
@@ -1489,3 +1739,4 @@ export -f configure_ufw
 export -f deploy_containers
 export -f install_cli_tools
 export -f set_permissions
+export -f verify_file_permissions

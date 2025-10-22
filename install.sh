@@ -28,8 +28,8 @@
 #   2 - Permission error (not root)
 #   3 - Dependency error
 #
-# Version: 4.3
-# Date: 2025-10-19
+# Version: 5.18
+# Date: 2025-10-21
 ################################################################################
 
 set -euo pipefail
@@ -41,6 +41,10 @@ readonly COLOR_YELLOW='\033[0;33m'
 readonly COLOR_BLUE='\033[0;34m'
 readonly COLOR_CYAN='\033[0;36m'
 readonly COLOR_RESET='\033[0m'
+
+# Version tracking (matches CHANGELOG.md)
+# Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
+readonly VLESS_VERSION="5.22"
 
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -418,10 +422,10 @@ main() {
     verify_installation
     print_success "Installation verified"
 
-    # Step 9.5: Save version file (v3.4)
-    echo "3.4" > "${INSTALL_ROOT}/.version"
+    # Step 9.5: Save version file
+    echo "${VLESS_VERSION}" > "${INSTALL_ROOT}/.version"
     chmod 644 "${INSTALL_ROOT}/.version"
-    print_message "${COLOR_CYAN}" "Version file saved: v3.4"
+    print_message "${COLOR_CYAN}" "Version file saved: v${VLESS_VERSION}"
 
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"

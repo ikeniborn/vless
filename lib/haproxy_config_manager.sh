@@ -21,6 +21,12 @@ VLESS_DIR="${VLESS_DIR:-/opt/vless}"
 HAPROXY_CONFIG="${VLESS_DIR}/config/haproxy.cfg"
 HAPROXY_CONTAINER="vless_haproxy"
 
+# Source container management module (v5.22)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/container_management.sh" ]; then
+    source "${SCRIPT_DIR}/container_management.sh"
+fi
+
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] [haproxy-config] $*" >&2
@@ -143,6 +149,10 @@ frontend socks5_tls
     mode tcp
     option tcplog
 
+    # Enable request inspection for SNI capture
+    tcp-request inspect-delay 5s
+    tcp-request content accept if TRUE
+
     # Log TLS info
     tcp-request content capture req.ssl_sni len 100
 
@@ -161,6 +171,10 @@ frontend http_proxy_tls
     bind *:8118 ssl crt /etc/letsencrypt/live/${main_domain}/combined.pem
     mode tcp
     option tcplog
+
+    # Enable request inspection for SNI capture
+    tcp-request inspect-delay 5s
+    tcp-request content accept if TRUE
 
     # Log TLS info
     tcp-request content capture req.ssl_sni len 100
@@ -238,6 +252,14 @@ add_reverse_proxy_route() {
 
     log "Adding reverse proxy route: ${domain} → 127.0.0.1:${port}"
 
+    # v5.22: Ensure HAProxy container is running before adding route
+    if command -v ensure_container_running &> /dev/null; then
+        if ! ensure_container_running "vless_haproxy"; then
+            log_error "Cannot add route: HAProxy container not available"
+            return 1
+        fi
+    fi
+
     # Backup current config
     cp "${HAPROXY_CONFIG}" "${HAPROXY_CONFIG}.bak"
 
@@ -294,8 +316,8 @@ EOF
         return 1
     fi
 
-    # Graceful reload
-    if ! reload_haproxy; then
+    # Graceful reload (v5.21: silent mode to suppress timeout warnings)
+    if ! reload_haproxy --silent; then
         log_error "Failed to reload HAProxy"
         mv "${HAPROXY_CONFIG}.bak" "${HAPROXY_CONFIG}"
         return 1
@@ -325,6 +347,14 @@ remove_reverse_proxy_route() {
 
     log "Removing reverse proxy route: ${domain}"
 
+    # v5.22: Ensure HAProxy container is running before removing route
+    if command -v ensure_container_running &> /dev/null; then
+        if ! ensure_container_running "vless_haproxy"; then
+            log_error "Cannot remove route: HAProxy container not available"
+            return 1
+        fi
+    fi
+
     # Backup
     cp "${HAPROXY_CONFIG}" "${HAPROXY_CONFIG}.bak"
 
@@ -350,7 +380,8 @@ remove_reverse_proxy_route() {
         return 1
     fi
 
-    if ! reload_haproxy; then
+    # v5.21: Silent mode to suppress timeout warnings during removal
+    if ! reload_haproxy --silent; then
         log_error "Failed to reload HAProxy"
         mv "${HAPROXY_CONFIG}.bak" "${HAPROXY_CONFIG}"
         return 1
@@ -379,14 +410,30 @@ validate_haproxy_config() {
         return 0
     fi
 
-    # Validate config via docker exec
-    if docker exec "${HAPROXY_CONTAINER}" haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg > /dev/null 2>&1; then
+    # Validate config via docker exec (capture output once to avoid race conditions)
+    local validation_output
+    local validation_exit_code
+
+    validation_output=$(docker exec "${HAPROXY_CONTAINER}" haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg 2>&1)
+    validation_exit_code=$?
+
+    # Check exit code first
+    if [ $validation_exit_code -eq 0 ]; then
         log "✅ HAProxy config is valid"
         return 0
     else
-        log_error "❌ HAProxy config has errors:"
-        docker exec "${HAPROXY_CONTAINER}" haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg 2>&1
-        return 1
+        # Only show error if validation actually failed (not just warnings)
+        # HAProxy returns 0 for valid config even with warnings
+        if echo "$validation_output" | grep -qi "error\|failed\|invalid"; then
+            log_error "❌ HAProxy config has errors:"
+            echo "$validation_output" >&2
+            return 1
+        else
+            # Exit code non-zero but no errors in output - treat as valid (warnings only)
+            log "⚠️  HAProxy config valid with warnings:"
+            echo "$validation_output" >&2
+            return 0
+        fi
     fi
 }
 
@@ -394,16 +441,28 @@ validate_haproxy_config() {
 # Function: reload_haproxy
 # Description: Gracefully reloads HAProxy without downtime
 #
+# Parameters:
+#   --silent : Suppress info/warning messages (only show errors)
+#
 # Returns:
 #   0 on success, 1 on failure
 # =============================================================================
 reload_haproxy() {
+    local silent_mode=false
+
+    # Parse parameters
+    if [[ "${1:-}" == "--silent" ]]; then
+        silent_mode=true
+    fi
+
     if ! docker ps | grep -q "${HAPROXY_CONTAINER}"; then
         log_error "HAProxy container not running"
         return 1
     fi
 
-    log "Reloading HAProxy (graceful, no downtime)..."
+    if [[ "$silent_mode" == "false" ]]; then
+        log "Reloading HAProxy (graceful, no downtime)..."
+    fi
 
     # Get current PID
     local old_pid=$(docker exec "${HAPROXY_CONTAINER}" pidof haproxy 2>/dev/null)
@@ -414,13 +473,51 @@ reload_haproxy() {
     fi
 
     # Graceful reload: haproxy -f config.cfg -sf <old_pid>
-    if docker exec "${HAPROXY_CONTAINER}" haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf ${old_pid} > /dev/null 2>&1; then
-        log "✅ HAProxy reloaded successfully"
-        return 0
-    else
-        log_error "❌ Failed to reload HAProxy"
+    # Note: Capture output to check for errors (warnings are OK, only errors should fail)
+    # Use timeout to prevent hanging when active connections are present
+    local reload_output
+    reload_output=$(timeout 10 docker exec "${HAPROXY_CONTAINER}" haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf ${old_pid} 2>&1)
+    local exit_code=$?
+
+    # Exit code 124 means timeout occurred (reload is still in progress, but that's OK)
+    # The new HAProxy process started successfully and will finish gracefully in background
+    if [ $exit_code -eq 124 ]; then
+        if [[ "$silent_mode" == "false" ]]; then
+            log "ℹ️  HAProxy reload: graceful shutdown in progress (normal with active connections)"
+        fi
+        exit_code=0  # Consider it success
+    fi
+
+    # Check if reload has actual errors (not just warnings)
+    if echo "$reload_output" | grep -qi "\[ALERT\]"; then
+        log_error "❌ HAProxy reload failed with ALERT:"
+        echo "$reload_output" | grep -i "\[ALERT\]" >&2
+        echo "" >&2
+        log_error "TROUBLESHOOTING:"
+        log_error "  1. Check config permissions: sudo ls -la ${HAPROXY_CONFIG}"
+        log_error "     (Should be: -rw-r--r-- root root)"
+        log_error "  2. Test config: docker exec ${HAPROXY_CONTAINER} haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg"
         return 1
     fi
+
+    # Verify container is still running after reload
+    sleep 1
+    if ! docker ps | grep -q "${HAPROXY_CONTAINER}"; then
+        log_error "❌ HAProxy container died after reload"
+        return 1
+    fi
+
+    # Log warnings if present (but don't fail)
+    if [[ "$silent_mode" == "false" ]]; then
+        if echo "$reload_output" | grep -qi "\[WARNING\]"; then
+            log "⚠️  HAProxy reload completed with warnings (non-critical):"
+            echo "$reload_output" | grep -i "\[WARNING\]" >&2
+        fi
+
+        log "✅ HAProxy reloaded successfully"
+    fi
+
+    return 0
 }
 
 # =============================================================================

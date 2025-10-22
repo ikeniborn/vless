@@ -238,10 +238,18 @@ add_port_to_jail() {
         return 0
     fi
 
-    # Add port
-    local new_ports="${current_ports},${new_port}"
-
     log "Adding port $new_port to jail (current: $current_ports)"
+
+    # Add port (handle empty list - first proxy after removal)
+    local new_ports
+    if [[ -z "$current_ports" ]]; then
+        new_ports="$new_port"
+        log "ℹ️ First reverse proxy, re-enabling fail2ban jail"
+        # Re-enable jail if it was disabled
+        sudo sed -i 's/^enabled  = false/enabled  = true/' "$jail_file"
+    else
+        new_ports="${current_ports},${new_port}"
+    fi
 
     # Update both jail sections
     sudo sed -i "s/^port = .*/port = ${new_ports}/" "$jail_file"
@@ -284,12 +292,17 @@ remove_port_from_jail() {
     local new_ports
     new_ports=$(echo "$current_ports" | tr ',' '\n' | grep -v "^${port_to_remove}$" | paste -sd, -)
 
-    if [[ -z "$new_ports" ]]; then
-        log "⚠️  Warning: No ports left after removal. Keeping at least port 9443"
-        new_ports="9443"
-    fi
-
     log "Removing port $port_to_remove from jail (current: $current_ports)"
+
+    if [[ -z "$new_ports" ]]; then
+        log "ℹ️ No ports left after removal, disabling fail2ban jail"
+        # Disable jail instead of adding dummy port
+        sudo sed -i 's/^enabled  = true/enabled  = false/' "$jail_file"
+        # Clear port line (set to empty or placeholder)
+        sudo sed -i 's/^port = .*/port = /' "$jail_file"
+        log "✅ fail2ban jail disabled (no active reverse proxies)"
+        return 0
+    fi
 
     # Update both jail sections
     sudo sed -i "s/^port = .*/port = ${new_ports}/" "$jail_file"

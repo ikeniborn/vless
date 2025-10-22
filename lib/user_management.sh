@@ -1117,15 +1117,15 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # v4.0: stunnel-based TLS termination
-    # Architecture: Client → stunnel (TLS) → Xray (plaintext)
-    # IMPORTANT: stunnel ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
+    # v4.3: HAProxy-based TLS termination (unified architecture)
+    # Architecture: Client → HAProxy (TLS) → Xray (plaintext)
+    # IMPORTANT: HAProxy ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
     local scheme="socks5"
     local host
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.0: Public proxy with stunnel TLS termination
-        scheme="socks5s"  # SOCKS5 with TLS (stunnel provides TLS termination)
+        # v4.3: Public proxy with HAProxy TLS termination
+        scheme="socks5s"  # SOCKS5 with TLS (HAProxy provides TLS termination)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
@@ -1133,7 +1133,7 @@ export_socks5_config() {
         host="127.0.0.1"
     fi
 
-    # Write SOCKS5 URI (port 1080 exposed by stunnel, not Xray)
+    # Write SOCKS5 URI (port 1080 exposed by HAProxy, not Xray)
     echo "${scheme}://${username}:${password}@${host}:1080" \
         > "$output_dir/socks5_config.txt"
 
@@ -1163,15 +1163,15 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # v4.0: stunnel-based TLS termination
-    # Architecture: Client → stunnel (TLS) → Xray (plaintext)
-    # IMPORTANT: stunnel ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
+    # v4.3: HAProxy-based TLS termination (unified architecture)
+    # Architecture: Client → HAProxy (TLS) → Xray (plaintext)
+    # IMPORTANT: HAProxy ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
     local scheme="http"
     local host
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.0: Public proxy with stunnel TLS termination
-        scheme="https"  # HTTPS proxy with TLS (stunnel provides TLS termination)
+        # v4.3: Public proxy with HAProxy TLS termination
+        scheme="https"  # HTTPS proxy with TLS (HAProxy provides TLS termination)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
@@ -1179,7 +1179,7 @@ export_http_config() {
         host="127.0.0.1"
     fi
 
-    # Write HTTP URI (port 8118 exposed by stunnel, not Xray)
+    # Write HTTP URI (port 8118 exposed by HAProxy, not Xray)
     echo "${scheme}://${username}:${password}@${host}:8118" \
         > "$output_dir/http_config.txt"
 
@@ -1213,7 +1213,7 @@ export_vscode_config() {
     local strict_ssl="false"
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.0: Public proxy with stunnel TLS termination
+        # v4.3: Public proxy with HAProxy TLS termination
         proxy_url="https://${DOMAIN}:8118"
         strict_ssl="true"  # Validate TLS certificate
     else
@@ -1267,7 +1267,7 @@ export_docker_config() {
     local proxy_url
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.0: Public proxy with stunnel TLS termination
+        # v4.3: Public proxy with HAProxy TLS termination
         proxy_url="https://${username}:${password}@${DOMAIN}:8118"
     else
         # Localhost-only, no TLS (proxies bind to 127.0.0.1)
@@ -1317,9 +1317,9 @@ export_bash_config() {
     local mode_label
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.0: Public proxy with stunnel TLS termination
+        # v4.3: Public proxy with HAProxy TLS termination
         proxy_url="https://${username}:${password}@${DOMAIN}:8118"
-        mode_label="v4.0 - Public Access with stunnel TLS"
+        mode_label="v4.3 - Public Access with HAProxy TLS"
     else
         # Localhost-only, no TLS (proxies bind to 127.0.0.1)
         proxy_url="http://${username}:${password}@127.0.0.1:8118"
@@ -1373,7 +1373,7 @@ export_git_config() {
     local http_proxy
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.0: stunnel ALWAYS uses TLS for public mode
+        # v4.3: HAProxy ALWAYS uses TLS for public mode
         socks_proxy="socks5s://${username}:${password}@${DOMAIN}:1080"
         http_proxy="https://${username}:${password}@${DOMAIN}:8118"
     else
