@@ -250,16 +250,6 @@ server {
     ssl_prefer_server_ciphers off;
     # TLS 1.3 cipher suites configured automatically (no ssl_ciphers directive needed)
 
-    # HTTP Basic Auth
-    auth_basic "Restricted Access";
-    auth_basic_user_file /etc/nginx/conf.d/reverse-proxy/.htpasswd-${domain};  # Path inside container
-
-    # VULN-001 FIX: Host Header Validation (CRITICAL)
-    # Defense-in-depth: Explicit Host validation
-    if (\$host != "${domain}") {
-        return 444;  # Close connection without response
-    }
-
     # VULN-002 FIX: HSTS Header (HIGH)
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
 
@@ -317,6 +307,12 @@ EOF
 
     # Proxy directly to target site (v5.2: IPv4-only, prevents IPv6 unreachable errors)
     location / {
+        # v5.23 FIX: HTTP Basic Auth (MUST be in location block, not server block!)
+        # Nginx bug: auth_basic in server context + if block = auth not inherited
+        # Solution: Move auth_basic to location block for reliable authentication
+        auth_basic "Restricted Access";
+        auth_basic_user_file /etc/nginx/conf.d/reverse-proxy/.htpasswd-${domain};  # Path inside container
+
         # IPv4-only proxy_pass (resolved at config generation time)
         # Auto-monitored by vless-monitor-reverse-proxy-ips cron job
         proxy_pass https://${target_ipv4};

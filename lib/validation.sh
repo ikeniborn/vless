@@ -244,16 +244,22 @@ validate_reverse_proxy() {
 
     # v5.23: Real HTTP request to verify reverse proxy works end-to-end
     # This tests: HAProxy SNI routing → nginx backend → response
-    # Expected: 401 (nginx auth required) or 200 (if auth successful)
+    # Expected: 401 (nginx Basic Auth required) - this is SUCCESS!
+    # Alternative: 200/302 (if auth disabled or target site redirects)
+    # CRITICAL: Must use domain in URL (not IP) to send SNI in TLS handshake
+    # HAProxy uses SNI to route requests - without SNI, request goes to default_backend
     # Timeout: 10 seconds
     local http_code
-    http_code=$(timeout 10 curl -s -o /dev/null -w "%{http_code}" -k "https://127.0.0.1:443" \
-        -H "Host: ${domain}" \
+    http_code=$(timeout 10 curl -s -o /dev/null -w "%{http_code}" -k "https://${domain}/" \
         --resolve "${domain}:443:127.0.0.1" 2>/dev/null || echo "000")
 
-    if [ "$http_code" = "401" ] || [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
+    if [ "$http_code" = "401" ]; then
+        log "  ✅ HTTP connectivity successful (HTTP 401 Unauthorized)"
+        log "     Basic Auth is working - reverse proxy requires authentication"
+        checks_passed=$((checks_passed + 1))
+    elif [ "$http_code" = "200" ] || [ "$http_code" = "302" ]; then
         log "  ✅ HTTP connectivity successful (HTTP $http_code)"
-        log "     Reverse proxy is serving requests correctly"
+        log "     Reverse proxy is serving requests"
         checks_passed=$((checks_passed + 1))
     elif [ "$http_code" = "000" ]; then
         log_error "  ❌ HTTP connectivity test failed (connection refused/timeout)"
@@ -261,9 +267,17 @@ validate_reverse_proxy() {
         log_error "     Check: docker logs vless_nginx_reverseproxy --tail 20"
         log_error "     Check: curl -k -I -H 'Host: ${domain}' https://127.0.0.1:443"
         return 1
+    elif [ "$http_code" = "404" ] || [ "$http_code" = "403" ]; then
+        log_error "  ❌ HTTP connectivity test: Basic Auth NOT working (HTTP $http_code)"
+        log_error "     Expected: 401 (auth required), Got: $http_code (target site response)"
+        log_error "     This indicates nginx is proxying without authentication!"
+        log_error "     SECURITY ISSUE: Reverse proxy is NOT protected by Basic Auth"
+        log_error "     Check nginx config: /opt/vless/config/reverse-proxy/${domain}.conf"
+        log_error "     Look for auth_basic directive in location block (not server block)"
+        return 1
     else
         log "  ⚠️  HTTP connectivity test returned unexpected code: $http_code"
-        log "     Expected: 200/401/302, Got: $http_code"
+        log "     Expected: 401 (auth required), Got: $http_code"
         log "     Proceeding anyway (might be target site issue)"
         checks_passed=$((checks_passed + 1))  # Don't fail on unexpected codes
     fi
