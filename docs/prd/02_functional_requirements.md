@@ -44,11 +44,15 @@ Port 8118 (HAProxy Frontend - HTTP TLS Termination):
 **haproxy.cfg (3 Frontends):**
 ```haproxy
 # Frontend 1: SNI Routing (port 443)
-frontend vless-reality
+frontend https_sni_router
     bind *:443
     mode tcp
     tcp-request inspect-delay 5s
     tcp-request content accept if { req_ssl_hello_type 1 }
+
+    # Static ACL for VLESS Reality (REQUIRED - explicit domain match)
+    acl is_vless req_ssl_sni -i vless.example.com
+    use_backend xray_vless if is_vless
 
     # === DYNAMIC_REVERSE_PROXY_ROUTES ===
     # ACLs and use_backend directives added dynamically by lib/haproxy_config_manager.sh
@@ -56,47 +60,57 @@ frontend vless-reality
     #   acl is_claude req.ssl_sni -i claude.ikeniborn.ru
     #   use_backend nginx_claude if is_claude
 
-    default_backend xray_reality
+    # Default: drop unknown SNI (security hardening)
+    default_backend blackhole
 
 # Frontend 2: SOCKS5 TLS Termination (port 1080)
-frontend socks5-tls
-    bind *:1080 ssl crt /opt/vless/certs/combined.pem
+frontend socks5_tls
+    bind *:1080 ssl crt /etc/letsencrypt/live/example.com/combined.pem
     mode tcp
-    default_backend xray_socks5
+    default_backend xray_socks5_plaintext
 
 # Frontend 3: HTTP Proxy TLS Termination (port 8118)
-frontend http-tls
-    bind *:8118 ssl crt /opt/vless/certs/combined.pem
+frontend http_proxy_tls
+    bind *:8118 ssl crt /etc/letsencrypt/live/example.com/combined.pem
     mode tcp
-    default_backend xray_http
+    default_backend xray_http_plaintext
 
 # Backends
-backend xray_reality
+backend xray_vless
     mode tcp
     server xray vless_xray:8443
 
-backend xray_socks5
+backend xray_socks5_plaintext
     mode tcp
     server xray vless_xray:10800
 
-backend xray_http
+backend xray_http_plaintext
     mode tcp
     server xray vless_xray:18118
+
+# Blackhole backend for unknown/invalid SNI
+backend blackhole
+    mode tcp
+    # No servers configured - connections are dropped
 
 # Dynamic backends (added via add_reverse_proxy_route())
 # Example:
 # backend nginx_claude
 #     mode tcp
-#     server nginx vless_reverse_proxy_nginx:9443
+#     server nginx vless_nginx_reverseproxy:9443
 
-# Stats page
-frontend stats
-    bind *:9000
+# Stats page (localhost only for security)
+listen stats
+    bind 127.0.0.1:9000
     mode http
     stats enable
     stats uri /stats
     stats refresh 10s
+    stats show-legends
+    stats auth admin:password
 ```
+
+**SECURITY NOTE:** HAProxy binds to localhost:9000, but docker-compose.yml may expose as `0.0.0.0:9000`. Use SSH tunnel for remote access.
 
 **Xray config (SOCKS5 inbound - NO CHANGES from v4.0):**
 ```json

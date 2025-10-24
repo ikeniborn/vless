@@ -300,7 +300,7 @@ PHASE N CHECKPOINT:
 ## 6. PROJECT OVERVIEW
 
 **Project Name:** VLESS + Reality VPN Server
-**Version:** 4.3 (HAProxy Unified Architecture)
+**Version:** 5.22 (Robust Container Management & Validation System)
 **Target Scale:** 10-50 concurrent users
 **Deployment:** Linux servers (Ubuntu 20.04+, Debian 10+)
 **Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, HAProxy, Nginx
@@ -311,15 +311,72 @@ PHASE N CHECKPOINT:
 - DPI-resistant via Reality protocol (TLS 1.3 masquerading)
 - Dual proxy support (SOCKS5 + HTTP) with unified credentials
 - Multi-format config export (5 formats: SOCKS5, HTTP, VSCode, Docker, Bash)
-- **Unified TLS and routing via HAProxy (v4.3)** - single container architecture
+- **Unified TLS and routing via HAProxy (v4.3+)** - single container architecture
 - **Subdomain-based reverse proxy (https://domain, NO port!)**
 - Coexists with Outline, Wireguard, other VPN services
 
 **Key Innovation:**
 Reality protocol "steals" TLS handshake from legitimate websites (google.com, microsoft.com), making VPN traffic mathematically indistinguishable from normal HTTPS. Deep Packet Inspection systems cannot detect the VPN.
 
-**HAProxy Architecture (v4.3 - Current):**
-HAProxy handles ALL TLS termination and routing in single container. **stunnel removed completely**. Port 443 (external): SNI routing to Xray:8443 (internal) for VLESS Reality + Reverse Proxy subdomain routing. Ports 1080/8118: TLS termination for proxies → Xray:10800/18118 plaintext. Nginx reverse proxy backends on localhost:9443-9452 (NOT exposed). Subdomain-based reverse proxy access (https://domain, NO port!). Graceful reload for zero-downtime updates.
+**Architecture v5.22 (HAProxy Unified + Parallel Routing):**
+
+```
+5 Docker Containers (vless_reality_net bridge network):
+
+┌─────────────────────────────────────────────────────────────────┐
+│                          INTERNET                               │
+└────────┬────────────────┬────────────────┬──────────────────────┘
+         │                │                │
+    Port 443        Port 1080        Port 8118
+  (HTTPS SNI)      (SOCKS5 TLS)     (HTTP TLS)
+         │                │                │
+         ▼                ▼                ▼
+┌────────────────────────────────────────────────────────────────┐
+│              vless_haproxy (HAProxy 2.8-alpine)                │
+│                                                                │
+│  Frontend https_sni_router (443):                             │
+│    ├─ Static ACL: is_vless → backend xray_vless              │
+│    ├─ Dynamic ACLs: is_<domain> → backend nginx_<domain>     │
+│    └─ Default: blackhole (DROP unknown SNI)                   │
+│                                                                │
+│  Frontend socks5_tls (1080):                                  │
+│    └─ TLS termination → backend xray_socks5_plaintext         │
+│                                                                │
+│  Frontend http_proxy_tls (8118):                              │
+│    └─ TLS termination → backend xray_http_plaintext           │
+└───┬──────────────────────┬─────────────────────────────────────┘
+    │                      │
+    │ (Docker network)     │ (Docker network)
+    ▼                      ▼
+┌────────────────┐   ┌──────────────────────────┐
+│  vless_xray    │   │  vless_nginx_            │
+│  (Xray         │   │  reverseproxy            │
+│   24.11.30)    │   │  (Nginx Alpine)          │
+│                │   │                          │
+│ Expose:        │   │ Ports (localhost):       │
+│  - 8443 VLESS  │   │  - 127.0.0.1:9443-9452   │
+│  - 10800 SOCKS5│   │    → HAProxy SNI routing │
+│  - 18118 HTTP  │   └──────┬───────────────────┘
+└────┬───────────┘          │
+     │                      │ Upstream proxy
+     │ Fallback             ▼
+     ▼              ┌─────────────────┐
+┌──────────────┐   │  Target Sites   │
+│ vless_fake_  │   │  (Internet)     │
+│ site (Nginx) │   └─────────────────┘
+└──────────────┘
+
+  + vless_certbot_nginx (profile: certbot, для ACME challenges)
+```
+
+**Key Architectural Principles:**
+- ✅ **Parallel Routing** (НЕ последовательная цепочка): HAProxy routes to Xray OR Nginx OR blackhole
+- ✅ **SNI-based Routing** (port 443): 3 paths based on Server Name Indication
+  - Path 1: SNI = vless.example.com → Xray:8443 (Reality TLS) → Internet
+  - Path 2: SNI = reverse proxy domain → Nginx:9443-9452 → Internet
+  - Path 3: SNI = unknown → blackhole (DROP for security)
+- ✅ **TLS Termination** (ports 1080/8118): HAProxy → Xray plaintext backends
+- ✅ **Docker Network Isolation**: Xray/Nginx ports NOT exposed on host (internal only)
 
 🔗 **Детали:** docs/prd/00_summary.md, docs/prd/04_architecture.md
 
@@ -334,7 +391,7 @@ HAProxy handles ALL TLS termination and routing in single container. **stunnel r
 | **Docker Engine** | 20.10+ | Minimum version |
 | **Docker Compose** | v2.0+ | v2 syntax required, use `docker compose` NOT `docker-compose` |
 | **Xray** | teddysun/xray:24.11.30 | DO NOT change without testing |
-| **HAProxy** | haproxy:latest | NEW v4.3: Unified TLS & routing (REPLACES stunnel) |
+| **HAProxy** | 2.8-alpine | v4.3+: Unified TLS & routing (REPLACES stunnel) |
 | **Nginx** | nginx:alpine | Latest alpine |
 | **OS** | Ubuntu 20.04+, 22.04, 24.04, Debian 10+ | CentOS/RHEL/Fedora NOT supported (firewalld vs UFW) |
 | **Bash** | 4.0+ | Required |

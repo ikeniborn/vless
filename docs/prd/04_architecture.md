@@ -600,22 +600,37 @@ Ports 1080/8118 (stunnel TLS termination for proxies)
   → Xray plaintext proxies
 ```
 
-**v4.3 Architecture (HAProxy unified):**
+**v4.3+ Architecture (HAProxy unified with parallel routing):**
 ```
-Port 443 (HAProxy, 1 frontend, multiple routing rules)
-  Frontend: SNI Routing (NO TLS termination for Reality)
-    → VLESS Reality: SNI passthrough → Xray:8443 (Reality TLS)
-    → Reverse Proxies: SNI routing → Nginx:9443-9452 (HTTPS)
+5 Docker Containers (vless_reality_net bridge network):
 
-Ports 1080/8118 (HAProxy TLS termination)
-  Frontend socks5-tls: TLS decrypt → Xray:10800 (plaintext SOCKS5)
-  Frontend http-tls: TLS decrypt → Xray:18118 (plaintext HTTP)
+                                    ┌─ Static ACL: SNI = vless.example.com
+Client → HAProxy (SNI Router 443) ──┤   → backend xray_vless (Xray:8443, Reality TLS) → Internet
+                                    │
+                                    ├─ Dynamic ACLs: SNI = reverse proxy domains
+                                    │   → backend nginx_<domain> (Nginx:9443-9452, HTTPS) → Internet
+                                    │
+                                    └─ No ACL match: unknown SNI
+                                        → backend blackhole → DROP (security hardening)
+
+Client → HAProxy (TLS Term 1080) ───→ backend xray_socks5_plaintext (Xray:10800) → Internet
+Client → HAProxy (TLS Term 8118) ───→ backend xray_http_plaintext (Xray:18118) → Internet
+
+Containers:
+  - vless_haproxy (HAProxy 2.8-alpine) - TLS termination + SNI routing
+  - vless_xray (Xray 24.11.30) - VPN core + SOCKS5/HTTP proxy
+  - vless_nginx_reverseproxy (Nginx Alpine) - Reverse proxy backends
+  - vless_certbot_nginx (profile: certbot) - ACME HTTP-01 challenges
+  - vless_fake_site (Nginx) - VLESS Reality fallback
 ```
 
 **Key Changes:**
 - ❌ **stunnel removed completely**
 - ✅ **HAProxy handles all 3 ports** (443, 1080, 8118)
-- ✅ **1 container instead of 2**
+- ✅ **5 containers total** (1 HAProxy, 1 Xray, 3 Nginx variants)
+- ✅ **Parallel routing** (HAProxy routes to Xray OR Nginx OR blackhole based on SNI)
+- ✅ **Static ACL for VLESS** (explicit domain match, NOT default backend)
+- ✅ **Blackhole backend** (drops unknown SNI for security)
 - ✅ **Subdomain-based access** (https://domain, no port!)
 - ✅ **Unified configuration, logging, monitoring**
 
@@ -627,11 +642,15 @@ Ports 1080/8118 (HAProxy TLS termination)
 
 ```haproxy
 # Frontend 1: SNI Routing (port 443)
-frontend vless-reality
+frontend https_sni_router
     bind *:443
     mode tcp
     tcp-request inspect-delay 5s
     tcp-request content accept if { req_ssl_hello_type 1 }
+
+    # Static ACL for VLESS Reality (REQUIRED - explicit domain match)
+    acl is_vless req_ssl_sni -i vless.example.com
+    use_backend xray_vless if is_vless
 
     # === DYNAMIC_REVERSE_PROXY_ROUTES ===
     # (ACLs and use_backend directives added dynamically)
@@ -639,56 +658,74 @@ frontend vless-reality
     #   acl is_claude req.ssl_sni -i claude.ikeniborn.ru
     #   use_backend nginx_claude if is_claude
 
-    default_backend xray_reality
+    # Default: drop unknown SNI (security hardening)
+    default_backend blackhole
 
 # Frontend 2: SOCKS5 TLS Termination (port 1080)
-frontend socks5-tls
-    bind *:1080 ssl crt /opt/vless/certs/combined.pem
+frontend socks5_tls
+    bind *:1080 ssl crt /etc/letsencrypt/live/example.com/combined.pem
     mode tcp
-    default_backend xray_socks5
+    default_backend xray_socks5_plaintext
 
 # Frontend 3: HTTP Proxy TLS Termination (port 8118)
-frontend http-tls
-    bind *:8118 ssl crt /opt/vless/certs/combined.pem
+frontend http_proxy_tls
+    bind *:8118 ssl crt /etc/letsencrypt/live/example.com/combined.pem
     mode tcp
-    default_backend xray_http
+    default_backend xray_http_plaintext
 ```
 
 **Backends:**
 
 ```haproxy
-backend xray_reality
+# Backend for VLESS Reality (TCP passthrough, NO TLS termination)
+backend xray_vless
     mode tcp
-    server xray vless_xray:8443
+    server xray vless_xray:8443 check inter 10s fall 3 rise 2
 
-backend xray_socks5
+# Backend for SOCKS5 (plaintext to Xray)
+backend xray_socks5_plaintext
     mode tcp
-    server xray vless_xray:10800
+    server xray vless_xray:10800 check inter 10s fall 3 rise 2
 
-backend xray_http
+# Backend for HTTP Proxy (plaintext to Xray)
+backend xray_http_plaintext
     mode tcp
-    server xray vless_xray:18118
+    server xray vless_xray:18118 check inter 10s fall 3 rise 2
+
+# Blackhole backend for unknown/invalid SNI (security hardening)
+backend blackhole
+    mode tcp
+    # No servers configured - connections are dropped
 
 # Dynamic Nginx backends (added via add_reverse_proxy_route())
 backend nginx_claude
     mode tcp
-    server nginx vless_reverse_proxy_nginx:9443
+    server nginx vless_nginx_reverseproxy:9443 check inter 10s fall 3 rise 2
 
 backend nginx_proxy2
     mode tcp
-    server nginx vless_reverse_proxy_nginx:9444
+    server nginx vless_nginx_reverseproxy:9444 check inter 10s fall 3 rise 2
 ```
 
 **Stats Page:**
 
 ```haproxy
-frontend stats
-    bind *:9000
+listen stats
+    bind 127.0.0.1:9000  # Localhost only
     mode http
     stats enable
     stats uri /stats
     stats refresh 10s
+    stats show-legends
+    stats auth admin:password
 ```
+
+**SECURITY WARNING:**
+- HAProxy config binds stats to `127.0.0.1:9000` (localhost only)
+- However, `docker-compose.yml` exposes port as `"9000:9000"` which binds to `0.0.0.0:9000`
+- **RECOMMENDATION:** Change docker-compose.yml to `"127.0.0.1:9000:9000"` (explicit localhost)
+- **CURRENT MITIGATION:** UFW firewall blocks port 9000 by default
+- **Access:** Use SSH tunnel for remote access: `ssh -L 9000:localhost:9000 user@server`
 
 #### 4.7.3 Dynamic Routing Management
 
@@ -841,9 +878,9 @@ reload_haproxy() {
 
 #### 4.7.8 Comparison: v4.2 vs v4.3
 
-| Feature | v4.2 (stunnel + HAProxy) | v4.3 (HAProxy Unified) |
+| Feature | v4.2 (stunnel + HAProxy) | v4.3+ (HAProxy Unified) |
 |---------|--------------------------|------------------------|
-| **Containers** | 2 (stunnel + HAProxy) | 1 (HAProxy) |
+| **Containers** | 2 (stunnel + HAProxy) | 5 total (1 HAProxy, 1 Xray, 3 Nginx) |
 | **TLS for VLESS** | stunnel termination | HAProxy SNI passthrough |
 | **TLS for Proxies** | stunnel termination | HAProxy TLS termination |
 | **TLS for Reverse Proxies** | Direct Nginx HTTPS | HAProxy SNI routing |
@@ -861,6 +898,90 @@ reload_haproxy() {
 - ✅ Zero downtime (graceful transition)
 - ✅ User data preserved (users, keys, reverse proxies)
 - ✅ Backward compatible (existing clients work)
+
+#### 4.7.9 Container Infrastructure (v4.3+)
+
+**Total Containers:** 5 (vless_reality_net bridge network)
+
+**1. vless_haproxy (HAProxy 2.8-alpine)**
+- **Purpose:** Unified TLS termination and SNI-based routing
+- **Ports:**
+  - 443 (SNI Router): VLESS Reality + Reverse Proxy subdomains
+  - 1080 (SOCKS5 TLS): TLS termination → Xray plaintext
+  - 8118 (HTTP TLS): TLS termination → Xray plaintext
+  - 9000 (Stats): localhost only, HTTP stats page
+- **Key Features:**
+  - Static ACL for VLESS domain matching
+  - Dynamic ACL management for reverse proxies
+  - Blackhole backend for unknown SNI (security)
+  - Graceful reload (zero downtime)
+- **Lifecycle:** Always running
+
+**2. vless_xray (Xray 24.11.30)**
+- **Purpose:** VPN core + SOCKS5/HTTP proxy engine
+- **Ports (Docker network only, NOT on host):**
+  - 8443: VLESS Reality inbound
+  - 10800: SOCKS5 proxy (plaintext, HAProxy terminates TLS)
+  - 18118: HTTP proxy (plaintext, HAProxy terminates TLS)
+- **Key Features:**
+  - Reality protocol (TLS 1.3 masquerading)
+  - Fallback to vless_fake_site for invalid connections
+  - Security: runs as user nobody, cap_drop: ALL
+- **Lifecycle:** Always running
+
+**3. vless_nginx_reverseproxy (Nginx Alpine)**
+- **Purpose:** Site-specific reverse proxy backends for blocked websites
+- **Ports (localhost only):**
+  - 127.0.0.1:9443-9452 (max 10 domains)
+  - Accessed via HAProxy SNI routing (NO direct exposure)
+- **Key Features:**
+  - HTTP Basic Auth per domain
+  - Rate limiting (100 req/s per IP)
+  - fail2ban integration
+  - Security headers (HSTS, CSP, X-Frame-Options)
+  - IPv4 hardcoding for target sites (prevents IPv6 issues)
+- **Tmpfs mounts:** `/var/cache/nginx`, `/var/run` (uid=101, gid=101)
+- **Lifecycle:** Always running
+
+**4. vless_certbot_nginx (Nginx Alpine)**
+- **Purpose:** Temporary web server for ACME HTTP-01 challenges
+- **Port:** 80 (network_mode: host)
+- **Docker Compose Profile:** `certbot` (NOT started by default)
+- **Usage:**
+  ```bash
+  # Start for certificate acquisition
+  docker compose --profile certbot up -d certbot_nginx
+
+  # Stop after certificate obtained
+  docker compose stop certbot_nginx
+  ```
+- **Key Features:**
+  - Serves `/.well-known/acme-challenge/` from `/var/www/certbot`
+  - Redirects all other requests to HTTPS
+  - Network mode: host (direct access to port 80 without HAProxy)
+- **Lifecycle:** On-demand only (during cert acquisition/renewal)
+
+**5. vless_fake_site (Nginx Alpine)**
+- **Purpose:** VLESS Reality fallback - shows legitimate website for invalid VPN connections
+- **Access:** Only via Xray fallback (internal, NOT public)
+- **Key Features:**
+  - Static HTML page mimicking normal website
+  - Masks VPN server as regular HTTPS site
+  - Critical for Reality protocol stealth
+- **Tmpfs mounts:** `/var/cache/nginx`, `/var/run` (uid=101, gid=101)
+- **Lifecycle:** Always running
+
+**Port Exposure Summary:**
+
+| Container | Exposed on Host | Docker Network Only | Access Method |
+|-----------|-----------------|---------------------|---------------|
+| vless_haproxy | 443, 1080, 8118, 9000 | - | Direct (public) |
+| vless_xray | - | 8443, 10800, 18118 | Via HAProxy |
+| vless_nginx_reverseproxy | 127.0.0.1:9443-9452 | - | Via HAProxy SNI |
+| vless_certbot_nginx | 80 (on-demand) | - | Direct (temp) |
+| vless_fake_site | - | Internal | Via Xray fallback |
+
+**IMPORTANT:** Xray ports (8443, 10800, 18118) use `expose:` NOT `ports:` in docker-compose.yml, preventing direct host access. All traffic MUST go through HAProxy for TLS termination and routing.
 
 ---
 
