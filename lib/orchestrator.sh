@@ -29,6 +29,14 @@ SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
 
 # =============================================================================
+# IMPORT v5.23 MODULES (External Proxy Support)
+# =============================================================================
+# Source external proxy and routing managers (v5.23 external proxy feature)
+# These modules enable routing traffic through upstream SOCKS5/HTTP proxies
+[[ -f "${SCRIPT_DIR_LIB}/external_proxy_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/external_proxy_manager.sh"
+[[ -f "${SCRIPT_DIR_LIB}/xray_routing_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/xray_routing_manager.sh"
+
+# =============================================================================
 # GLOBAL VARIABLES
 # =============================================================================
 
@@ -169,6 +177,18 @@ orchestrate_installation() {
         echo -e "${RED}Failed to initialize proxy IP whitelist${NC}" >&2
         return 1
     }
+
+    # Step 5.6: Initialize external_proxy.json (v5.23 - external proxy support)
+    # Create empty database for external proxy configuration
+    # Users can add proxies later via vless-external-proxy CLI
+    if declare -f init_external_proxy_db >/dev/null 2>&1; then
+        init_external_proxy_db || {
+            echo -e "${YELLOW}Warning: Failed to initialize external proxy database${NC}"
+            echo -e "${YELLOW}External proxy feature will not be available${NC}"
+        }
+    else
+        echo -e "${YELLOW}Note: External proxy manager not loaded, skipping database initialization${NC}"
+    fi
 
     # Step 6: Create Nginx configuration
     create_nginx_config || {
