@@ -313,6 +313,65 @@ main() {
                 echo -e "  ${RED}✗ HAProxy Not Running${NC}"
             fi
 
+            # External Proxy Status (v5.23)
+            echo ""
+            echo -e "${CYAN}External Proxy Status (v5.23):${NC}"
+            if [[ -f "${INSTALL_ROOT}/config/external_proxy.json" ]]; then
+                local ext_proxy_enabled=$(jq -r '.enabled' "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "false")
+                local proxy_count=$(jq -r '.proxies | length' "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "0")
+
+                if [[ "$ext_proxy_enabled" == "true" ]]; then
+                    echo -e "  ${GREEN}✓ External Proxy ENABLED${NC}"
+
+                    # Get active proxy info
+                    local active_proxy_id=$(jq -r '.proxies[] | select(.active == true) | .id' \
+                        "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "")
+
+                    if [[ -n "$active_proxy_id" ]]; then
+                        local proxy_type=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .type' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                        local proxy_address=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .address' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                        local proxy_port=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .port' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                        local test_status=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .metadata.test_result.status // "never tested"' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+
+                        echo "  Active Proxy: $active_proxy_id"
+                        echo "    Type: $proxy_type"
+                        echo "    Address: $proxy_address:$proxy_port"
+                        echo "    Last Test: $test_status"
+
+                        if [[ "$test_status" == "success" ]]; then
+                            local latency=$(jq -r --arg id "$active_proxy_id" \
+                                '.proxies[] | select(.id == $id) | .metadata.test_result.latency_ms' \
+                                "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                            echo "    Latency: ${latency}ms"
+                        fi
+                    else
+                        echo -e "  ${YELLOW}⚠️  No active proxy (enabled but no proxy selected)${NC}"
+                    fi
+
+                    # Show routing mode
+                    local routing_mode=$(jq -r '.routing.mode' "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "unknown")
+                    echo "  Routing Mode: $routing_mode"
+                    echo "  Total Proxies: $proxy_count"
+                elif [[ "$proxy_count" -gt 0 ]]; then
+                    echo -e "  ${YELLOW}✗ External Proxy DISABLED${NC}"
+                    echo "  Total Proxies: $proxy_count (configured but not active)"
+                    echo "  Hint: vless-external-proxy enable"
+                else
+                    echo "  ${YELLOW}Not configured${NC} (no external proxies added)"
+                    echo "  Hint: vless-external-proxy add"
+                fi
+            else
+                echo "  ${YELLOW}Not available${NC} (database not found)"
+            fi
+
             echo ""
             ;;
 

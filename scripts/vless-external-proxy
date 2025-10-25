@@ -603,6 +603,31 @@ cmd_enable() {
         return 1
     fi
 
+    # Automatically restart Xray container to apply changes
+    echo ""
+    echo -e "${CYAN}Restarting Xray container...${NC}"
+    if docker restart vless_xray >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
+
+        # Wait for container to be healthy
+        echo "  Waiting for container to be ready..."
+        sleep 3
+
+        local container_status
+        container_status=$(docker inspect -f '{{.State.Status}}' vless_xray 2>/dev/null || echo "unknown")
+
+        if [[ "$container_status" == "running" ]]; then
+            echo -e "${GREEN}✓ External proxy routing is now active${NC}"
+        else
+            echo -e "${YELLOW}⚠️  Container restarted but status is: $container_status${NC}"
+            echo "  Check logs: docker logs vless_xray"
+        fi
+    else
+        echo -e "${RED}✗ Failed to restart Xray container${NC}" >&2
+        echo "  Please restart manually: docker restart vless_xray"
+        return 1
+    fi
+
     return 0
 }
 
@@ -612,7 +637,34 @@ cmd_disable() {
     echo ""
 
     if prompt_confirm "Disable external proxy routing (traffic will go direct)" "y"; then
-        disable_proxy_routing
+        if ! disable_proxy_routing; then
+            return 1
+        fi
+
+        # Automatically restart Xray container to apply changes
+        echo ""
+        echo -e "${CYAN}Restarting Xray container...${NC}"
+        if docker restart vless_xray >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
+
+            # Wait for container to be healthy
+            echo "  Waiting for container to be ready..."
+            sleep 3
+
+            local container_status
+            container_status=$(docker inspect -f '{{.State.Status}}' vless_xray 2>/dev/null || echo "unknown")
+
+            if [[ "$container_status" == "running" ]]; then
+                echo -e "${GREEN}✓ External proxy routing is now disabled (direct mode)${NC}"
+            else
+                echo -e "${YELLOW}⚠️  Container restarted but status is: $container_status${NC}"
+                echo "  Check logs: docker logs vless_xray"
+            fi
+        else
+            echo -e "${RED}✗ Failed to restart Xray container${NC}" >&2
+            echo "  Please restart manually: docker restart vless_xray"
+            return 1
+        fi
     else
         echo "Operation cancelled"
     fi
