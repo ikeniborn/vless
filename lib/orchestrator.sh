@@ -1430,6 +1430,32 @@ install_cli_tools() {
         echo "  ℹ vless-setup-proxy installation skipped"
     fi
 
+    # v5.23: Install vless-external-proxy CLI tool
+    local external_proxy_cli_source="${project_root}/scripts/vless-external-proxy"
+    if [[ -f "$external_proxy_cli_source" ]]; then
+        cp "$external_proxy_cli_source" "${SCRIPTS_DIR}/vless-external-proxy" || {
+            echo -e "${RED}Failed to copy vless-external-proxy script${NC}" >&2
+            return 1
+        }
+
+        # Make it executable
+        chmod 755 "${SCRIPTS_DIR}/vless-external-proxy" || {
+            echo -e "${RED}Failed to set execute permission on vless-external-proxy${NC}" >&2
+            return 1
+        }
+
+        # Create symlink in /usr/local/bin
+        ln -sf "${SCRIPTS_DIR}/vless-external-proxy" /usr/local/bin/vless-external-proxy || {
+            echo -e "${RED}Failed to create vless-external-proxy symlink${NC}" >&2
+            return 1
+        }
+
+        echo "  ✓ vless-external-proxy installed"
+    else
+        echo -e "${YELLOW}  ⚠ vless-external-proxy script not found: $external_proxy_cli_source${NC}"
+        echo "  ℹ vless-external-proxy installation skipped (v5.23 feature)"
+    fi
+
     # v5.20: Copy ALL lib modules automatically (except installation-only modules)
     # Installation-only modules (excluded from copy):
     local exclude_modules=(
