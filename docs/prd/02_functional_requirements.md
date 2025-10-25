@@ -1435,4 +1435,254 @@ System: ⚠️  Container 'vless_haproxy' not running, attempting to start...
 
 ---
 
+### FR-015: External Proxy Support (CRITICAL - NEW in v5.23)
+
+**Requirement:** Система ДОЛЖНА поддерживать подключение к внешнему SOCKS5/HTTP прокси после Xray для направления всего исходящего трафика через upstream прокси.
+
+**Architecture:**
+```
+Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
+```
+
+**Rationale:**
+- Дополнительный уровень анонимности через цепочку прокси
+- Обход geo-блокировок через коммерческие прокси-сервисы
+- Соблюдение корпоративных политик (обязательный upstream proxy)
+- Гибкая маршрутизация трафика (весь трафик, селективная, отключение)
+
+**Key Requirements:**
+- ✅ Поддержка 4 типов прокси: socks5, socks5s, http, https
+- ✅ TLS шифрование для socks5s и https
+- ✅ Username/password аутентификация
+- ✅ Retry механизм (3 попытки с exponential backoff) перед fallback
+- ✅ Database-driven configuration (external_proxy.json)
+- ✅ CLI management (vless-external-proxy: 10 команд)
+- ✅ Тестирование подключения к прокси
+- ✅ Автоматический перезапуск Xray при enable/disable
+- ✅ Интеграция в vless status
+
+#### 1. User Story
+
+**As a** системный администратор с требованием корпоративного прокси
+**I want** направить весь исходящий трафик VPN через upstream SOCKS5s прокси
+**So that** я могу соблюдать корпоративные политики и добавить дополнительный уровень анонимности
+
+**Example Workflow:**
+```
+1. Запускает: sudo vless-external-proxy add
+2. Выбирает тип: socks5s (TLS encrypted)
+3. Вводит адрес: proxy.example.com
+4. Вводит порт: 1080
+5. Вводит credentials: username / password
+6. Тестирует подключение: ✅ Connected successfully (latency: 45ms)
+7. Активирует: sudo vless-external-proxy switch proxy-id
+8. Включает routing: sudo vless-external-proxy enable (auto-restarts Xray)
+9. Проверяет статус: sudo vless status
+```
+
+#### 2. Acceptance Criteria
+
+**AC-1: Proxy Types Support**
+- [ ] socks5: SOCKS5 без TLS (только для localhost тестирования)
+- [ ] socks5s: SOCKS5 с TLS 1.3 (рекомендовано для production)
+- [ ] http: HTTP proxy без TLS
+- [ ] https: HTTP proxy с TLS 1.3
+
+**AC-2: Database Management**
+- [ ] JSON database: `/opt/vless/config/external_proxy.json` (600 permissions)
+- [ ] Поля: id, type, address, port, username, password, TLS settings, retry config
+- [ ] Metadata: enabled (global flag), active proxy ID, routing mode
+- [ ] Initialization при установке (lib/orchestrator.sh)
+
+**AC-3: Xray Outbound Generation**
+- [ ] Function: `generate_xray_outbound_json(proxy_id)` → JSON
+- [ ] Protocol mapping: socks5/socks5s → "socks", http/https → "http"
+- [ ] TLS settings: streamSettings.security = "tls" для socks5s/https
+- [ ] Server name validation (SNI)
+- [ ] Allow insecure option (default: false)
+- [ ] Outbound tag: "external-proxy"
+
+**AC-4: Routing Rules**
+- [ ] Mode: all-traffic (по умолчанию) - весь трафик через proxy
+- [ ] Mode: selective - domain/IP-based rules (расширяемый)
+- [ ] Mode: disabled - direct routing (прокси выключен)
+- [ ] Function: `generate_routing_rules_json(mode, outbound_tag)` → JSON
+- [ ] Retry mechanism: 3 attempts, 2x backoff multiplier
+
+**AC-5: CLI Commands (vless-external-proxy)**
+```bash
+# 1. add - Interactive wizard для добавления прокси
+sudo vless-external-proxy add
+# → Prompts: type, address, port, TLS settings, credentials
+# → Auto-test connection
+# → Returns: proxy_id
+
+# 2. list - Показать все прокси
+sudo vless-external-proxy list
+
+# 3. show <proxy-id> - Детали конкретного прокси
+sudo vless-external-proxy show proxy-abc123
+
+# 4. switch <proxy-id> - Переключить активный прокси
+sudo vless-external-proxy switch proxy-abc123
+
+# 5. update <proxy-id> - Обновить прокси
+sudo vless-external-proxy update proxy-abc123
+
+# 6. remove <proxy-id> - Удалить прокси
+sudo vless-external-proxy remove proxy-abc123
+
+# 7. test <proxy-id> - Проверить подключение
+sudo vless-external-proxy test proxy-abc123
+
+# 8. enable - Включить routing через прокси + auto-restart Xray
+sudo vless-external-proxy enable
+
+# 9. disable - Выключить routing + auto-restart Xray
+sudo vless-external-proxy disable
+
+# 10. status - Показать статус external proxy
+sudo vless-external-proxy status
+```
+
+**AC-6: Auto-Restart Integration (v5.23)**
+- [ ] `cmd_enable()`: Auto-restart vless_xray after routing update
+- [ ] `cmd_disable()`: Auto-restart vless_xray after routing update
+- [ ] Health check: wait 3s, verify container status = "running"
+- [ ] Clear user feedback: "✓ Xray container restarted successfully"
+
+**AC-7: Status Integration (v5.23)**
+- [ ] `vless status` shows "External Proxy Status (v5.23)" section
+- [ ] If enabled: active proxy details, test results, routing mode
+- [ ] If disabled: "External proxy routing is disabled (direct mode)"
+- [ ] Total proxies count
+
+#### 3. File Structure
+
+```
+/opt/vless/
+├── config/
+│   ├── external_proxy.json              # Proxy database (NEW v5.23)
+│   └── xray_config.json                 # Updated: +external-proxy outbound
+│
+├── lib/
+│   ├── external_proxy_manager.sh        # NEW: CRUD operations (841 lines, 11 functions)
+│   └── xray_routing_manager.sh          # NEW: Routing rules (419 lines, 7 functions)
+│
+└── scripts/
+    └── vless-external-proxy             # NEW: CLI tool (673 lines, 10 commands)
+
+/usr/local/bin/
+└── vless-external-proxy → /opt/vless/scripts/vless-external-proxy
+```
+
+#### 4. Database Format (external_proxy.json)
+
+```json
+{
+  "enabled": false,
+  "proxies": [
+    {
+      "id": "proxy-a3f9c2e1",
+      "type": "socks5s",
+      "address": "proxy.example.com",
+      "port": 1080,
+      "username": "myuser",
+      "password": "mypassword123",
+      "tls": {
+        "enabled": true,
+        "server_name": "proxy.example.com",
+        "allow_insecure": false
+      },
+      "retry": {
+        "enabled": true,
+        "max_attempts": 3,
+        "backoff_multiplier": 2
+      },
+      "test_status": "success",
+      "latency": 45,
+      "last_test_at": "2025-10-25T14:30:00Z",
+      "active": true,
+      "created_at": "2025-10-25T12:00:00Z"
+    }
+  ],
+  "routing": {
+    "mode": "all-traffic",
+    "fallback": "retry-then-block"
+  },
+  "metadata": {
+    "created": "2025-10-25T12:00:00Z",
+    "last_modified": "2025-10-25T14:30:00Z",
+    "version": "5.23.0"
+  }
+}
+```
+
+#### 5. Implementation Files
+
+**lib/external_proxy_manager.sh (841 lines, 11 functions):**
+- `init_external_proxy_db()` - Initialize database
+- `validate_proxy_config()` - Validate proxy parameters
+- `generate_proxy_id()` - Generate unique ID
+- `add_external_proxy()` - Add new proxy
+- `list_external_proxies()` - List all proxies
+- `get_external_proxy()` - Get proxy by ID
+- `update_external_proxy()` - Update proxy fields
+- `remove_external_proxy()` - Remove proxy
+- `set_active_proxy()` - Set active proxy
+- `test_proxy_connectivity()` - Test connection
+- `generate_xray_outbound_json()` - Generate Xray outbound config
+
+**lib/xray_routing_manager.sh (419 lines, 7 functions):**
+- `generate_routing_rules_json()` - Generate routing rules
+- `enable_proxy_routing()` - Enable routing through proxy
+- `disable_proxy_routing()` - Disable routing (direct mode)
+- `update_xray_outbounds()` - Add/update external-proxy outbound
+- `remove_xray_outbound()` - Remove external-proxy outbound
+- `add_routing_rule()` - Add custom routing rule
+- `get_routing_status()` - Get current routing status
+
+#### 6. Testing Requirements
+
+**Test Suite:** `lib/tests/test_external_proxy.sh` (462 lines, 6 test cases)
+
+**Test Cases:**
+1. **test_01_init_database**: Verify external_proxy.json creation
+2. **test_02_validate_config**: Proxy type, port, address validation
+3. **test_03_add_proxy**: Add proxy, verify database entry
+4. **test_04_set_active_proxy**: Switch active proxy
+5. **test_05_generate_xray_outbound**: Validate Xray JSON structure
+6. **test_06_remove_proxy**: Remove proxy from database
+
+**Acceptance Criteria:**
+- [ ] All 6 tests pass
+- [ ] Test coverage: 100% (all core functions)
+- [ ] Test execution time: < 30 seconds
+
+#### 7. Success Metrics
+
+**Functional:**
+- [ ] 10 CLI commands работают корректно
+- [ ] 100% test coverage (6/6 tests pass)
+- [ ] Auto-restart: < 5 seconds downtime
+
+**Performance:**
+- [ ] Latency overhead: < 100ms per proxy hop
+- [ ] Database operations: < 500ms
+- [ ] Xray outbound generation: < 1 second
+
+**Usability:**
+- [ ] Setup time: < 2 minutes (add + test + enable)
+- [ ] CLI команды интуитивно понятны
+- [ ] Status output: ясно показывает active proxy
+
+**Security:**
+- [ ] external_proxy.json: 600 permissions (root-only read)
+- [ ] No plaintext credentials в CLI output (masked: ****)
+- [ ] TLS validation: strict by default
+
+**User Story:** Как системный администратор, я хочу направить весь VPN трафик через upstream SOCKS5s прокси, чтобы добавить дополнительный уровень анонимности и соблюдать корпоративные политики без изменения клиентских конфигураций.
+
+---
+
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)

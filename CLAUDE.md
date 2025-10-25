@@ -1,8 +1,8 @@
 # CLAUDE.md - Project Memory
 
 **Project:** VLESS + Reality VPN Server
-**Version:** 5.22 (Robust Container Management & Validation System)
-**Last Updated:** 2025-10-21
+**Version:** 5.23 (External Proxy Support)
+**Last Updated:** 2025-10-25
 **Purpose:** Unified project memory combining workflow execution rules and project-specific technical documentation
 
 **Рекомендации по использованию:**
@@ -829,6 +829,22 @@ sudo vless test-security --dev-mode
 
 **Optimization Results:**
 ```
+v5.23 - 2025-10-25: External Proxy Support (NEW FEATURE - Upstream Proxy Chaining)
+  - Added: 3 NEW modules - external_proxy_manager.sh (841 lines, 11 functions), xray_routing_manager.sh (419 lines, 7 functions), test_external_proxy.sh (462 lines, 6 tests)
+  - Feature: Support for upstream SOCKS5/HTTP proxies after Xray for additional anonymity
+  - Architecture: Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
+  - Proxy Types: socks5, socks5s (TLS), http, https (TLS) - 4 variants supported
+  - CLI Tool: vless-external-proxy (10 commands: add/list/show/switch/update/remove/test/enable/disable/status)
+  - Database: /opt/vless/config/external_proxy.json (600 permissions, JSON format)
+  - Auto-Restart: Xray container auto-restarts on enable/disable (3s health check)
+  - Retry Mechanism: 3 attempts with exponential backoff (2x multiplier) before fallback
+  - Testing: Connectivity test with latency measurement (10s timeout)
+  - Status Integration: vless status shows external proxy details (enabled/disabled, active proxy, routing mode)
+  - Routing Modes: all-traffic (default), disabled, selective (future)
+  - Use Cases: Corporate proxy compliance, additional anonymity layer, geo-unblocking via commercial proxies
+  - Impact: Zero config changes for clients, transparent proxy chaining, +50-100ms latency per hop
+  - Files: lib/external_proxy_manager.sh (NEW), lib/xray_routing_manager.sh (NEW), scripts/vless-external-proxy (NEW), lib/tests/test_external_proxy.sh (NEW), lib/orchestrator.sh (init), scripts/vless (status display)
+
 v5.22 - 2025-10-21: Robust Container Management & Validation System (MAJOR RELIABILITY IMPROVEMENT)
   - Added: 2 NEW modules - container_management.sh (260 lines, 5 functions), validation.sh (200 lines, 2 functions)
   - Problem: Operations failed silently when containers stopped, no validation after operations
