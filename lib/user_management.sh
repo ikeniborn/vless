@@ -247,6 +247,55 @@ validate_fingerprint() {
     return 1
 }
 
+# =============================================================================
+# FUNCTION: validate_external_proxy_assignment (v5.24)
+# =============================================================================
+# Description:
+#   Validate that external_proxy_id exists in external_proxy.json database.
+#   Prevents user creation with non-existent proxy configuration.
+#
+# Arguments:
+#   $1 - proxy_id (string, can be empty for direct routing)
+#
+# Returns:
+#   0 - Valid proxy_id (exists in database) or empty (direct routing)
+#   1 - Invalid proxy_id (not found in database)
+#
+# Example:
+#   validate_external_proxy_assignment "proxy-corporate-123456"  # Check if exists
+#   validate_external_proxy_assignment ""  # Returns 0 (direct routing is valid)
+# =============================================================================
+validate_external_proxy_assignment() {
+    local proxy_id="${1:-}"
+
+    # Empty proxy_id is valid (direct routing)
+    if [[ -z "$proxy_id" ]]; then
+        return 0
+    fi
+
+    # Check if external_proxy.json exists
+    local external_proxy_db="/opt/vless/config/external_proxy.json"
+    if [[ ! -f "$external_proxy_db" ]]; then
+        log_error "External proxy database not found: $external_proxy_db"
+        log_info "Run 'vless-external-proxy add' to configure external proxies first"
+        return 1
+    fi
+
+    # Check if proxy_id exists in database
+    local proxy_exists
+    proxy_exists=$(jq -r --arg id "$proxy_id" '.proxies[] | select(.id == $id) | .id' "$external_proxy_db" 2>/dev/null)
+
+    if [[ -z "$proxy_exists" ]]; then
+        log_error "External proxy not found: $proxy_id"
+        log_info "Available proxies:"
+        jq -r '.proxies[] | "  - \(.id) (\(.type)://\(.address):\(.port))"' "$external_proxy_db" 2>/dev/null || echo "  (none configured)"
+        return 1
+    fi
+
+    # Proxy exists
+    return 0
+}
+
 # ============================================================================
 # User Existence Check
 # ============================================================================
@@ -299,6 +348,7 @@ add_user_to_json() {
     local proxy_password="${3:-}"  # Optional proxy password (TASK-11.1)
     local short_id="${4:-}"        # Optional shortId (v1.2 schema update)
     local fingerprint="${5:-chrome}"  # Optional fingerprint (v1.3 schema update, default: chrome)
+    local external_proxy_id="${6:-}"  # Optional external_proxy_id (v5.24 per-user routing)
 
     log_info "Adding user to database..."
 
@@ -348,6 +398,15 @@ add_user_to_json() {
         # Add fingerprint (v1.3 schema - TLS fingerprint for client configuration)
         user_obj+=",
             \"fingerprint\": \"$fingerprint\""
+
+        # Add external_proxy_id if provided (v5.24 schema - per-user external proxy routing)
+        if [[ -n "$external_proxy_id" ]]; then
+            user_obj+=",
+            \"external_proxy_id\": \"$external_proxy_id\""
+        else
+            user_obj+=",
+            \"external_proxy_id\": null"
+        fi
 
         # Add timestamps
         user_obj+=",
@@ -600,6 +659,89 @@ remove_client_from_xray() {
     rm -f "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client removed from Xray configuration"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: apply_per_user_routing (v5.24)
+# =============================================================================
+# Description: Apply per-user external proxy routing (outbounds + routing rules)
+# Arguments: None (reads from users.json)
+# Returns: 0 on success, 1 on failure
+#
+# Logic:
+#   1. Update Xray outbounds for each unique proxy_id
+#   2. Generate per-user routing rules
+#   3. Update xray_config.json with new routing
+# =============================================================================
+apply_per_user_routing() {
+    log_info "Applying per-user external proxy routing..."
+
+    # Source xray_routing_manager to use routing functions
+    local script_dir
+    script_dir="$(dirname "${BASH_SOURCE[0]}")"
+
+    if [[ -f "/opt/vless/lib/xray_routing_manager.sh" ]]; then
+        source "/opt/vless/lib/xray_routing_manager.sh"
+    elif [[ -f "${script_dir}/xray_routing_manager.sh" ]]; then
+        source "${script_dir}/xray_routing_manager.sh"
+    else
+        log_error "xray_routing_manager.sh not found"
+        return 1
+    fi
+
+    # Step 1: Update outbounds for each unique proxy
+    if ! update_per_user_xray_outbounds; then
+        log_error "Failed to update per-user outbounds"
+        return 1
+    fi
+
+    # Step 2: Generate and apply per-user routing rules
+    log_info "Generating per-user routing rules..."
+    local routing_json
+    routing_json=$(generate_per_user_routing_rules 2>&1)
+
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to generate routing rules"
+        return 1
+    fi
+
+    # Step 3: Update xray_config.json with new routing
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        log_error "Xray config not found: $XRAY_CONFIG"
+        return 1
+    fi
+
+    local temp_file="${XRAY_CONFIG}.tmp.$$"
+
+    # Update routing section
+    echo "$routing_json" | jq -s '.[0]' > /tmp/routing_rules.json || {
+        log_error "Failed to parse routing JSON"
+        return 1
+    }
+
+    jq --slurpfile routing /tmp/routing_rules.json \
+        '.routing = $routing[0]' \
+        "$XRAY_CONFIG" > "$temp_file"
+
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to update routing rules in Xray config"
+        rm -f "$temp_file" /tmp/routing_rules.json
+        return 1
+    fi
+
+    # Validate JSON
+    if ! jq empty "$temp_file" 2>/dev/null; then
+        log_error "Generated invalid Xray configuration"
+        rm -f "$temp_file" /tmp/routing_rules.json
+        return 1
+    fi
+
+    # Apply changes
+    mv "$temp_file" "$XRAY_CONFIG"
+    rm -f /tmp/routing_rules.json
+
+    log_success "Per-user routing applied successfully"
     return 0
 }
 
@@ -1726,6 +1868,65 @@ create_user() {
         esac
     done
 
+    # Step 3.7: Select external proxy (optional, v5.24)
+    echo ""
+    log_info "External Proxy Configuration (optional):"
+    echo "  Route this user's traffic through an external proxy?"
+    echo ""
+
+    local external_proxy_id=""
+    local external_proxy_db="/opt/vless/config/external_proxy.json"
+
+    # Check if external proxies are configured
+    if [[ -f "$external_proxy_db" ]]; then
+        local proxy_count
+        proxy_count=$(jq -r '.proxies | length' "$external_proxy_db" 2>/dev/null || echo "0")
+
+        if [[ "$proxy_count" != "0" ]]; then
+            echo "  Available external proxies:"
+            jq -r '.proxies[] | "    \(.id): \(.type)://\(.address):\(.port)"' "$external_proxy_db" 2>/dev/null
+            echo "    none: Direct routing (no external proxy)"
+            echo ""
+
+            local proxy_choice
+            while true; do
+                read -r -p "Enter proxy ID or 'none' [default: none]: " proxy_choice
+
+                # Default to none if empty
+                if [[ -z "$proxy_choice" ]]; then
+                    proxy_choice="none"
+                fi
+
+                if [[ "$proxy_choice" == "none" ]]; then
+                    log_success "Selected: Direct routing (no external proxy)"
+                    external_proxy_id=""
+                    break
+                else
+                    # Validate proxy exists
+                    if validate_external_proxy_assignment "$proxy_choice"; then
+                        external_proxy_id="$proxy_choice"
+                        log_success "Selected external proxy: $external_proxy_id"
+                        break
+                    else
+                        log_error "Invalid proxy ID. Please try again or enter 'none'"
+                    fi
+                fi
+            done
+        else
+            echo "  No external proxies configured."
+            echo "  Run 'vless-external-proxy add' to configure an external proxy."
+            echo ""
+            log_info "Using direct routing (no external proxy)"
+            external_proxy_id=""
+        fi
+    else
+        echo "  No external proxies configured."
+        echo "  Run 'vless-external-proxy add' to configure an external proxy."
+        echo ""
+        log_info "Using direct routing (no external proxy)"
+        external_proxy_id=""
+    fi
+
     # Step 4: Create user directory
     local user_dir="${CLIENTS_DIR}/${username}"
     if ! mkdir -p "$user_dir"; then
@@ -1735,8 +1936,8 @@ create_user() {
     chmod 700 "$user_dir"
     log_success "Created user directory: $user_dir"
 
-    # Step 5: Add user to users.json (atomic) with proxy password, shortId, and fingerprint
-    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint"; then
+    # Step 5: Add user to users.json (atomic) with proxy password, shortId, fingerprint, and external_proxy_id (v5.24)
+    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint" "$external_proxy_id"; then
         # Cleanup on failure
         rm -rf "$user_dir"
         return 1
@@ -1755,6 +1956,16 @@ create_user() {
     if ! update_proxy_accounts "$username" "$proxy_password"; then
         log_warning "Failed to add user to proxy accounts (continuing anyway)"
         # Don't fail completely - proxy is optional feature
+    fi
+
+    # Step 6.6: Apply per-user routing (v5.24)
+    # Only if external_proxy_id is set, otherwise skip
+    if [[ -n "$external_proxy_id" ]]; then
+        log_info "Applying per-user external proxy routing..."
+        if ! apply_per_user_routing; then
+            log_warning "Failed to apply per-user routing (continuing anyway)"
+            # Don't fail completely - routing will be applied on next reload
+        fi
     fi
 
     # Step 7: Reload Xray
@@ -1925,6 +2136,282 @@ list_users() {
 }
 
 # ============================================================================
+# Set External Proxy for User (v5.24)
+# ============================================================================
+
+cmd_set_user_proxy() {
+    local username="$1"
+    local proxy_id="${2:-}"
+
+    # Validate username
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        echo "Usage: vless set-proxy <username> <proxy-id|none>"
+        return 1
+    fi
+
+    # Check if user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Handle "none" keyword
+    if [[ "$proxy_id" == "none" ]] || [[ "$proxy_id" == "null" ]] || [[ -z "$proxy_id" ]]; then
+        proxy_id=""
+    fi
+
+    # Validate proxy ID (if not empty)
+    if [[ -n "$proxy_id" ]]; then
+        if ! validate_external_proxy_assignment "$proxy_id"; then
+            return 1
+        fi
+    fi
+
+    log_info "Updating external proxy assignment for user: $username"
+
+    # Update users.json with flock
+    (
+        flock -x 200 || {
+            log_error "Failed to acquire lock on users database"
+            return 1
+        }
+
+        # Update external_proxy_id field
+        local temp_file
+        temp_file=$(mktemp)
+
+        if [[ -n "$proxy_id" ]]; then
+            jq --arg username "$username" \
+               --arg proxy_id "$proxy_id" \
+               '(.users[] | select(.username == $username) | .external_proxy_id) = $proxy_id' \
+               "$USERS_JSON" > "$temp_file"
+        else
+            # Set to null for direct routing
+            jq --arg username "$username" \
+               '(.users[] | select(.username == $username) | .external_proxy_id) = null' \
+               "$USERS_JSON" > "$temp_file"
+        fi
+
+        if [[ $? -eq 0 ]]; then
+            mv "$temp_file" "$USERS_JSON"
+            chmod 600 "$USERS_JSON"
+        else
+            rm -f "$temp_file"
+            log_error "Failed to update users database"
+            return 1
+        fi
+
+    ) 200>"${USERS_JSON}.lock"
+
+    # Apply per-user routing
+    log_info "Applying per-user routing configuration..."
+    if ! apply_per_user_routing; then
+        log_warning "Failed to apply per-user routing (changes saved to database)"
+        return 1
+    fi
+
+    # Display result
+    echo ""
+    if [[ -n "$proxy_id" ]]; then
+        log_success "✓ User '$username' now routes through external proxy: $proxy_id"
+    else
+        log_success "✓ User '$username' now uses direct routing (no external proxy)"
+    fi
+
+    echo ""
+    log_info "Xray will reload automatically within 30 seconds"
+    log_info "Or run: sudo docker restart vless_xray"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# Show External Proxy for User (v5.24)
+# ============================================================================
+
+cmd_show_user_proxy() {
+    local username="$1"
+
+    # Validate username
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        echo "Usage: vless show-proxy <username>"
+        return 1
+    fi
+
+    # Check if user exists
+    if ! user_exists "$username"; then
+        log_error "User '$username' not found"
+        return 1
+    fi
+
+    # Get proxy assignment from users.json
+    local proxy_id
+    proxy_id=$(jq -r --arg username "$username" \
+        '.users[] | select(.username == $username) | .external_proxy_id // "null"' \
+        "$USERS_JSON" 2>/dev/null)
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  External Proxy Assignment: $username"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    if [[ "$proxy_id" == "null" ]] || [[ -z "$proxy_id" ]]; then
+        echo "  Routing Mode: Direct (no external proxy)"
+        echo "  Outbound Tag: direct"
+        echo ""
+        echo "  Traffic Flow:"
+        echo "    Client → HAProxy → Xray → Internet"
+    else
+        # Get proxy details from external_proxy.json
+        local ext_proxy_db="/opt/vless/config/external_proxy.json"
+        if [[ -f "$ext_proxy_db" ]]; then
+            local proxy_type proxy_address proxy_port test_status
+            proxy_type=$(jq -r --arg id "$proxy_id" \
+                '.proxies[] | select(.id == $id) | .type' \
+                "$ext_proxy_db" 2>/dev/null || echo "unknown")
+            proxy_address=$(jq -r --arg id "$proxy_id" \
+                '.proxies[] | select(.id == $id) | .address' \
+                "$ext_proxy_db" 2>/dev/null || echo "unknown")
+            proxy_port=$(jq -r --arg id "$proxy_id" \
+                '.proxies[] | select(.id == $id) | .port' \
+                "$ext_proxy_db" 2>/dev/null || echo "unknown")
+            test_status=$(jq -r --arg id "$proxy_id" \
+                '.proxies[] | select(.id == $id) | .metadata.test_result.status // "never tested"' \
+                "$ext_proxy_db" 2>/dev/null || echo "never tested")
+
+            echo "  Routing Mode: Via External Proxy"
+            echo "  Proxy ID: $proxy_id"
+            echo "  Outbound Tag: external-proxy-$proxy_id"
+            echo ""
+            echo "  Proxy Details:"
+            echo "    Type: $proxy_type"
+            echo "    Address: $proxy_address:$proxy_port"
+            echo "    Test Status: $test_status"
+            echo ""
+            echo "  Traffic Flow:"
+            echo "    Client → HAProxy → Xray → External Proxy → Internet"
+        else
+            echo "  Routing Mode: Via External Proxy"
+            echo "  Proxy ID: $proxy_id"
+            echo "  Outbound Tag: external-proxy-$proxy_id"
+            echo ""
+            echo "  ⚠️  External proxy database not found"
+        fi
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# List All Proxy Assignments (v5.24)
+# ============================================================================
+
+cmd_list_proxy_assignments() {
+    if [[ ! -f "$USERS_JSON" ]]; then
+        log_error "Users database not found: $USERS_JSON"
+        return 1
+    fi
+
+    local user_count
+    user_count=$(jq '.users | length' "$USERS_JSON" 2>/dev/null || echo "0")
+
+    if [[ "$user_count" -eq 0 ]]; then
+        echo ""
+        log_info "No users found"
+        echo ""
+        return 0
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  External Proxy Assignments ($user_count users)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Group users by proxy assignment
+    local direct_users=()
+    local proxied_users=()
+
+    # Read all users and group them
+    while IFS=$'\t' read -r username proxy_id; do
+        if [[ "$proxy_id" == "null" ]] || [[ -z "$proxy_id" ]]; then
+            direct_users+=("$username")
+        else
+            proxied_users+=("$username:$proxy_id")
+        fi
+    done < <(jq -r '.users[] | "\(.username)\t\(.external_proxy_id // "null")"' "$USERS_JSON")
+
+    # Display direct routing users
+    if [[ ${#direct_users[@]} -gt 0 ]]; then
+        echo "  Direct Routing (${#direct_users[@]} users):"
+        for username in "${direct_users[@]}"; do
+            echo "    • $username → direct"
+        done
+        echo ""
+    fi
+
+    # Display proxied users (grouped by proxy_id)
+    if [[ ${#proxied_users[@]} -gt 0 ]]; then
+        # Group by proxy_id
+        declare -A proxy_groups
+        for entry in "${proxied_users[@]}"; do
+            local user="${entry%%:*}"
+            local pid="${entry##*:}"
+            proxy_groups["$pid"]+="$user "
+        done
+
+        echo "  Via External Proxy (${#proxied_users[@]} users):"
+        for proxy_id in "${!proxy_groups[@]}"; do
+            local users_list="${proxy_groups[$proxy_id]}"
+            local user_array=($users_list)
+
+            # Get proxy details
+            local ext_proxy_db="/opt/vless/config/external_proxy.json"
+            local proxy_info="$proxy_id"
+            if [[ -f "$ext_proxy_db" ]]; then
+                local proxy_type proxy_address
+                proxy_type=$(jq -r --arg id "$proxy_id" \
+                    '.proxies[] | select(.id == $id) | .type' \
+                    "$ext_proxy_db" 2>/dev/null || echo "")
+                proxy_address=$(jq -r --arg id "$proxy_id" \
+                    '.proxies[] | select(.id == $id) | .address' \
+                    "$ext_proxy_db" 2>/dev/null || echo "")
+
+                if [[ -n "$proxy_type" ]] && [[ -n "$proxy_address" ]]; then
+                    proxy_info="$proxy_id ($proxy_type://$proxy_address)"
+                fi
+            fi
+
+            echo "    Proxy: $proxy_info"
+            for user in "${user_array[@]}"; do
+                echo "      • $user"
+            done
+            echo ""
+        done
+    fi
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Show summary
+    echo "Summary:"
+    echo "  Total Users: $user_count"
+    echo "  Direct Routing: ${#direct_users[@]}"
+    echo "  Via External Proxy: ${#proxied_users[@]}"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
 # Export Functions
 # ============================================================================
 
@@ -1938,6 +2425,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f get_user_info
     export -f validate_username
     export -f validate_fingerprint
+    export -f validate_external_proxy_assignment
     export -f generate_uuid
     export -f generate_short_id
     export -f regenerate_configs
@@ -1945,7 +2433,11 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_user_from_json
     export -f add_client_to_xray
     export -f remove_client_from_xray
+    export -f apply_per_user_routing
     export -f reload_xray
+    export -f cmd_set_user_proxy
+    export -f cmd_show_user_proxy
+    export -f cmd_list_proxy_assignments
     export -f generate_vless_uri
     export -f export_socks5_config
     export -f export_http_config

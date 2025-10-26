@@ -1,6 +1,6 @@
 # VLESS + Reality VPN Server
 
-**Версия**: 5.23 (External Proxy Support)
+**Версия**: 5.24 (Per-User External Proxy Support)
 **Статус**: Production Ready
 **Лицензия**: MIT
 
@@ -17,7 +17,7 @@
 - ⚡ **Быстрая установка** - готов к работе за 5 минут
 - 🛠️ **Просто управлять** - все операции через простые команды
 - 🌐 **Дополнительные возможности** - SOCKS5/HTTP прокси + reverse proxy
-- 🔗 **External Proxy (NEW v5.23)** - цепочка прокси для максимальной анонимности
+- 🔗 **Per-User External Proxy (NEW v5.24)** - индивидуальные цепочки прокси для каждого пользователя
 
 ---
 
@@ -81,6 +81,71 @@
 2. **HAProxy** определяет тип трафика (VPN или Proxy)
 3. **Xray** обрабатывает подключение и маскирует трафик
 4. **Интернет** видит легитимный HTTPS к Google
+
+---
+
+## Новое в v5.24 (Released 2025-10-26)
+
+### 👥 ПРОРЫВНАЯ ФУНКЦИЯ: Per-User External Proxy Support
+
+**v5.24** - Назначайте индивидуальные внешние прокси для каждого VLESS пользователя!
+
+**Что изменилось:**
+- ✅ **Индивидуальные маршруты**: Каждый пользователь может иметь свой собственный external proxy
+- ✅ **Гибкая политика**: Одни пользователи через proxy, другие напрямую
+- ✅ **Shared outbounds**: Multiple пользователи могут использовать один proxy (оптимизация)
+- ✅ **3 новые CLI команды**: `vless set-proxy`, `show-proxy`, `list-proxy-assignments`
+- ✅ **Wizard интеграция**: Выбор proxy при создании пользователя (опционально)
+- ✅ **Enhanced status**: Per-user statistics в `vless status` и `vless-external-proxy status`
+- ✅ **Dynamic routing**: Routing rules генерируются автоматически на основе users.json
+
+**Архитектура v5.24:**
+```
+Client Alice → HAProxy → Xray → Corporate Proxy → Internet
+                          ↓
+Client Bob              (direct routing, no proxy)
+                          ↓
+Client Carol            → Residential Proxy → Internet
+```
+
+**Use Cases:**
+- 🎯 **Selective routing**: Только VIP пользователи через премиум прокси
+- 🏢 **Department-based**: Разные отделы через разные корпоративные прокси
+- 🌍 **Geo-targeting**: Каждый пользователь через прокси своей страны
+- 💰 **Cost optimization**: Дорогие прокси только для критичных пользователей
+
+**Быстрый старт:**
+```bash
+# 1. Добавить внешние прокси (если ещё не добавлены)
+sudo vless-external-proxy add
+
+# 2. Создать пользователя С выбором прокси
+sudo vless add-user alice
+# → Wizard Step 3.7: Выбор external proxy (опционально)
+
+# 3. Назначить прокси существующему пользователю
+sudo vless set-proxy bob corporate-proxy-123
+
+# 4. Проверить назначение
+sudo vless show-proxy alice
+
+# 5. Посмотреть все назначения
+sudo vless list-proxy-assignments
+
+# 6. Удалить прокси у пользователя (вернуть на direct routing)
+sudo vless set-proxy bob none
+```
+
+**Важно:**
+- ⚠️ Per-user proxy работает ТОЛЬКО для VLESS протокола (email-based routing)
+- ⚠️ HTTP/SOCKS5 proxy НЕ поддерживают user-based routing (протокольное ограничение)
+- ✅ Server-level external proxy (v5.23) всё ещё работает для глобального routing
+
+**Технические детали:**
+- Database: `users.json` расширен полем `external_proxy_id` (nullable)
+- Routing: Dynamic generation of per-user rules с user[] arrays
+- Outbounds: Multiple outbounds с тегами `external-proxy-{proxy_id}`
+- Backward compatible: Существующие users получают `external_proxy_id: null` (direct routing)
 
 ---
 
@@ -277,12 +342,27 @@ sudo vless-user show <имя>
 
 # Удалить пользователя
 sudo vless-user remove <имя>
+```
 
-# Показать SOCKS5/HTTP credentials
-sudo vless-user show-proxy <имя>
+### Управление External Proxy (Per-User - v5.24)
 
-# Сменить пароль прокси
-sudo vless-user reset-proxy-password <имя>
+```bash
+# Назначить external proxy пользователю
+sudo vless set-proxy <username> <proxy-id>
+
+# Показать назначенный proxy пользователя
+sudo vless show-proxy <username>
+
+# Список всех назначений proxy
+sudo vless list-proxy-assignments
+
+# Удалить proxy у пользователя (direct routing)
+sudo vless set-proxy <username> none
+
+# Управление external proxies (добавить/удалить сами прокси)
+sudo vless-external-proxy add      # Добавить новый proxy
+sudo vless-external-proxy list     # Список всех proxies
+sudo vless-external-proxy status   # Статус + users per proxy
 ```
 
 ### Управление Reverse Proxy (опционально)
@@ -404,6 +484,96 @@ https://claude.example.com
 - ✅ **CSP Handling** - удаление Content-Security-Policy headers для совместимости
 - ✅ **Intelligent URL Rewriting** - 5 паттернов (protocol-relative, JSON, JS strings)
 - ✅ **Enhanced Security** - опциональные COOP/COEP/CORP headers для high-security scenarios
+
+### Per-User External Proxy для корпоративной сети (v5.24)
+
+```bash
+# Scenario: Компания с разными отделами, каждый через свой корпоративный прокси
+
+# 1. Добавьте корпоративные прокси
+sudo vless-external-proxy add
+# → ID: hr-proxy
+# → Type: socks5s
+# → Address: proxy-hr.company.com:1080
+# → Username: hr-service
+# → Password: ***
+
+sudo vless-external-proxy add
+# → ID: dev-proxy
+# → Type: https
+# → Address: proxy-dev.company.com:3128
+# → Username: dev-service
+# → Password: ***
+
+# 2. Создайте пользователей с назначением прокси
+sudo vless add-user alice
+# → Wizard Step 3.7: Select external proxy
+# → Choice: hr-proxy
+
+sudo vless add-user bob
+# → Wizard Step 3.7: Select external proxy
+# → Choice: dev-proxy
+
+sudo vless add-user charlie
+# → Wizard Step 3.7: Select external proxy
+# → Choice: none (direct routing)
+
+# 3. Или назначьте прокси существующим пользователям
+sudo vless set-proxy alice hr-proxy
+sudo vless set-proxy bob dev-proxy
+
+# 4. Проверьте назначения
+sudo vless list-proxy-assignments
+
+# Вывод:
+# Direct Routing (1 users):
+#   • charlie → direct
+#
+# Via External Proxy (2 users):
+#   Proxy: hr-proxy (socks5s://proxy-hr.company.com)
+#     • alice
+#   Proxy: dev-proxy (https://proxy-dev.company.com)
+#     • bob
+
+# 5. Проверьте конкретного пользователя
+sudo vless show-proxy alice
+
+# Вывод:
+# External Proxy Assignment: alice
+#   Routing Mode: Via External Proxy
+#   Proxy ID: hr-proxy
+#   Outbound Tag: external-proxy-hr-proxy
+#
+#   Proxy Details:
+#     Type: socks5s
+#     Address: proxy-hr.company.com:1080
+#     Test Status: success
+#
+#   Traffic Flow:
+#     Client → HAProxy → Xray → External Proxy → Internet
+
+# 6. Измените назначение
+sudo vless set-proxy bob hr-proxy  # Bob теперь тоже через HR proxy
+sudo vless set-proxy alice none    # Alice теперь без proxy (direct)
+
+# 7. Статус системы
+sudo vless status
+# → Показывает per-user proxy assignments (summary + top-3)
+
+sudo vless-external-proxy status
+# → Показывает users per proxy (детально)
+```
+
+**Use Case объяснение:**
+- 👥 **Alice (HR)**: Через hr-proxy → доступ к HR системам компании
+- 💻 **Bob (Developer)**: Через dev-proxy → доступ к GitHub/GitLab компании
+- 🌐 **Charlie (Guest)**: Direct routing → обычный интернет без корпоративных политик
+
+**Преимущества:**
+- ✅ Гибкая политика доступа на уровне пользователей
+- ✅ Shared outbounds: Alice и Bob могут использовать один proxy (оптимизация)
+- ✅ Dynamic routing: Изменения применяются автоматически (no manual Xray restart)
+- ✅ Audit trail: `vless list-proxy-assignments` показывает кто через какой proxy
 
 ---
 

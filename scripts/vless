@@ -56,6 +56,11 @@ ${CYAN}User Management:${NC}
   show-user <username>      Show user details and connection info
   regenerate <username>     Regenerate config files (v3.3 migration)
 
+${CYAN}External Proxy (v5.24 - Per-User):${NC}
+  set-proxy <user> <id|none>    Set external proxy for user
+  show-proxy <username>         Show user's proxy assignment
+  list-proxy-assignments        List all proxy assignments
+
 ${CYAN}Proxy IP Whitelist (v3.6 - Server-Level):${NC}
   show-proxy-ips                    Show allowed IPs for proxy access
   set-proxy-ips <ips>               Set allowed IPs (comma-separated)
@@ -95,6 +100,9 @@ ${CYAN}Information:${NC}
 ${CYAN}Examples:${NC}
   sudo vless add-user alice
   sudo vless list-users
+  sudo vless set-proxy alice corporate-proxy-123
+  sudo vless show-proxy alice
+  sudo vless list-proxy-assignments
   sudo vless show-proxy-ips
   sudo vless set-proxy-ips 127.0.0.1,10.0.0.0/24
   sudo vless status
@@ -182,6 +190,36 @@ main() {
             fi
             source_modules
             regenerate_configs "$1"
+            ;;
+
+        set-proxy)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: Username and proxy ID required${NC}" >&2
+                echo "Usage: vless set-proxy <username> <proxy-id|none>" >&2
+                echo "Example: vless set-proxy alice corporate-proxy-123" >&2
+                echo "         vless set-proxy alice none" >&2
+                exit 1
+            fi
+            source_modules
+            cmd_set_user_proxy "$1" "$2"
+            ;;
+
+        show-proxy)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: vless show-proxy <username>" >&2
+                exit 1
+            fi
+            source_modules
+            cmd_show_user_proxy "$1"
+            ;;
+
+        list-proxy-assignments)
+            check_root
+            source_modules
+            cmd_list_proxy_assignments
             ;;
 
         show-proxy-ips)
@@ -370,6 +408,54 @@ main() {
                 fi
             else
                 echo "  ${YELLOW}Not available${NC} (database not found)"
+            fi
+
+            # Per-User Proxy Assignments (v5.24)
+            echo ""
+            echo -e "${CYAN}Per-User Proxy Assignments (v5.24):${NC}"
+            if [[ -f "${DATA_DIR}/users.json" ]]; then
+                local total_users=$(jq -r '.users | length' "${DATA_DIR}/users.json" 2>/dev/null || echo "0")
+
+                if [[ "$total_users" -eq 0 ]]; then
+                    echo "  ${YELLOW}No users configured${NC}"
+                else
+                    # Count users by routing type
+                    local direct_count=0
+                    local proxied_count=0
+
+                    # Count users with direct routing (external_proxy_id is null or missing)
+                    direct_count=$(jq -r '[.users[] | select(.external_proxy_id == null or .external_proxy_id == "")] | length' \
+                        "${DATA_DIR}/users.json" 2>/dev/null || echo "0")
+
+                    # Count users with external proxy
+                    proxied_count=$(jq -r '[.users[] | select(.external_proxy_id != null and .external_proxy_id != "")] | length' \
+                        "${DATA_DIR}/users.json" 2>/dev/null || echo "0")
+
+                    echo "  Total Users: $total_users"
+                    echo "    Direct Routing: ${direct_count} users"
+                    echo "    Via External Proxy: ${proxied_count} users"
+
+                    # Show top proxies if any users are using external proxy
+                    if [[ "$proxied_count" -gt 0 ]]; then
+                        echo ""
+                        echo "  Top Proxies by User Count:"
+
+                        # Group users by proxy_id and count
+                        local proxy_stats
+                        proxy_stats=$(jq -r '[.users[] | select(.external_proxy_id != null and .external_proxy_id != "") | .external_proxy_id] | group_by(.) | map({proxy: .[0], count: length}) | sort_by(-.count) | .[:3]' \
+                            "${DATA_DIR}/users.json" 2>/dev/null)
+
+                        if [[ -n "$proxy_stats" ]] && [[ "$proxy_stats" != "[]" ]]; then
+                            # Display top 3 proxies
+                            echo "$proxy_stats" | jq -r '.[] | "    • \(.proxy): \(.count) user(s)"' 2>/dev/null
+
+                            echo ""
+                            echo "  Hint: vless list-proxy-assignments (detailed view)"
+                        fi
+                    fi
+                fi
+            else
+                echo "  ${YELLOW}Users database not found${NC}"
             fi
 
             echo ""

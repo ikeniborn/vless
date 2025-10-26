@@ -840,6 +840,155 @@ generate_xray_outbound_json() {
     return 0
 }
 
+# =============================================================================
+# Get Routing Status (v5.24 - Enhanced with Per-User Assignments)
+# =============================================================================
+
+get_routing_status() {
+    local ext_proxy_db="$EXTERNAL_PROXY_DB"
+    local users_json="/opt/vless/data/users.json"
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  External Proxy Routing Status"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Check if database exists
+    if [[ ! -f "$ext_proxy_db" ]]; then
+        echo "  Status: Not configured"
+        echo "  Hint: vless-external-proxy add"
+        echo ""
+        return 0
+    fi
+
+    # Get basic status
+    local enabled
+    enabled=$(jq -r '.enabled' "$ext_proxy_db" 2>/dev/null || echo "false")
+
+    local proxy_count
+    proxy_count=$(jq -r '.proxies | length' "$ext_proxy_db" 2>/dev/null || echo "0")
+
+    local routing_mode
+    routing_mode=$(jq -r '.routing.mode' "$ext_proxy_db" 2>/dev/null || echo "unknown")
+
+    echo "  Feature Status: $(if [[ "$enabled" == "true" ]]; then echo "ENABLED"; else echo "DISABLED"; fi)"
+    echo "  Routing Mode: $routing_mode"
+    echo "  Total Proxies: $proxy_count"
+
+    # Show active proxy (server-level, deprecated in v5.24)
+    if [[ "$enabled" == "true" ]]; then
+        local active_proxy_id
+        active_proxy_id=$(jq -r '.proxies[] | select(.active == true) | .id' \
+            "$ext_proxy_db" 2>/dev/null || echo "")
+
+        if [[ -n "$active_proxy_id" ]]; then
+            echo ""
+            echo "  Server-Level Proxy (deprecated in v5.24):"
+            local proxy_type proxy_address proxy_port
+            proxy_type=$(jq -r --arg id "$active_proxy_id" \
+                '.proxies[] | select(.id == $id) | .type' \
+                "$ext_proxy_db" 2>/dev/null)
+            proxy_address=$(jq -r --arg id "$active_proxy_id" \
+                '.proxies[] | select(.id == $id) | .address' \
+                "$ext_proxy_db" 2>/dev/null)
+            proxy_port=$(jq -r --arg id "$active_proxy_id" \
+                '.proxies[] | select(.id == $id) | .port' \
+                "$ext_proxy_db" 2>/dev/null)
+
+            echo "    Active Proxy: $active_proxy_id"
+            echo "    Type: $proxy_type"
+            echo "    Address: $proxy_address:$proxy_port"
+        fi
+    fi
+
+    # Show per-user assignments (v5.24)
+    echo ""
+    echo "  Per-User Proxy Assignments (v5.24):"
+    echo ""
+
+    if [[ ! -f "$users_json" ]]; then
+        echo "    ${YELLOW}Users database not found${NC}"
+        echo ""
+        return 0
+    fi
+
+    local total_users
+    total_users=$(jq -r '.users | length' "$users_json" 2>/dev/null || echo "0")
+
+    if [[ "$total_users" -eq 0 ]]; then
+        echo "    No users configured"
+        echo ""
+        return 0
+    fi
+
+    # Count users by proxy assignment
+    local direct_count proxied_count
+    direct_count=$(jq -r '[.users[] | select(.external_proxy_id == null or .external_proxy_id == "")] | length' \
+        "$users_json" 2>/dev/null || echo "0")
+    proxied_count=$(jq -r '[.users[] | select(.external_proxy_id != null and .external_proxy_id != "")] | length' \
+        "$users_json" 2>/dev/null || echo "0")
+
+    echo "    Total Users: $total_users"
+    echo "      Direct Routing: $direct_count"
+    echo "      Via External Proxy: $proxied_count"
+
+    # Show users per proxy
+    if [[ "$proxied_count" -gt 0 ]]; then
+        echo ""
+        echo "    Users by Proxy:"
+
+        # Get unique proxy IDs from users
+        local unique_proxies
+        unique_proxies=$(jq -r '[.users[] | select(.external_proxy_id != null and .external_proxy_id != "") | .external_proxy_id] | unique | .[]' \
+            "$users_json" 2>/dev/null)
+
+        if [[ -n "$unique_proxies" ]]; then
+            while IFS= read -r proxy_id; do
+                # Get users for this proxy
+                local users_list
+                users_list=$(jq -r --arg pid "$proxy_id" \
+                    '[.users[] | select(.external_proxy_id == $pid) | .username] | join(", ")' \
+                    "$users_json" 2>/dev/null)
+
+                local user_count
+                user_count=$(jq -r --arg pid "$proxy_id" \
+                    '[.users[] | select(.external_proxy_id == $pid)] | length' \
+                    "$users_json" 2>/dev/null)
+
+                # Get proxy details
+                local proxy_info="$proxy_id"
+                if [[ -f "$ext_proxy_db" ]]; then
+                    local proxy_type proxy_address
+                    proxy_type=$(jq -r --arg id "$proxy_id" \
+                        '.proxies[] | select(.id == $id) | .type' \
+                        "$ext_proxy_db" 2>/dev/null || echo "")
+                    proxy_address=$(jq -r --arg id "$proxy_id" \
+                        '.proxies[] | select(.id == $id) | .address' \
+                        "$ext_proxy_db" 2>/dev/null || echo "")
+
+                    if [[ -n "$proxy_type" ]] && [[ -n "$proxy_address" ]]; then
+                        proxy_info="$proxy_id ($proxy_type://$proxy_address)"
+                    fi
+                fi
+
+                echo ""
+                echo "      Proxy: $proxy_info"
+                echo "        Users ($user_count): $users_list"
+            done <<< "$unique_proxies"
+        fi
+
+        echo ""
+        echo "    Hint: vless list-proxy-assignments (detailed view)"
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    return 0
+}
+
 # Export functions
 export -f init_external_proxy_db
 export -f validate_proxy_config
@@ -852,3 +1001,4 @@ export -f remove_external_proxy
 export -f set_active_proxy
 export -f test_proxy_connectivity
 export -f generate_xray_outbound_json
+export -f get_routing_status

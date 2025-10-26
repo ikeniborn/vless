@@ -301,6 +301,137 @@ update_xray_outbounds() {
 }
 
 # =============================================================================
+# FUNCTION: update_per_user_xray_outbounds (v5.24)
+# =============================================================================
+# Description: Update Xray outbounds for per-user external proxy support
+#              Creates one outbound per unique external_proxy_id
+# Arguments: None (reads from /opt/vless/data/users.json)
+# Returns: 0 on success, 1 on failure
+#
+# Logic:
+#   1. Get unique proxy IDs from users.json
+#   2. For each proxy_id: create outbound with tag "external-proxy-{proxy_id}"
+#   3. Remove old external-proxy outbounds not in current list
+# =============================================================================
+update_per_user_xray_outbounds() {
+    echo -e "${CYAN}Updating per-user Xray outbounds...${NC}"
+
+    # Source external_proxy_manager to use generate_xray_outbound_json
+    if [[ -f "/opt/vless/lib/external_proxy_manager.sh" ]]; then
+        source "/opt/vless/lib/external_proxy_manager.sh"
+    elif [[ -f "$(dirname "${BASH_SOURCE[0]}")/external_proxy_manager.sh" ]]; then
+        source "$(dirname "${BASH_SOURCE[0]}")/external_proxy_manager.sh"
+    else
+        echo -e "${RED}external_proxy_manager.sh not found${NC}" >&2
+        return 1
+    fi
+
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        echo -e "${RED}Xray config not found: $XRAY_CONFIG${NC}" >&2
+        return 1
+    fi
+
+    # Get unique proxy IDs
+    local unique_proxies
+    unique_proxies=$(get_unique_proxy_outbounds)
+
+    if [[ "$unique_proxies" == "[]" ]]; then
+        echo "  ℹ️  No users assigned to external proxies"
+        # Remove all external-proxy-* outbounds
+        local temp_file
+        temp_file=$(mktemp)
+        jq '.outbounds = [.outbounds[] | select(.tag | startswith("external-proxy-") | not)]' \
+            "$XRAY_CONFIG" > "$temp_file" && mv "$temp_file" "$XRAY_CONFIG"
+        echo -e "${GREEN}✓ Cleaned up external proxy outbounds${NC}"
+        return 0
+    fi
+
+    # Get proxy IDs as array
+    local proxy_ids
+    proxy_ids=$(echo "$unique_proxies" | jq -r '.[]')
+
+    # Collect current outbound tags for removal check
+    local current_tags=()
+
+    # Process each unique proxy
+    while IFS= read -r proxy_id; do
+        echo "  Processing proxy: $proxy_id"
+
+        # Generate outbound JSON with modified tag
+        local outbound_json
+        outbound_json=$(generate_xray_outbound_json "$proxy_id") || {
+            echo -e "${YELLOW}  ⚠️  Failed to generate outbound for $proxy_id${NC}"
+            continue
+        }
+
+        # Change tag from "external-proxy" to "external-proxy-{proxy_id}"
+        local outbound_tag="external-proxy-${proxy_id}"
+        outbound_json=$(echo "$outbound_json" | jq --arg tag "$outbound_tag" '.tag = $tag')
+
+        current_tags+=("$outbound_tag")
+
+        # Check if outbound with this tag already exists
+        local existing_count
+        existing_count=$(jq --arg tag "$outbound_tag" \
+            '[.outbounds[] | select(.tag == $tag)] | length' \
+            "$XRAY_CONFIG" 2>/dev/null || echo "0")
+
+        local temp_file
+        temp_file=$(mktemp)
+
+        if [[ "$existing_count" == "0" ]]; then
+            # Add new outbound (insert after "direct", before "blocked")
+            jq --argjson outbound "$outbound_json" \
+                '.outbounds = [.outbounds[0]] + [$outbound] + .outbounds[1:]' \
+                "$XRAY_CONFIG" > "$temp_file" && mv "$temp_file" "$XRAY_CONFIG"
+            echo "    ✓ Added outbound: $outbound_tag"
+        else
+            # Update existing outbound
+            jq --argjson outbound "$outbound_json" --arg tag "$outbound_tag" \
+                '(.outbounds[] | select(.tag == $tag)) = $outbound' \
+                "$XRAY_CONFIG" > "$temp_file" && mv "$temp_file" "$XRAY_CONFIG"
+            echo "    ✓ Updated outbound: $outbound_tag"
+        fi
+
+        if [[ $? -ne 0 ]]; then
+            echo -e "${YELLOW}  ⚠️  Failed to update outbound for $proxy_id${NC}"
+            rm -f "$temp_file"
+        fi
+    done <<< "$proxy_ids"
+
+    # Remove orphaned external-proxy-* outbounds (not in current_tags)
+    if [[ ${#current_tags[@]} -gt 0 ]]; then
+        # Build jq filter to keep only current tags
+        local keep_tags_json
+        keep_tags_json=$(printf '%s\n' "${current_tags[@]}" | jq -R . | jq -s .)
+
+        local temp_file
+        temp_file=$(mktemp)
+
+        jq --argjson keep "$keep_tags_json" \
+            '.outbounds = [.outbounds[] | select(
+                if .tag | startswith("external-proxy-") then
+                    .tag as $t | $keep | index($t) != null
+                else
+                    true
+                end
+            )]' \
+            "$XRAY_CONFIG" > "$temp_file" && mv "$temp_file" "$XRAY_CONFIG"
+
+        echo "  ✓ Cleaned up orphaned outbounds"
+    fi
+
+    # Validate JSON
+    if ! jq empty "$XRAY_CONFIG" 2>/dev/null; then
+        echo -e "${RED}Invalid JSON in Xray config after update${NC}" >&2
+        return 1
+    fi
+
+    echo -e "${GREEN}✓ Per-user outbounds updated (${#current_tags[@]} outbounds)${NC}"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: remove_xray_outbound
 # =============================================================================
 # Description: Remove external proxy outbound from xray_config.json
@@ -462,11 +593,177 @@ get_routing_status() {
     return 0
 }
 
+# =============================================================================
+# FUNCTION: get_unique_proxy_outbounds (v5.24)
+# =============================================================================
+# Description: Scan users.json to get unique external_proxy_id values (exclude null)
+# Arguments: None (reads from /opt/vless/data/users.json)
+# Returns:
+#   Stdout: JSON array of unique proxy IDs
+#   Exit: 0 on success, 1 on failure
+# Output Example: ["proxy-corporate-123456", "proxy-home-789012"]
+# =============================================================================
+get_unique_proxy_outbounds() {
+    local users_json="/opt/vless/data/users.json"
+
+    if [[ ! -f "$users_json" ]]; then
+        echo -e "${YELLOW}Users database not found: $users_json${NC}" >&2
+        echo "[]"
+        return 0
+    fi
+
+    # Extract unique external_proxy_id values (exclude null)
+    local unique_proxies
+    unique_proxies=$(jq -r '[.users[].external_proxy_id | select(. != null)] | unique | .[]' "$users_json" 2>/dev/null)
+
+    if [[ -z "$unique_proxies" ]]; then
+        # No users with external proxy assigned
+        echo "[]"
+        return 0
+    fi
+
+    # Convert to JSON array format
+    local proxy_array="["
+    local first=true
+    while IFS= read -r proxy_id; do
+        if [[ "$first" == true ]]; then
+            proxy_array+="\"$proxy_id\""
+            first=false
+        else
+            proxy_array+=", \"$proxy_id\""
+        fi
+    done <<< "$unique_proxies"
+    proxy_array+="]"
+
+    echo "$proxy_array"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: generate_per_user_routing_rules (v5.24)
+# =============================================================================
+# Description: Generate Xray routing rules for per-user external proxy assignment
+# Arguments: None (reads from /opt/vless/data/users.json)
+# Returns:
+#   Stdout: JSON object for routing section
+#   Exit: 0 on success, 1 on failure
+#
+# Logic:
+#   1. Group users by external_proxy_id
+#   2. For each proxy: create rule with user[] array
+#   3. Add default rule: users without proxy → direct
+#
+# Output Example:
+# {
+#   "domainStrategy": "AsIs",
+#   "rules": [
+#     {
+#       "type": "field",
+#       "inboundTag": ["vless-reality"],
+#       "user": ["alice@vless.local", "bob@vless.local"],
+#       "outboundTag": "external-proxy-corporate-123456"
+#     },
+#     {
+#       "type": "field",
+#       "inboundTag": ["vless-reality"],
+#       "outboundTag": "direct"
+#     }
+#   ]
+# }
+# =============================================================================
+generate_per_user_routing_rules() {
+    echo -e "${CYAN}Generating per-user routing rules...${NC}"
+
+    local users_json="/opt/vless/data/users.json"
+
+    if [[ ! -f "$users_json" ]]; then
+        echo -e "${RED}Users database not found: $users_json${NC}" >&2
+        # Return minimal routing (all direct)
+        cat <<EOF
+{
+  "domainStrategy": "AsIs",
+  "rules": [
+    {
+      "type": "field",
+      "inboundTag": ["vless-reality"],
+      "outboundTag": "direct"
+    }
+  ]
+}
+EOF
+        return 1
+    fi
+
+    # Get unique proxy IDs
+    local unique_proxies
+    unique_proxies=$(get_unique_proxy_outbounds)
+
+    # Start building routing object
+    local routing_rules="[]"
+
+    # For each unique proxy, create a rule with users array
+    if [[ "$unique_proxies" != "[]" ]]; then
+        local proxy_ids
+        proxy_ids=$(echo "$unique_proxies" | jq -r '.[]')
+
+        while IFS= read -r proxy_id; do
+            # Get users with this proxy_id
+            local users_with_proxy
+            users_with_proxy=$(jq -r --arg pid "$proxy_id" \
+                '[.users[] | select(.external_proxy_id == $pid) | .username + "@vless.local"]' \
+                "$users_json")
+
+            # Create outbound tag: "external-proxy-{proxy_id}"
+            local outbound_tag
+            outbound_tag="external-proxy-${proxy_id}"
+
+            # Add rule for this proxy
+            local rule
+            rule=$(jq -n \
+                --argjson users "$users_with_proxy" \
+                --arg tag "$outbound_tag" \
+                '{
+                    type: "field",
+                    inboundTag: ["vless-reality"],
+                    user: $users,
+                    outboundTag: $tag
+                }')
+
+            routing_rules=$(echo "$routing_rules" | jq --argjson rule "$rule" '. += [$rule]')
+
+            echo "  ✓ Rule added: ${#users_with_proxy[@]} users → $outbound_tag"
+        done <<< "$proxy_ids"
+    fi
+
+    # Add default rule: all other users → direct
+    local default_rule
+    default_rule=$(jq -n '{
+        type: "field",
+        inboundTag: ["vless-reality"],
+        outboundTag: "direct"
+    }')
+
+    routing_rules=$(echo "$routing_rules" | jq --argjson rule "$default_rule" '. += [$rule]')
+
+    # Build final routing object
+    local routing_json
+    routing_json=$(jq -n --argjson rules "$routing_rules" '{
+        domainStrategy: "AsIs",
+        rules: $rules
+    }')
+
+    echo "$routing_json"
+    return 0
+}
+
 # Export functions
 export -f generate_routing_rules_json
 export -f enable_proxy_routing
 export -f disable_proxy_routing
 export -f update_xray_outbounds
+export -f update_per_user_xray_outbounds
 export -f remove_xray_outbound
 export -f add_routing_rule
 export -f get_routing_status
+export -f get_unique_proxy_outbounds
+export -f generate_per_user_routing_rules
