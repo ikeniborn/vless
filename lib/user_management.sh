@@ -2217,10 +2217,29 @@ cmd_set_user_proxy() {
                 jq --arg id "$proxy_id" \
                    --arg ts "$(date -Iseconds)" \
                    '(.proxies[] | select(.id == $id) | .active) = true |
-                    (.proxies[] | select(.id == $id) | .metadata.last_modified) = $ts' \
+                    (.proxies[] | select(.id == $id) | .metadata.last_modified) = $ts |
+                    .enabled = true |
+                    .metadata.last_modified = $ts' \
                    "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
 
                 log_info "Auto-activated external proxy: $proxy_id"
+            fi
+
+            # Ensure global enabled flag is set if any proxy is active
+            local any_active
+            any_active=$(jq '[.proxies[] | select(.active == true)] | length' "$proxy_db" 2>/dev/null || echo "0")
+            if [[ "$any_active" -gt 0 ]]; then
+                local is_enabled
+                is_enabled=$(jq -r '.enabled' "$proxy_db" 2>/dev/null || echo "false")
+
+                if [[ "$is_enabled" != "true" ]]; then
+                    local temp_file
+                    temp_file=$(mktemp)
+                    jq --arg ts "$(date -Iseconds)" \
+                       '.enabled = true |
+                        .metadata.last_modified = $ts' \
+                       "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
+                fi
             fi
         fi
     fi
