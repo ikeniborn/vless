@@ -20,8 +20,8 @@
 #   disable            - Disable external proxy routing
 #   status             - Show current routing status
 #
-# Version: 5.23.0
-# Date: 2025-10-25
+# Version: 5.23.1
+# Date: 2025-10-27
 
 set -euo pipefail
 
@@ -71,7 +71,7 @@ fi
 # Show usage information
 show_usage() {
     cat <<EOF
-${CYAN}VLESS External Proxy Manager (v5.23)${NC}
+${CYAN}VLESS External Proxy Manager (v5.23.1)${NC}
 
 Manage external proxy configuration for routing traffic through upstream
 SOCKS5/HTTP proxies.

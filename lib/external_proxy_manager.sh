@@ -10,8 +10,8 @@
 #
 # Architecture: Client → HAProxy → Xray → External Proxy → Internet
 #
-# Version: 5.23.0
-# Date: 2025-10-25
+# Version: 5.23.1
+# Date: 2025-10-27
 
 set -euo pipefail
 
@@ -28,15 +28,15 @@ set -euo pipefail
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Paths
-readonly EXTERNAL_PROXY_DB="${EXTERNAL_PROXY_DB:-/opt/vless/config/external_proxy.json}"
-readonly XRAY_CONFIG="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
+[[ -z "${EXTERNAL_PROXY_DB:-}" ]] && readonly EXTERNAL_PROXY_DB="/opt/vless/config/external_proxy.json"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
 
 # Supported proxy types
-readonly SUPPORTED_PROXY_TYPES=("socks5" "socks5s" "http" "https")
+[[ -z "${SUPPORTED_PROXY_TYPES:-}" ]] && readonly SUPPORTED_PROXY_TYPES=("socks5" "socks5s" "http" "https")
 
 # Default retry settings
-readonly DEFAULT_MAX_RETRY_ATTEMPTS=3
-readonly DEFAULT_BACKOFF_MULTIPLIER=2
+[[ -z "${DEFAULT_MAX_RETRY_ATTEMPTS:-}" ]] && readonly DEFAULT_MAX_RETRY_ATTEMPTS=3
+[[ -z "${DEFAULT_BACKOFF_MULTIPLIER:-}" ]] && readonly DEFAULT_BACKOFF_MULTIPLIER=2
 
 # =============================================================================
 # FUNCTION: init_external_proxy_db
@@ -86,7 +86,7 @@ init_external_proxy_db() {
   "metadata": {
     "created": "${timestamp}",
     "last_modified": "${timestamp}",
-    "version": "5.23.0"
+    "version": "5.23.1"
   }
 }
 EOF
