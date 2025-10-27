@@ -55,10 +55,15 @@ System: Installing missing dependencies...
 - Asks user to continue or cancel if repository setup fails
 - Non-interactive mode support via `VLESS_AUTO_INSTALL_DEPS=yes`
 
-**Fallback Logic for docker-compose-plugin (lib/dependencies.sh:995-1023)**
+**Fallback Logic for docker-compose-plugin (lib/dependencies.sh:1006-1034)**
 - If `docker-compose-plugin` installation fails → try standalone `docker-compose` binary
 - If standalone also fails → continue with warning (system will use 'docker compose' syntax)
 - Prevents installation failure due to missing plugin
+
+**Fixed: Validation Logic for docker-compose-plugin (lib/dependencies.sh:974-1004)**
+- **Root Cause:** Validation used `command -v "docker-compose-plugin"` which always fails (no such command exists)
+- **Solution:** Added special check using `docker compose version` command
+- **Impact:** Package installs successfully but validation now correctly recognizes it
 
 **After v5.25 (Expected Behavior):**
 ```bash
@@ -85,6 +90,8 @@ System: Installing missing dependencies...
 - ✅ Syntax check passed (`bash -n dependencies.sh`)
 - ✅ Functions properly defined (`check_docker_repository_configured`, `setup_docker_repository`)
 - ✅ Repository detection works on systems with existing Docker repo
+- ✅ docker-compose-plugin validation fixed (`docker compose version` check)
+- ✅ Package installs and validates successfully on Ubuntu 24.04
 - ✅ Fallback logic for docker-compose-plugin implemented
 
 **Impact:**
@@ -94,10 +101,11 @@ System: Installing missing dependencies...
 - **Clear error messages** with manual setup instructions if automatic setup fails
 
 **Files Changed:**
-- `lib/dependencies.sh` (+130 lines, 2 new functions, modified install_dependencies())
+- `lib/dependencies.sh` (+140 lines, 2 new functions, modified install_dependencies())
   - Added `check_docker_repository_configured()` function
   - Added `setup_docker_repository()` function
   - Modified `install_dependencies()` to call setup before package installation
+  - **FIXED:** Validation logic for docker-compose-plugin (line 974-1004)
   - Added fallback logic for docker-compose-plugin installation failure
 
 **Breaking Changes:** None

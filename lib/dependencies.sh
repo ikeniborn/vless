@@ -973,7 +973,18 @@ install_dependencies() {
 
         if install_package "$package"; then
             # Validate installation
-            if command -v "$cmd_name" &>/dev/null; then
+            local is_installed=false
+
+            # Special check for docker-compose-plugin (uses "docker compose" command)
+            if [[ "$package" == "docker-compose-plugin" ]]; then
+                if docker compose version &>/dev/null 2>&1; then
+                    is_installed=true
+                fi
+            elif command -v "$cmd_name" &>/dev/null; then
+                is_installed=true
+            fi
+
+            if [[ "$is_installed" == "true" ]]; then
                 echo -e "[$current_num/$total_packages] ${CHECK_MARK} $package - ${GREEN}installed successfully${NC}"
                 ((installed_count++)) || true
 
