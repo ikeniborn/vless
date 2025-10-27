@@ -699,7 +699,7 @@ apply_per_user_routing() {
     # Step 2: Generate and apply per-user routing rules
     log_info "Generating per-user routing rules..."
     local routing_json
-    routing_json=$(generate_per_user_routing_rules 2>&1)
+    routing_json=$(generate_per_user_routing_rules)
 
     if [[ $? -ne 0 ]]; then
         log_error "Failed to generate routing rules"

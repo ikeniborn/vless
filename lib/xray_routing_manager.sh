@@ -672,7 +672,7 @@ get_unique_proxy_outbounds() {
 # }
 # =============================================================================
 generate_per_user_routing_rules() {
-    echo -e "${CYAN}Generating per-user routing rules...${NC}"
+    echo -e "${CYAN}Generating per-user routing rules...${NC}" >&2
 
     local users_json="/opt/vless/data/users.json"
 
@@ -705,7 +705,7 @@ EOF
             local temp_file=$(mktemp)
             jq '.routing = {"domainStrategy": "AsIs", "rules": []}' "$XRAY_CONFIG" > "$temp_file" && \
                 mv "$temp_file" "$XRAY_CONFIG"
-            echo "  ℹ️  Initialized routing section"
+            echo "  ℹ️  Initialized routing section" >&2
         fi
     fi
 
@@ -744,7 +744,7 @@ EOF
 
             # Count users from JSON array
             local user_count=$(echo "$users_with_proxy" | jq 'length')
-            echo "  ✓ Rule added: $user_count users → $outbound_tag"
+            echo "  ✓ Rule added: $user_count users → $outbound_tag" >&2
         done <<< "$proxy_ids"
     fi
 
