@@ -44,6 +44,7 @@ log_error() {
 #   $1 - vless_domain: Domain for VLESS Reality (e.g., vless.ikeniborn.ru)
 #   $2 - main_domain: Main domain for certificates (e.g., ikeniborn.ru)
 #   $3 - stats_password: Password for stats page (optional)
+#   $4 - enable_public_proxy: Enable public proxy frontends (true/false, default: false)
 #
 # Returns:
 #   0 on success, 1 on failure
@@ -52,16 +53,22 @@ log_error() {
 #   Creates /opt/vless/config/haproxy.cfg
 #
 # Example:
-#   generate_haproxy_config "vless.ikeniborn.ru" "ikeniborn.ru" "admin123"
+#   generate_haproxy_config "vless.ikeniborn.ru" "ikeniborn.ru" "admin123" "true"
+#
+# v5.25 Changes:
+#   - Added enable_public_proxy parameter for VLESS-only mode support
+#   - Public proxy frontends (ports 1080/8118) generated conditionally
 # =============================================================================
 generate_haproxy_config() {
     local vless_domain="${1:-vless.example.com}"
     local main_domain="${2:-example.com}"
     local stats_password="${3:-$(openssl rand -hex 8)}"
+    local enable_public_proxy="${4:-false}"
 
     log "Generating unified haproxy.cfg (v4.3)"
     log "  VLESS Domain: ${vless_domain}"
     log "  Main Domain: ${main_domain}"
+    log "  Public Proxy: ${enable_public_proxy}"
 
     # Create backup if file exists
     if [ -f "${HAPROXY_CONFIG}" ]; then
@@ -71,6 +78,79 @@ generate_haproxy_config() {
 
     # Create config directory if not exists
     mkdir -p "$(dirname "${HAPROXY_CONFIG}")"
+
+    # Generate public proxy sections conditionally (v5.25)
+    local public_proxy_sections=""
+    if [[ "${enable_public_proxy}" == "true" ]]; then
+        public_proxy_sections=$(cat <<'PROXY_SECTIONS'
+
+# ==============================================================================
+# Frontend 2: Port 1080 - SOCKS5 TLS Termination
+# Decrypts TLS, forwards plaintext SOCKS5 to Xray
+# ==============================================================================
+frontend socks5_tls
+    bind *:1080 ssl crt /etc/letsencrypt/live/${main_domain}/combined.pem
+    mode tcp
+    option tcplog
+
+    # Enable request inspection for SNI capture
+    tcp-request inspect-delay 5s
+    tcp-request content accept if TRUE
+
+    # Log TLS info
+    tcp-request content capture req.ssl_sni len 100
+
+    default_backend xray_socks5_plaintext
+
+# Backend for SOCKS5 (plaintext to Xray)
+backend xray_socks5_plaintext
+    mode tcp
+    server xray vless_xray:10800 check inter 10s fall 3 rise 2
+
+# ==============================================================================
+# Frontend 3: Port 8118 - HTTP Proxy TLS Termination
+# Decrypts TLS, forwards plaintext HTTP proxy to Xray
+# ==============================================================================
+frontend http_proxy_tls
+    bind *:8118 ssl crt /etc/letsencrypt/live/${main_domain}/combined.pem
+    mode tcp
+    option tcplog
+
+    # Enable request inspection for SNI capture
+    tcp-request inspect-delay 5s
+    tcp-request content accept if TRUE
+
+    # Log TLS info
+    tcp-request content capture req.ssl_sni len 100
+
+    default_backend xray_http_plaintext
+
+# Backend for HTTP Proxy (plaintext to Xray)
+backend xray_http_plaintext
+    mode tcp
+    server xray vless_xray:18118 check inter 10s fall 3 rise 2
+PROXY_SECTIONS
+)
+        # Replace ${main_domain} in the heredoc with actual value
+        public_proxy_sections="${public_proxy_sections//\$\{main_domain\}/${main_domain}}"
+    else
+        public_proxy_sections=$(cat <<'VLESS_ONLY_COMMENT'
+
+# ==============================================================================
+# Public Proxy Frontends (DISABLED in VLESS-only mode)
+# ==============================================================================
+# To enable public proxy (SOCKS5 + HTTP with TLS termination):
+#   1. Set ENABLE_PUBLIC_PROXY=true in installation
+#   2. Configure domain and obtain Let's Encrypt certificate
+#   3. Regenerate HAProxy configuration
+#
+# Public proxy provides:
+#   - SOCKS5 TLS: Port 1080 (socks5s://)
+#   - HTTP TLS: Port 8118 (https://)
+# ==============================================================================
+VLESS_ONLY_COMMENT
+)
+    fi
 
     # Generate haproxy.cfg via heredoc
     cat > "${HAPROXY_CONFIG}" <<EOF
@@ -139,52 +219,7 @@ frontend https_sni_router
 backend xray_vless
     mode tcp
     server xray vless_xray:8443 check inter 10s fall 3 rise 2
-
-# ==============================================================================
-# Frontend 2: Port 1080 - SOCKS5 TLS Termination
-# Decrypts TLS, forwards plaintext SOCKS5 to Xray
-# ==============================================================================
-frontend socks5_tls
-    bind *:1080 ssl crt /etc/letsencrypt/live/${main_domain}/combined.pem
-    mode tcp
-    option tcplog
-
-    # Enable request inspection for SNI capture
-    tcp-request inspect-delay 5s
-    tcp-request content accept if TRUE
-
-    # Log TLS info
-    tcp-request content capture req.ssl_sni len 100
-
-    default_backend xray_socks5_plaintext
-
-# Backend for SOCKS5 (plaintext to Xray)
-backend xray_socks5_plaintext
-    mode tcp
-    server xray vless_xray:10800 check inter 10s fall 3 rise 2
-
-# ==============================================================================
-# Frontend 3: Port 8118 - HTTP Proxy TLS Termination
-# Decrypts TLS, forwards plaintext HTTP proxy to Xray
-# ==============================================================================
-frontend http_proxy_tls
-    bind *:8118 ssl crt /etc/letsencrypt/live/${main_domain}/combined.pem
-    mode tcp
-    option tcplog
-
-    # Enable request inspection for SNI capture
-    tcp-request inspect-delay 5s
-    tcp-request content accept if TRUE
-
-    # Log TLS info
-    tcp-request content capture req.ssl_sni len 100
-
-    default_backend xray_http_plaintext
-
-# Backend for HTTP Proxy (plaintext to Xray)
-backend xray_http_plaintext
-    mode tcp
-    server xray vless_xray:18118 check inter 10s fall 3 rise 2
+${public_proxy_sections}
 
 # ==============================================================================
 # Stats Page (localhost only)

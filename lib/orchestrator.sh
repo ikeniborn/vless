@@ -923,8 +923,12 @@ EOF
 # FUNCTION: generate_haproxy_config_wrapper
 # =============================================================================
 # Description: Wrapper for lib/haproxy_config_manager.sh::generate_haproxy_config()
-# Uses: DOMAIN (from interactive_params.sh)
+# Uses: DOMAIN, ENABLE_PUBLIC_PROXY (from interactive_params.sh)
 # Returns: 0 on success, 1 on failure
+#
+# v5.25 Changes:
+#   - Pass ENABLE_PUBLIC_PROXY parameter to generate_haproxy_config()
+#   - Conditional output for public proxy ports (only if enabled)
 # =============================================================================
 generate_haproxy_config_wrapper() {
     echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v4.3 unified TLS)...${NC}"
@@ -937,15 +941,23 @@ generate_haproxy_config_wrapper() {
     local stats_password
     stats_password=$(openssl rand -hex 8)
 
-    # Call the imported function from haproxy_config_manager.sh
-    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}"; then
+    # Call the imported function from haproxy_config_manager.sh (v5.25: pass ENABLE_PUBLIC_PROXY)
+    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}" "${ENABLE_PUBLIC_PROXY}"; then
         echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
         return 1
     fi
 
     echo "  ✓ HAProxy config: ${CONFIG_DIR}/haproxy.cfg"
-    echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
-    echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
+
+    # Conditional output based on public proxy mode (v5.25)
+    if [[ "${ENABLE_PUBLIC_PROXY}" == "true" ]]; then
+        echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
+        echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
+    else
+        echo "  ✓ Frontend ports: 443 (VLESS Reality via SNI passthrough)"
+        echo "  ✓ Mode: VLESS-only (no public proxy)"
+    fi
+
     echo "  ✓ Stats URL: http://127.0.0.1:9000/stats"
     echo "  ✓ Stats password: ${stats_password}"
 
