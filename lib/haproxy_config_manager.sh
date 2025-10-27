@@ -22,7 +22,7 @@ HAPROXY_CONFIG="${VLESS_DIR}/config/haproxy.cfg"
 HAPROXY_CONTAINER="vless_haproxy"
 
 # Source container management module (v5.22)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -z "${SCRIPT_DIR:-}" ]] && SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/container_management.sh" ]; then
     source "${SCRIPT_DIR}/container_management.sh"
 fi

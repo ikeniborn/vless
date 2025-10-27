@@ -1320,35 +1320,41 @@ deploy_containers() {
         return 1
     fi
 
-    local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$nginx_status" == "running" ]]; then
-        echo "  ✓ Nginx container running"
+    # v5.26.1: Check nginx only if reverse proxy is enabled
+    # Use docker compose config to check if nginx service exists in docker-compose.yml
+    if docker compose config --services 2>/dev/null | grep -q '^nginx$'; then
+        local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+        if [[ "$nginx_status" == "running" ]]; then
+            echo "  ✓ Nginx container running"
 
-        # Check healthcheck status (added in v4.1.1)
-        local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-        if [[ "$nginx_health" == "healthy" ]]; then
-            echo "  ✓ Nginx container healthy"
-        elif [[ "$nginx_health" == "starting" ]]; then
-            echo "  ℹ Nginx container health: starting (will be checked later)"
-        elif [[ "$nginx_health" != "no-healthcheck" ]]; then
-            echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
-        fi
+            # Check healthcheck status (added in v4.1.1)
+            local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+            if [[ "$nginx_health" == "healthy" ]]; then
+                echo "  ✓ Nginx container healthy"
+            elif [[ "$nginx_health" == "starting" ]]; then
+                echo "  ℹ Nginx container health: starting (will be checked later)"
+            elif [[ "$nginx_health" != "no-healthcheck" ]]; then
+                echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
+            fi
 
-        # Check Nginx logs for critical errors (ignore informational messages)
-        local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
-        if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
-            echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
+            # Check Nginx logs for critical errors (ignore informational messages)
+            local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
+            if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
+                echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
+                docker compose logs nginx
+                return 1
+            fi
+            # Ignore read-only warnings - these are expected with security-hardened containers
+            if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
+                echo "  ℹ Nginx running in read-only mode (expected for security)"
+            fi
+        else
+            echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
             docker compose logs nginx
             return 1
         fi
-        # Ignore read-only warnings - these are expected with security-hardened containers
-        if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
-            echo "  ℹ Nginx running in read-only mode (expected for security)"
-        fi
     else
-        echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
-        docker compose logs nginx
-        return 1
+        echo "  ℹ Nginx reverse proxy container skipped (feature disabled)"
     fi
 
     # v4.3: Check HAProxy container (unified TLS termination in bridge network)

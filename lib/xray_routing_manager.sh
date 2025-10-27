@@ -25,8 +25,8 @@ set -euo pipefail
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Paths
-readonly XRAY_CONFIG="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
-readonly EXTERNAL_PROXY_DB="${EXTERNAL_PROXY_DB:-/opt/vless/config/external_proxy.json}"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
+[[ -z "${EXTERNAL_PROXY_DB:-}" ]] && readonly EXTERNAL_PROXY_DB="/opt/vless/config/external_proxy.json"
 
 # =============================================================================
 # FUNCTION: generate_routing_rules_json
