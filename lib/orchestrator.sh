@@ -597,6 +597,12 @@ create_xray_config() {
     "access": "/var/log/xray/access.log",
     "error": "/var/log/xray/error.log"
   },
+  "dns": {
+    "servers": [
+      "${DETECTED_DNS:-8.8.8.8}",
+      "localhost"
+    ]
+  },
   "inbounds": [{
     "port": ${VLESS_PORT},
     "protocol": "vless",
@@ -660,6 +666,11 @@ EOF
     echo "  ✓ Listen port: ${VLESS_PORT}"
     echo "  ✓ Destination: ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo "  ✓ Fallback to Nginx configured"
+    if [[ -n "${DETECTED_DNS}" ]]; then
+        echo "  ✓ DNS Server: ${DETECTED_DNS} (auto-detected)"
+    else
+        echo "  ✓ DNS Server: 8.8.8.8 (default fallback)"
+    fi
 
     if [[ "$enable_proxy" == "true" ]]; then
         if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then

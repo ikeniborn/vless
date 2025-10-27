@@ -442,9 +442,10 @@ validate_dns_for_domain() {
         return 1
     fi
 
-    # Resolve domain
+    # Resolve domain (v5.25: use auto-detected DNS or fallback to Google DNS)
     local domain_ip
-    domain_ip=$(dig +short "$domain" @8.8.8.8 2>/dev/null | head -1)
+    local dns_server="${DETECTED_DNS:-8.8.8.8}"
+    domain_ip=$(dig +short "$domain" "@${dns_server}" 2>/dev/null | head -1)
 
     if [[ -z "$domain_ip" ]]; then
         echo "Error: Failed to resolve domain $domain" >&2

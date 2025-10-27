@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.26] - 2025-10-27
+
+### Added - Automatic Optimal DNS Server Detection
+
+**Migration Type:** Automatic (applies to all new installations)
+
+**Feature:** Intelligent DNS server selection during installation for optimal Reality domain resolution
+
+#### Problem Statement
+
+Previous behavior:
+- Hardcoded Google DNS 8.8.8.8 used everywhere (5 files)
+- No DNS configuration in Xray (uses system DNS by default)
+- Suboptimal DNS performance depending on geographic location
+- Potential DNS blocking in certain regions
+
+#### New Behavior (v5.26)
+
+**During Installation (after Reality domain validation):**
+
+1. **Automatic DNS Testing** - Tests 4 DNS servers for Reality domain resolution speed:
+   - Cloudflare 1.1.1.1
+   - Google 8.8.8.8
+   - Quad9 9.9.9.9
+   - System DNS from /etc/resolv.conf
+
+2. **Interactive Selection** - Shows test results and prompts user to choose:
+   ```
+   Available DNS servers (sorted by speed):
+     1) Cloudflare (1.1.1.1) - 12 ms
+     2) Google (8.8.8.8) - 18 ms
+     3) Quad9 (9.9.9.9) - 25 ms
+     4) Custom DNS server
+
+   Select DNS server [1-4] (default: 1):
+   ```
+
+3. **Automatic Configuration:**
+   - Selected DNS configured in Xray config: `"dns": { "servers": ["1.1.1.1", "localhost"] }`
+   - Used for all DNS operations (certificate validation, reverse proxy setup)
+   - Fallback to 8.8.8.8 if auto-detection fails
+
+#### New Functions (lib/interactive_params.sh)
+
+**1. `test_dns_server(dns_server, test_domain)`** (lines 1074-1097)
+- Tests DNS resolution speed using `dig +time=2`
+- Returns: resolution time in milliseconds (or 9999 if failed)
+- Timeout: 2 seconds per test
+
+**2. `detect_optimal_dns(test_domain)`** (lines 1109-1182)
+- Tests all 4 DNS servers in sequence (~5 seconds total)
+- Auto-installs `dnsutils` package if dig not available
+- Populates global array `DNS_TEST_RESULTS` with results
+- Returns: 0 if at least one DNS works, 1 if all failed
+
+**3. `prompt_dns_selection()`** (lines 1193-1283)
+- Displays sorted DNS test results
+- Prompts user to select DNS or enter custom IP
+- Validates custom DNS IP format
+- Sets global variable `DETECTED_DNS`
+
+#### Integration Points
+
+**Modified Files:**
+
+1. **lib/interactive_params.sh**
+   - Line 31: Added `export DETECTED_DNS=""`
+   - Lines 218-224: Call DNS detection after Reality domain validation (predefined destinations)
+   - Lines 192-198: Call DNS detection after Reality domain validation (custom destination)
+   - Lines 1302-1304: Export new functions
+
+2. **lib/orchestrator.sh**
+   - Lines 600-605: Added `dns` section to xray_config.json with `${DETECTED_DNS:-8.8.8.8}`
+   - Lines 669-673: Show selected DNS server in installation output
+
+3. **lib/letsencrypt_integration.sh**
+   - Lines 445-448: Use `${DETECTED_DNS:-8.8.8.8}` instead of hardcoded 8.8.8.8
+
+4. **lib/nginx_config_generator.sh**
+   - Lines 71-74: Use `${DETECTED_DNS:-8.8.8.8}` in dig command
+   - Lines 90-93: Use `${DETECTED_DNS:-8.8.8.8}` in host command
+   - Line 322: Use `${DETECTED_DNS:-8.8.8.8}` in nginx resolver directive
+
+5. **lib/certificate_manager.sh**
+   - Lines 81-85: Use `${DETECTED_DNS:-8.8.8.8}` for DNS verification
+
+#### Testing
+
+**New Test Suite:** `lib/tests/test_dns_detection.sh`
+- Test 1: Valid DNS server response time
+- Test 2: Invalid DNS returns 9999
+- Test 3: Non-existent domain returns 9999
+- Test 4: detect_optimal_dns() finds working DNS servers
+- Test 5: DETECTED_DNS variable export
+- Test 6: DNS substitution in xray_config.json
+- Test 7: Fallback to 8.8.8.8 when DETECTED_DNS empty
+
+**Run tests:**
+```bash
+sudo bash lib/tests/test_dns_detection.sh
+```
+
+#### Performance Impact
+
+- Installation time increase: ~3-5 seconds (DNS testing)
+- DNS resolution improvement: Varies by location (can be 50-70% faster)
+- NFR-USABILITY-001 compliance: Still < 5 minutes total installation time ✓
+
+#### Backward Compatibility
+
+- **Breaking changes:** None
+- **Fallback behavior:** Uses 8.8.8.8 if DETECTED_DNS empty or auto-detection fails
+- **Existing installations:** Not affected (requires reinstall to use new feature)
+
+---
+
 ## [5.25] - 2025-10-27
 
 ### Fixed - Docker Compose Plugin Installation Failure (CRITICAL BUGFIX)

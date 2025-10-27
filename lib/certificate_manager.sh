@@ -78,10 +78,11 @@ validate_dns_for_domain() {
     echo "  Server IP: $server_ip"
     echo ""
 
-    # Step 3: Query DNS A record (use Google DNS 8.8.8.8 for consistency)
+    # Step 3: Query DNS A record (v5.25: use auto-detected DNS or fallback)
     echo "Querying DNS for $domain..."
     local dns_ip
-    dns_ip=$(dig +short "$domain" @8.8.8.8 | tail -1)
+    local dns_server="${DETECTED_DNS:-8.8.8.8}"
+    dns_ip=$(dig +short "$domain" "@${dns_server}" | tail -1)
 
     # Step 4: Validate DNS resolution
     if [[ -z "$dns_ip" ]]; then
