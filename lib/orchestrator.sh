@@ -600,6 +600,7 @@ create_xray_config() {
   "inbounds": [{
     "port": ${VLESS_PORT},
     "protocol": "vless",
+    "tag": "vless-reality",
     "settings": {
       "clients": [],
       "decryption": "none",
