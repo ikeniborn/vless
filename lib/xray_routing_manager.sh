@@ -698,6 +698,17 @@ EOF
     local unique_proxies
     unique_proxies=$(get_unique_proxy_outbounds)
 
+    # Ensure routing section exists in xray_config.json
+    if [[ -f "$XRAY_CONFIG" ]]; then
+        if ! jq -e '.routing' "$XRAY_CONFIG" >/dev/null 2>&1 || \
+           [[ $(jq -r '.routing' "$XRAY_CONFIG") == "null" ]]; then
+            local temp_file=$(mktemp)
+            jq '.routing = {"domainStrategy": "AsIs", "rules": []}' "$XRAY_CONFIG" > "$temp_file" && \
+                mv "$temp_file" "$XRAY_CONFIG"
+            echo "  ℹ️  Initialized routing section"
+        fi
+    fi
+
     # Start building routing object
     local routing_rules="[]"
 
@@ -731,7 +742,9 @@ EOF
 
             routing_rules=$(echo "$routing_rules" | jq --argjson rule "$rule" '. += [$rule]')
 
-            echo "  ✓ Rule added: ${#users_with_proxy[@]} users → $outbound_tag"
+            # Count users from JSON array
+            local user_count=$(echo "$users_with_proxy" | jq 'length')
+            echo "  ✓ Rule added: $user_count users → $outbound_tag"
         done <<< "$proxy_ids"
     fi
 
