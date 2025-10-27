@@ -868,6 +868,44 @@ install_dependencies() {
         fi
     done
 
+    # Setup Docker official repository for docker-compose-plugin
+    # This must be done before installing docker-compose-plugin package
+    echo ""
+    echo -e "${CYAN}Checking Docker repository configuration...${NC}"
+    if ! setup_docker_repository; then
+        echo -e "${YELLOW}${WARNING_MARK} Docker repository setup failed${NC}"
+        echo -e "${YELLOW}docker-compose-plugin installation may fail${NC}"
+        echo ""
+        echo -e "${CYAN}Manual setup instructions:${NC}"
+        echo -e "${CYAN}  1. Add Docker GPG key: curl -fsSL https://download.docker.com/linux/${OS_ID}/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg${NC}"
+        echo -e "${CYAN}  2. Add repository: echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${OS_ID} \$(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list${NC}"
+        echo -e "${CYAN}  3. Update packages: sudo ${PKG_MANAGER} update${NC}"
+        echo -e "${CYAN}  4. Retry installation: sudo ./install.sh${NC}"
+        echo ""
+
+        # Ask user if they want to continue without docker-compose-plugin
+        if [[ "${VLESS_AUTO_INSTALL_DEPS:-}" != "yes" ]]; then
+            echo -e "${YELLOW}Continue installation without docker-compose-plugin? [y/N]: ${NC}"
+            local user_response
+            if ! read -t 30 -r user_response; then
+                user_response="n"
+                echo ""
+            fi
+
+            case "${user_response,,}" in
+                y|yes)
+                    echo -e "${YELLOW}Continuing without docker-compose-plugin (will be skipped)${NC}"
+                    echo ""
+                    ;;
+                *)
+                    echo -e "${RED}${CROSS_MARK} Installation cancelled${NC}"
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+    echo ""
+
     # Get total package count (using ${#array[@]:-} would be invalid for arrays)
     # Ensure REQUIRED_PACKAGES is accessible from global scope
     local total_packages=${#REQUIRED_PACKAGES[@]}
@@ -954,9 +992,35 @@ install_dependencies() {
                 ((failed_count++)) || true
             fi
         else
-            echo -e "[$current_num/$total_packages] ${CROSS_MARK} $package - ${RED}installation failed${NC}"
-            failed_packages+=("$package")
-            ((failed_count++)) || true
+            # Special handling for docker-compose-plugin failure
+            if [[ "$package" == "docker-compose-plugin" ]]; then
+                echo -e "[$current_num/$total_packages] ${CROSS_MARK} $package - ${RED}installation failed${NC}"
+                echo -e "  ${YELLOW}${WARNING_MARK} Attempting fallback to standalone docker-compose...${NC}"
+
+                # Try to install standalone docker-compose binary
+                if command -v docker-compose &>/dev/null; then
+                    echo -e "  ${GREEN}${CHECK_MARK} docker-compose standalone already available${NC}"
+                    ((installed_count++)) || true
+                elif install_package "docker-compose" 2>/dev/null; then
+                    if command -v docker-compose &>/dev/null; then
+                        echo -e "  ${GREEN}${CHECK_MARK} docker-compose standalone installed successfully${NC}"
+                        ((installed_count++)) || true
+                    else
+                        echo -e "  ${YELLOW}${WARNING_MARK} Fallback failed - docker-compose not available${NC}"
+                        echo -e "  ${CYAN}System will use 'docker compose' syntax if available${NC}"
+                        failed_packages+=("$package")
+                        ((failed_count++)) || true
+                    fi
+                else
+                    echo -e "  ${YELLOW}${WARNING_MARK} Fallback failed - will use 'docker compose' if available${NC}"
+                    failed_packages+=("$package")
+                    ((failed_count++)) || true
+                fi
+            else
+                echo -e "[$current_num/$total_packages] ${CROSS_MARK} $package - ${RED}installation failed${NC}"
+                failed_packages+=("$package")
+                ((failed_count++)) || true
+            fi
         fi
     done
 
@@ -1072,6 +1136,135 @@ start_docker_service() {
         ((waited++)) || true
     done
 
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: check_docker_repository_configured
+# =============================================================================
+# Description: Check if official Docker APT repository is already configured
+# Returns: 0 if configured, 1 if not configured
+# =============================================================================
+check_docker_repository_configured() {
+    # Check if docker repository source file exists
+    local docker_sources=(
+        "/etc/apt/sources.list.d/docker.list"
+        "/etc/apt/sources.list.d/docker-ce.list"
+    )
+
+    for source in "${docker_sources[@]}"; do
+        if [[ -f "$source" ]] && grep -q "download.docker.com" "$source" 2>/dev/null; then
+            return 0
+        fi
+    done
+
+    # Also check main sources.list
+    if grep -q "download.docker.com" /etc/apt/sources.list 2>/dev/null; then
+        return 0
+    fi
+
+    return 1
+}
+
+# =============================================================================
+# FUNCTION: setup_docker_repository
+# =============================================================================
+# Description: Add official Docker APT repository for docker-compose-plugin
+# Supports: Ubuntu 20.04+, Debian 10+
+# Returns: 0 on success, 1 on failure
+# Side effects: Adds Docker GPG key and APT repository
+# =============================================================================
+setup_docker_repository() {
+    echo -e "${CYAN}Setting up Docker official APT repository...${NC}"
+    echo ""
+
+    # Check if already configured
+    if check_docker_repository_configured; then
+        echo -e "${GREEN}${CHECK_MARK} Docker repository already configured${NC}"
+        return 0
+    fi
+
+    # Ensure prerequisites are installed
+    echo -e "${CYAN}[1/5] Installing prerequisites...${NC}"
+    local prerequisites=(
+        "ca-certificates"
+        "gnupg"
+        "lsb-release"
+    )
+
+    export DEBIAN_FRONTEND=noninteractive
+
+    for pkg in "${prerequisites[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $pkg "; then
+            if ! ${PKG_MANAGER} install -y -qq "$pkg" &>/dev/null; then
+                echo -e "${RED}${CROSS_MARK} Failed to install prerequisite: $pkg${NC}" >&2
+                return 1
+            fi
+        fi
+    done
+    echo -e "${GREEN}${CHECK_MARK} Prerequisites installed${NC}"
+
+    # Create keyrings directory
+    echo -e "${CYAN}[2/5] Creating keyrings directory...${NC}"
+    mkdir -p /etc/apt/keyrings
+    chmod 755 /etc/apt/keyrings
+    echo -e "${GREEN}${CHECK_MARK} Keyrings directory ready${NC}"
+
+    # Add Docker GPG key
+    echo -e "${CYAN}[3/5] Adding Docker GPG key...${NC}"
+    local gpg_key_url="https://download.docker.com/linux/${OS_ID}/gpg"
+    local gpg_key_file="/etc/apt/keyrings/docker.gpg"
+
+    # Remove old key if exists
+    rm -f "$gpg_key_file"
+
+    # Download and add GPG key
+    if ! curl -fsSL "$gpg_key_url" | gpg --dearmor -o "$gpg_key_file" 2>/dev/null; then
+        echo -e "${RED}${CROSS_MARK} Failed to download Docker GPG key${NC}" >&2
+        echo -e "${YELLOW}Suggestion: Check internet connection to download.docker.com${NC}" >&2
+        return 1
+    fi
+
+    chmod 644 "$gpg_key_file"
+    echo -e "${GREEN}${CHECK_MARK} Docker GPG key added${NC}"
+
+    # Detect OS version for repository URL
+    echo -e "${CYAN}[4/5] Configuring repository for ${OS_NAME} ${OS_VERSION}...${NC}"
+
+    # Get architecture
+    local arch
+    arch=$(dpkg --print-architecture)
+
+    # Get version codename
+    local version_codename
+    version_codename=$(lsb_release -cs)
+
+    # Create repository entry
+    local repo_file="/etc/apt/sources.list.d/docker.list"
+    local repo_url="https://download.docker.com/linux/${OS_ID}"
+
+    # Write repository configuration
+    cat > "$repo_file" << EOF
+# Docker Official Repository
+deb [arch=${arch} signed-by=${gpg_key_file}] ${repo_url} ${version_codename} stable
+EOF
+
+    chmod 644 "$repo_file"
+    echo -e "${GREEN}${CHECK_MARK} Repository configured: $repo_file${NC}"
+    echo -e "${CYAN}  Architecture: ${arch}${NC}"
+    echo -e "${CYAN}  Codename: ${version_codename}${NC}"
+
+    # Update package lists
+    echo -e "${CYAN}[5/5] Updating package lists...${NC}"
+    if ! ${PKG_MANAGER} update -qq &>/dev/null 2>&1; then
+        echo -e "${RED}${CROSS_MARK} Failed to update package lists after adding repository${NC}" >&2
+        echo -e "${YELLOW}Suggestion: Check repository configuration in $repo_file${NC}" >&2
+        return 1
+    fi
+    echo -e "${GREEN}${CHECK_MARK} Package lists updated${NC}"
+
+    echo ""
+    echo -e "${GREEN}${CHECK_MARK} Docker repository setup complete${NC}"
     return 0
 }
 
