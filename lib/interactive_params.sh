@@ -27,6 +27,7 @@ export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
 export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/false)
 export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
 export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
+export ENABLE_REVERSE_PROXY=""  # v5.26: Reverse proxy feature (subdomain-based access)
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -103,6 +104,12 @@ collect_parameters() {
             return 1
         }
     fi
+
+    # Step 4.5: Prompt for reverse proxy (v5.26) - always ask
+    prompt_enable_reverse_proxy || {
+        echo -e "${RED}Failed to configure reverse proxy settings${NC}" >&2
+        return 1
+    }
 
     # Step 5: Confirm all parameters
     confirm_parameters || {
@@ -565,6 +572,13 @@ confirm_parameters() {
     else
         echo -e "  ${YELLOW}Proxy Mode:${NC}          ${YELLOW}VLESS-ONLY MODE${NC}"
     fi
+
+    # v5.26: Display reverse proxy status
+    if [[ "$ENABLE_REVERSE_PROXY" == "true" ]]; then
+        echo -e "  ${YELLOW}Reverse Proxy:${NC}       ${GREEN}Enabled${NC}"
+    else
+        echo -e "  ${YELLOW}Reverse Proxy:${NC}       ${YELLOW}Disabled${NC}"
+    fi
     echo ""
 
     local confirm
@@ -749,6 +763,96 @@ get_server_public_ip() {
     ip="Unable to detect"
 
     echo "$ip"
+}
+
+# =============================================================================
+# FUNCTION: prompt_enable_reverse_proxy
+# =============================================================================
+# Description: Ask user if they want to enable reverse proxy feature
+# Sets: ENABLE_REVERSE_PROXY (true/false)
+# Returns: 0 always
+# Related: v5.26 Reverse Proxy Optional Installation
+# =============================================================================
+prompt_enable_reverse_proxy() {
+    echo ""
+    echo "═════════════════════════════════════════════════════"
+    echo "  REVERSE PROXY CONFIGURATION (v5.26)"
+    echo "═════════════════════════════════════════════════════"
+    echo ""
+    echo "Reverse Proxy allows accessing blocked websites through subdomains:"
+    echo ""
+    echo "Example:"
+    echo "  • Setup: sudo vless-proxy add claude.ai"
+    echo "  • Access: https://your-domain (via SNI routing)"
+    echo "  • NO port number needed (HAProxy handles routing)"
+    echo ""
+    echo "Architecture: Client → HAProxy (SNI) → Nginx → Blocked Site"
+    echo ""
+    echo -e "${YELLOW}What will be enabled:${NC}"
+    echo "  • Nginx reverse proxy container (nginx:alpine)"
+    echo "  • HAProxy dynamic ACL routing section"
+    echo "  • CLI tools: vless-proxy, vless-setup-proxy"
+    echo "  • Directory: /opt/vless/config/reverse-proxy/"
+    echo ""
+    echo -e "${YELLOW}Resource usage:${NC}"
+    echo "  • ~50-100MB RAM (nginx container)"
+    echo "  • Minimal CPU usage when idle"
+    echo ""
+    echo -e "${YELLOW}⚠️  Note:${NC}"
+    echo "  • Requires domain + Let's Encrypt certificate"
+    echo "  • Can be configured after installation via vless-proxy"
+    echo "  • If you skip now, reinstallation required to enable"
+    echo ""
+
+    local response
+    while true; do
+        read -r -p "Enable reverse proxy feature? [y/N]: " response
+        response=${response,,}  # Convert to lowercase
+        response=${response:-n}  # Default to 'n'
+
+        case "$response" in
+            y|yes)
+                ENABLE_REVERSE_PROXY="true"
+                echo ""
+                echo -e "${GREEN}✓ Reverse proxy feature enabled${NC}"
+                echo "  You can add reverse proxies after installation"
+                echo "  Command: sudo vless-proxy add <domain>"
+                echo ""
+                break
+                ;;
+            n|no)
+                ENABLE_REVERSE_PROXY="false"
+                echo ""
+                echo -e "${YELLOW}⊗ Reverse proxy feature DISABLED${NC}"
+                echo ""
+                echo -e "${RED}⚠️  IMPORTANT:${NC}"
+                echo "  • Nginx container will NOT be installed"
+                echo "  • CLI tools (vless-proxy) will NOT be installed"
+                echo "  • To enable later, reinstallation required"
+                echo ""
+
+                local confirm
+                read -r -p "Proceed without reverse proxy? [Y/n]: " confirm
+                confirm=${confirm,,}
+                confirm=${confirm:-y}
+
+                if [[ "$confirm" == "y" || "$confirm" == "yes" ]]; then
+                    echo -e "${GREEN}✓ Installation will proceed without reverse proxy${NC}"
+                    echo ""
+                    break
+                else
+                    # User wants to reconsider
+                    continue
+                fi
+                ;;
+            *)
+                echo -e "${RED}Invalid response. Please enter 'y' or 'n'${NC}"
+                ;;
+        esac
+    done
+
+    export ENABLE_REVERSE_PROXY
+    return 0
 }
 
 # =============================================================================
@@ -970,4 +1074,5 @@ export -f find_free_subnet
 export -f confirm_parameters
 export -f prompt_domain_email
 export -f get_server_public_ip
+export -f prompt_enable_reverse_proxy
 export -f prompt_enable_public_proxy

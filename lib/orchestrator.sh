@@ -196,14 +196,18 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 6.3: Generate Nginx reverse proxy HTTP context (v4.3)
-    # Source nginx_config_generator.sh if not already loaded
-    if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
-        source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
-        if ! generate_reverseproxy_http_context; then
-            echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
-            # Non-critical: Continue installation
+    # Step 6.3: Generate Nginx reverse proxy HTTP context (v5.26) - only if reverse proxy enabled
+    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
+        # Source nginx_config_generator.sh if not already loaded
+        if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
+            source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
+            if ! generate_reverseproxy_http_context; then
+                echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
+                # Non-critical: Continue installation
+            fi
         fi
+    else
+        echo "  ℹ️  Reverse proxy disabled, skipping nginx HTTP context generation"
     fi
 
     # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
@@ -322,7 +326,6 @@ create_directory_structure() {
     # Create subdirectories
     local directories=(
         "${CONFIG_DIR}"
-        "${CONFIG_DIR}/reverse-proxy"  # v4.3: Nginx reverse proxy configs
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"
@@ -341,6 +344,11 @@ create_directory_structure() {
         "${TESTS_DIR}/unit"
         "${TESTS_DIR}/integration"
     )
+
+    # v5.26: Conditionally add reverse-proxy directory
+    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
+        directories+=("${CONFIG_DIR}/reverse-proxy")
+    fi
 
     for dir in "${directories[@]}"; do
         # Always ensure directory exists (mkdir -p is idempotent)
@@ -926,12 +934,12 @@ EOF
 # Uses: DOMAIN, ENABLE_PUBLIC_PROXY (from interactive_params.sh)
 # Returns: 0 on success, 1 on failure
 #
-# v5.25 Changes:
-#   - Pass ENABLE_PUBLIC_PROXY parameter to generate_haproxy_config()
-#   - Conditional output for public proxy ports (only if enabled)
+# v5.26 Changes:
+#   - Pass ENABLE_PUBLIC_PROXY and ENABLE_REVERSE_PROXY parameters
+#   - Conditional output for public proxy ports and reverse proxy
 # =============================================================================
 generate_haproxy_config_wrapper() {
-    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v4.3 unified TLS)...${NC}"
+    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v5.26 conditional features)...${NC}"
 
     # Extract main domain from DOMAIN (remove subdomain if present)
     local main_domain="${DOMAIN}"
@@ -941,8 +949,8 @@ generate_haproxy_config_wrapper() {
     local stats_password
     stats_password=$(openssl rand -hex 8)
 
-    # Call the imported function from haproxy_config_manager.sh (v5.25: pass ENABLE_PUBLIC_PROXY)
-    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}" "${ENABLE_PUBLIC_PROXY}"; then
+    # Call the imported function from haproxy_config_manager.sh (v5.26: pass ENABLE_PUBLIC_PROXY + ENABLE_REVERSE_PROXY)
+    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}" "${ENABLE_PUBLIC_PROXY}" "${ENABLE_REVERSE_PROXY:-false}"; then
         echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
         return 1
     fi
@@ -1049,6 +1057,9 @@ SERVER_IP=${server_ip}
 ENABLE_PROXY=${ENABLE_PROXY:-false}
 ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
 ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
+
+# Reverse Proxy Configuration (v5.26)
+ENABLE_REVERSE_PROXY=${ENABLE_REVERSE_PROXY:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
@@ -1400,46 +1411,54 @@ install_cli_tools() {
         return 1
     }
 
-    # Install vless-proxy CLI tool
-    local proxy_cli_source="${project_root}/scripts/vless-proxy"
-    if [[ -f "$proxy_cli_source" ]]; then
-        # Copy vless-proxy script
-        cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
-            echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
-            return 1
-        }
+    # Install vless-proxy CLI tool (v5.26: only if reverse proxy enabled)
+    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
+        local proxy_cli_source="${project_root}/scripts/vless-proxy"
+        if [[ -f "$proxy_cli_source" ]]; then
+            # Copy vless-proxy script
+            cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
+                echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
+                return 1
+            }
 
-        # Make it executable
-        chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
-            echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
-            return 1
-        }
+            # Make it executable
+            chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
+                echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
+                return 1
+            }
 
-        # Create symlink in /usr/local/bin
-        ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
-            echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
-            return 1
-        }
+            # Create symlink in /usr/local/bin
+            ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
+                echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
+                return 1
+            }
+
+            echo "  ✓ vless-proxy installed"
+        else
+            echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
+            echo "  ℹ vless-proxy installation skipped"
+        fi
+
+        # Install vless-setup-proxy helper script
+        local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
+        if [[ -f "$setup_proxy_source" ]]; then
+            cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
+                echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
+                return 1
+            }
+
+            chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
+                echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
+                return 1
+            }
+
+            echo "  ✓ vless-setup-proxy installed"
+        else
+            echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
+            echo "  ℹ vless-setup-proxy installation skipped"
+        fi
     else
-        echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
-        echo "  ℹ vless-proxy installation skipped"
-    fi
-
-    # Install vless-setup-proxy helper script
-    local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
-    if [[ -f "$setup_proxy_source" ]]; then
-        cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
-            echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
-            return 1
-        }
-
-        chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
-            echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
-            return 1
-        }
-    else
-        echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
-        echo "  ℹ vless-setup-proxy installation skipped"
+        echo "  ℹ️  Reverse proxy disabled, skipping vless-proxy/vless-setup-proxy installation"
     fi
 
     # v5.23: Install vless-external-proxy CLI tool

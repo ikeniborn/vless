@@ -55,8 +55,9 @@ log_error() {
 # Example:
 #   generate_haproxy_config "vless.ikeniborn.ru" "ikeniborn.ru" "admin123" "true"
 #
-# v5.25 Changes:
-#   - Added enable_public_proxy parameter for VLESS-only mode support
+# v5.26 Changes:
+#   - Added enable_reverse_proxy parameter for conditional reverse proxy support
+#   - Reverse proxy ACL section generated conditionally
 #   - Public proxy frontends (ports 1080/8118) generated conditionally
 # =============================================================================
 generate_haproxy_config() {
@@ -64,11 +65,13 @@ generate_haproxy_config() {
     local main_domain="${2:-example.com}"
     local stats_password="${3:-$(openssl rand -hex 8)}"
     local enable_public_proxy="${4:-false}"
+    local enable_reverse_proxy="${5:-false}"
 
-    log "Generating unified haproxy.cfg (v4.3)"
+    log "Generating unified haproxy.cfg (v5.26)"
     log "  VLESS Domain: ${vless_domain}"
     log "  Main Domain: ${main_domain}"
     log "  Public Proxy: ${enable_public_proxy}"
+    log "  Reverse Proxy: ${enable_reverse_proxy}"
 
     # Create backup if file exists
     if [ -f "${HAPROXY_CONFIG}" ]; then
@@ -152,6 +155,30 @@ VLESS_ONLY_COMMENT
 )
     fi
 
+    # Generate reverse proxy ACL section conditionally (v5.26)
+    local reverse_proxy_acl_section=""
+    if [[ "${enable_reverse_proxy}" == "true" ]]; then
+        reverse_proxy_acl_section=$(cat <<'REVERSE_PROXY_ACL'
+
+    # ========== Dynamic ACLs for Reverse Proxies (v5.26) ==========
+    # Populated dynamically via add_reverse_proxy_route()
+    # Format:
+    #   acl is_<domain_safe> req_ssl_sni -i <domain>
+    #   use_backend nginx_<domain_safe> if is_<domain_safe>
+    # =======================================================
+REVERSE_PROXY_ACL
+)
+    else
+        reverse_proxy_acl_section=$(cat <<'NO_REVERSE_PROXY'
+
+    # ========== Reverse Proxy ACLs: DISABLED (v5.26) ==========
+    # Reverse proxy feature was not enabled during installation
+    # To enable: reinstall with reverse proxy option enabled
+    # ===========================================================
+NO_REVERSE_PROXY
+)
+    fi
+
     # Generate haproxy.cfg via heredoc
     cat > "${HAPROXY_CONFIG}" <<EOF
 # ==============================================================================
@@ -201,13 +228,7 @@ frontend https_sni_router
     # Enable SNI inspection (read SNI from TLS ClientHello without decrypting)
     tcp-request inspect-delay 5s
     tcp-request content accept if { req_ssl_hello_type 1 }
-
-    # ========== Dynamic ACLs for Reverse Proxies ==========
-    # Populated dynamically via add_reverse_proxy_route()
-    # Format:
-    #   acl is_<domain_safe> req_ssl_sni -i <domain>
-    #   use_backend nginx_<domain_safe> if is_<domain_safe>
-    # =======================================================
+${reverse_proxy_acl_section}
 
     # Default: forward to VLESS Reality (handles all non-reverse-proxy traffic)
     # NOTE: VLESS Reality uses SNI of destination site (e.g., www.google.com),
