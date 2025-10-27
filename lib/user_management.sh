@@ -2204,6 +2204,27 @@ cmd_set_user_proxy() {
 
     ) 200>"${USERS_JSON}.lock"
 
+    # Auto-activate proxy if not already active
+    if [[ -n "$proxy_id" && "$proxy_id" != "none" && "$proxy_id" != "null" ]]; then
+        local proxy_db="${EXTERNAL_PROXY_DB:-/opt/vless/config/external_proxy.json}"
+        if [[ -f "$proxy_db" ]]; then
+            local is_active
+            is_active=$(jq -r --arg id "$proxy_id" '.proxies[] | select(.id == $id) | .active' "$proxy_db" 2>/dev/null || echo "false")
+
+            if [[ "$is_active" != "true" ]]; then
+                local temp_file
+                temp_file=$(mktemp)
+                jq --arg id "$proxy_id" \
+                   --arg ts "$(date -Iseconds)" \
+                   '(.proxies[] | select(.id == $id) | .active) = true |
+                    (.proxies[] | select(.id == $id) | .metadata.last_modified) = $ts' \
+                   "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
+
+                log_info "Auto-activated external proxy: $proxy_id"
+            fi
+        fi
+    fi
+
     # Apply per-user routing
     log_info "Applying per-user routing configuration..."
     if ! apply_per_user_routing; then

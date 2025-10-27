@@ -728,7 +728,25 @@ EOF
             local outbound_tag
             outbound_tag="external-proxy-${proxy_id}"
 
-            # Add rule for this proxy
+            # Add UDP bypass rule (UDP goes direct, not through proxy)
+            local udp_bypass_rule
+            udp_bypass_rule=$(jq -n \
+                --argjson users "$users_with_proxy" \
+                '{
+                    type: "field",
+                    network: "udp",
+                    inboundTag: ["vless-reality"],
+                    user: $users,
+                    outboundTag: "direct"
+                }')
+
+            routing_rules=$(echo "$routing_rules" | jq --argjson rule "$udp_bypass_rule" '. += [$rule]')
+
+            # Count users from JSON array
+            local user_count=$(echo "$users_with_proxy" | jq 'length')
+            echo "  ✓ UDP bypass rule added: $user_count users → direct" >&2
+
+            # Add TCP rule for this proxy
             local rule
             rule=$(jq -n \
                 --argjson users "$users_with_proxy" \
@@ -741,10 +759,7 @@ EOF
                 }')
 
             routing_rules=$(echo "$routing_rules" | jq --argjson rule "$rule" '. += [$rule]')
-
-            # Count users from JSON array
-            local user_count=$(echo "$users_with_proxy" | jq 'length')
-            echo "  ✓ Rule added: $user_count users → $outbound_tag" >&2
+            echo "  ✓ TCP rule added: $user_count users → $outbound_tag" >&2
         done <<< "$proxy_ids"
     fi
 
