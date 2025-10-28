@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.30] - 2025-10-28
+
+### Changed - Increased Default HAProxy Timeouts for Mobile Network Stability
+
+**Migration Type:** Automatic for new installations, manual config regeneration for existing deployments
+
+**Impact:** Better stability on mobile networks (3G/4G/5G) and slow connections
+
+#### Changes
+
+**HAProxy Default Timeouts:**
+- `timeout connect`: 10s → **15s** (+50% for slow TLS handshakes)
+- `timeout client`: 180s → **300s** (5 minutes for long-lived connections)
+- `timeout server`: 180s → **300s** (5 minutes for slow backend responses)
+
+#### Rationale
+
+**Mobile Network Characteristics:**
+- High latency: 50-300ms (vs 5-20ms on Wi-Fi)
+- Packet loss: 1-5% (vs <0.1% on wired)
+- Frequent handoffs between cell towers
+- Variable bandwidth during movement
+
+**v5.29 Testing Results:**
+- Connections successfully living 180-361 seconds
+- User confirmed internet working on mobile networks
+- Some long-running connections still hitting 180s timeout
+
+**New 300s Timeout Benefits:**
+- Allows streaming video without interruptions
+- Supports large file downloads (up to 5 minutes per chunk)
+- Handles network handoffs during cell tower switches
+- Accommodates slow TLS handshakes on congested networks
+
+#### Migration Guide
+
+**For New Installations:**
+- No action needed, v5.30 applies automatically
+
+**For Existing Deployments:**
+
+```bash
+# Pull latest changes
+cd ~/vless
+git pull origin proxy-tunnel
+
+# Regenerate HAProxy config with new timeouts
+cd /opt/vless/config
+sudo docker-compose down
+sudo docker-compose up -d
+
+# Verify new timeouts applied
+grep timeout /opt/vless/config/haproxy.cfg
+# Expected output:
+#   timeout connect 15s
+#   timeout client 300s
+#   timeout server 300s
+
+# Test connection on mobile network
+# Expected: connections should live up to 5 minutes without "cD" errors
+```
+
+#### Testing
+
+**Validation Commands:**
+```bash
+# Monitor HAProxy logs for timeout patterns
+sudo docker logs vless_haproxy --tail 100 | grep -E "cD|CD"
+
+# Check connection durations (should see >180s connections)
+sudo docker logs vless_haproxy --tail 50 | awk '{print $9}' | sort -n | tail -10
+```
+
+**Expected Results:**
+- ✅ Connections on mobile networks living 300+ seconds
+- ✅ Reduced "cD" (client timeout) flags in logs
+- ✅ Stable streaming and downloads on mobile networks
+
+#### Files Changed
+
+- `lib/haproxy_config_manager.sh` (lines 214-216)
+
+#### Related Versions
+
+- v5.29: Initial mobile network fix (50s→180s timeouts)
+- v5.28: DNS resolution strategy improvements
+- v5.27: Yandex DNS servers added to selection
+
+---
+
 ## [5.26] - 2025-10-27
 
 ### Added - Automatic Optimal DNS Server Detection
