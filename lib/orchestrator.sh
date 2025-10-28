@@ -480,7 +480,7 @@ generate_routing_json() {
     cat <<EOF
 ,
   "routing": {
-    "domainStrategy": "AsIs",
+    "domainStrategy": "IPIfNonMatch",
     "rules": [
       {
         "type": "field",
@@ -601,7 +601,8 @@ create_xray_config() {
     "servers": [
       "${DETECTED_DNS:-8.8.8.8}",
       "localhost"
-    ]
+    ],
+    "queryStrategy": "UseIPv4"
   },
   "inbounds": [{
     "port": ${VLESS_PORT},
@@ -635,7 +636,10 @@ fi)],
   "outbounds": [
     {
       "protocol": "freedom",
-      "tag": "direct"
+      "tag": "direct",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
     },
     {
       "protocol": "blackhole",
