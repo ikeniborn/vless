@@ -1151,12 +1151,14 @@ detect_optimal_dns() {
     local system_dns
     system_dns=$(grep -m 1 "^nameserver" /etc/resolv.conf 2>/dev/null | awk '{print $2}')
 
-    # DNS servers to test: Cloudflare, Google, Quad9, System
+    # DNS servers to test: Cloudflare, Google, Quad9, Yandex, System
     declare -A dns_servers
     dns_servers=(
         ["1.1.1.1"]="Cloudflare"
         ["8.8.8.8"]="Google"
         ["9.9.9.9"]="Quad9"
+        ["77.88.8.8"]="Yandex (Primary)"
+        ["77.88.8.1"]="Yandex (Secondary)"
     )
 
     # Add system DNS if available and not already in list
