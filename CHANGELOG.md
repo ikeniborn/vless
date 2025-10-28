@@ -58,6 +58,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloudflare DNS (1.1.1.1) as secondary
 - Auto-detected/Yandex DNS as fallback
 
+**3. Freedom Outbound Strategy (CRITICAL FIX):**
+
+`lib/orchestrator.sh` Line 643:
+- **Before:** `outbounds[0].settings.domainStrategy = "UseIPv4"`
+- **After:** `outbounds[0].settings.domainStrategy = "AsIs"`
+
+**Why This Was Critical:**
+- Even with routing.domainStrategy = "AsIs", the outbound's domainStrategy overrides it
+- `UseIPv4` forces DNS resolution to IPv4 at outbound level
+- On mobile networks with IPv6+NAT, this breaks DNS resolution
+- `AsIs` passes domains to server without local resolution
+
 #### Technical Details
 
 **domainStrategy Comparison:**
@@ -95,19 +107,23 @@ sudo bash /tmp/hotfix_mobile_network_v5.31.sh
 # Backup config
 sudo cp /opt/vless/config/xray_config.json /opt/vless/config/xray_config.json.backup
 
-# Fix routing.domainStrategy
+# Fix 1: routing.domainStrategy
 sudo jq '.routing.domainStrategy = "AsIs"' /opt/vless/config/xray_config.json > /tmp/xray_fix.json
 sudo mv /tmp/xray_fix.json /opt/vless/config/xray_config.json
 
-# Fix DNS servers
+# Fix 2: DNS servers
 sudo jq '.dns.servers = ["8.8.8.8", "1.1.1.1", "77.88.8.1"]' /opt/vless/config/xray_config.json > /tmp/xray_fix.json
+sudo mv /tmp/xray_fix.json /opt/vless/config/xray_config.json
+
+# Fix 3: outbound domainStrategy (CRITICAL!)
+sudo jq '.outbounds[0].settings.domainStrategy = "AsIs"' /opt/vless/config/xray_config.json > /tmp/xray_fix.json
 sudo mv /tmp/xray_fix.json /opt/vless/config/xray_config.json
 
 # Restart Xray
 sudo docker restart vless_xray
 
-# Verify
-sudo docker logs vless_xray --tail 20
+# Verify all 3 fixes applied
+sudo docker exec vless_xray cat /etc/xray/config.json | jq '.routing.domainStrategy, .dns.servers, .outbounds[0].settings.domainStrategy'
 ```
 
 **Option 3: Full Reinstall (For New Deployments)**
@@ -126,11 +142,12 @@ sudo bash install.sh
 
 **Validation Steps:**
 ```bash
-# 1. Verify config changes
-docker exec vless_xray cat /etc/xray/config.json | jq '.routing.domainStrategy, .dns.servers'
+# 1. Verify all 3 config changes
+docker exec vless_xray cat /etc/xray/config.json | jq '.routing.domainStrategy, .dns.servers, .outbounds[0].settings.domainStrategy'
 # Expected:
 #   "AsIs"
 #   ["8.8.8.8", "1.1.1.1", "77.88.8.1"]
+#   "AsIs"
 
 # 2. Test from mobile network
 # Connect VPN client → Open browser → Visit https://google.com

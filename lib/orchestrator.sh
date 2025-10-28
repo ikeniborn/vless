@@ -640,7 +640,7 @@ fi)],
       "protocol": "freedom",
       "tag": "direct",
       "settings": {
-        "domainStrategy": "UseIPv4"
+        "domainStrategy": "AsIs"
       }
     },
     {
