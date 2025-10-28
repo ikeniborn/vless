@@ -437,6 +437,46 @@ generate_short_id() {
 }
 
 # =============================================================================
+# FUNCTION: generate_dns_servers_json
+# =============================================================================
+# Description: Generate DNS servers JSON array from detected/selected DNS
+# Returns: JSON array string
+# Logic:
+#   - Use DETECTED_DNS_PRIMARY, DETECTED_DNS_SECONDARY, DETECTED_DNS_TERTIARY
+#   - If none set, return error (installation must abort)
+# v5.31: Dynamic DNS configuration from user selection
+# =============================================================================
+generate_dns_servers_json() {
+    local dns_servers=()
+
+    # Collect DNS servers from environment variables
+    [[ -n "${DETECTED_DNS_PRIMARY:-}" ]] && dns_servers+=("\"${DETECTED_DNS_PRIMARY}\"")
+    [[ -n "${DETECTED_DNS_SECONDARY:-}" ]] && dns_servers+=("\"${DETECTED_DNS_SECONDARY}\"")
+    [[ -n "${DETECTED_DNS_TERTIARY:-}" ]] && dns_servers+=("\"${DETECTED_DNS_TERTIARY}\"")
+
+    # Fallback to legacy DETECTED_DNS variable (single DNS)
+    if [[ ${#dns_servers[@]} -eq 0 && -n "${DETECTED_DNS:-}" ]]; then
+        dns_servers+=("\"${DETECTED_DNS}\"")
+        # Add reliable fallbacks
+        dns_servers+=("\"1.1.1.1\"")
+        dns_servers+=("\"8.8.8.8\"")
+    fi
+
+    # Error if no DNS configured
+    if [[ ${#dns_servers[@]} -eq 0 ]]; then
+        echo -e "${RED}FATAL: No DNS servers configured!${NC}" >&2
+        echo -e "${RED}Please run installation with DNS auto-detection or specify manually${NC}" >&2
+        echo "[]"
+        return 1
+    fi
+
+    # Build JSON array
+    local IFS=','
+    echo "[${dns_servers[*]}]"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: generate_routing_json
 # =============================================================================
 # Description: Generate routing rules for server-level IP whitelisting (v3.6)
@@ -590,6 +630,14 @@ create_xray_config() {
         return 1
     fi
 
+    # Generate DNS servers JSON array
+    local dns_servers_json
+    dns_servers_json=$(generate_dns_servers_json) || {
+        echo -e "${RED}Failed to generate DNS configuration${NC}" >&2
+        echo -e "${RED}Installation aborted. Please configure DNS servers.${NC}" >&2
+        return 1
+    }
+
     # Create Xray configuration
     cat > "${XRAY_CONFIG}" <<EOF
 {
@@ -599,11 +647,7 @@ create_xray_config() {
     "error": "/var/log/xray/error.log"
   },
   "dns": {
-    "servers": [
-      "8.8.8.8",
-      "1.1.1.1",
-      "${DETECTED_DNS:-77.88.8.1}"
-    ],
+    "servers": $dns_servers_json,
     "queryStrategy": "UseIPv4"
   },
   "inbounds": [{
