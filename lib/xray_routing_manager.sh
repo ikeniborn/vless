@@ -62,9 +62,10 @@ EOF
         selective)
             # Selective routing (domain/IP-based rules)
             # Users can add custom rules via add_routing_rule function
+            # NOTE: Changed to "AsIs" for mobile network compatibility (v5.30+)
             cat <<EOF
 {
-  "domainStrategy": "IPIfNonMatch",
+  "domainStrategy": "AsIs",
   "rules": [
     {
       "type": "field",
@@ -679,9 +680,10 @@ generate_per_user_routing_rules() {
     if [[ ! -f "$users_json" ]]; then
         echo -e "${RED}Users database not found: $users_json${NC}" >&2
         # Return minimal routing (all direct)
+        # v5.31: Changed to AsIs for mobile network compatibility
         cat <<EOF
 {
-  "domainStrategy": "IPIfNonMatch",
+  "domainStrategy": "AsIs",
   "rules": [
     {
       "type": "field",
@@ -774,9 +776,10 @@ EOF
     routing_rules=$(echo "$routing_rules" | jq --argjson rule "$default_rule" '. += [$rule]')
 
     # Build final routing object
+    # v5.31: Changed to AsIs for mobile network compatibility
     local routing_json
     routing_json=$(jq -n --argjson rules "$routing_rules" '{
-        domainStrategy: "IPIfNonMatch",
+        domainStrategy: "AsIs",
         rules: $rules
     }')
 

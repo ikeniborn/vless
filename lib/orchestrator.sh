@@ -477,10 +477,11 @@ generate_routing_json() {
     #   - HAProxy connects from Docker network IP (not whitelisted 127.0.0.1)
     #   - Blocking rule would break HAProxy → Xray proxy connections
     # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
+    # v5.31: Changed to AsIs for mobile network compatibility
     cat <<EOF
 ,
   "routing": {
-    "domainStrategy": "IPIfNonMatch",
+    "domainStrategy": "AsIs",
     "rules": [
       {
         "type": "field",
@@ -599,8 +600,9 @@ create_xray_config() {
   },
   "dns": {
     "servers": [
-      "${DETECTED_DNS:-8.8.8.8}",
-      "localhost"
+      "8.8.8.8",
+      "1.1.1.1",
+      "${DETECTED_DNS:-77.88.8.1}"
     ],
     "queryStrategy": "UseIPv4"
   },
