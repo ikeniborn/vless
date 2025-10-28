@@ -681,7 +681,7 @@ generate_per_user_routing_rules() {
         # Return minimal routing (all direct)
         cat <<EOF
 {
-  "domainStrategy": "AsIs",
+  "domainStrategy": "IPIfNonMatch",
   "rules": [
     {
       "type": "field",
@@ -776,7 +776,7 @@ EOF
     # Build final routing object
     local routing_json
     routing_json=$(jq -n --argjson rules "$routing_rules" '{
-        domainStrategy: "AsIs",
+        domainStrategy: "IPIfNonMatch",
         rules: $rules
     }')
 
