@@ -211,9 +211,9 @@ global
 # ==============================================================================
 defaults
     log global
-    timeout connect 10s
-    timeout client 180s
-    timeout server 180s
+    timeout connect 15s
+    timeout client 300s
+    timeout server 300s
     option dontlognull
 
 # ==============================================================================
