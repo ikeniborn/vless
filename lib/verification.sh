@@ -567,29 +567,63 @@ verify_ufw_rules() {
 verify_container_internet() {
     log_info "Verification 7/10: Testing container internet connectivity..."
 
-    # Test connectivity from xray container
-    if docker exec vless_xray ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
-        log_success "Container 'vless_xray' can reach internet (ping 8.8.8.8)"
-    else
-        log_error "Container 'vless_xray' cannot reach internet (ping 8.8.8.8 failed)"
-        log_warning "This may indicate UFW Docker forwarding issue"
-    fi
+    # Use detected DNS if available, otherwise fall back to 8.8.8.8
+    local test_dns="${DETECTED_DNS:-8.8.8.8}"
+    local dns_label=""
 
-    # Test DNS resolution from xray container
+    # Determine DNS provider name for informative output
+    case "$test_dns" in
+        "1.1.1.1") dns_label="Cloudflare DNS" ;;
+        "8.8.8.8") dns_label="Google DNS" ;;
+        "9.9.9.9") dns_label="Quad9 DNS" ;;
+        "77.88.8.8") dns_label="Yandex DNS (Primary)" ;;
+        "77.88.8.1") dns_label="Yandex DNS (Secondary)" ;;
+        *) dns_label="Custom DNS" ;;
+    esac
+
+    # Display which DNS is being used for testing
+    if [[ -n "$DETECTED_DNS" ]]; then
+        log_info "  Using auto-detected DNS: ${test_dns} (${dns_label})"
+    else
+        log_info "  DNS auto-detection not configured, using fallback: ${test_dns} (${dns_label})"
+    fi
+    echo ""
+
+    # [1/4] Test connectivity from xray container using detected DNS
+    log_info "  [1/4] Testing xray container internet connectivity..."
+    if docker exec vless_xray ping -c 3 -W 5 "$test_dns" &>/dev/null; then
+        log_success "Container 'vless_xray' can reach internet (ping ${test_dns})"
+    else
+        log_error "Container 'vless_xray' cannot reach internet (ping ${test_dns} failed)"
+        log_warning "  This may indicate UFW Docker forwarding issue"
+        log_warning "  Check: sudo ufw status | grep DOCKER"
+    fi
+    echo ""
+
+    # [2/4] Test DNS resolution from xray container
+    log_info "  [2/4] Testing DNS resolution capability..."
     if docker exec vless_xray ping -c 3 -W 5 google.com &>/dev/null; then
         log_success "Container 'vless_xray' has DNS resolution"
     else
         log_error "Container 'vless_xray' cannot resolve DNS (ping google.com failed)"
+        log_warning "  This may indicate DNS server unavailability"
+        log_warning "  Current DNS: ${test_dns}"
+    fi
+    echo ""
+
+    # [3/4] Test connectivity from nginx container (if exists)
+    if docker ps --format '{{.Names}}' | grep -q '^vless_fake_site$'; then
+        log_info "  [3/4] Testing nginx reverse proxy container..."
+        if docker exec vless_fake_site ping -c 3 -W 5 "$test_dns" &>/dev/null; then
+            log_success "Container 'vless_fake_site' can reach internet (ping ${test_dns})"
+        else
+            log_error "Container 'vless_fake_site' cannot reach internet (ping ${test_dns} failed)"
+        fi
+        echo ""
     fi
 
-    # Test connectivity from nginx container
-    if docker exec vless_fake_site ping -c 3 -W 5 8.8.8.8 &>/dev/null; then
-        log_success "Container 'vless_fake_site' can reach internet (ping 8.8.8.8)"
-    else
-        log_error "Container 'vless_fake_site' cannot reach internet (ping 8.8.8.8 failed)"
-    fi
-
-    # Test connection to Reality destination
+    # [4/4] Test connection to Reality destination
+    log_info "  [4/4] Testing Reality destination connectivity..."
     local dest=$(jq -r '.inbounds[0].streamSettings.realitySettings.dest' "$VLESS_HOME/config/xray_config.json" 2>/dev/null || echo "")
     if [[ -n "$dest" && "$dest" != "null" ]]; then
         local dest_host=$(echo "$dest" | cut -d':' -f1)
@@ -598,8 +632,12 @@ verify_container_internet() {
         if docker exec vless_xray timeout 5 bash -c "echo > /dev/tcp/$dest_host/$dest_port" 2>/dev/null; then
             log_success "Container can reach Reality destination: $dest"
         else
-            log_warning "Container cannot reach Reality destination: $dest (may be normal if destination requires TLS)"
+            log_warning "Container cannot reach Reality destination: $dest"
+            log_warning "  This may be normal if destination requires TLS handshake"
+            log_warning "  Xray will handle the connection during normal operation"
         fi
+    else
+        log_warning "Reality destination not configured, skipping connectivity test"
     fi
 
     echo ""
