@@ -28,10 +28,7 @@ export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/fal
 export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
 export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 export ENABLE_REVERSE_PROXY=""  # v5.26: Reverse proxy feature (subdomain-based access)
-export DETECTED_DNS=""          # v5.25: Automatically detected optimal DNS server (legacy, kept for backward compatibility)
-export DETECTED_DNS_PRIMARY=""  # v5.31: Primary DNS server
-export DETECTED_DNS_SECONDARY="" # v5.31: Secondary DNS server (optional)
-export DETECTED_DNS_TERTIARY="" # v5.31: Tertiary DNS server (optional)
+export DETECTED_DNS=""          # v5.25: Automatically detected optimal DNS server
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -1296,87 +1293,11 @@ prompt_dns_selection() {
         local selected_name="${selected_result##*:}"
 
         echo ""
-        echo -e "${GREEN}✓ Primary DNS selected: ${selected_name} (${selected_dns}) - ${selected_time} ms${NC}"
+        echo -e "${GREEN}✓ DNS selected: ${selected_name} (${selected_dns}) - ${selected_time} ms${NC}"
         break
     done
 
-    # Set primary DNS
-    export DETECTED_DNS_PRIMARY="$DETECTED_DNS"
-    export DETECTED_DNS  # Keep for backward compatibility
-
-    # Ask if user wants to add more DNS servers
-    echo ""
-    echo -e "${CYAN}Additional DNS Servers (Optional)${NC}"
-    echo "Adding multiple DNS servers improves reliability and fallback."
-    echo ""
-
-    # Secondary DNS
-    read -rp "Add secondary DNS server? [y/N]: " add_secondary
-    if [[ "${add_secondary,,}" == "y" ]]; then
-        echo ""
-        echo "Select secondary DNS server:"
-        echo ""
-
-        # Show DNS options again (excluding primary)
-        local idx=1
-        declare -A menu_options_secondary
-        for entry in "${sorted_dns[@]}"; do
-            local rest="${entry#*:}"
-            local dns_ip="${rest%%:*}"
-
-            # Skip if this is the primary DNS
-            [[ "$dns_ip" == "$DETECTED_DNS_PRIMARY" ]] && continue
-
-            local time_ms="${entry%%:*}"
-            local dns_name="${rest##*:}"
-            echo "  ${idx}) ${dns_name} (${dns_ip}) - ${time_ms} ms"
-            menu_options_secondary["$idx"]="$dns_ip"
-            ((idx++))
-        done
-
-        echo "  ${idx}) Custom DNS server"
-        echo "  0) Skip secondary DNS"
-        echo ""
-
-        local max_option_sec=$idx
-        read -rp "Select secondary DNS [0-${max_option_sec}] (default: 0): " choice_sec
-        choice_sec=${choice_sec:-0}
-
-        if [[ "$choice_sec" != "0" ]]; then
-            if [[ "$choice_sec" == "$max_option_sec" ]]; then
-                # Custom secondary DNS
-                read -rp "Secondary DNS IP: " custom_sec_dns
-                if [[ "$custom_sec_dns" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                    export DETECTED_DNS_SECONDARY="$custom_sec_dns"
-                    echo -e "${GREEN}✓ Secondary DNS: ${custom_sec_dns}${NC}"
-                fi
-            elif [[ -n "${menu_options_secondary[$choice_sec]}" ]]; then
-                export DETECTED_DNS_SECONDARY="${menu_options_secondary[$choice_sec]}"
-                echo -e "${GREEN}✓ Secondary DNS: ${DETECTED_DNS_SECONDARY}${NC}"
-            fi
-        fi
-    fi
-
-    # Tertiary DNS
-    if [[ -n "${DETECTED_DNS_SECONDARY:-}" ]]; then
-        echo ""
-        read -rp "Add tertiary DNS server? [y/N]: " add_tertiary
-        if [[ "${add_tertiary,,}" == "y" ]]; then
-            read -rp "Tertiary DNS IP: " custom_ter_dns
-            if [[ "$custom_ter_dns" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                export DETECTED_DNS_TERTIARY="$custom_ter_dns"
-                echo -e "${GREEN}✓ Tertiary DNS: ${custom_ter_dns}${NC}"
-            fi
-        fi
-    fi
-
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}DNS Configuration Summary:${NC}"
-    echo "  Primary:   ${DETECTED_DNS_PRIMARY}"
-    [[ -n "${DETECTED_DNS_SECONDARY:-}" ]] && echo "  Secondary: ${DETECTED_DNS_SECONDARY}"
-    [[ -n "${DETECTED_DNS_TERTIARY:-}" ]] && echo "  Tertiary:  ${DETECTED_DNS_TERTIARY}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    export DETECTED_DNS
     echo ""
     return 0
 }
