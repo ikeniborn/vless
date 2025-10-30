@@ -81,7 +81,7 @@ validate_dns_for_domain() {
     # Step 3: Query DNS A record (v5.25: use auto-detected DNS or fallback)
     echo "Querying DNS for $domain..."
     local dns_ip
-    local dns_server="${DETECTED_DNS:-8.8.8.8}"
+    local dns_server="${DETECTED_DNS_PRIMARY:-8.8.8.8}"
     dns_ip=$(dig +short "$domain" "@${dns_server}" | tail -1)
 
     # Step 4: Validate DNS resolution

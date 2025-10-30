@@ -568,7 +568,7 @@ verify_container_internet() {
     log_info "Verification 7/10: Testing container internet connectivity..."
 
     # Use detected DNS if available, otherwise fall back to 8.8.8.8
-    local test_dns="${DETECTED_DNS:-8.8.8.8}"
+    local test_dns="${DETECTED_DNS_PRIMARY:-8.8.8.8}"
     local dns_label=""
 
     # Determine DNS provider name for informative output
@@ -582,7 +582,7 @@ verify_container_internet() {
     esac
 
     # Display which DNS is being used for testing
-    if [[ -n "$DETECTED_DNS" ]]; then
+    if [[ -n "${DETECTED_DNS_PRIMARY:-}" ]]; then
         log_info "  Using auto-detected DNS: ${test_dns} (${dns_label})"
     else
         log_info "  DNS auto-detection not configured, using fallback: ${test_dns} (${dns_label})"

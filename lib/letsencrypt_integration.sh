@@ -444,7 +444,7 @@ validate_dns_for_domain() {
 
     # Resolve domain (v5.25: use auto-detected DNS or fallback to Google DNS)
     local domain_ip
-    local dns_server="${DETECTED_DNS:-8.8.8.8}"
+    local dns_server="${DETECTED_DNS_PRIMARY:-8.8.8.8}"
     domain_ip=$(dig +short "$domain" "@${dns_server}" 2>/dev/null | head -1)
 
     if [[ -z "$domain_ip" ]]; then

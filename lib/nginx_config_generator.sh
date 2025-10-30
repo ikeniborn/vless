@@ -70,7 +70,7 @@ resolve_target_ipv4() {
 
     # Try to resolve using dig (preferred) - v5.25: use auto-detected DNS
     if command -v dig &> /dev/null; then
-        local dns_server="${DETECTED_DNS:-8.8.8.8}"
+        local dns_server="${DETECTED_DNS_PRIMARY:-8.8.8.8}"
         local ipv4=$(dig +short "$target_site" A "@${dns_server}" | head -1)
         if [[ -n "$ipv4" ]] && [[ "$ipv4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "$ipv4"
@@ -89,7 +89,7 @@ resolve_target_ipv4() {
 
     # Fallback to host command - v5.25: use auto-detected DNS
     if command -v host &> /dev/null; then
-        local dns_server="${DETECTED_DNS:-8.8.8.8}"
+        local dns_server="${DETECTED_DNS_PRIMARY:-8.8.8.8}"
         local ipv4=$(host -t A "$target_site" "${dns_server}" | awk '/has address/ {print $NF}' | head -1)
         if [[ -n "$ipv4" ]] && [[ "$ipv4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "$ipv4"
@@ -319,7 +319,7 @@ EOF
         # Auto-monitored by vless-monitor-reverse-proxy-ips cron job
         # v5.25: use auto-detected DNS or fallback to Google DNS
         proxy_pass https://${target_ipv4};
-        resolver ${DETECTED_DNS:-8.8.8.8} ipv4=on valid=300s;
+        resolver ${DETECTED_DNS_PRIMARY:-8.8.8.8} ipv4=on valid=300s;
         resolver_timeout 5s;
         proxy_http_version 1.1;
 
