@@ -7,6 +7,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.33] - 2025-10-30
+
+### Fixed - External Proxy UX Enhancement (CRITICAL)
+
+**Migration Type:** Backward compatible, no migration required
+
+**Impact:** CRITICAL UX FIX - Prevents misconfiguration of TLS Server Name in external proxy setup
+
+#### Problem Addressed
+
+**Issue:** Users accidentally entering "y" (thinking it's yes/no prompt) instead of pressing ENTER for default TLS Server Name
+
+**Root Cause:**
+- Unclear prompt for TLS Server Name (SNI) input
+- No validation for server name format
+- User confusion: "TLS Server Name (SNI) [proxy.example.com]:" → user types "y" thinking it's confirmation
+- No auto-activation after successful proxy addition
+
+**Symptoms:**
+- External proxy shows "Active: ✗ NO" despite being added
+- TLS handshake fails with `serverName: "y"` in Xray config
+- Proxy routing status shows "✗ DISABLED"
+
+**Production Impact:**
+```bash
+# Database state (BEFORE FIX):
+{
+  "tls": {
+    "server_name": "y"  // ❌ Invalid!
+  },
+  "active": false,
+  "enabled": false
+}
+
+# Xray config (BEFORE FIX):
+"tlsSettings": {
+  "serverName": "y"  // ❌ TLS handshake fails!
+}
+```
+
+#### Changes
+
+**1. Added TLS Server Name Validation:**
+
+**Location:** `scripts/vless-external-proxy:192-208`
+
+**Change:**
+```bash
+# NEW: Validate TLS server name (FQDN or IP)
+validate_server_name() {
+    # Allow IP addresses (basic validation)
+    if [[ "$server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 0
+    fi
+
+    # Validate FQDN (at least one dot, valid characters)
+    if [[ "$server_name" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]] && [[ "$server_name" == *.* ]]; then
+        return 0
+    fi
+
+    echo -e "${RED}Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address${NC}" >&2
+    return 1
+}
+```
+
+**Impact:**
+- ✅ Rejects invalid input like "y", "yes", "n", "no"
+- ✅ Accepts valid FQDNs (proxy.example.com, sub.domain.example.com)
+- ✅ Accepts IP addresses (192.168.1.1)
+
+**2. Improved TLS Server Name Prompt:**
+
+**Location:** `scripts/vless-external-proxy:260-265`
+
+**Change:**
+```diff
+  if [[ "$proxy_type" == "socks5s" || "$proxy_type" == "https" ]]; then
+      echo -e "${YELLOW}Step 3/6: TLS settings${NC}"
++     echo "  The TLS Server Name (SNI) is used for certificate verification."
++     echo "  Press ENTER to use the proxy address: $proxy_address"
++     echo ""
+
+-     tls_server_name=$(prompt_input "  TLS Server Name (SNI)" "$proxy_address")
++     tls_server_name=$(prompt_input "  TLS Server Name (SNI)" "$proxy_address" "validate_server_name")
+```
+
+**Impact:**
+- ✅ Clear instructions to press ENTER for default
+- ✅ Validation integrated into prompt
+- ✅ User understands what to do
+
+**3. Auto-Activation Workflow:**
+
+**Location:** `scripts/vless-external-proxy:335-365`
+
+**Change:**
+```diff
+  if test_proxy_connectivity "$proxy_id"; then
+      echo -e "${GREEN}✓ Proxy added and tested successfully!${NC}"
+-     echo "Next steps:"
+-     echo "  1. Activate this proxy: vless-external-proxy switch $proxy_id"
+-     echo "  2. Enable routing: vless-external-proxy enable"
+-     echo "  3. Restart Xray: docker restart vless_xray"
++
++     # Offer to activate and enable automatically
++     if prompt_confirm "Do you want to activate this proxy now?" "y"; then
++         if set_active_proxy "$proxy_id" && update_xray_outbounds "$proxy_id"; then
++             echo -e "${GREEN}✓ Proxy activated${NC}"
++
++             if [[ "$routing_enabled" != "true" ]]; then
++                 if prompt_confirm "Enable external proxy routing?" "y"; then
++                     enable_external_proxy_routing
++                     echo -e "${GREEN}✓ External proxy routing enabled${NC}"
++                 fi
++             fi
++         fi
++     fi
+  fi
+```
+
+**Impact:**
+- ✅ One-click activation after successful proxy test
+- ✅ Auto-enable routing if not already enabled
+- ✅ Eliminates manual 3-step process
+
+#### Testing
+
+**Test Case 1: Invalid Server Name Rejection**
+```bash
+# Input: "y"
+# Expected: ✗ Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address
+# Result: ✅ PASS
+```
+
+**Test Case 2: Valid FQDN Acceptance**
+```bash
+# Input: "proxy.ikeniborn.ru"
+# Expected: ✓ Accepted
+# Result: ✅ PASS
+```
+
+**Test Case 3: Default Value (Press ENTER)**
+```bash
+# Input: <ENTER>
+# Expected: Uses proxy_address as default
+# Result: ✅ PASS
+```
+
+**Test Case 4: Auto-Activation Flow**
+```bash
+# After successful proxy add:
+# Prompt: "Do you want to activate this proxy now? [Y/n]:"
+# Input: y
+# Expected: Proxy activated, routing enabled, ready to use
+# Result: ✅ PASS
+```
+
+#### Migration Guide
+
+**No migration required** - This is a backward-compatible UX enhancement.
+
+**For users with existing misconfigured proxies:**
+```bash
+# 1. Fix TLS Server Name in database
+sudo vless-external-proxy update <proxy-id>
+
+# 2. Or remove and re-add with new wizard
+sudo vless-external-proxy remove <proxy-id>
+sudo vless-external-proxy add  # New improved wizard
+```
+
+#### Files Changed
+- `scripts/vless-external-proxy` (+58 lines)
+
+---
+
 ## [5.32] - 2025-10-30
 
 ### Added - DPI Hardening (Anti-Censorship)

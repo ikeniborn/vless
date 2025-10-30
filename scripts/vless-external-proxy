@@ -189,6 +189,24 @@ validate_port() {
     return 0
 }
 
+# Validate TLS server name (should be FQDN or IP)
+validate_server_name() {
+    local server_name="$1"
+
+    # Allow IP addresses (basic validation)
+    if [[ "$server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 0
+    fi
+
+    # Validate FQDN (at least one dot, valid characters)
+    if [[ "$server_name" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]] && [[ "$server_name" == *.* ]]; then
+        return 0
+    fi
+
+    echo -e "${RED}Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address${NC}" >&2
+    return 1
+}
+
 # =============================================================================
 # COMMAND FUNCTIONS
 # =============================================================================
@@ -240,8 +258,11 @@ cmd_add() {
 
     if [[ "$proxy_type" == "socks5s" || "$proxy_type" == "https" ]]; then
         echo -e "${YELLOW}Step 3/6: TLS settings${NC}"
+        echo "  The TLS Server Name (SNI) is used for certificate verification."
+        echo "  Press ENTER to use the proxy address: $proxy_address"
+        echo ""
 
-        tls_server_name=$(prompt_input "  TLS Server Name (SNI)" "$proxy_address")
+        tls_server_name=$(prompt_input "  TLS Server Name (SNI)" "$proxy_address" "validate_server_name")
 
         if prompt_confirm "  Allow insecure TLS (skip certificate verification)" "n"; then
             allow_insecure="true"
@@ -309,10 +330,40 @@ cmd_add() {
         echo ""
         echo "Proxy ID: $proxy_id"
         echo ""
-        echo "Next steps:"
-        echo "  1. Activate this proxy: vless-external-proxy switch $proxy_id"
-        echo "  2. Enable routing: vless-external-proxy enable"
-        echo "  3. Restart Xray: docker restart vless_xray"
+
+        # Offer to activate and enable automatically
+        if prompt_confirm "Do you want to activate this proxy now?" "y"; then
+            echo ""
+            if set_active_proxy "$proxy_id" && update_xray_outbounds "$proxy_id"; then
+                echo -e "${GREEN}✓ Proxy activated${NC}"
+
+                # Enable routing if not already enabled
+                local routing_enabled
+                routing_enabled=$(jq -r '.enabled' "$EXTERNAL_PROXY_DB" 2>/dev/null || echo "false")
+
+                if [[ "$routing_enabled" != "true" ]]; then
+                    if prompt_confirm "Enable external proxy routing?" "y"; then
+                        echo ""
+                        if enable_external_proxy_routing; then
+                            echo -e "${GREEN}✓ External proxy routing enabled${NC}"
+                        fi
+                    fi
+                fi
+
+                echo ""
+                echo -e "${YELLOW}⚠️  IMPORTANT: Restart Xray container to apply changes:${NC}"
+                echo "   sudo docker restart vless_xray"
+            else
+                echo -e "${RED}Failed to activate proxy${NC}"
+                echo "You can activate it manually:"
+                echo "  vless-external-proxy switch $proxy_id"
+            fi
+        else
+            echo "You can activate it later:"
+            echo "  1. Activate: vless-external-proxy switch $proxy_id"
+            echo "  2. Enable: vless-external-proxy enable"
+            echo "  3. Restart: docker restart vless_xray"
+        fi
     else
         echo ""
         echo -e "${YELLOW}⚠️  Proxy added but connectivity test failed${NC}"
