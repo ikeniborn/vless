@@ -600,9 +600,9 @@ create_xray_config() {
   },
   "dns": {
     "servers": [
-      "8.8.8.8",
-      "1.1.1.1",
-      "${DETECTED_DNS:-77.88.8.1}"
+      "${DETECTED_DNS_PRIMARY:-1.1.1.1}",
+      "${DETECTED_DNS_SECONDARY:-8.8.8.8}",
+      "${DETECTED_DNS_TERTIARY:-77.88.8.8}"
     ],
     "queryStrategy": "UseIPv4"
   },
@@ -684,10 +684,13 @@ EOF
     echo "  ✓ Listen port: ${VLESS_PORT}"
     echo "  ✓ Destination: ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo "  ✓ Fallback to Nginx configured"
-    if [[ -n "${DETECTED_DNS}" ]]; then
-        echo "  ✓ DNS Server: ${DETECTED_DNS} (auto-detected)"
+    if [[ -n "${DETECTED_DNS_PRIMARY}" ]]; then
+        echo "  ✓ DNS Servers:"
+        echo "    - Primary:   ${DETECTED_DNS_PRIMARY}"
+        echo "    - Secondary: ${DETECTED_DNS_SECONDARY}"
+        echo "    - Tertiary:  ${DETECTED_DNS_TERTIARY}"
     else
-        echo "  ✓ DNS Server: 8.8.8.8 (default fallback)"
+        echo "  ✓ DNS Servers: 1.1.1.1, 8.8.8.8, 77.88.8.8 (default fallback)"
     fi
 
     if [[ "$enable_proxy" == "true" ]]; then

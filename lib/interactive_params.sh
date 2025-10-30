@@ -28,7 +28,9 @@ export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/fal
 export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
 export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 export ENABLE_REVERSE_PROXY=""  # v5.26: Reverse proxy feature (subdomain-based access)
-export DETECTED_DNS=""          # v5.25: Automatically detected optimal DNS server
+export DETECTED_DNS_PRIMARY=""    # v5.32: Primary DNS server (user-selected or auto-detected)
+export DETECTED_DNS_SECONDARY=""  # v5.32: Secondary DNS server (user-selected or auto-detected)
+export DETECTED_DNS_TERTIARY=""   # v5.32: Tertiary DNS server (user-selected or auto-detected)
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -598,6 +600,15 @@ confirm_parameters() {
     else
         echo -e "  ${YELLOW}Reverse Proxy:${NC}       ${YELLOW}Disabled${NC}"
     fi
+
+    # v5.32: Display DNS configuration (3 servers)
+    if [[ -n "${DETECTED_DNS_PRIMARY}" ]]; then
+        echo ""
+        echo -e "  ${YELLOW}DNS Configuration:${NC}"
+        echo -e "    ${GREEN}Primary:${NC}   ${DETECTED_DNS_PRIMARY}"
+        echo -e "    ${GREEN}Secondary:${NC} ${DETECTED_DNS_SECONDARY}"
+        echo -e "    ${GREEN}Tertiary:${NC}  ${DETECTED_DNS_TERTIARY}"
+    fi
     echo ""
 
     local confirm
@@ -1151,14 +1162,25 @@ detect_optimal_dns() {
     local system_dns
     system_dns=$(grep -m 1 "^nameserver" /etc/resolv.conf 2>/dev/null | awk '{print $2}')
 
-    # DNS servers to test: Cloudflare, Google, Quad9, Yandex, System
+    # DNS servers to test (v5.32: expanded to 12 servers)
+    # Global DNS providers
     declare -A dns_servers
     dns_servers=(
+        # Global DNS providers
         ["1.1.1.1"]="Cloudflare"
         ["8.8.8.8"]="Google"
         ["9.9.9.9"]="Quad9"
-        ["77.88.8.8"]="Yandex (Primary)"
-        ["77.88.8.1"]="Yandex (Secondary)"
+        ["208.67.222.222"]="OpenDNS"
+        # Russian DNS providers - Yandex (3 modes)
+        ["77.88.8.8"]="Yandex Basic"
+        ["77.88.8.1"]="Yandex Basic (Secondary)"
+        ["77.88.8.88"]="Yandex Safe"
+        ["77.88.8.2"]="Yandex Safe (Secondary)"
+        ["77.88.8.7"]="Yandex Family"
+        ["77.88.8.3"]="Yandex Family (Secondary)"
+        # ISP DNS providers
+        ["194.67.2.114"]="Beeline"
+        ["194.67.1.154"]="Beeline (Secondary)"
     )
 
     # Add system DNS if available and not already in list
@@ -1204,16 +1226,16 @@ detect_optimal_dns() {
 # =============================================================================
 # FUNCTION: prompt_dns_selection
 # =============================================================================
-# Description: Display DNS test results and prompt user to select DNS server
-# Side effects: Sets DETECTED_DNS global variable with selected DNS IP
+# Description: Display DNS test results and prompt user to select up to 3 DNS servers
+# Side effects: Sets DETECTED_DNS_PRIMARY/SECONDARY/TERTIARY global variables
 # Arguments: None (uses global DNS_TEST_RESULTS from detect_optimal_dns)
 # Returns: 0 on success
-# v5.25: DNS auto-detection feature
+# v5.32: Multiple DNS selection (up to 3 servers) with auto-select and fallback
 # =============================================================================
 prompt_dns_selection() {
     echo ""
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}[SELECT] Choose DNS Server${NC}"
+    echo -e "${CYAN}[SELECT] Choose DNS Servers (up to 3)${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
@@ -1234,6 +1256,8 @@ prompt_dns_selection() {
 
     local idx=1
     declare -A menu_options
+    declare -A menu_names
+    declare -A menu_times
     for entry in "${sorted_dns[@]}"; do
         local time_ms="${entry%%:*}"
         local rest="${entry#*:}"
@@ -1242,62 +1266,182 @@ prompt_dns_selection() {
 
         echo "  ${idx}) ${dns_name} (${dns_ip}) - ${time_ms} ms"
         menu_options["$idx"]="$dns_ip"
+        menu_names["$idx"]="$dns_name"
+        menu_times["$idx"]="$time_ms"
         ((idx++))
     done
 
     echo "  ${idx}) Custom DNS server"
     echo ""
 
-    # Get user selection
+    # Get user selection (up to 3 DNS servers)
     local choice
     local max_option=$idx
-    while true; do
-        read -rp "Select DNS server [1-${max_option}] (default: 1): " choice
-        choice=${choice:-1}
+    local custom_option=$idx
+    local selected_ips=()
+    local selected_names=()
+    local selected_times=()
 
-        # Validate input
-        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt "$max_option" ]]; then
-            echo -e "${RED}Invalid choice. Please enter 1-${max_option}${NC}"
+    while true; do
+        echo -e "${YELLOW}Select up to 3 DNS servers:${NC}"
+        echo "  - Comma-separated numbers (e.g., '1,2,3')"
+        echo "  - Press ENTER to auto-select top 3 fastest"
+        echo ""
+        read -rp "Your choice [1-${max_option}]: " choice
+
+        # Auto-select top 3 if empty
+        if [[ -z "$choice" ]]; then
+            echo ""
+            echo -e "${CYAN}Auto-selecting top 3 fastest DNS servers...${NC}"
+            local count=0
+            for i in "${!menu_options[@]}"; do
+                if [[ $count -lt 3 ]]; then
+                    selected_ips+=("${menu_options[$i]}")
+                    selected_names+=("${menu_names[$i]}")
+                    selected_times+=("${menu_times[$i]}")
+                    ((count++))
+                fi
+            done
+            break
+        fi
+
+        # Parse comma or space-separated input
+        IFS=', ' read -ra dns_choices <<< "$choice"
+
+        # Validate each choice
+        local valid=true
+        local temp_ips=()
+        local temp_names=()
+        local temp_times=()
+
+        for c in "${dns_choices[@]}"; do
+            # Trim whitespace
+            c=$(echo "$c" | xargs)
+
+            # Skip empty values
+            [[ -z "$c" ]] && continue
+
+            # Validate number format
+            if ! [[ "$c" =~ ^[0-9]+$ ]]; then
+                echo -e "${RED}Invalid choice: '$c' (not a number)${NC}"
+                valid=false
+                break
+            fi
+
+            # Validate range
+            if [[ "$c" -lt 1 ]] || [[ "$c" -gt "$max_option" ]]; then
+                echo -e "${RED}Invalid choice: $c (must be 1-${max_option})${NC}"
+                valid=false
+                break
+            fi
+
+            # Handle custom DNS option
+            if [[ "$c" == "$custom_option" ]]; then
+                echo ""
+                echo -e "${YELLOW}Custom DNS Server${NC}"
+                echo "Enter DNS server IP address (e.g., 208.67.222.222 for OpenDNS)"
+                echo ""
+
+                local custom_dns
+                read -rp "DNS IP: " custom_dns
+
+                # Validate IP format
+                if [[ "$custom_dns" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                    temp_ips+=("$custom_dns")
+                    temp_names+=("Custom")
+                    temp_times+=("N/A")
+                else
+                    echo -e "${RED}Invalid IP address format${NC}"
+                    valid=false
+                    break
+                fi
+            else
+                # Check for duplicates
+                local dns_ip="${menu_options[$c]}"
+                local already_selected=false
+                for existing_ip in "${temp_ips[@]}"; do
+                    if [[ "$existing_ip" == "$dns_ip" ]]; then
+                        echo -e "${YELLOW}⚠ DNS ${menu_names[$c]} (${dns_ip}) already selected, skipping duplicate${NC}"
+                        already_selected=true
+                        break
+                    fi
+                done
+
+                if [[ "$already_selected" == false ]]; then
+                    temp_ips+=("$dns_ip")
+                    temp_names+=("${menu_names[$c]}")
+                    temp_times+=("${menu_times[$c]}")
+                fi
+            fi
+
+            # Limit to 3 DNS servers
+            if [[ ${#temp_ips[@]} -ge 3 ]]; then
+                break
+            fi
+        done
+
+        # Check if validation passed
+        if [[ "$valid" == false ]]; then
             continue
         fi
 
-        # Handle custom DNS option
-        if [[ "$choice" == "$max_option" ]]; then
-            echo ""
-            echo -e "${YELLOW}Custom DNS Server${NC}"
-            echo "Enter DNS server IP address (e.g., 208.67.222.222 for OpenDNS)"
-            echo ""
-
-            local custom_dns
-            read -rp "DNS IP: " custom_dns
-
-            # Validate IP format
-            if [[ "$custom_dns" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                DETECTED_DNS="$custom_dns"
-                echo ""
-                echo -e "${GREEN}✓ Custom DNS selected: ${custom_dns}${NC}"
-                break
-            else
-                echo -e "${RED}Invalid IP address format${NC}"
-                continue
-            fi
+        # Check if at least one DNS selected
+        if [[ ${#temp_ips[@]} -eq 0 ]]; then
+            echo -e "${RED}Please select at least one DNS server${NC}"
+            continue
         fi
 
-        # Handle predefined DNS selection
-        local selected_dns="${menu_options[$choice]}"
-        DETECTED_DNS="$selected_dns"
+        # Copy temp arrays to selected arrays
+        selected_ips=("${temp_ips[@]}")
+        selected_names=("${temp_names[@]}")
+        selected_times=("${temp_times[@]}")
 
-        # Get DNS name for display
-        local selected_result="${DNS_TEST_RESULTS[$selected_dns]}"
-        local selected_time="${selected_result%%:*}"
-        local selected_name="${selected_result##*:}"
-
-        echo ""
-        echo -e "${GREEN}✓ DNS selected: ${selected_name} (${selected_dns}) - ${selected_time} ms${NC}"
         break
     done
 
-    export DETECTED_DNS
+    # Fallback: auto-fill remaining slots with fastest DNS
+    if [[ ${#selected_ips[@]} -lt 3 ]]; then
+        echo ""
+        echo -e "${CYAN}Auto-filling remaining slots with fastest DNS...${NC}"
+
+        for i in "${!menu_options[@]}"; do
+            # Skip if already selected
+            local already_selected=false
+            for existing_ip in "${selected_ips[@]}"; do
+                if [[ "$existing_ip" == "${menu_options[$i]}" ]]; then
+                    already_selected=true
+                    break
+                fi
+            done
+
+            if [[ "$already_selected" == false ]]; then
+                selected_ips+=("${menu_options[$i]}")
+                selected_names+=("${menu_names[$i]}")
+                selected_times+=("${menu_times[$i]}")
+
+                # Stop when we have 3
+                if [[ ${#selected_ips[@]} -ge 3 ]]; then
+                    break
+                fi
+            fi
+        done
+    fi
+
+    # Assign to global variables
+    DETECTED_DNS_PRIMARY="${selected_ips[0]:-1.1.1.1}"
+    DETECTED_DNS_SECONDARY="${selected_ips[1]:-8.8.8.8}"
+    DETECTED_DNS_TERTIARY="${selected_ips[2]:-77.88.8.8}"
+
+    # Display selected DNS configuration
+    echo ""
+    echo -e "${GREEN}✓ Selected DNS servers:${NC}"
+    echo -e "  ${CYAN}Primary:${NC}   ${selected_names[0]:-Cloudflare} (${DETECTED_DNS_PRIMARY}) - ${selected_times[0]:-default} ms"
+    echo -e "  ${CYAN}Secondary:${NC} ${selected_names[1]:-Google} (${DETECTED_DNS_SECONDARY}) - ${selected_times[1]:-default} ms"
+    echo -e "  ${CYAN}Tertiary:${NC}  ${selected_names[2]:-Yandex Basic} (${DETECTED_DNS_TERTIARY}) - ${selected_times[2]:-default} ms"
+
+    export DETECTED_DNS_PRIMARY
+    export DETECTED_DNS_SECONDARY
+    export DETECTED_DNS_TERTIARY
     echo ""
     return 0
 }
