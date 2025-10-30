@@ -670,7 +670,19 @@ create_xray_config() {
         "show": false,
         "dest": "${REALITY_DEST}:${REALITY_DEST_PORT}",
         "xver": 0,
-        "serverNames": ["${REALITY_DEST}"],
+        "serverNames": [
+          "${REALITY_DEST}",
+          "www.google.com",
+          "www.microsoft.com",
+          "www.apple.com",
+          "www.cloudflare.com",
+          "www.amazon.com",
+          "www.youtube.com",
+          "www.github.com",
+          "www.wikipedia.org",
+          "www.netflix.com",
+          "www.linkedin.com"
+        ],
         "privateKey": "${PRIVATE_KEY}",
         "shortIds": ["${SHORT_ID}", ""]
       }

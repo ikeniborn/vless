@@ -1830,16 +1830,17 @@ create_user() {
     # Step 3.6: Select TLS fingerprint for device type
     echo ""
     log_info "Select TLS fingerprint for client device:"
-    echo "  1) Android (chrome fingerprint) - Recommended for Android devices"
-    echo "  2) iOS (safari fingerprint) - Recommended for iOS/macOS devices"
-    echo "  3) Other/Universal (firefox fingerprint) - Universal compatibility"
+    echo "  1) Randomized (RECOMMENDED) - Maximum DPI protection, random fingerprint per connection"
+    echo "  2) Android (chrome fingerprint) - Static fingerprint for Android devices"
+    echo "  3) iOS (safari fingerprint) - Static fingerprint for iOS/macOS devices"
+    echo "  4) Other/Universal (firefox fingerprint) - Static fingerprint, universal compatibility"
     echo ""
 
-    local fingerprint="chrome"  # Default
+    local fingerprint="randomized"  # Default (DPI hardening v5.32)
     local fingerprint_choice
 
     while true; do
-        read -r -p "Enter choice [1-3, default: 1]: " fingerprint_choice
+        read -r -p "Enter choice [1-4, default: 1]: " fingerprint_choice
 
         # Default to 1 if empty
         if [[ -z "$fingerprint_choice" ]]; then
@@ -1848,22 +1849,27 @@ create_user() {
 
         case "$fingerprint_choice" in
             1)
+                fingerprint="randomized"
+                log_success "Selected fingerprint: randomized (Maximum DPI protection)"
+                break
+                ;;
+            2)
                 fingerprint="chrome"
                 log_success "Selected fingerprint: chrome (Android)"
                 break
                 ;;
-            2)
+            3)
                 fingerprint="safari"
                 log_success "Selected fingerprint: safari (iOS/macOS)"
                 break
                 ;;
-            3)
+            4)
                 fingerprint="firefox"
                 log_success "Selected fingerprint: firefox (Universal)"
                 break
                 ;;
             *)
-                log_error "Invalid choice. Please enter 1, 2, or 3"
+                log_error "Invalid choice. Please enter 1, 2, 3, or 4"
                 ;;
         esac
     done
