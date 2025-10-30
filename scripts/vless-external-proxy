@@ -1,0 +1,805 @@
+#!/bin/bash
+#
+# vless-external-proxy CLI Tool
+# Part of VLESS+Reality VPN Deployment System (v5.23)
+#
+# Purpose: Manage external proxy configuration for routing traffic through
+#          upstream SOCKS5/HTTP proxies
+#
+# Usage: vless-external-proxy <command> [args]
+#
+# Commands:
+#   add                - Add external proxy (interactive wizard)
+#   list               - List all configured proxies
+#   show <proxy-id>    - Show proxy details
+#   switch <proxy-id>  - Switch to different proxy
+#   update <proxy-id>  - Update proxy configuration
+#   remove <proxy-id>  - Remove proxy
+#   test <proxy-id>    - Test proxy connectivity
+#   enable             - Enable routing through external proxy
+#   disable            - Disable external proxy routing
+#   status             - Show current routing status
+#
+# Version: 5.23.1
+# Date: 2025-10-27
+
+set -euo pipefail
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# Paths
+readonly INSTALL_ROOT="/opt/vless"
+readonly LIB_DIR="${INSTALL_ROOT}/lib"
+readonly CONFIG_DIR="${INSTALL_ROOT}/config"
+readonly EXTERNAL_PROXY_DB="${CONFIG_DIR}/external_proxy.json"
+readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
+
+# Color codes
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m' # No Color
+
+# =============================================================================
+# LOAD MODULES
+# =============================================================================
+
+if [[ -f "${LIB_DIR}/external_proxy_manager.sh" ]]; then
+    source "${LIB_DIR}/external_proxy_manager.sh"
+else
+    echo -e "${RED}Error: external_proxy_manager.sh not found${NC}" >&2
+    echo "Please ensure VLESS is installed correctly" >&2
+    exit 1
+fi
+
+if [[ -f "${LIB_DIR}/xray_routing_manager.sh" ]]; then
+    source "${LIB_DIR}/xray_routing_manager.sh"
+else
+    echo -e "${RED}Error: xray_routing_manager.sh not found${NC}" >&2
+    echo "Please ensure VLESS is installed correctly" >&2
+    exit 1
+fi
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+# Show usage information
+show_usage() {
+    cat <<EOF
+${CYAN}VLESS External Proxy Manager (v5.23.1)${NC}
+
+Manage external proxy configuration for routing traffic through upstream
+SOCKS5/HTTP proxies.
+
+${YELLOW}Usage:${NC}
+  $(basename "$0") <command> [arguments]
+
+${YELLOW}Commands:${NC}
+  ${GREEN}add${NC}                    Add external proxy (interactive wizard)
+  ${GREEN}list${NC}                   List all configured proxies
+  ${GREEN}show <proxy-id>${NC}        Show detailed proxy information
+  ${GREEN}switch <proxy-id>${NC}      Switch to different proxy (activate)
+  ${GREEN}update <proxy-id>${NC}      Update proxy configuration
+  ${GREEN}remove <proxy-id>${NC}      Remove proxy from database
+  ${GREEN}test <proxy-id>${NC}        Test proxy connectivity
+  ${GREEN}enable${NC}                 Enable routing through external proxy
+  ${GREEN}disable${NC}                Disable external proxy routing
+  ${GREEN}status${NC}                 Show current routing status
+
+${YELLOW}Examples:${NC}
+  $(basename "$0") add               # Start interactive wizard
+  $(basename "$0") list              # Show all proxies
+  $(basename "$0") show proxy-example-123456
+  $(basename "$0") test proxy-example-123456
+  $(basename "$0") enable            # Enable routing through active proxy
+
+${YELLOW}Architecture:${NC}
+  Client → HAProxy → Xray → External Proxy → Internet
+
+For more information, visit: https://github.com/ikeniborn/vless
+EOF
+}
+
+# Prompt for user input with validation
+prompt_input() {
+    local prompt="$1"
+    local default="${2:-}"
+    local validation_func="${3:-}"
+    local allow_empty="${4:-false}"
+
+    while true; do
+        if [[ -n "$default" ]]; then
+            read -r -p "$prompt [$default]: " input
+            input="${input:-$default}"
+        else
+            read -r -p "$prompt: " input
+        fi
+
+        # Allow empty if specified
+        if [[ "$allow_empty" == "true" && -z "$input" ]]; then
+            echo "$input"
+            return 0
+        fi
+
+        # Check if input is empty when not allowed
+        if [[ -z "$input" ]]; then
+            echo -e "${RED}Input cannot be empty${NC}" >&2
+            continue
+        fi
+
+        # Run validation function if provided
+        if [[ -n "$validation_func" ]]; then
+            if ! "$validation_func" "$input"; then
+                continue
+            fi
+        fi
+
+        echo "$input"
+        return 0
+    done
+}
+
+# Prompt for yes/no confirmation
+prompt_confirm() {
+    local prompt="$1"
+    local default="${2:-n}"
+
+    while true; do
+        if [[ "$default" == "y" ]]; then
+            read -r -p "$prompt [Y/n]: " response
+            response="${response:-y}"
+        else
+            read -r -p "$prompt [y/N]: " response
+            response="${response:-n}"
+        fi
+
+        case "$response" in
+            [yY]|[yY][eE][sS])
+                return 0
+                ;;
+            [nN]|[nN][oO])
+                return 1
+                ;;
+            *)
+                echo -e "${YELLOW}Please answer yes or no${NC}"
+                ;;
+        esac
+    done
+}
+
+# Validate port number
+validate_port() {
+    local port="$1"
+
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Port must be numeric${NC}" >&2
+        return 1
+    fi
+
+    if [[ "$port" -lt 1 || "$port" -gt 65535 ]]; then
+        echo -e "${RED}Port must be between 1 and 65535${NC}" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# Validate TLS server name (should be FQDN or IP)
+validate_server_name() {
+    local server_name="$1"
+
+    # Allow IP addresses (basic validation)
+    if [[ "$server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 0
+    fi
+
+    # Validate FQDN (at least one dot, valid characters)
+    if [[ "$server_name" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]] && [[ "$server_name" == *.* ]]; then
+        return 0
+    fi
+
+    echo -e "${RED}Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address${NC}" >&2
+    return 1
+}
+
+# =============================================================================
+# COMMAND FUNCTIONS
+# =============================================================================
+
+# Command: add - Interactive wizard to add external proxy
+cmd_add() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║          ADD EXTERNAL PROXY - Interactive Wizard             ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Step 1: Select proxy type
+    echo -e "${YELLOW}Step 1/6: Select proxy type${NC}"
+    echo "  1) SOCKS5 (without TLS)"
+    echo "  2) SOCKS5s (with TLS) - RECOMMENDED"
+    echo "  3) HTTP"
+    echo "  4) HTTPS"
+    echo ""
+
+    local type_choice
+    while true; do
+        read -r -p "Select proxy type [1-4]: " type_choice
+        case "$type_choice" in
+            1) proxy_type="socks5"; break ;;
+            2) proxy_type="socks5s"; break ;;
+            3) proxy_type="http"; break ;;
+            4) proxy_type="https"; break ;;
+            *) echo -e "${RED}Invalid choice. Please select 1-4${NC}" ;;
+        esac
+    done
+
+    echo -e "  ${GREEN}✓${NC} Selected: $proxy_type"
+    echo ""
+
+    # Step 2: Address and port
+    echo -e "${YELLOW}Step 2/6: Proxy address and port${NC}"
+    local proxy_address
+    proxy_address=$(prompt_input "  Proxy address (hostname or IP)")
+
+    local proxy_port
+    proxy_port=$(prompt_input "  Proxy port" "1080" "validate_port")
+
+    echo -e "  ${GREEN}✓${NC} Address: $proxy_address:$proxy_port"
+    echo ""
+
+    # Step 3: TLS settings (if applicable)
+    local tls_server_name="$proxy_address"
+    local allow_insecure="false"
+
+    if [[ "$proxy_type" == "socks5s" || "$proxy_type" == "https" ]]; then
+        echo -e "${YELLOW}Step 3/6: TLS settings${NC}"
+        echo "  The TLS Server Name (SNI) is used for certificate verification."
+        echo "  Press ENTER to use the proxy address: $proxy_address"
+        echo ""
+
+        tls_server_name=$(prompt_input "  TLS Server Name (SNI)" "$proxy_address" "validate_server_name")
+
+        if prompt_confirm "  Allow insecure TLS (skip certificate verification)" "n"; then
+            allow_insecure="true"
+            echo -e "  ${YELLOW}⚠️  WARNING: Insecure TLS enabled (not recommended)${NC}"
+        fi
+
+        echo -e "  ${GREEN}✓${NC} TLS configured"
+        echo ""
+    else
+        echo -e "${YELLOW}Step 3/6: TLS settings${NC}"
+        echo "  TLS not applicable for this proxy type"
+        echo ""
+    fi
+
+    # Step 4: Authentication
+    echo -e "${YELLOW}Step 4/6: Authentication${NC}"
+    local username="" password=""
+
+    if prompt_confirm "  Does the proxy require authentication" "y"; then
+        username=$(prompt_input "  Username")
+        password=$(prompt_input "  Password")
+        echo -e "  ${GREEN}✓${NC} Authentication configured"
+    else
+        echo "  No authentication"
+    fi
+    echo ""
+
+    # Step 5: Summary
+    echo -e "${YELLOW}Step 5/6: Configuration summary${NC}"
+    echo "  Type: $proxy_type"
+    echo "  Address: $proxy_address:$proxy_port"
+    if [[ "$proxy_type" == "socks5s" || "$proxy_type" == "https" ]]; then
+        echo "  TLS: enabled (SNI: $tls_server_name)"
+    fi
+    if [[ -n "$username" ]]; then
+        echo "  Authentication: enabled (user: $username)"
+    else
+        echo "  Authentication: disabled"
+    fi
+    echo ""
+
+    # Step 6: Confirmation
+    echo -e "${YELLOW}Step 6/6: Confirmation${NC}"
+    if ! prompt_confirm "  Add this proxy" "y"; then
+        echo -e "${YELLOW}Operation cancelled${NC}"
+        return 0
+    fi
+    echo ""
+
+    # Add proxy to database
+    local proxy_id
+    proxy_id=$(add_external_proxy "$proxy_type" "$proxy_address" "$proxy_port" \
+        "$username" "$password" "$tls_server_name" "$allow_insecure")
+
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}Failed to add proxy${NC}" >&2
+        return 1
+    fi
+
+    echo ""
+    echo -e "${CYAN}Testing proxy connectivity...${NC}"
+    if test_proxy_connectivity "$proxy_id"; then
+        echo ""
+        echo -e "${GREEN}✓ Proxy added and tested successfully!${NC}"
+        echo ""
+        echo "Proxy ID: $proxy_id"
+        echo ""
+
+        # Offer to activate and enable automatically
+        if prompt_confirm "Do you want to activate this proxy now?" "y"; then
+            echo ""
+            if set_active_proxy "$proxy_id" && update_xray_outbounds "$proxy_id"; then
+                echo -e "${GREEN}✓ Proxy activated${NC}"
+
+                # Enable routing if not already enabled
+                local routing_enabled
+                routing_enabled=$(jq -r '.enabled' "$EXTERNAL_PROXY_DB" 2>/dev/null || echo "false")
+
+                if [[ "$routing_enabled" != "true" ]]; then
+                    if prompt_confirm "Enable external proxy routing?" "y"; then
+                        echo ""
+                        if enable_external_proxy_routing; then
+                            echo -e "${GREEN}✓ External proxy routing enabled${NC}"
+                        fi
+                    fi
+                fi
+
+                echo ""
+                echo -e "${YELLOW}⚠️  IMPORTANT: Restart Xray container to apply changes:${NC}"
+                echo "   sudo docker restart vless_xray"
+            else
+                echo -e "${RED}Failed to activate proxy${NC}"
+                echo "You can activate it manually:"
+                echo "  vless-external-proxy switch $proxy_id"
+            fi
+        else
+            echo "You can activate it later:"
+            echo "  1. Activate: vless-external-proxy switch $proxy_id"
+            echo "  2. Enable: vless-external-proxy enable"
+            echo "  3. Restart: docker restart vless_xray"
+        fi
+    else
+        echo ""
+        echo -e "${YELLOW}⚠️  Proxy added but connectivity test failed${NC}"
+        echo "Proxy ID: $proxy_id"
+        echo ""
+        echo "You can:"
+        echo "  - Check proxy configuration: vless-external-proxy show $proxy_id"
+        echo "  - Test again later: vless-external-proxy test $proxy_id"
+        echo "  - Remove if incorrect: vless-external-proxy remove $proxy_id"
+    fi
+
+    return 0
+}
+
+# Command: list - List all configured proxies
+cmd_list() {
+    list_external_proxies
+}
+
+# Command: show - Show detailed proxy information
+cmd_show() {
+    local proxy_id="${1:-}"
+
+    if [[ -z "$proxy_id" ]]; then
+        echo -e "${RED}Error: Proxy ID required${NC}" >&2
+        echo "Usage: $(basename "$0") show <proxy-id>" >&2
+        return 1
+    fi
+
+    local proxy_json
+    proxy_json=$(get_external_proxy "$proxy_id" 2>/dev/null) || {
+        echo -e "${RED}Proxy not found: $proxy_id${NC}" >&2
+        return 1
+    }
+
+    echo -e "${CYAN}Proxy Details:${NC}"
+    echo ""
+
+    # Parse and display proxy information
+    echo "  ID: $(echo "$proxy_json" | jq -r '.id')"
+    echo "  Type: $(echo "$proxy_json" | jq -r '.type')"
+    echo "  Address: $(echo "$proxy_json" | jq -r '.address'):$(echo "$proxy_json" | jq -r '.port')"
+
+    local tls_enabled
+    tls_enabled=$(echo "$proxy_json" | jq -r '.tls.enabled')
+    if [[ "$tls_enabled" == "true" ]]; then
+        echo "  TLS: enabled"
+        echo "    Server Name: $(echo "$proxy_json" | jq -r '.tls.server_name')"
+        echo "    Allow Insecure: $(echo "$proxy_json" | jq -r '.tls.allow_insecure')"
+    else
+        echo "  TLS: disabled"
+    fi
+
+    local auth_username
+    auth_username=$(echo "$proxy_json" | jq -r '.auth.username // empty')
+    if [[ -n "$auth_username" ]]; then
+        echo "  Authentication: enabled"
+        echo "    Username: $auth_username"
+    else
+        echo "  Authentication: disabled"
+    fi
+
+    local active
+    active=$(echo "$proxy_json" | jq -r '.active')
+    if [[ "$active" == "true" ]]; then
+        echo "  Status: ${GREEN}✓ ACTIVE${NC}"
+    else
+        echo "  Status: ${YELLOW}✗ INACTIVE${NC}"
+    fi
+
+    # Test results
+    local test_result
+    test_result=$(echo "$proxy_json" | jq -r '.metadata.test_result.status // "never tested"')
+    echo ""
+    echo "  Last Test: $test_result"
+    if [[ "$test_result" == "success" ]]; then
+        local latency
+        latency=$(echo "$proxy_json" | jq -r '.metadata.test_result.latency_ms')
+        echo "    Latency: ${latency}ms"
+    fi
+
+    # Timestamps
+    echo ""
+    echo "  Created: $(echo "$proxy_json" | jq -r '.metadata.created')"
+    echo "  Last Modified: $(echo "$proxy_json" | jq -r '.metadata.last_modified')"
+
+    return 0
+}
+
+# Command: switch - Switch to different proxy (activate)
+cmd_switch() {
+    local proxy_id="${1:-}"
+
+    if [[ -z "$proxy_id" ]]; then
+        echo -e "${RED}Error: Proxy ID required${NC}" >&2
+        echo "Usage: $(basename "$0") switch <proxy-id>" >&2
+        return 1
+    fi
+
+    echo -e "${CYAN}Switching to proxy: $proxy_id${NC}"
+    echo ""
+
+    # Activate proxy
+    if ! set_active_proxy "$proxy_id"; then
+        return 1
+    fi
+
+    # Update Xray outbounds
+    echo ""
+    if ! update_xray_outbounds "$proxy_id"; then
+        echo -e "${RED}Failed to update Xray configuration${NC}" >&2
+        return 1
+    fi
+
+    echo ""
+    echo -e "${GREEN}✓ Proxy switched successfully${NC}"
+    echo ""
+    echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
+    echo "   docker restart vless_xray"
+
+    return 0
+}
+
+# Command: update - Update proxy configuration
+cmd_update() {
+    local proxy_id="${1:-}"
+
+    if [[ -z "$proxy_id" ]]; then
+        echo -e "${RED}Error: Proxy ID required${NC}" >&2
+        echo "Usage: $(basename "$0") update <proxy-id>" >&2
+        return 1
+    fi
+
+    # Check if proxy exists
+    if ! get_external_proxy "$proxy_id" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    echo -e "${CYAN}Update Proxy Configuration: $proxy_id${NC}"
+    echo ""
+    echo "Select field to update:"
+    echo "  1) Address"
+    echo "  2) Port"
+    echo "  3) Username"
+    echo "  4) Password"
+    echo "  0) Cancel"
+    echo ""
+
+    local choice
+    read -r -p "Select field [0-4]: " choice
+
+    case "$choice" in
+        1)
+            local new_address
+            new_address=$(prompt_input "New address")
+            update_external_proxy "$proxy_id" "address" "$new_address"
+            ;;
+        2)
+            local new_port
+            new_port=$(prompt_input "New port" "" "validate_port")
+            update_external_proxy "$proxy_id" "port" "$new_port"
+            ;;
+        3)
+            local new_username
+            new_username=$(prompt_input "New username")
+            update_external_proxy "$proxy_id" "username" "$new_username"
+            ;;
+        4)
+            local new_password
+            new_password=$(prompt_input "New password")
+            update_external_proxy "$proxy_id" "password" "$new_password"
+            ;;
+        0)
+            echo "Operation cancelled"
+            return 0
+            ;;
+        *)
+            echo -e "${RED}Invalid choice${NC}" >&2
+            return 1
+            ;;
+    esac
+
+    # If this is the active proxy, update Xray config
+    local is_active
+    is_active=$(jq -r --arg id "$proxy_id" '.proxies[] | select(.id == $id) | .active' \
+        "$EXTERNAL_PROXY_DB" 2>/dev/null || echo "false")
+
+    if [[ "$is_active" == "true" ]]; then
+        echo ""
+        echo "This is the active proxy. Updating Xray configuration..."
+        update_xray_outbounds "$proxy_id"
+        echo ""
+        echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
+        echo "   docker restart vless_xray"
+    fi
+
+    return 0
+}
+
+# Command: remove - Remove proxy from database
+cmd_remove() {
+    local proxy_id="${1:-}"
+
+    if [[ -z "$proxy_id" ]]; then
+        echo -e "${RED}Error: Proxy ID required${NC}" >&2
+        echo "Usage: $(basename "$0") remove <proxy-id>" >&2
+        return 1
+    fi
+
+    echo -e "${CYAN}Remove Proxy: $proxy_id${NC}"
+    echo ""
+
+    # Check if proxy is active
+    local is_active
+    is_active=$(jq -r --arg id "$proxy_id" '.proxies[] | select(.id == $id) | .active' \
+        "$EXTERNAL_PROXY_DB" 2>/dev/null || echo "false")
+
+    if [[ "$is_active" == "true" ]]; then
+        echo -e "${YELLOW}⚠️  WARNING: This is the active proxy${NC}"
+        echo "Removing it will disable external proxy routing"
+        echo ""
+    fi
+
+    if ! prompt_confirm "Are you sure you want to remove this proxy" "n"; then
+        echo "Operation cancelled"
+        return 0
+    fi
+
+    # Remove proxy
+    if ! remove_external_proxy "$proxy_id"; then
+        return 1
+    fi
+
+    # If it was active, remove outbound from Xray config
+    if [[ "$is_active" == "true" ]]; then
+        echo ""
+        echo "Removing proxy from Xray configuration..."
+        remove_xray_outbound
+        disable_proxy_routing
+        echo ""
+        echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
+        echo "   docker restart vless_xray"
+    fi
+
+    return 0
+}
+
+# Command: test - Test proxy connectivity
+cmd_test() {
+    local proxy_id="${1:-}"
+
+    if [[ -z "$proxy_id" ]]; then
+        echo -e "${RED}Error: Proxy ID required${NC}" >&2
+        echo "Usage: $(basename "$0") test <proxy-id>" >&2
+        return 1
+    fi
+
+    test_proxy_connectivity "$proxy_id"
+}
+
+# Command: enable - Enable routing through external proxy
+cmd_enable() {
+    echo -e "${CYAN}Enable External Proxy Routing${NC}"
+    echo ""
+
+    # Check if there's an active proxy
+    local active_proxy_id
+    active_proxy_id=$(jq -r '.proxies[] | select(.active == true) | .id' \
+        "$EXTERNAL_PROXY_DB" 2>/dev/null || echo "")
+
+    if [[ -z "$active_proxy_id" ]]; then
+        echo -e "${YELLOW}⚠️  No active proxy found${NC}"
+        echo ""
+        echo "Please activate a proxy first:"
+        echo "  1. List proxies: vless-external-proxy list"
+        echo "  2. Switch to proxy: vless-external-proxy switch <proxy-id>"
+        echo ""
+        echo "Or add a new proxy:"
+        echo "  vless-external-proxy add"
+        return 1
+    fi
+
+    echo "Active proxy: $active_proxy_id"
+    echo ""
+
+    # Enable routing
+    if ! enable_proxy_routing; then
+        return 1
+    fi
+
+    # Automatically restart Xray container to apply changes
+    echo ""
+    echo -e "${CYAN}Restarting Xray container...${NC}"
+    if docker restart vless_xray >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
+
+        # Wait for container to be healthy
+        echo "  Waiting for container to be ready..."
+        sleep 3
+
+        local container_status
+        container_status=$(docker inspect -f '{{.State.Status}}' vless_xray 2>/dev/null || echo "unknown")
+
+        if [[ "$container_status" == "running" ]]; then
+            echo -e "${GREEN}✓ External proxy routing is now active${NC}"
+        else
+            echo -e "${YELLOW}⚠️  Container restarted but status is: $container_status${NC}"
+            echo "  Check logs: docker logs vless_xray"
+        fi
+    else
+        echo -e "${RED}✗ Failed to restart Xray container${NC}" >&2
+        echo "  Please restart manually: docker restart vless_xray"
+        return 1
+    fi
+
+    return 0
+}
+
+# Command: disable - Disable external proxy routing
+cmd_disable() {
+    echo -e "${CYAN}Disable External Proxy Routing${NC}"
+    echo ""
+
+    if prompt_confirm "Disable external proxy routing (traffic will go direct)" "y"; then
+        if ! disable_proxy_routing; then
+            return 1
+        fi
+
+        # Automatically restart Xray container to apply changes
+        echo ""
+        echo -e "${CYAN}Restarting Xray container...${NC}"
+        if docker restart vless_xray >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
+
+            # Wait for container to be healthy
+            echo "  Waiting for container to be ready..."
+            sleep 3
+
+            local container_status
+            container_status=$(docker inspect -f '{{.State.Status}}' vless_xray 2>/dev/null || echo "unknown")
+
+            if [[ "$container_status" == "running" ]]; then
+                echo -e "${GREEN}✓ External proxy routing is now disabled (direct mode)${NC}"
+            else
+                echo -e "${YELLOW}⚠️  Container restarted but status is: $container_status${NC}"
+                echo "  Check logs: docker logs vless_xray"
+            fi
+        else
+            echo -e "${RED}✗ Failed to restart Xray container${NC}" >&2
+            echo "  Please restart manually: docker restart vless_xray"
+            return 1
+        fi
+    else
+        echo "Operation cancelled"
+    fi
+
+    return 0
+}
+
+# Command: status - Show current routing status
+cmd_status() {
+    get_routing_status
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}Error: This script must be run as root${NC}" >&2
+        echo "Please use: sudo $(basename "$0") $*" >&2
+        exit 1
+    fi
+
+    # Check if VLESS is installed
+    if [[ ! -d "$INSTALL_ROOT" ]]; then
+        echo -e "${RED}Error: VLESS installation not found${NC}" >&2
+        echo "Please install VLESS first" >&2
+        exit 1
+    fi
+
+    # Parse command
+    local command="${1:-}"
+
+    if [[ -z "$command" ]]; then
+        show_usage
+        exit 0
+    fi
+
+    shift || true
+
+    case "$command" in
+        add)
+            cmd_add "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        show)
+            cmd_show "$@"
+            ;;
+        switch)
+            cmd_switch "$@"
+            ;;
+        update)
+            cmd_update "$@"
+            ;;
+        remove)
+            cmd_remove "$@"
+            ;;
+        test)
+            cmd_test "$@"
+            ;;
+        enable)
+            cmd_enable "$@"
+            ;;
+        disable)
+            cmd_disable "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        -h|--help|help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Error: Unknown command: $command${NC}" >&2
+            echo ""
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"

@@ -22,7 +22,7 @@ HAPROXY_CONFIG="${VLESS_DIR}/config/haproxy.cfg"
 HAPROXY_CONTAINER="vless_haproxy"
 
 # Source container management module (v5.22)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -z "${SCRIPT_DIR:-}" ]] && SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/container_management.sh" ]; then
     source "${SCRIPT_DIR}/container_management.sh"
 fi
@@ -44,6 +44,7 @@ log_error() {
 #   $1 - vless_domain: Domain for VLESS Reality (e.g., vless.ikeniborn.ru)
 #   $2 - main_domain: Main domain for certificates (e.g., ikeniborn.ru)
 #   $3 - stats_password: Password for stats page (optional)
+#   $4 - enable_public_proxy: Enable public proxy frontends (true/false, default: false)
 #
 # Returns:
 #   0 on success, 1 on failure
@@ -52,16 +53,25 @@ log_error() {
 #   Creates /opt/vless/config/haproxy.cfg
 #
 # Example:
-#   generate_haproxy_config "vless.ikeniborn.ru" "ikeniborn.ru" "admin123"
+#   generate_haproxy_config "vless.ikeniborn.ru" "ikeniborn.ru" "admin123" "true"
+#
+# v5.26 Changes:
+#   - Added enable_reverse_proxy parameter for conditional reverse proxy support
+#   - Reverse proxy ACL section generated conditionally
+#   - Public proxy frontends (ports 1080/8118) generated conditionally
 # =============================================================================
 generate_haproxy_config() {
     local vless_domain="${1:-vless.example.com}"
     local main_domain="${2:-example.com}"
     local stats_password="${3:-$(openssl rand -hex 8)}"
+    local enable_public_proxy="${4:-false}"
+    local enable_reverse_proxy="${5:-false}"
 
-    log "Generating unified haproxy.cfg (v4.3)"
+    log "Generating unified haproxy.cfg (v5.26)"
     log "  VLESS Domain: ${vless_domain}"
     log "  Main Domain: ${main_domain}"
+    log "  Public Proxy: ${enable_public_proxy}"
+    log "  Reverse Proxy: ${enable_reverse_proxy}"
 
     # Create backup if file exists
     if [ -f "${HAPROXY_CONFIG}" ]; then
@@ -72,73 +82,10 @@ generate_haproxy_config() {
     # Create config directory if not exists
     mkdir -p "$(dirname "${HAPROXY_CONFIG}")"
 
-    # Generate haproxy.cfg via heredoc
-    cat > "${HAPROXY_CONFIG}" <<EOF
-# ==============================================================================
-# HAProxy Configuration (v4.3 Unified Solution)
-# Generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-# ==============================================================================
-
-# ==============================================================================
-# Global Settings
-# ==============================================================================
-global
-    log stdout format raw local0
-    maxconn 4096
-
-    # DH parameters for TLS
-    tune.ssl.default-dh-param 2048
-
-    # SSL/TLS configuration (TLS 1.3 ONLY per NFR-SEC-001)
-    # NOTE: ssl-default-bind-ciphers is for TLS 1.2 and below (NOT used for TLS 1.3)
-    # For TLS 1.3 ONLY, use ssl-default-bind-ciphersuites exclusively
-    ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
-    ssl-default-bind-options ssl-min-ver TLSv1.3
-
-    # NOTE: user/group directives removed for bridge network mode (v4.3)
-    # HAProxy Alpine image runs as user haproxy (uid=99) with NET_BIND_SERVICE capability
-    # This allows binding to privileged ports (443/1080/8118) without running as root
-
-# ==============================================================================
-# Default Settings
-# ==============================================================================
-defaults
-    log global
-    timeout connect 5s
-    timeout client 50s
-    timeout server 50s
-    option dontlognull
-
-# ==============================================================================
-# Frontend 1: Port 443 - SNI-based Routing (NO TLS termination)
-# Routes traffic based on Server Name Indication to appropriate backend
-# ==============================================================================
-frontend https_sni_router
-    bind *:443
-    mode tcp
-    option tcplog
-
-    # Enable SNI inspection (read SNI from TLS ClientHello without decrypting)
-    tcp-request inspect-delay 5s
-    tcp-request content accept if { req_ssl_hello_type 1 }
-
-    # ========== Dynamic ACLs for Reverse Proxies ==========
-    # Populated dynamically via add_reverse_proxy_route()
-    # Format:
-    #   acl is_<domain_safe> req_ssl_sni -i <domain>
-    #   use_backend nginx_<domain_safe> if is_<domain_safe>
-    # =======================================================
-
-    # Default: forward to VLESS Reality (handles all non-reverse-proxy traffic)
-    # NOTE: VLESS Reality uses SNI of destination site (e.g., www.google.com),
-    #       NOT the server domain. Therefore, VLESS must be default backend.
-    #       Reverse proxy domains use explicit ACLs above.
-    default_backend xray_vless
-
-# Backend for VLESS Reality (TCP passthrough, NO TLS termination)
-backend xray_vless
-    mode tcp
-    server xray vless_xray:8443 check inter 10s fall 3 rise 2
+    # Generate public proxy sections conditionally (v5.25)
+    local public_proxy_sections=""
+    if [[ "${enable_public_proxy}" == "true" ]]; then
+        public_proxy_sections=$(cat <<'PROXY_SECTIONS'
 
 # ==============================================================================
 # Frontend 2: Port 1080 - SOCKS5 TLS Termination
@@ -185,6 +132,115 @@ frontend http_proxy_tls
 backend xray_http_plaintext
     mode tcp
     server xray vless_xray:18118 check inter 10s fall 3 rise 2
+PROXY_SECTIONS
+)
+        # Replace ${main_domain} in the heredoc with actual value
+        public_proxy_sections="${public_proxy_sections//\$\{main_domain\}/${main_domain}}"
+    else
+        public_proxy_sections=$(cat <<'VLESS_ONLY_COMMENT'
+
+# ==============================================================================
+# Public Proxy Frontends (DISABLED in VLESS-only mode)
+# ==============================================================================
+# To enable public proxy (SOCKS5 + HTTP with TLS termination):
+#   1. Set ENABLE_PUBLIC_PROXY=true in installation
+#   2. Configure domain and obtain Let's Encrypt certificate
+#   3. Regenerate HAProxy configuration
+#
+# Public proxy provides:
+#   - SOCKS5 TLS: Port 1080 (socks5s://)
+#   - HTTP TLS: Port 8118 (https://)
+# ==============================================================================
+VLESS_ONLY_COMMENT
+)
+    fi
+
+    # Generate reverse proxy ACL section conditionally (v5.26)
+    local reverse_proxy_acl_section=""
+    if [[ "${enable_reverse_proxy}" == "true" ]]; then
+        reverse_proxy_acl_section=$(cat <<'REVERSE_PROXY_ACL'
+
+    # ========== Dynamic ACLs for Reverse Proxies (v5.26) ==========
+    # Populated dynamically via add_reverse_proxy_route()
+    # Format:
+    #   acl is_<domain_safe> req_ssl_sni -i <domain>
+    #   use_backend nginx_<domain_safe> if is_<domain_safe>
+    # =======================================================
+REVERSE_PROXY_ACL
+)
+    else
+        reverse_proxy_acl_section=$(cat <<'NO_REVERSE_PROXY'
+
+    # ========== Reverse Proxy ACLs: DISABLED (v5.26) ==========
+    # Reverse proxy feature was not enabled during installation
+    # To enable: reinstall with reverse proxy option enabled
+    # ===========================================================
+NO_REVERSE_PROXY
+)
+    fi
+
+    # Generate haproxy.cfg via heredoc
+    cat > "${HAPROXY_CONFIG}" <<EOF
+# ==============================================================================
+# HAProxy Configuration (v4.3 Unified Solution)
+# Generated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# ==============================================================================
+
+# ==============================================================================
+# Global Settings
+# ==============================================================================
+global
+    log stdout format raw local0
+    maxconn 4096
+
+    # DH parameters for TLS
+    tune.ssl.default-dh-param 2048
+
+    # SSL/TLS configuration (TLS 1.3 ONLY per NFR-SEC-001)
+    # NOTE: ssl-default-bind-ciphers is for TLS 1.2 and below (NOT used for TLS 1.3)
+    # For TLS 1.3 ONLY, use ssl-default-bind-ciphersuites exclusively
+    ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+    ssl-default-bind-options ssl-min-ver TLSv1.3
+
+    # NOTE: user/group directives removed for bridge network mode (v4.3)
+    # HAProxy Alpine image runs as user haproxy (uid=99) with NET_BIND_SERVICE capability
+    # This allows binding to privileged ports (443/1080/8118) without running as root
+
+# ==============================================================================
+# Default Settings
+# ==============================================================================
+defaults
+    log global
+    timeout connect 15s
+    timeout client 300s
+    timeout server 300s
+    option dontlognull
+
+# ==============================================================================
+# Frontend 1: Port 443 - SNI-based Routing (NO TLS termination)
+# Routes traffic based on Server Name Indication to appropriate backend
+# ==============================================================================
+frontend https_sni_router
+    bind *:443
+    mode tcp
+    option tcplog
+
+    # Enable SNI inspection (read SNI from TLS ClientHello without decrypting)
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req_ssl_hello_type 1 }
+${reverse_proxy_acl_section}
+
+    # Default: forward to VLESS Reality (handles all non-reverse-proxy traffic)
+    # NOTE: VLESS Reality uses SNI of destination site (e.g., www.google.com),
+    #       NOT the server domain. Therefore, VLESS must be default backend.
+    #       Reverse proxy domains use explicit ACLs above.
+    default_backend xray_vless
+
+# Backend for VLESS Reality (TCP passthrough, NO TLS termination)
+backend xray_vless
+    mode tcp
+    server xray vless_xray:8443 check inter 10s fall 3 rise 2
+${public_proxy_sections}
 
 # ==============================================================================
 # Stats Page (localhost only)

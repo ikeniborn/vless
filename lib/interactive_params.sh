@@ -27,6 +27,10 @@ export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
 export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/false)
 export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
 export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
+export ENABLE_REVERSE_PROXY=""  # v5.26: Reverse proxy feature (subdomain-based access)
+export DETECTED_DNS_PRIMARY=""    # v5.32: Primary DNS server (user-selected or auto-detected)
+export DETECTED_DNS_SECONDARY=""  # v5.32: Secondary DNS server (user-selected or auto-detected)
+export DETECTED_DNS_TERTIARY=""   # v5.32: Tertiary DNS server (user-selected or auto-detected)
 
 # Color codes for output
 # Only define if not already set (to avoid conflicts when sourced after install.sh)
@@ -104,6 +108,12 @@ collect_parameters() {
         }
     fi
 
+    # Step 4.5: Prompt for reverse proxy (v5.26) - always ask
+    prompt_enable_reverse_proxy || {
+        echo -e "${RED}Failed to configure reverse proxy settings${NC}" >&2
+        return 1
+    }
+
     # Step 5: Confirm all parameters
     confirm_parameters || {
         echo -e "${YELLOW}Configuration cancelled by user${NC}"
@@ -180,6 +190,15 @@ select_destination_site() {
                     REALITY_DEST="$dest_host"
                     REALITY_DEST_PORT="$dest_port"
                     echo -e "${GREEN}✓ Custom destination validated successfully${NC}"
+
+                    # v5.25: Automatic DNS detection
+                    if detect_optimal_dns "$dest_host"; then
+                        prompt_dns_selection
+                    else
+                        echo -e "${YELLOW}⚠ DNS auto-detection failed, using system DNS${NC}"
+                        DETECTED_DNS=""
+                    fi
+
                     return 0
                 else
                     echo -e "${RED}✗ Validation failed for ${dest_host}:${dest_port}${NC}"
@@ -206,6 +225,15 @@ select_destination_site() {
             REALITY_DEST="$dest_host"
             REALITY_DEST_PORT="$dest_port"
             echo -e "${GREEN}✓ Destination validated successfully${NC}"
+
+            # v5.25: Automatic DNS detection
+            if detect_optimal_dns "$dest_host"; then
+                prompt_dns_selection
+            else
+                echo -e "${YELLOW}⚠ DNS auto-detection failed, using system DNS${NC}"
+                DETECTED_DNS=""
+            fi
+
             echo ""
             return 0
         else
@@ -565,6 +593,22 @@ confirm_parameters() {
     else
         echo -e "  ${YELLOW}Proxy Mode:${NC}          ${YELLOW}VLESS-ONLY MODE${NC}"
     fi
+
+    # v5.26: Display reverse proxy status
+    if [[ "$ENABLE_REVERSE_PROXY" == "true" ]]; then
+        echo -e "  ${YELLOW}Reverse Proxy:${NC}       ${GREEN}Enabled${NC}"
+    else
+        echo -e "  ${YELLOW}Reverse Proxy:${NC}       ${YELLOW}Disabled${NC}"
+    fi
+
+    # v5.32: Display DNS configuration (3 servers)
+    if [[ -n "${DETECTED_DNS_PRIMARY}" ]]; then
+        echo ""
+        echo -e "  ${YELLOW}DNS Configuration:${NC}"
+        echo -e "    ${GREEN}Primary:${NC}   ${DETECTED_DNS_PRIMARY}"
+        echo -e "    ${GREEN}Secondary:${NC} ${DETECTED_DNS_SECONDARY}"
+        echo -e "    ${GREEN}Tertiary:${NC}  ${DETECTED_DNS_TERTIARY}"
+    fi
     echo ""
 
     local confirm
@@ -749,6 +793,96 @@ get_server_public_ip() {
     ip="Unable to detect"
 
     echo "$ip"
+}
+
+# =============================================================================
+# FUNCTION: prompt_enable_reverse_proxy
+# =============================================================================
+# Description: Ask user if they want to enable reverse proxy feature
+# Sets: ENABLE_REVERSE_PROXY (true/false)
+# Returns: 0 always
+# Related: v5.26 Reverse Proxy Optional Installation
+# =============================================================================
+prompt_enable_reverse_proxy() {
+    echo ""
+    echo "═════════════════════════════════════════════════════"
+    echo "  REVERSE PROXY CONFIGURATION (v5.26)"
+    echo "═════════════════════════════════════════════════════"
+    echo ""
+    echo "Reverse Proxy allows accessing blocked websites through subdomains:"
+    echo ""
+    echo "Example:"
+    echo "  • Setup: sudo vless-proxy add claude.ai"
+    echo "  • Access: https://your-domain (via SNI routing)"
+    echo "  • NO port number needed (HAProxy handles routing)"
+    echo ""
+    echo "Architecture: Client → HAProxy (SNI) → Nginx → Blocked Site"
+    echo ""
+    echo -e "${YELLOW}What will be enabled:${NC}"
+    echo "  • Nginx reverse proxy container (nginx:alpine)"
+    echo "  • HAProxy dynamic ACL routing section"
+    echo "  • CLI tools: vless-proxy, vless-setup-proxy"
+    echo "  • Directory: /opt/vless/config/reverse-proxy/"
+    echo ""
+    echo -e "${YELLOW}Resource usage:${NC}"
+    echo "  • ~50-100MB RAM (nginx container)"
+    echo "  • Minimal CPU usage when idle"
+    echo ""
+    echo -e "${YELLOW}⚠️  Note:${NC}"
+    echo "  • Requires domain + Let's Encrypt certificate"
+    echo "  • Can be configured after installation via vless-proxy"
+    echo "  • If you skip now, reinstallation required to enable"
+    echo ""
+
+    local response
+    while true; do
+        read -r -p "Enable reverse proxy feature? [y/N]: " response
+        response=${response,,}  # Convert to lowercase
+        response=${response:-n}  # Default to 'n'
+
+        case "$response" in
+            y|yes)
+                ENABLE_REVERSE_PROXY="true"
+                echo ""
+                echo -e "${GREEN}✓ Reverse proxy feature enabled${NC}"
+                echo "  You can add reverse proxies after installation"
+                echo "  Command: sudo vless-proxy add <domain>"
+                echo ""
+                break
+                ;;
+            n|no)
+                ENABLE_REVERSE_PROXY="false"
+                echo ""
+                echo -e "${YELLOW}⊗ Reverse proxy feature DISABLED${NC}"
+                echo ""
+                echo -e "${RED}⚠️  IMPORTANT:${NC}"
+                echo "  • Nginx container will NOT be installed"
+                echo "  • CLI tools (vless-proxy) will NOT be installed"
+                echo "  • To enable later, reinstallation required"
+                echo ""
+
+                local confirm
+                read -r -p "Proceed without reverse proxy? [Y/n]: " confirm
+                confirm=${confirm,,}
+                confirm=${confirm:-y}
+
+                if [[ "$confirm" == "y" || "$confirm" == "yes" ]]; then
+                    echo -e "${GREEN}✓ Installation will proceed without reverse proxy${NC}"
+                    echo ""
+                    break
+                else
+                    # User wants to reconsider
+                    continue
+                fi
+                ;;
+            *)
+                echo -e "${RED}Invalid response. Please enter 'y' or 'n'${NC}"
+                ;;
+        esac
+    done
+
+    export ENABLE_REVERSE_PROXY
+    return 0
 }
 
 # =============================================================================
@@ -956,6 +1090,363 @@ prompt_enable_public_proxy() {
 }
 
 # =============================================================================
+# FUNCTION: test_dns_server
+# =============================================================================
+# Description: Test DNS resolution speed for a specific DNS server
+# Arguments:
+#   $1 - dns_server: DNS server IP address (e.g., "8.8.8.8")
+#   $2 - test_domain: Domain to resolve (e.g., "www.google.com")
+# Returns: Resolution time in milliseconds (or 9999 if failed)
+# Example: test_dns_server "8.8.8.8" "www.google.com"
+# v5.25: DNS auto-detection feature
+# =============================================================================
+test_dns_server() {
+    local dns_server="$1"
+    local test_domain="$2"
+    local timeout_seconds=2
+
+    # Check if dig is available
+    if ! command -v dig &>/dev/null; then
+        echo "9999"
+        return 1
+    fi
+
+    # Test DNS resolution and extract query time
+    local result
+    result=$(dig +time="${timeout_seconds}" +tries=1 "@${dns_server}" "${test_domain}" 2>/dev/null | grep "Query time:" | awk '{print $4}')
+
+    # Return 9999 if resolution failed or no result
+    if [[ -z "$result" ]] || [[ "$result" == "0" ]]; then
+        echo "9999"
+        return 1
+    fi
+
+    echo "$result"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: detect_optimal_dns
+# =============================================================================
+# Description: Test multiple DNS servers and find the fastest one
+# Arguments:
+#   $1 - test_domain: Domain to test DNS resolution (typically REALITY_DEST)
+# Side effects: Sets global array DNS_TEST_RESULTS with format "DNS_IP:TIME_MS:NAME"
+# Returns: 0 on success (at least one DNS working), 1 if all failed
+# v5.25: DNS auto-detection feature
+# =============================================================================
+detect_optimal_dns() {
+    local test_domain="$1"
+
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}[AUTO] Detecting Optimal DNS Server for ${test_domain}${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Check if dig is installed
+    if ! command -v dig &>/dev/null; then
+        echo -e "${YELLOW}⚠ 'dig' utility not found, installing dnsutils...${NC}"
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y dnsutils >/dev/null 2>&1
+        elif command -v yum &>/dev/null; then
+            sudo yum install -y bind-utils >/dev/null 2>&1
+        else
+            echo -e "${RED}Cannot install DNS utilities. Using system DNS.${NC}"
+            DETECTED_DNS=""
+            return 1
+        fi
+    fi
+
+    # Get system DNS from /etc/resolv.conf
+    local system_dns
+    system_dns=$(grep -m 1 "^nameserver" /etc/resolv.conf 2>/dev/null | awk '{print $2}')
+
+    # DNS servers to test (v5.32: expanded to 12 servers)
+    # Global DNS providers
+    declare -A dns_servers
+    dns_servers=(
+        # Global DNS providers
+        ["1.1.1.1"]="Cloudflare"
+        ["8.8.8.8"]="Google"
+        ["9.9.9.9"]="Quad9"
+        ["208.67.222.222"]="OpenDNS"
+        # Russian DNS providers - Yandex (3 modes)
+        ["77.88.8.8"]="Yandex Basic"
+        ["77.88.8.1"]="Yandex Basic (Secondary)"
+        ["77.88.8.88"]="Yandex Safe"
+        ["77.88.8.2"]="Yandex Safe (Secondary)"
+        ["77.88.8.7"]="Yandex Family"
+        ["77.88.8.3"]="Yandex Family (Secondary)"
+        # ISP DNS providers
+        ["194.67.2.114"]="Beeline"
+        ["194.67.1.154"]="Beeline (Secondary)"
+    )
+
+    # Add system DNS if available and not already in list
+    if [[ -n "$system_dns" ]] && [[ ! "${dns_servers[$system_dns]+isset}" ]]; then
+        dns_servers["$system_dns"]="System"
+    fi
+
+    echo "Testing DNS servers (this may take a few seconds)..."
+    echo ""
+
+    # Test all DNS servers
+    declare -g -A DNS_TEST_RESULTS
+    DNS_TEST_RESULTS=()
+
+    for dns_ip in "${!dns_servers[@]}"; do
+        local dns_name="${dns_servers[$dns_ip]}"
+        echo -n "  Testing ${dns_name} (${dns_ip})... "
+
+        local time_ms
+        time_ms=$(test_dns_server "$dns_ip" "$test_domain")
+
+        if [[ "$time_ms" == "9999" ]]; then
+            echo -e "${RED}FAILED${NC}"
+        else
+            echo -e "${GREEN}${time_ms} ms${NC}"
+            DNS_TEST_RESULTS["$dns_ip"]="${time_ms}:${dns_name}"
+        fi
+    done
+
+    echo ""
+
+    # Check if at least one DNS worked
+    if [[ ${#DNS_TEST_RESULTS[@]} -eq 0 ]]; then
+        echo -e "${RED}✗ All DNS servers failed. Using system DNS.${NC}"
+        DETECTED_DNS=""
+        return 1
+    fi
+
+    echo -e "${GREEN}✓ DNS testing completed${NC}"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: prompt_dns_selection
+# =============================================================================
+# Description: Display DNS test results and prompt user to select up to 3 DNS servers
+# Side effects: Sets DETECTED_DNS_PRIMARY/SECONDARY/TERTIARY global variables
+# Arguments: None (uses global DNS_TEST_RESULTS from detect_optimal_dns)
+# Returns: 0 on success
+# v5.32: Multiple DNS selection (up to 3 servers) with auto-select and fallback
+# =============================================================================
+prompt_dns_selection() {
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}[SELECT] Choose DNS Servers (up to 3)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Sort DNS results by response time
+    local sorted_dns=()
+    while IFS= read -r line; do
+        sorted_dns+=("$line")
+    done < <(for dns_ip in "${!DNS_TEST_RESULTS[@]}"; do
+        local result="${DNS_TEST_RESULTS[$dns_ip]}"
+        local time_ms="${result%%:*}"
+        local dns_name="${result##*:}"
+        echo "${time_ms}:${dns_ip}:${dns_name}"
+    done | sort -n)
+
+    # Display top DNS servers
+    echo "Available DNS servers (sorted by speed):"
+    echo ""
+
+    local idx=1
+    declare -A menu_options
+    declare -A menu_names
+    declare -A menu_times
+    for entry in "${sorted_dns[@]}"; do
+        local time_ms="${entry%%:*}"
+        local rest="${entry#*:}"
+        local dns_ip="${rest%%:*}"
+        local dns_name="${rest##*:}"
+
+        echo "  ${idx}) ${dns_name} (${dns_ip}) - ${time_ms} ms"
+        menu_options["$idx"]="$dns_ip"
+        menu_names["$idx"]="$dns_name"
+        menu_times["$idx"]="$time_ms"
+        ((idx++))
+    done
+
+    echo "  ${idx}) Custom DNS server"
+    echo ""
+
+    # Get user selection (up to 3 DNS servers)
+    local choice
+    local max_option=$idx
+    local custom_option=$idx
+    local selected_ips=()
+    local selected_names=()
+    local selected_times=()
+
+    while true; do
+        echo -e "${YELLOW}Select up to 3 DNS servers:${NC}"
+        echo "  - Comma-separated numbers (e.g., '1,2,3')"
+        echo "  - Press ENTER to auto-select top 3 fastest"
+        echo ""
+        read -rp "Your choice [1-${max_option}]: " choice
+
+        # Auto-select top 3 if empty
+        if [[ -z "$choice" ]]; then
+            echo ""
+            echo -e "${CYAN}Auto-selecting top 3 fastest DNS servers...${NC}"
+            local count=0
+            for i in "${!menu_options[@]}"; do
+                if [[ $count -lt 3 ]]; then
+                    selected_ips+=("${menu_options[$i]}")
+                    selected_names+=("${menu_names[$i]}")
+                    selected_times+=("${menu_times[$i]}")
+                    ((count++))
+                fi
+            done
+            break
+        fi
+
+        # Parse comma or space-separated input
+        IFS=', ' read -ra dns_choices <<< "$choice"
+
+        # Validate each choice
+        local valid=true
+        local temp_ips=()
+        local temp_names=()
+        local temp_times=()
+
+        for c in "${dns_choices[@]}"; do
+            # Trim whitespace
+            c=$(echo "$c" | xargs)
+
+            # Skip empty values
+            [[ -z "$c" ]] && continue
+
+            # Validate number format
+            if ! [[ "$c" =~ ^[0-9]+$ ]]; then
+                echo -e "${RED}Invalid choice: '$c' (not a number)${NC}"
+                valid=false
+                break
+            fi
+
+            # Validate range
+            if [[ "$c" -lt 1 ]] || [[ "$c" -gt "$max_option" ]]; then
+                echo -e "${RED}Invalid choice: $c (must be 1-${max_option})${NC}"
+                valid=false
+                break
+            fi
+
+            # Handle custom DNS option
+            if [[ "$c" == "$custom_option" ]]; then
+                echo ""
+                echo -e "${YELLOW}Custom DNS Server${NC}"
+                echo "Enter DNS server IP address (e.g., 208.67.222.222 for OpenDNS)"
+                echo ""
+
+                local custom_dns
+                read -rp "DNS IP: " custom_dns
+
+                # Validate IP format
+                if [[ "$custom_dns" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                    temp_ips+=("$custom_dns")
+                    temp_names+=("Custom")
+                    temp_times+=("N/A")
+                else
+                    echo -e "${RED}Invalid IP address format${NC}"
+                    valid=false
+                    break
+                fi
+            else
+                # Check for duplicates
+                local dns_ip="${menu_options[$c]}"
+                local already_selected=false
+                for existing_ip in "${temp_ips[@]}"; do
+                    if [[ "$existing_ip" == "$dns_ip" ]]; then
+                        echo -e "${YELLOW}⚠ DNS ${menu_names[$c]} (${dns_ip}) already selected, skipping duplicate${NC}"
+                        already_selected=true
+                        break
+                    fi
+                done
+
+                if [[ "$already_selected" == false ]]; then
+                    temp_ips+=("$dns_ip")
+                    temp_names+=("${menu_names[$c]}")
+                    temp_times+=("${menu_times[$c]}")
+                fi
+            fi
+
+            # Limit to 3 DNS servers
+            if [[ ${#temp_ips[@]} -ge 3 ]]; then
+                break
+            fi
+        done
+
+        # Check if validation passed
+        if [[ "$valid" == false ]]; then
+            continue
+        fi
+
+        # Check if at least one DNS selected
+        if [[ ${#temp_ips[@]} -eq 0 ]]; then
+            echo -e "${RED}Please select at least one DNS server${NC}"
+            continue
+        fi
+
+        # Copy temp arrays to selected arrays
+        selected_ips=("${temp_ips[@]}")
+        selected_names=("${temp_names[@]}")
+        selected_times=("${temp_times[@]}")
+
+        break
+    done
+
+    # Fallback: auto-fill remaining slots with fastest DNS
+    if [[ ${#selected_ips[@]} -lt 3 ]]; then
+        echo ""
+        echo -e "${CYAN}Auto-filling remaining slots with fastest DNS...${NC}"
+
+        for i in "${!menu_options[@]}"; do
+            # Skip if already selected
+            local already_selected=false
+            for existing_ip in "${selected_ips[@]}"; do
+                if [[ "$existing_ip" == "${menu_options[$i]}" ]]; then
+                    already_selected=true
+                    break
+                fi
+            done
+
+            if [[ "$already_selected" == false ]]; then
+                selected_ips+=("${menu_options[$i]}")
+                selected_names+=("${menu_names[$i]}")
+                selected_times+=("${menu_times[$i]}")
+
+                # Stop when we have 3
+                if [[ ${#selected_ips[@]} -ge 3 ]]; then
+                    break
+                fi
+            fi
+        done
+    fi
+
+    # Assign to global variables
+    DETECTED_DNS_PRIMARY="${selected_ips[0]:-1.1.1.1}"
+    DETECTED_DNS_SECONDARY="${selected_ips[1]:-8.8.8.8}"
+    DETECTED_DNS_TERTIARY="${selected_ips[2]:-77.88.8.8}"
+
+    # Display selected DNS configuration
+    echo ""
+    echo -e "${GREEN}✓ Selected DNS servers:${NC}"
+    echo -e "  ${CYAN}Primary:${NC}   ${selected_names[0]:-Cloudflare} (${DETECTED_DNS_PRIMARY}) - ${selected_times[0]:-default} ms"
+    echo -e "  ${CYAN}Secondary:${NC} ${selected_names[1]:-Google} (${DETECTED_DNS_SECONDARY}) - ${selected_times[1]:-default} ms"
+    echo -e "  ${CYAN}Tertiary:${NC}  ${selected_names[2]:-Yandex Basic} (${DETECTED_DNS_TERTIARY}) - ${selected_times[2]:-default} ms"
+
+    export DETECTED_DNS_PRIMARY
+    export DETECTED_DNS_SECONDARY
+    export DETECTED_DNS_TERTIARY
+    echo ""
+    return 0
+}
+
+# =============================================================================
 # MODULE INITIALIZATION
 # =============================================================================
 
@@ -970,4 +1461,8 @@ export -f find_free_subnet
 export -f confirm_parameters
 export -f prompt_domain_email
 export -f get_server_public_ip
+export -f prompt_enable_reverse_proxy
 export -f prompt_enable_public_proxy
+export -f test_dns_server
+export -f detect_optimal_dns
+export -f prompt_dns_selection

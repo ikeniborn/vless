@@ -173,6 +173,125 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: create_xray_reality_filter (v5.32 DPI Hardening)
+# =============================================================================
+# Description: Create custom fail2ban filter for Xray Reality handshake failures
+# Purpose: Protect against active probing attacks (GFW-style)
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+create_xray_reality_filter() {
+    echo -e "${CYAN}Creating fail2ban filter for Reality handshakes...${NC}"
+
+    local filter_file="/etc/fail2ban/filter.d/xray-reality.conf"
+
+    cat > "$filter_file" <<'EOF'
+# Fail2ban filter for VLESS Reality Protocol (v5.32 DPI Hardening)
+#
+# Matches Xray Reality handshake failure patterns in error logs
+# Purpose: Detect and block active probing attacks
+#
+# Author: VLESS Reality VPN v5.32
+# Date: 2025-10-30
+
+[Definition]
+
+# Match Reality handshake failures
+failregex = ^.* rejected .* reality.*<HOST>.*$
+            ^.* invalid.*handshake.* from <HOST>.*$
+            ^.* invalid.*reality.* from <HOST>.*$
+            ^.* authentication.*failed.* from <HOST>.*$
+            ^.* connection.*rejected.* from <HOST>.*$
+            ^.* tls.*handshake.*failed.* from <HOST>.*$
+
+# Ignore successful connections
+ignoreregex = ^.* accepted .* from .*$
+              ^.* established .* from .*$
+              ^.* connected .* from .*$
+EOF
+
+    if [[ ! -f "$filter_file" ]]; then
+        echo -e "${RED}Failed to create filter file${NC}" >&2
+        return 1
+    fi
+
+    chmod 644 "$filter_file"
+    echo -e "${GREEN}✓ Reality filter created: $filter_file${NC}"
+    return 0
+}
+
+# =============================================================================
+# FUNCTION: create_xray_reality_jail (v5.32 DPI Hardening)
+# =============================================================================
+# Description: Create fail2ban jail for Reality handshake protection
+# Purpose: Ban IPs after 10 failed handshake attempts (active probing detection)
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+create_xray_reality_jail() {
+    echo -e "${CYAN}Creating fail2ban jail for Reality protection...${NC}"
+
+    local jail_file="/etc/fail2ban/jail.d/xray-reality.conf"
+    local haproxy_cfg="/opt/vless/config/haproxy.cfg"
+
+    # Extract VLESS frontend port from HAProxy config (dynamic port detection)
+    local vless_port="443"  # Default fallback
+    if [[ -f "$haproxy_cfg" ]]; then
+        # Extract port from "frontend vless_reality_frontend" section
+        vless_port=$(grep -A 5 "frontend vless_reality_frontend" "$haproxy_cfg" | grep "bind \*:" | sed -n 's/.*bind \*:\([0-9]*\).*/\1/p' | head -1)
+
+        # Fallback if extraction fails
+        if [[ -z "$vless_port" ]]; then
+            vless_port="443"
+        fi
+    fi
+
+    # Also protect internal Xray port (8443) if different from external
+    local xray_internal_port="8443"
+    local port_list="$vless_port"
+    if [[ "$vless_port" != "$xray_internal_port" ]]; then
+        port_list="$vless_port,$xray_internal_port"
+    fi
+
+    echo -e "${CYAN}Detected VLESS external port: $vless_port${NC}"
+
+    cat > "$jail_file" <<EOF
+# Fail2ban jail for VLESS Reality Protocol (v5.32 DPI Hardening)
+#
+# Protects VLESS Reality port ($vless_port) from active probing attacks
+# Port auto-detected from HAProxy configuration
+# Higher maxretry (10) to avoid blocking legitimate configuration errors
+#
+# Configuration:
+#   - port: $port_list (auto-detected)
+#   - maxretry: 10 failed handshakes (active probing threshold)
+#   - bantime: 3600 seconds (1 hour)
+#   - findtime: 300 seconds (5 minutes)
+#
+# Author: VLESS Reality VPN v5.32
+# Date: 2025-10-30
+
+[xray-reality]
+enabled  = true
+port     = $port_list
+protocol = tcp
+filter   = xray-reality
+logpath  = /opt/vless/logs/xray/error.log
+maxretry = 10
+bantime  = 3600
+findtime = 300
+action   = iptables-multiport[name=xray-reality, port="$port_list", protocol=tcp]
+EOF
+
+    if [[ ! -f "$jail_file" ]]; then
+        echo -e "${RED}Failed to create jail file${NC}" >&2
+        return 1
+    fi
+
+    chmod 644 "$jail_file"
+    echo -e "${GREEN}✓ Reality jail created: $jail_file (ports: $port_list)${NC}"
+    return 0
+}
+
+# =============================================================================
 # FUNCTION: reload_fail2ban
 # =============================================================================
 # Description: Reload fail2ban to apply new configuration
@@ -259,6 +378,16 @@ setup_fail2ban_for_proxy() {
         return 1
     fi
 
+    # Create Reality handshake filter (v5.32 DPI Hardening)
+    if ! create_xray_reality_filter; then
+        return 1
+    fi
+
+    # Create Reality handshake jail (v5.32 DPI Hardening)
+    if ! create_xray_reality_jail; then
+        return 1
+    fi
+
     # Reload fail2ban
     if ! reload_fail2ban; then
         return 1
@@ -271,18 +400,21 @@ setup_fail2ban_for_proxy() {
     fi
 
     echo ""
-    echo -e "${GREEN}✓ Fail2ban setup complete${NC}"
+    echo -e "${GREEN}✓ Fail2ban setup complete (v5.32 with DPI Hardening)${NC}"
     echo ""
     echo "Configuration:"
     echo "  - SOCKS5 jail active (port 1080)"
     echo "  - HTTP jail active (port 8118)"
-    echo "  - Max retries: 5"
-    echo "  - Ban time: 3600 seconds (1 hour)"
-    echo "  - Find time: 600 seconds (10 minutes)"
+    echo "  - Reality jail active (ports 443, 8443) [NEW v5.32 - Active Probing Protection]"
+    echo ""
+    echo "Protection levels:"
+    echo "  - Proxy ports (SOCKS5/HTTP): maxretry=5, bantime=1h"
+    echo "  - Reality port (VLESS): maxretry=10, bantime=1h [Higher threshold for probing]"
     echo ""
     echo "Monitor banned IPs:"
     echo "  sudo fail2ban-client status vless-socks5"
     echo "  sudo fail2ban-client status vless-http"
+    echo "  sudo fail2ban-client status xray-reality  [NEW v5.32]"
     echo "═════════════════════════════════════════════════════"
     echo ""
 
@@ -294,6 +426,8 @@ export -f check_fail2ban_installed
 export -f install_fail2ban
 export -f create_vless_proxy_filter
 export -f create_vless_proxy_jails
+export -f create_xray_reality_filter
+export -f create_xray_reality_jail
 export -f reload_fail2ban
 export -f verify_fail2ban_jails
 export -f setup_fail2ban_for_proxy

@@ -8,8 +8,8 @@
 
 ### 7.0 v4.3 Automated Test Suite (NEW)
 
-**Test Suite Version:** 4.3.0
-**Coverage:** 6 test cases (3 automated, 3 production-only)
+**Test Suite Version:** 5.33.0 (Enhanced with External Proxy validation)
+**Coverage:** 6 test cases (3 automated with v5.33 enhancements, 3 production-only)
 **Location:** `tests/integration/v4.3/`
 
 **Automated Tests (DEV_MODE Support):**
@@ -27,9 +27,9 @@
      - HAProxy stats page accessibility
    - DEV_MODE: Partial (config validation only)
 
-2. **Test 02: SOCKS5/HTTP Proxy through HAProxy** (`test_02_proxy_haproxy.sh`)
-   - Duration: 30 minutes
-   - Checks: 8 validation points
+2. **Test 02: SOCKS5/HTTP Proxy through HAProxy + External Proxy Validation** (`test_02_proxy_haproxy.sh`)
+   - Duration: 45 minutes (extended v5.33)
+   - Checks: 14 validation points (expanded from 8)
    - Coverage:
      - HAProxy `socks5-tls` frontend (port 1080) with TLS termination
      - HAProxy `http-tls` frontend (port 8118) with TLS termination
@@ -38,7 +38,15 @@
      - Xray HTTP inbound (port 18118, localhost, password auth)
      - HAProxy ports listening (1080, 8118)
      - Certificate files for TLS termination (combined.pem)
-   - DEV_MODE: Partial (config validation only)
+     - **External Proxy Support (v5.23-v5.33):**
+       - TLS Server Name validation (FQDN format) - v5.33
+       - TLS Server Name validation (IP format) - v5.33
+       - Invalid input rejection ("y", "yes", "n", "no") - v5.33
+       - Auto-activation workflow - v5.33
+       - Auto-enable routing integration - v5.33
+       - Database schema (external_proxy.json)
+       - Xray outbound generation with TLS settings
+   - DEV_MODE: Partial (config validation + validation functions)
 
 3. **Test 03: Reverse Proxy Subdomain Access** (`test_03_reverse_proxy_subdomain.sh`)
    - Duration: 1 hour

@@ -29,6 +29,14 @@ SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
 
 # =============================================================================
+# IMPORT v5.23 MODULES (External Proxy Support)
+# =============================================================================
+# Source external proxy and routing managers (v5.23 external proxy feature)
+# These modules enable routing traffic through upstream SOCKS5/HTTP proxies
+[[ -f "${SCRIPT_DIR_LIB}/external_proxy_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/external_proxy_manager.sh"
+[[ -f "${SCRIPT_DIR_LIB}/xray_routing_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/xray_routing_manager.sh"
+
+# =============================================================================
 # GLOBAL VARIABLES
 # =============================================================================
 
@@ -170,20 +178,36 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 5.6: Initialize external_proxy.json (v5.23 - external proxy support)
+    # Create empty database for external proxy configuration
+    # Users can add proxies later via vless-external-proxy CLI
+    if declare -f init_external_proxy_db >/dev/null 2>&1; then
+        init_external_proxy_db || {
+            echo -e "${YELLOW}Warning: Failed to initialize external proxy database${NC}"
+            echo -e "${YELLOW}External proxy feature will not be available${NC}"
+        }
+    else
+        echo -e "${YELLOW}Note: External proxy manager not loaded, skipping database initialization${NC}"
+    fi
+
     # Step 6: Create Nginx configuration
     create_nginx_config || {
         echo -e "${RED}Failed to create Nginx configuration${NC}" >&2
         return 1
     }
 
-    # Step 6.3: Generate Nginx reverse proxy HTTP context (v4.3)
-    # Source nginx_config_generator.sh if not already loaded
-    if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
-        source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
-        if ! generate_reverseproxy_http_context; then
-            echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
-            # Non-critical: Continue installation
+    # Step 6.3: Generate Nginx reverse proxy HTTP context (v5.26) - only if reverse proxy enabled
+    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
+        # Source nginx_config_generator.sh if not already loaded
+        if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
+            source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
+            if ! generate_reverseproxy_http_context; then
+                echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
+                # Non-critical: Continue installation
+            fi
         fi
+    else
+        echo "  ℹ️  Reverse proxy disabled, skipping nginx HTTP context generation"
     fi
 
     # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
@@ -302,7 +326,6 @@ create_directory_structure() {
     # Create subdirectories
     local directories=(
         "${CONFIG_DIR}"
-        "${CONFIG_DIR}/reverse-proxy"  # v4.3: Nginx reverse proxy configs
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"
@@ -321,6 +344,11 @@ create_directory_structure() {
         "${TESTS_DIR}/unit"
         "${TESTS_DIR}/integration"
     )
+
+    # v5.26: Conditionally add reverse-proxy directory
+    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
+        directories+=("${CONFIG_DIR}/reverse-proxy")
+    fi
 
     for dir in "${directories[@]}"; do
         # Always ensure directory exists (mkdir -p is idempotent)
@@ -449,6 +477,7 @@ generate_routing_json() {
     #   - HAProxy connects from Docker network IP (not whitelisted 127.0.0.1)
     #   - Blocking rule would break HAProxy → Xray proxy connections
     # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
+    # v5.31: Changed to AsIs for mobile network compatibility
     cat <<EOF
 ,
   "routing": {
@@ -569,9 +598,18 @@ create_xray_config() {
     "access": "/var/log/xray/access.log",
     "error": "/var/log/xray/error.log"
   },
+  "dns": {
+    "servers": [
+      "${DETECTED_DNS_PRIMARY:-1.1.1.1}",
+      "${DETECTED_DNS_SECONDARY:-8.8.8.8}",
+      "${DETECTED_DNS_TERTIARY:-77.88.8.8}"
+    ],
+    "queryStrategy": "UseIPv4"
+  },
   "inbounds": [{
     "port": ${VLESS_PORT},
     "protocol": "vless",
+    "tag": "vless-reality",
     "settings": {
       "clients": [],
       "decryption": "none",
@@ -588,7 +626,19 @@ create_xray_config() {
         "show": false,
         "dest": "${REALITY_DEST}:${REALITY_DEST_PORT}",
         "xver": 0,
-        "serverNames": ["${REALITY_DEST}"],
+        "serverNames": [
+          "${REALITY_DEST}",
+          "www.google.com",
+          "www.microsoft.com",
+          "www.apple.com",
+          "www.cloudflare.com",
+          "www.amazon.com",
+          "www.youtube.com",
+          "www.github.com",
+          "www.wikipedia.org",
+          "www.netflix.com",
+          "www.linkedin.com"
+        ],
         "privateKey": "${PRIVATE_KEY}",
         "shortIds": ["${SHORT_ID}", ""]
       }
@@ -600,7 +650,10 @@ fi)],
   "outbounds": [
     {
       "protocol": "freedom",
-      "tag": "direct"
+      "tag": "direct",
+      "settings": {
+        "domainStrategy": "AsIs"
+      }
     },
     {
       "protocol": "blackhole",
@@ -631,6 +684,14 @@ EOF
     echo "  ✓ Listen port: ${VLESS_PORT}"
     echo "  ✓ Destination: ${REALITY_DEST}:${REALITY_DEST_PORT}"
     echo "  ✓ Fallback to Nginx configured"
+    if [[ -n "${DETECTED_DNS_PRIMARY}" ]]; then
+        echo "  ✓ DNS Servers:"
+        echo "    - Primary:   ${DETECTED_DNS_PRIMARY}"
+        echo "    - Secondary: ${DETECTED_DNS_SECONDARY}"
+        echo "    - Tertiary:  ${DETECTED_DNS_TERTIARY}"
+    else
+        echo "  ✓ DNS Servers: 1.1.1.1, 8.8.8.8, 77.88.8.8 (default fallback)"
+    fi
 
     if [[ "$enable_proxy" == "true" ]]; then
         if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
@@ -903,11 +964,15 @@ EOF
 # FUNCTION: generate_haproxy_config_wrapper
 # =============================================================================
 # Description: Wrapper for lib/haproxy_config_manager.sh::generate_haproxy_config()
-# Uses: DOMAIN (from interactive_params.sh)
+# Uses: DOMAIN, ENABLE_PUBLIC_PROXY (from interactive_params.sh)
 # Returns: 0 on success, 1 on failure
+#
+# v5.26 Changes:
+#   - Pass ENABLE_PUBLIC_PROXY and ENABLE_REVERSE_PROXY parameters
+#   - Conditional output for public proxy ports and reverse proxy
 # =============================================================================
 generate_haproxy_config_wrapper() {
-    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v4.3 unified TLS)...${NC}"
+    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v5.26 conditional features)...${NC}"
 
     # Extract main domain from DOMAIN (remove subdomain if present)
     local main_domain="${DOMAIN}"
@@ -917,15 +982,23 @@ generate_haproxy_config_wrapper() {
     local stats_password
     stats_password=$(openssl rand -hex 8)
 
-    # Call the imported function from haproxy_config_manager.sh
-    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}"; then
+    # Call the imported function from haproxy_config_manager.sh (v5.26: pass ENABLE_PUBLIC_PROXY + ENABLE_REVERSE_PROXY)
+    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}" "${ENABLE_PUBLIC_PROXY}" "${ENABLE_REVERSE_PROXY:-false}"; then
         echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
         return 1
     fi
 
     echo "  ✓ HAProxy config: ${CONFIG_DIR}/haproxy.cfg"
-    echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
-    echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
+
+    # Conditional output based on public proxy mode (v5.25)
+    if [[ "${ENABLE_PUBLIC_PROXY}" == "true" ]]; then
+        echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
+        echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
+    else
+        echo "  ✓ Frontend ports: 443 (VLESS Reality via SNI passthrough)"
+        echo "  ✓ Mode: VLESS-only (no public proxy)"
+    fi
+
     echo "  ✓ Stats URL: http://127.0.0.1:9000/stats"
     echo "  ✓ Stats password: ${stats_password}"
 
@@ -1017,6 +1090,9 @@ SERVER_IP=${server_ip}
 ENABLE_PROXY=${ENABLE_PROXY:-false}
 ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
 ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
+
+# Reverse Proxy Configuration (v5.26)
+ENABLE_REVERSE_PROXY=${ENABLE_REVERSE_PROXY:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
@@ -1277,35 +1353,41 @@ deploy_containers() {
         return 1
     fi
 
-    local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$nginx_status" == "running" ]]; then
-        echo "  ✓ Nginx container running"
+    # v5.26.1: Check nginx only if reverse proxy is enabled
+    # Use docker compose config to check if nginx service exists in docker-compose.yml
+    if docker compose config --services 2>/dev/null | grep -q '^nginx$'; then
+        local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+        if [[ "$nginx_status" == "running" ]]; then
+            echo "  ✓ Nginx container running"
 
-        # Check healthcheck status (added in v4.1.1)
-        local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-        if [[ "$nginx_health" == "healthy" ]]; then
-            echo "  ✓ Nginx container healthy"
-        elif [[ "$nginx_health" == "starting" ]]; then
-            echo "  ℹ Nginx container health: starting (will be checked later)"
-        elif [[ "$nginx_health" != "no-healthcheck" ]]; then
-            echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
-        fi
+            # Check healthcheck status (added in v4.1.1)
+            local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+            if [[ "$nginx_health" == "healthy" ]]; then
+                echo "  ✓ Nginx container healthy"
+            elif [[ "$nginx_health" == "starting" ]]; then
+                echo "  ℹ Nginx container health: starting (will be checked later)"
+            elif [[ "$nginx_health" != "no-healthcheck" ]]; then
+                echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
+            fi
 
-        # Check Nginx logs for critical errors (ignore informational messages)
-        local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
-        if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
-            echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
+            # Check Nginx logs for critical errors (ignore informational messages)
+            local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
+            if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
+                echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
+                docker compose logs nginx
+                return 1
+            fi
+            # Ignore read-only warnings - these are expected with security-hardened containers
+            if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
+                echo "  ℹ Nginx running in read-only mode (expected for security)"
+            fi
+        else
+            echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
             docker compose logs nginx
             return 1
         fi
-        # Ignore read-only warnings - these are expected with security-hardened containers
-        if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
-            echo "  ℹ Nginx running in read-only mode (expected for security)"
-        fi
     else
-        echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
-        docker compose logs nginx
-        return 1
+        echo "  ℹ Nginx reverse proxy container skipped (feature disabled)"
     fi
 
     # v4.3: Check HAProxy container (unified TLS termination in bridge network)
@@ -1368,46 +1450,80 @@ install_cli_tools() {
         return 1
     }
 
-    # Install vless-proxy CLI tool
-    local proxy_cli_source="${project_root}/scripts/vless-proxy"
-    if [[ -f "$proxy_cli_source" ]]; then
-        # Copy vless-proxy script
-        cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
-            echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
+    # Install vless-proxy CLI tool (v5.26: only if reverse proxy enabled)
+    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
+        local proxy_cli_source="${project_root}/scripts/vless-proxy"
+        if [[ -f "$proxy_cli_source" ]]; then
+            # Copy vless-proxy script
+            cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
+                echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
+                return 1
+            }
+
+            # Make it executable
+            chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
+                echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
+                return 1
+            }
+
+            # Create symlink in /usr/local/bin
+            ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
+                echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
+                return 1
+            }
+
+            echo "  ✓ vless-proxy installed"
+        else
+            echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
+            echo "  ℹ vless-proxy installation skipped"
+        fi
+
+        # Install vless-setup-proxy helper script
+        local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
+        if [[ -f "$setup_proxy_source" ]]; then
+            cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
+                echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
+                return 1
+            }
+
+            chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
+                echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
+                return 1
+            }
+
+            echo "  ✓ vless-setup-proxy installed"
+        else
+            echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
+            echo "  ℹ vless-setup-proxy installation skipped"
+        fi
+    else
+        echo "  ℹ️  Reverse proxy disabled, skipping vless-proxy/vless-setup-proxy installation"
+    fi
+
+    # v5.23: Install vless-external-proxy CLI tool
+    local external_proxy_cli_source="${project_root}/scripts/vless-external-proxy"
+    if [[ -f "$external_proxy_cli_source" ]]; then
+        cp "$external_proxy_cli_source" "${SCRIPTS_DIR}/vless-external-proxy" || {
+            echo -e "${RED}Failed to copy vless-external-proxy script${NC}" >&2
             return 1
         }
 
         # Make it executable
-        chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
-            echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
+        chmod 755 "${SCRIPTS_DIR}/vless-external-proxy" || {
+            echo -e "${RED}Failed to set execute permission on vless-external-proxy${NC}" >&2
             return 1
         }
 
         # Create symlink in /usr/local/bin
-        ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
-            echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
-            return 1
-        }
-    else
-        echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
-        echo "  ℹ vless-proxy installation skipped"
-    fi
-
-    # Install vless-setup-proxy helper script
-    local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
-    if [[ -f "$setup_proxy_source" ]]; then
-        cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
-            echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
+        ln -sf "${SCRIPTS_DIR}/vless-external-proxy" /usr/local/bin/vless-external-proxy || {
+            echo -e "${RED}Failed to create vless-external-proxy symlink${NC}" >&2
             return 1
         }
 
-        chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
-            echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
-            return 1
-        }
+        echo "  ✓ vless-external-proxy installed"
     else
-        echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
-        echo "  ℹ vless-setup-proxy installation skipped"
+        echo -e "${YELLOW}  ⚠ vless-external-proxy script not found: $external_proxy_cli_source${NC}"
+        echo "  ℹ vless-external-proxy installation skipped (v5.23 feature)"
     fi
 
     # v5.20: Copy ALL lib modules automatically (except installation-only modules)

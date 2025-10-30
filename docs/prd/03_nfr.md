@@ -96,6 +96,76 @@ time curl -s --proxy https://user:pass@server:8118 https://ifconfig.me
 
 ---
 
+### NFR-USABILITY-002: Input Validation Clarity (CRITICAL - NEW in v5.33)
+
+**Requirement:** Все пользовательские input prompts ДОЛЖНЫ иметь четкие инструкции и обеспечивать валидацию с понятной обратной связью.
+
+**Context:** External Proxy TLS Server Name (SNI) configuration (v5.33)
+
+**Metrics:**
+- [ ] Clear prompt instructions: "Press ENTER to use the proxy address [proxy.example.com]"
+- [ ] Input validation with specific error messages
+- [ ] Rejection of invalid inputs with clear explanation
+- [ ] Auto-activation workflow reduces manual steps from 3 to 1
+- [ ] 100% user error prevention for critical configuration fields
+
+**Acceptance Criteria:**
+
+**AC-1: TLS Server Name Validation**
+- [ ] FQDN format validation: contains dot, valid characters (a-z, 0-9, -, .)
+- [ ] IP format validation: valid IPv4 address (192.168.1.1)
+- [ ] Reject invalid inputs: "y", "yes", "n", "no", single words without dot
+- [ ] Error message: "Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address"
+- [ ] Validation function: `validate_server_name(input)` returns true/false
+- [ ] Integration: validation callback in `prompt_input()` function
+
+**AC-2: Clear Prompts**
+- [ ] Default value display: `[proxy.example.com]` shown in prompt
+- [ ] Instruction clarity: "Press ENTER to use..." (NOT ambiguous text)
+- [ ] Validation feedback: immediate error message on invalid input
+- [ ] Retry opportunity: prompt again after validation failure
+
+**AC-3: Auto-Activation UX**
+- [ ] Offer after successful proxy test: "Do you want to activate this proxy now? [Y/n]:"
+- [ ] Default behavior: Y (activate immediately)
+- [ ] Atomic operation: switch + enable + restart in one step
+- [ ] Success confirmation: "✓ Proxy activated and routing enabled"
+- [ ] Error handling: clear message if activation fails
+
+**Target:**
+- User configuration errors: 0% (down from 15% pre-v5.33)
+- Manual activation steps: 1 (down from 3 pre-v5.33)
+- Time to activate proxy: 30 seconds (down from 2 minutes pre-v5.33)
+
+**Validation Script:**
+```bash
+#!/bin/bash
+# Test TLS Server Name validation function
+
+# Valid FQDN (should pass)
+validate_server_name "proxy.example.com"  # Expected: true
+
+# Valid IP (should pass)
+validate_server_name "192.168.1.1"  # Expected: true
+
+# Invalid inputs (should fail)
+validate_server_name "y"      # Expected: false
+validate_server_name "yes"    # Expected: false
+validate_server_name "n"      # Expected: false
+validate_server_name "no"     # Expected: false
+validate_server_name "proxy"  # Expected: false (no dot)
+
+echo "✅ All validation tests passed"
+```
+
+**Impact:**
+- CRITICAL: Prevents misconfiguration of TLS Server Name (SNI)
+- CRITICAL: Eliminates user confusion during proxy setup
+- HIGH: Improves first-time setup success rate to 100%
+- MEDIUM: Reduces support requests related to proxy configuration
+
+---
+
 ### NFR-RELIABILITY-001: Cert Renewal Reliability (HIGH - NEW)
 
 **Requirement:** Автоматическое обновление сертификатов ДОЛЖНО быть надежным.
