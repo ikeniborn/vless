@@ -1435,7 +1435,7 @@ System: ⚠️  Container 'vless_haproxy' not running, attempting to start...
 
 ---
 
-### FR-015: External Proxy Support (CRITICAL - NEW in v5.23)
+### FR-015: External Proxy Support (CRITICAL - Enhanced in v5.33)
 
 **Requirement:** Система ДОЛЖНА поддерживать подключение к внешнему SOCKS5/HTTP прокси после Xray для направления всего исходящего трафика через upstream прокси.
 
@@ -1467,16 +1467,28 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 **I want** направить весь исходящий трафик VPN через upstream SOCKS5s прокси
 **So that** я могу соблюдать корпоративные политики и добавить дополнительный уровень анонимности
 
-**Example Workflow:**
+**Example Workflow (v5.33 - Auto-Activation):**
 ```
 1. Запускает: sudo vless-external-proxy add
 2. Выбирает тип: socks5s (TLS encrypted)
 3. Вводит адрес: proxy.example.com
 4. Вводит порт: 1080
-5. Вводит credentials: username / password
-6. Тестирует подключение: ✅ Connected successfully (latency: 45ms)
+5. Вводит TLS Server Name: [ENTER to use proxy address] (валидация: FQDN/IP)
+6. Вводит credentials: username / password
+7. Тестирует подключение: ✅ Connected successfully (latency: 45ms)
+8. Система предлагает: "Do you want to activate this proxy now? [Y/n]:"
+9. Подтверждает: Y
+10. Система автоматически:
+    - Активирует прокси (switch)
+    - Включает routing (enable)
+    - Перезагружает Xray
+11. Проверяет статус: sudo vless status
+```
+
+**Старый процесс (v5.23 - 3 шага):**
+```
 7. Активирует: sudo vless-external-proxy switch proxy-id
-8. Включает routing: sudo vless-external-proxy enable (auto-restarts Xray)
+8. Включает routing: sudo vless-external-proxy enable
 9. Проверяет статус: sudo vless status
 ```
 
@@ -1494,11 +1506,18 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 - [ ] Metadata: enabled (global flag), active proxy ID, routing mode
 - [ ] Initialization при установке (lib/orchestrator.sh)
 
-**AC-3: Xray Outbound Generation**
+**AC-3: Xray Outbound Generation + TLS Server Name Validation (v5.33)**
 - [ ] Function: `generate_xray_outbound_json(proxy_id)` → JSON
 - [ ] Protocol mapping: socks5/socks5s → "socks", http/https → "http"
 - [ ] TLS settings: streamSettings.security = "tls" для socks5s/https
-- [ ] Server name validation (SNI)
+- [ ] **Server name validation (SNI) (CRITICAL v5.33):**
+  - [ ] FQDN format validation: contains dot, valid characters (a-z, 0-9, -, .)
+  - [ ] IP format validation: valid IPv4 address (192.168.1.1)
+  - [ ] Reject invalid inputs: "y", "yes", "n", "no", single words without dot
+  - [ ] Error message: "Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address"
+  - [ ] Function: `validate_server_name(input)` → true/false
+  - [ ] Validation integrated into `prompt_input()` with callback
+  - [ ] Clear prompt: "Press ENTER to use the proxy address [proxy.example.com]"
 - [ ] Allow insecure option (default: false)
 - [ ] Outbound tag: "external-proxy"
 
@@ -1511,11 +1530,15 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 
 **AC-5: CLI Commands (vless-external-proxy)**
 ```bash
-# 1. add - Interactive wizard для добавления прокси
+# 1. add - Interactive wizard для добавления прокси (Enhanced v5.33)
 sudo vless-external-proxy add
-# → Prompts: type, address, port, TLS settings, credentials
+# → Prompts: type, address, port, TLS settings (with validation), credentials
+# → TLS Server Name prompt: "Press ENTER to use the proxy address [proxy.example.com]"
+# → Validation: FQDN format (contains dot) or IP address, rejects "y", "yes", "n", "no"
 # → Auto-test connection
-# → Returns: proxy_id
+# → Auto-activation offer: "Do you want to activate this proxy now? [Y/n]:"
+# → If Y: auto-switch + auto-enable routing + auto-restart Xray (1-step activation)
+# → Returns: proxy_id (proxy ready to use immediately if activated)
 
 # 2. list - Показать все прокси
 sudo vless-external-proxy list

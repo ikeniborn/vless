@@ -2,9 +2,9 @@
 
 **VLESS + Reality VPN Server: Product Requirements Document**
 
-**Version:** 5.24 (Enhanced Validation & Auth Security)
+**Version:** 5.33 (External Proxy TLS Validation & UX Enhancement)
 **Status:** ✅ 100% Implemented + Production-Ready
-**Last Updated:** 2025-10-22
+**Last Updated:** 2025-10-30
 
 ---
 
@@ -21,7 +21,7 @@
 
 ---
 
-## Ключевые характеристики v5.21
+## Ключевые характеристики v5.33
 
 ### Текущая версия (Production-Ready + Stability & UX Fixes)
 
@@ -32,8 +32,10 @@
 | **VLESS Reality VPN** | v5.7+ | ✅ Stable + Hardened |
 | **HAProxy Unified Architecture** | v4.3+ | ✅ Production (replaces stunnel) |
 | **Subdomain-Based Reverse Proxy** | v4.3+ | ✅ https://domain (NO port!) |
+| **External Proxy TLS Server Name Validation** | v5.33 | ✅ CRITICAL - FQDN/IP format validation, auto-activation UX |
 | **HTTP Basic Auth Security Fix** | v5.24 | ✅ CRITICAL - auth_basic in location block (v5.24) |
 | **SNI Routing Validation Fix** | v5.24 | ✅ CRITICAL - curl sends SNI for correct HAProxy routing |
+| **External Proxy Support** | v5.23 | ✅ Server-level upstream proxy chaining for all traffic |
 | **Enhanced Reverse Proxy Validation** | v5.23 | ✅ 10s delay + 6 retries, false negatives eliminated |
 | **fail2ban Jail Fix** | v5.23 | ✅ Disabled jail instead of dead port |
 | **Docker Port Range Support** | v5.23 | ✅ Validation supports ranges (9443-9444) |
@@ -125,6 +127,7 @@
 
 | Версия | Дата | Основное изменение | Impact |
 |--------|------|-------------------|--------|
+| **v5.33** | 2025-10-30 | External Proxy TLS Server Name Validation & UX (CRITICAL) | FQDN/IP format validation, rejects invalid inputs (y/yes/n/no), auto-activation workflow (1-step instead of 3-step), clear prompts |
 | **v5.24** | 2025-10-22 | HTTP Basic Auth + SNI Routing Fix (CRITICAL) | Nginx auth_basic теперь в location block (security fix), curl с SNI для корректного routing в HAProxy |
 | **v5.23** | 2025-10-22 | Enhanced Validation + 3 CRITICAL BUGFIXES | False negatives → 0%, fail2ban disabled вместо dead port, port range support, race condition fix |
 | **v5.22** | 2025-10-21 | Container Management & Validation System (MAJOR) | Auto-recovery (95% fewer failures), validation system (100% coverage), zero manual intervention |
@@ -435,12 +438,17 @@ sudo vless test-security            # Security test suite
 
 ## Статус проекта
 
-**Version:** v5.24 (2025-10-22)
+**Version:** v5.33 (2025-10-30)
 **Implementation Status:** ✅ **100% COMPLETE**
 **Production Ready:** ✅ **YES**
-**Security Status:** ✅ **APPROVED** (TLS 1.3 HAProxy, Let's Encrypt, fail2ban HAProxy+Nginx, UFW, SNI routing, HTTP Basic Auth fixed)
+**Security Status:** ✅ **APPROVED** (TLS 1.3 HAProxy, Let's Encrypt, fail2ban HAProxy+Nginx, UFW, SNI routing, External Proxy validation)
 
-**Ключевые достижения v5.22-v5.24:**
+**Ключевые достижения v5.33:**
+1. ✅ External Proxy TLS Server Name Validation (CRITICAL - prevents configuration errors)
+2. ✅ Auto-Activation Workflow (1-step instead of 3-step manual process)
+3. ✅ Enhanced User Experience (clear prompts, validation feedback)
+
+**Предыдущие достижения v5.22-v5.24:**
 1. ✅ Container Management System (auto-recovery, 95% fewer failures)
 2. ✅ Validation System (4-check add, 3-check remove, 100% coverage)
 3. ✅ Enhanced Validation (false negatives → 0%, 10s delay + 6 retries)
@@ -462,6 +470,6 @@ sudo vless test-security            # Security test suite
 ---
 
 **Создано:** 2025-10-16
-**Обновлено:** 2025-10-22 (v5.24 Enhanced Validation & Auth Security)
+**Обновлено:** 2025-10-30 (v5.33 External Proxy TLS Validation & UX Enhancement)
 **Источник:** [PRD.md](../../PRD.md) (consolidated version)
 **Разделение:** Логические модули для удобной навигации

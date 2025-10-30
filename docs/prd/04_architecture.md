@@ -985,9 +985,9 @@ reload_haproxy() {
 
 ---
 
-### 4.8 External Proxy Architecture (v5.23)
+### 4.8 External Proxy Architecture (v5.23, Enhanced v5.33)
 
-**Version:** 5.23.0
+**Version:** 5.33.0 (TLS Server Name validation & auto-activation UX)
 **Status:** Current Implementation
 **Purpose:** Upstream proxy chaining for additional anonymity and policy compliance
 
@@ -1354,7 +1354,7 @@ $ sudo vless-external-proxy enable
 # Step 4: Verify status
 $ sudo vless status
 
-External Proxy Status (v5.23):
+External Proxy Status (v5.33):
   ✓ External Proxy ENABLED
   Active Proxy: proxy-abc123
     Type: socks5s
@@ -1406,9 +1406,9 @@ fi
 
 **Status Display (scripts/vless):**
 ```bash
-# External Proxy Status (v5.23)
+# External Proxy Status (v5.33)
 echo ""
-echo -e "${CYAN}External Proxy Status (v5.23):${NC}"
+echo -e "${CYAN}External Proxy Status (v5.33):${NC}"
 if [[ -f "${INSTALL_ROOT}/config/external_proxy.json" ]]; then
     local ext_proxy_enabled=$(jq -r '.enabled' "${INSTALL_ROOT}/config/external_proxy.json")
 
