@@ -833,15 +833,18 @@ validate_mandatory_tls() {
 
     # Check 5: HAProxy ports accessible (host network mode)
     log_info "  [5/5] Checking HAProxy port accessibility..."
+    # Wait for HAProxy to fully bind to all ports (prevent race condition)
+    sleep 2
     # v4.3: HAProxy runs in host network mode, ports bound directly to host
     local haproxy_listening=0
-    if ss -tuln | grep -q ":443 "; then
+    # Use awk to extract port column and match exact port number (works with IPv4/IPv6)
+    if ss -tuln | awk '{print $5}' | grep -qE ':443$'; then
         haproxy_listening=$((haproxy_listening + 1))
     fi
-    if ss -tuln | grep -q ":1080 "; then
+    if ss -tuln | awk '{print $5}' | grep -qE ':1080$'; then
         haproxy_listening=$((haproxy_listening + 1))
     fi
-    if ss -tuln | grep -q ":8118 "; then
+    if ss -tuln | awk '{print $5}' | grep -qE ':8118$'; then
         haproxy_listening=$((haproxy_listening + 1))
     fi
 
