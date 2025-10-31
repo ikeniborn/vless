@@ -2156,7 +2156,7 @@ create_user() {
         local vless_uri
         vless_uri=$(generate_vless_uri "$username" "$uuid")
 
-        if command -v generate_qr_code &>/dev/null; then
+        if declare -F generate_qr_code &>/dev/null; then
             # QR generator is available, use it
             generate_qr_code "$username" "$uuid" "$vless_uri"
         else
