@@ -349,6 +349,7 @@ add_user_to_json() {
     local short_id="${4:-}"        # Optional shortId (v1.2 schema update)
     local fingerprint="${5:-chrome}"  # Optional fingerprint (v1.3 schema update, default: chrome)
     local external_proxy_id="${6:-}"  # Optional external_proxy_id (v5.24 per-user routing)
+    local connection_type="${7:-both}"  # Optional connection_type (v5.25: vpn|proxy|both, default: both)
 
     log_info "Adding user to database..."
 
@@ -407,6 +408,10 @@ add_user_to_json() {
             user_obj+=",
             \"external_proxy_id\": null"
         fi
+
+        # Add connection_type (v5.25 schema - per-user connection type: vpn|proxy|both)
+        user_obj+=",
+            \"connection_type\": \"$connection_type\""
 
         # Add timestamps
         user_obj+=",
@@ -1779,11 +1784,123 @@ regenerate_configs() {
 }
 
 # ============================================================================
+# v5.25: Schema Migration (connection_type field)
+# ============================================================================
+
+migrate_users_schema_v525() {
+    # Check if users.json exists
+    if [[ ! -f "$USERS_JSON" ]]; then
+        return 0  # Nothing to migrate
+    fi
+
+    # Check if any user is missing connection_type field
+    local missing_count
+    missing_count=$(jq '[.users[] | select(.connection_type == null)] | length' "$USERS_JSON" 2>/dev/null || echo "0")
+
+    if [[ "$missing_count" -eq 0 ]]; then
+        return 0  # All users already have connection_type
+    fi
+
+    log_info "Migrating users schema (v5.25): Adding connection_type field to $missing_count user(s)..."
+
+    # Create lock file directory if it doesn't exist
+    local lock_dir
+    lock_dir=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_dir" 2>/dev/null || true
+
+    # Atomic update with exclusive lock
+    (
+        # Acquire exclusive lock
+        flock -x 200
+
+        # Create temporary file
+        local temp_file="${USERS_JSON}.tmp.$$"
+
+        # Add connection_type="both" to all users missing this field
+        jq '.users |= map(
+            if .connection_type == null then
+                . + {"connection_type": "both"}
+            else
+                .
+            end
+        )' "$USERS_JSON" > "$temp_file"
+
+        # Verify JSON is valid
+        if ! jq empty "$temp_file" 2>/dev/null; then
+            log_error "Generated invalid JSON during migration"
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        # Atomic move
+        mv "$temp_file" "$USERS_JSON"
+
+        # Set proper permissions
+        chmod 600 "$USERS_JSON"
+        chown root:root "$USERS_JSON" 2>/dev/null || true
+
+    ) 200>"$LOCK_FILE"
+
+    log_success "Schema migration completed: $missing_count user(s) updated with connection_type=both"
+    return 0
+}
+
+# ============================================================================
+# v5.25: Connection Type Selection (vpn|proxy|both)
+# ============================================================================
+
+select_connection_type() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  🔧 Выберите тип подключения для пользователя"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "  1) 🔐 VPN only (VLESS Reality)"
+    echo "     └─ Для мобильных клиентов (V2Ray, Nekoray, Hiddify, etc.)"
+    echo "     └─ Полное шифрование трафика с маскировкой под TLS"
+    echo ""
+    echo "  2) 🌐 Proxy only (SOCKS5 + HTTP)"
+    echo "     └─ Для браузеров и приложений с настройками прокси"
+    echo "     └─ Быстрая настройка без дополнительного ПО"
+    echo ""
+    echo "  3) 🔐🌐 Both (VPN + Proxy)"
+    echo "     └─ Полный доступ к обоим режимам подключения"
+    echo "     └─ Максимальная гибкость использования"
+    echo ""
+
+    local choice
+    while true; do
+        read -r -p "Ваш выбор [1-3]: " choice
+
+        case "$choice" in
+            1)
+                echo "vpn"
+                return 0
+                ;;
+            2)
+                echo "proxy"
+                return 0
+                ;;
+            3)
+                echo "both"
+                return 0
+                ;;
+            *)
+                log_error "Неверный выбор. Пожалуйста, введите 1, 2 или 3"
+                ;;
+        esac
+    done
+}
+
+# ============================================================================
 # TASK-6.1: User Creation Workflow
 # ============================================================================
 
 create_user() {
     local username="$1"
+
+    # Run schema migration (v5.25)
+    migrate_users_schema_v525
 
     echo ""
     log_info "Creating new VPN user: $username"
@@ -1800,124 +1917,154 @@ create_user() {
         return 1
     fi
 
-    # Step 3: Generate UUID
-    local uuid
-    uuid=$(generate_uuid)
-    if [[ -z "$uuid" ]]; then
-        log_error "Failed to generate UUID"
+    # Step 2.5: Select connection type (v5.25)
+    local connection_type
+    connection_type=$(select_connection_type)
+    if [[ -z "$connection_type" ]]; then
+        log_error "Failed to select connection type"
         return 1
     fi
-    log_success "Generated UUID: $uuid"
 
-    # Step 3.1: Generate unique shortId (v1.2 schema - per-user shortIds)
-    local short_id
-    short_id=$(generate_short_id)
-    if [[ -z "$short_id" ]]; then
-        log_error "Failed to generate shortId"
-        return 1
-    fi
-    log_success "Generated shortId: $short_id"
-
-    # Step 3.5: Generate proxy password (TASK-11.1)
-    local proxy_password
-    proxy_password=$(generate_proxy_password)
-    if [[ -z "$proxy_password" ]]; then
-        log_error "Failed to generate proxy password"
-        return 1
-    fi
-    log_success "Generated proxy password: $proxy_password"
-
-    # Step 3.6: Select TLS fingerprint for device type
     echo ""
-    log_info "Select TLS fingerprint for client device:"
-    echo "  1) Randomized (RECOMMENDED) - Maximum DPI protection, random fingerprint per connection"
-    echo "  2) Android (chrome fingerprint) - Static fingerprint for Android devices"
-    echo "  3) iOS (safari fingerprint) - Static fingerprint for iOS/macOS devices"
-    echo "  4) Other/Universal (firefox fingerprint) - Static fingerprint, universal compatibility"
+    log_success "Выбран тип подключения: $connection_type"
     echo ""
 
-    local fingerprint="randomized"  # Default (DPI hardening v5.32)
-    local fingerprint_choice
-
-    while true; do
-        read -r -p "Enter choice [1-4, default: 1]: " fingerprint_choice
-
-        # Default to 1 if empty
-        if [[ -z "$fingerprint_choice" ]]; then
-            fingerprint_choice="1"
+    # Step 3: Generate UUID (only for vpn or both)
+    local uuid=""
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        uuid=$(generate_uuid)
+        if [[ -z "$uuid" ]]; then
+            log_error "Failed to generate UUID"
+            return 1
         fi
+        log_success "Generated UUID: $uuid"
+    fi
 
-        case "$fingerprint_choice" in
-            1)
-                fingerprint="randomized"
-                log_success "Selected fingerprint: randomized (Maximum DPI protection)"
-                break
-                ;;
-            2)
-                fingerprint="chrome"
-                log_success "Selected fingerprint: chrome (Android)"
-                break
-                ;;
-            3)
-                fingerprint="safari"
-                log_success "Selected fingerprint: safari (iOS/macOS)"
-                break
-                ;;
-            4)
-                fingerprint="firefox"
-                log_success "Selected fingerprint: firefox (Universal)"
-                break
-                ;;
-            *)
-                log_error "Invalid choice. Please enter 1, 2, 3, or 4"
-                ;;
-        esac
-    done
+    # Step 3.1: Generate unique shortId (v1.2 schema - per-user shortIds, only for vpn or both)
+    local short_id=""
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        short_id=$(generate_short_id)
+        if [[ -z "$short_id" ]]; then
+            log_error "Failed to generate shortId"
+            return 1
+        fi
+        log_success "Generated shortId: $short_id"
+    fi
 
-    # Step 3.7: Select external proxy (optional, v5.24)
-    echo ""
-    log_info "External Proxy Configuration (optional):"
-    echo "  Route this user's traffic through an external proxy?"
-    echo ""
+    # Step 3.5: Generate proxy password (TASK-11.1, only for proxy or both)
+    local proxy_password=""
+    if [[ "$connection_type" == "proxy" || "$connection_type" == "both" ]]; then
+        proxy_password=$(generate_proxy_password)
+        if [[ -z "$proxy_password" ]]; then
+            log_error "Failed to generate proxy password"
+            return 1
+        fi
+        log_success "Generated proxy password: $proxy_password"
+    fi
 
-    local external_proxy_id=""
-    local external_proxy_db="/opt/vless/config/external_proxy.json"
+    # Step 3.6: Select TLS fingerprint for device type (only for vpn or both)
+    local fingerprint="randomized"  # Default (DPI hardening v5.32)
 
-    # Check if external proxies are configured
-    if [[ -f "$external_proxy_db" ]]; then
-        local proxy_count
-        proxy_count=$(jq -r '.proxies | length' "$external_proxy_db" 2>/dev/null || echo "0")
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        echo ""
+        log_info "Select TLS fingerprint for client device:"
+        echo "  1) Randomized (RECOMMENDED) - Maximum DPI protection, random fingerprint per connection"
+        echo "  2) Android (chrome fingerprint) - Static fingerprint for Android devices"
+        echo "  3) iOS (safari fingerprint) - Static fingerprint for iOS/macOS devices"
+        echo "  4) Other/Universal (firefox fingerprint) - Static fingerprint, universal compatibility"
+        echo ""
 
-        if [[ "$proxy_count" != "0" ]]; then
-            echo "  Available external proxies:"
-            jq -r '.proxies[] | "    \(.id): \(.type)://\(.address):\(.port)"' "$external_proxy_db" 2>/dev/null
-            echo "    none: Direct routing (no external proxy)"
-            echo ""
+        local fingerprint_choice
 
-            local proxy_choice
-            while true; do
-                read -r -p "Enter proxy ID or 'none' [default: none]: " proxy_choice
+        while true; do
+            read -r -p "Enter choice [1-4, default: 1]: " fingerprint_choice
 
-                # Default to none if empty
-                if [[ -z "$proxy_choice" ]]; then
-                    proxy_choice="none"
-                fi
+            # Default to 1 if empty
+            if [[ -z "$fingerprint_choice" ]]; then
+                fingerprint_choice="1"
+            fi
 
-                if [[ "$proxy_choice" == "none" ]]; then
-                    log_success "Selected: Direct routing (no external proxy)"
-                    external_proxy_id=""
+            case "$fingerprint_choice" in
+                1)
+                    fingerprint="randomized"
+                    log_success "Selected fingerprint: randomized (Maximum DPI protection)"
                     break
-                else
-                    # Validate proxy exists
-                    if validate_external_proxy_assignment "$proxy_choice"; then
-                        external_proxy_id="$proxy_choice"
-                        log_success "Selected external proxy: $external_proxy_id"
+                    ;;
+                2)
+                    fingerprint="chrome"
+                    log_success "Selected fingerprint: chrome (Android)"
+                    break
+                    ;;
+                3)
+                    fingerprint="safari"
+                    log_success "Selected fingerprint: safari (iOS/macOS)"
+                    break
+                    ;;
+                4)
+                    fingerprint="firefox"
+                    log_success "Selected fingerprint: firefox (Universal)"
+                    break
+                    ;;
+                *)
+                    log_error "Invalid choice. Please enter 1, 2, 3, or 4"
+                    ;;
+            esac
+        done
+    fi
+
+    # Step 3.7: Select external proxy (optional, v5.24, only for vpn or both)
+    local external_proxy_id=""
+
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        echo ""
+        log_info "External Proxy Configuration (optional):"
+        echo "  Route this user's traffic through an external proxy?"
+        echo ""
+
+        local external_proxy_db="/opt/vless/config/external_proxy.json"
+
+        # Check if external proxies are configured
+        if [[ -f "$external_proxy_db" ]]; then
+            local proxy_count
+            proxy_count=$(jq -r '.proxies | length' "$external_proxy_db" 2>/dev/null || echo "0")
+
+            if [[ "$proxy_count" != "0" ]]; then
+                echo "  Available external proxies:"
+                jq -r '.proxies[] | "    \(.id): \(.type)://\(.address):\(.port)"' "$external_proxy_db" 2>/dev/null
+                echo "    none: Direct routing (no external proxy)"
+                echo ""
+
+                local proxy_choice
+                while true; do
+                    read -r -p "Enter proxy ID or 'none' [default: none]: " proxy_choice
+
+                    # Default to none if empty
+                    if [[ -z "$proxy_choice" ]]; then
+                        proxy_choice="none"
+                    fi
+
+                    if [[ "$proxy_choice" == "none" ]]; then
+                        log_success "Selected: Direct routing (no external proxy)"
+                        external_proxy_id=""
                         break
                     else
-                        log_error "Invalid proxy ID. Please try again or enter 'none'"
+                        # Validate proxy exists
+                        if validate_external_proxy_assignment "$proxy_choice"; then
+                            external_proxy_id="$proxy_choice"
+                            log_success "Selected external proxy: $external_proxy_id"
+                            break
+                        else
+                            log_error "Invalid proxy ID. Please try again or enter 'none'"
+                        fi
                     fi
-                fi
-            done
+                done
+            else
+                echo "  No external proxies configured."
+                echo "  Run 'vless-external-proxy add' to configure an external proxy."
+                echo ""
+                log_info "Using direct routing (no external proxy)"
+                external_proxy_id=""
+            fi
         else
             echo "  No external proxies configured."
             echo "  Run 'vless-external-proxy add' to configure an external proxy."
@@ -1925,12 +2072,6 @@ create_user() {
             log_info "Using direct routing (no external proxy)"
             external_proxy_id=""
         fi
-    else
-        echo "  No external proxies configured."
-        echo "  Run 'vless-external-proxy add' to configure an external proxy."
-        echo ""
-        log_info "Using direct routing (no external proxy)"
-        external_proxy_id=""
     fi
 
     # Step 4: Create user directory
@@ -1942,26 +2083,30 @@ create_user() {
     chmod 700 "$user_dir"
     log_success "Created user directory: $user_dir"
 
-    # Step 5: Add user to users.json (atomic) with proxy password, shortId, fingerprint, and external_proxy_id (v5.24)
-    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint" "$external_proxy_id"; then
+    # Step 5: Add user to users.json (atomic) with proxy password, shortId, fingerprint, external_proxy_id, and connection_type (v5.25)
+    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint" "$external_proxy_id" "$connection_type"; then
         # Cleanup on failure
         rm -rf "$user_dir"
         return 1
     fi
 
-    # Step 6: Add client to Xray configuration (VLESS) and shortId to realitySettings
-    if ! add_client_to_xray "$username" "$uuid" "$short_id"; then
-        # Rollback: remove from users.json
-        log_warning "Rolling back user creation..."
-        remove_user_from_json "$username"
-        rm -rf "$user_dir"
-        return 1
+    # Step 6: Add client to Xray configuration (VLESS) and shortId to realitySettings (only for vpn or both)
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        if ! add_client_to_xray "$username" "$uuid" "$short_id"; then
+            # Rollback: remove from users.json
+            log_warning "Rolling back user creation..."
+            remove_user_from_json "$username"
+            rm -rf "$user_dir"
+            return 1
+        fi
     fi
 
-    # Step 6.5: Add user to proxy accounts (TASK-11.1)
-    if ! update_proxy_accounts "$username" "$proxy_password"; then
-        log_warning "Failed to add user to proxy accounts (continuing anyway)"
-        # Don't fail completely - proxy is optional feature
+    # Step 6.5: Add user to proxy accounts (TASK-11.1, only for proxy or both)
+    if [[ "$connection_type" == "proxy" || "$connection_type" == "both" ]]; then
+        if ! update_proxy_accounts "$username" "$proxy_password"; then
+            log_warning "Failed to add user to proxy accounts (continuing anyway)"
+            # Don't fail completely - proxy is optional feature
+        fi
     fi
 
     # Step 6.6: Apply per-user routing (v5.24)
@@ -1979,66 +2124,75 @@ create_user() {
         log_warning "Xray reload failed, but user was created successfully"
     fi
 
-    # Step 8: Generate VLESS URI
-    local vless_uri
-    vless_uri=$(generate_vless_uri "$username" "$uuid")
-
-    # Step 9: Generate QR code and export connection config (EPIC-7)
+    # Step 8: Display user creation summary
     log_success "User '$username' created successfully!"
     echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  📋 Connection Type: $connection_type"
+    echo "  👤 Username:        $username"
+    echo "  📁 Directory:       $user_dir"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
 
-    if command -v generate_qr_code &>/dev/null; then
-        # QR generator is available, use it
-        generate_qr_code "$username" "$uuid" "$vless_uri"
-    else
-        # Fallback: just save URI
-        echo "$vless_uri" > "${user_dir}/vless_uri.txt"
-        chmod 600 "${user_dir}/vless_uri.txt"
+    # Step 9: Generate and display VLESS URI (only for vpn or both)
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        local vless_uri
+        vless_uri=$(generate_vless_uri "$username" "$uuid")
 
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "  Username:  $username"
-        echo "  UUID:      $uuid"
-        echo "  Directory: $user_dir"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo ""
-        echo "VLESS URI:"
-        echo "$vless_uri"
-        echo ""
-        echo "URI saved to: ${user_dir}/vless_uri.txt"
-        echo ""
-        log_warning "QR code generator not available. Install qrencode: apt-get install qrencode"
-        echo ""
+        if command -v generate_qr_code &>/dev/null; then
+            # QR generator is available, use it
+            generate_qr_code "$username" "$uuid" "$vless_uri"
+        else
+            # Fallback: just save URI
+            echo "$vless_uri" > "${user_dir}/vless_uri.txt"
+            chmod 600 "${user_dir}/vless_uri.txt"
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  🔐 VLESS (Reality) CONNECTION"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "UUID: $uuid"
+            echo ""
+            echo "VLESS URI:"
+            echo "$vless_uri"
+            echo ""
+            echo "URI saved to: ${user_dir}/vless_uri.txt"
+            echo ""
+            log_warning "QR code generator not available. Install qrencode: apt-get install qrencode"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+        fi
     fi
 
-    # Step 10: Export proxy configuration files (TASK-11.4)
-    if ! export_all_proxy_configs "$username" "$proxy_password"; then
-        log_warning "Failed to export proxy configs (continuing anyway)"
-    else
-        # v5.1: Display proxy URIs after successful export
-        local socks5_uri
-        local http_uri
-        local user_dir="${CLIENTS_DIR}/${username}"
+    # Step 10: Export proxy configuration files (TASK-11.4, only for proxy or both)
+    if [[ "$connection_type" == "proxy" || "$connection_type" == "both" ]]; then
+        if ! export_all_proxy_configs "$username" "$proxy_password"; then
+            log_warning "Failed to export proxy configs (continuing anyway)"
+        else
+            # v5.1: Display proxy URIs after successful export
+            local socks5_uri
+            local http_uri
 
-        if [[ -f "${user_dir}/socks5_config.txt" ]]; then
-            socks5_uri=$(cat "${user_dir}/socks5_config.txt")
-        fi
+            if [[ -f "${user_dir}/socks5_config.txt" ]]; then
+                socks5_uri=$(cat "${user_dir}/socks5_config.txt")
+            fi
 
-        if [[ -f "${user_dir}/http_config.txt" ]]; then
-            http_uri=$(cat "${user_dir}/http_config.txt")
-        fi
+            if [[ -f "${user_dir}/http_config.txt" ]]; then
+                http_uri=$(cat "${user_dir}/http_config.txt")
+            fi
 
-        if [[ -n "$socks5_uri" ]] || [[ -n "$http_uri" ]]; then
-            echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "  PROXY CONFIGURATION"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            [[ -n "$socks5_uri" ]] && echo "SOCKS5: $socks5_uri"
-            [[ -n "$http_uri" ]] && echo "HTTP:   $http_uri"
-            echo ""
-            echo "Config files saved to: ${user_dir}/"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo ""
+            if [[ -n "$socks5_uri" ]] || [[ -n "$http_uri" ]]; then
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "  🌐 PROXY CONFIGURATION (SOCKS5 + HTTP)"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                [[ -n "$socks5_uri" ]] && echo "SOCKS5: $socks5_uri"
+                [[ -n "$http_uri" ]] && echo "HTTP:   $http_uri"
+                echo ""
+                echo "Config files saved to: ${user_dir}/"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo ""
+            fi
         fi
     fi
 
@@ -2051,6 +2205,9 @@ create_user() {
 
 remove_user() {
     local username="$1"
+
+    # Run schema migration (v5.25)
+    migrate_users_schema_v525
 
     echo ""
     log_info "Removing VPN user: $username"
@@ -2067,18 +2224,26 @@ remove_user() {
         return 1
     fi
 
-    # Step 3: Get user UUID
+    # Step 3: Get user info (UUID and connection_type)
     local uuid
+    local connection_type
+
     uuid=$(jq -r ".users[] | select(.username == \"$username\") | .uuid" "$USERS_JSON" 2>/dev/null)
+    connection_type=$(jq -r ".users[] | select(.username == \"$username\") | .connection_type // \"both\"" "$USERS_JSON" 2>/dev/null)
+
     if [[ -z "$uuid" ]]; then
         log_error "Failed to retrieve UUID for user '$username'"
         return 1
     fi
 
-    # Step 4: Remove client from Xray configuration and shortId from array (v1.2)
-    if ! remove_client_from_xray "$uuid" "$username"; then
-        log_error "Failed to remove client from Xray configuration"
-        return 1
+    log_info "User connection type: $connection_type"
+
+    # Step 4: Remove client from Xray configuration (only for vpn or both)
+    if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
+        if ! remove_client_from_xray "$uuid" "$username"; then
+            log_error "Failed to remove client from Xray configuration"
+            return 1
+        fi
     fi
 
     # Step 5: Reload Xray
@@ -2112,6 +2277,9 @@ remove_user() {
 # ============================================================================
 
 list_users() {
+    # Run schema migration (v5.25)
+    migrate_users_schema_v525
+
     if [[ ! -f "$USERS_JSON" ]]; then
         log_error "Users database not found: $USERS_JSON"
         return 1
@@ -2133,7 +2301,11 @@ list_users() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
-    jq -r '.users[] | "  \(.username)\n    UUID: \(.uuid)\n    Created: \(.created)\n"' "$USERS_JSON"
+    jq -r '.users[] |
+        "  \(.username)" +
+        "\n    Type: \(.connection_type // "both")" +
+        "\n    UUID: \(.uuid)" +
+        "\n    Created: \(.created)\n"' "$USERS_JSON"
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
