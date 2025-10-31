@@ -378,46 +378,35 @@ add_user_to_json() {
         # Create temporary file in same directory (atomic mv requires same filesystem)
         local temp_file="${USERS_JSON}.tmp.$$"
 
-        # Build user object based on provided parameters
+        # Build user object based on provided parameters (single line for jq --argjson)
         local user_obj
-        user_obj="{
-            \"username\": \"$username\",
-            \"uuid\": \"$uuid\""
+        user_obj="{\"username\":\"$username\",\"uuid\":\"$uuid\""
 
         # Add shortId if provided (v1.2 schema - per-user shortIds)
         if [[ -n "$short_id" ]]; then
-            user_obj+=",
-            \"shortId\": \"$short_id\""
+            user_obj+=",\"shortId\":\"$short_id\""
         fi
 
         # Add proxy_password if provided
         if [[ -n "$proxy_password" ]]; then
-            user_obj+=",
-            \"proxy_password\": \"$proxy_password\""
+            user_obj+=",\"proxy_password\":\"$proxy_password\""
         fi
 
         # Add fingerprint (v1.3 schema - TLS fingerprint for client configuration)
-        user_obj+=",
-            \"fingerprint\": \"$fingerprint\""
+        user_obj+=",\"fingerprint\":\"$fingerprint\""
 
         # Add external_proxy_id if provided (v5.24 schema - per-user external proxy routing)
         if [[ -n "$external_proxy_id" ]]; then
-            user_obj+=",
-            \"external_proxy_id\": \"$external_proxy_id\""
+            user_obj+=",\"external_proxy_id\":\"$external_proxy_id\""
         else
-            user_obj+=",
-            \"external_proxy_id\": null"
+            user_obj+=",\"external_proxy_id\":null"
         fi
 
         # Add connection_type (v5.25 schema - per-user connection type: vpn|proxy|both)
-        user_obj+=",
-            \"connection_type\": \"$connection_type\""
+        user_obj+=",\"connection_type\":\"$connection_type\""
 
         # Add timestamps
-        user_obj+=",
-            \"created\": \"$(date -Iseconds)\",
-            \"created_timestamp\": $(date +%s)
-        }"
+        user_obj+=",\"created\":\"$(date -Iseconds)\",\"created_timestamp\":$(date +%s)}"
 
         # Add user to JSON
         jq --argjson user "$user_obj" '.users += [$user]' "$USERS_JSON" > "$temp_file"
@@ -1849,6 +1838,28 @@ migrate_users_schema_v525() {
 # v5.25: Connection Type Selection (vpn|proxy|both)
 # ============================================================================
 
+# ============================================================================
+# Get human-readable connection type label
+# ============================================================================
+get_connection_type_label() {
+    local conn_type="$1"
+
+    case "$conn_type" in
+        vpn)
+            echo "🔐 VPN only (VLESS Reality)"
+            ;;
+        proxy)
+            echo "🌐 Proxy only (SOCKS5 + HTTP)"
+            ;;
+        both)
+            echo "🔐🌐 Both (VPN + Proxy)"
+            ;;
+        *)
+            echo "$conn_type"
+            ;;
+    esac
+}
+
 select_connection_type() {
     # Выводим меню в stderr, чтобы пользователь его видел
     echo "" >&2
@@ -1928,8 +1939,11 @@ create_user() {
         return 1
     fi
 
+    local connection_type_label
+    connection_type_label=$(get_connection_type_label "$connection_type")
+
     echo ""
-    log_success "Выбран тип подключения: $connection_type"
+    log_success "Выбран тип подключения: $connection_type_label"
     echo ""
 
     # Step 3: Generate UUID (only for vpn or both)
@@ -2131,7 +2145,7 @@ create_user() {
     log_success "User '$username' created successfully!"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  📋 Connection Type: $connection_type"
+    echo "  📋 Connection Type: $connection_type_label"
     echo "  👤 Username:        $username"
     echo "  📁 Directory:       $user_dir"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
