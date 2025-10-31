@@ -7,6 +7,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.34] - 2025-10-31
+
+### Fixed - Xray Proxy Rate Limiting (CRITICAL)
+
+**Migration Type:** Backward compatible, requires Xray config regeneration
+
+**Impact:** CRITICAL FIX - Eliminates "rate extended" errors when using external proxies
+
+#### Problem Addressed
+
+**Issue:** Users experiencing "rate extended" errors when connecting through external proxies
+
+**Root Cause:**
+- Xray configuration missing `policy` section
+- Using default Xray limits which are too conservative for proxy usage:
+  - handshakeTimeout: 4 seconds (too short for proxy chains)
+  - connIdle: 300 seconds (5 minutes, connections timeout too quickly)
+  - bufferSize: 512 KB (insufficient for high-throughput proxy traffic)
+
+**Symptoms:**
+- "rate extended" error messages
+- Connections timeout during handshake
+- Slow proxy performance
+- Frequent disconnections
+
+#### Changes
+
+**1. Added Policy Section to Xray Configuration:**
+
+**Location:** `lib/orchestrator.sh:665-679`
+
+**Change:**
+```json
+{
+  "policy": {
+    "levels": {
+      "0": {
+        "handshakeTimeout": 15,      // 4s → 15s (proxy-friendly)
+        "connIdle": 3600,             // 300s → 3600s (1 hour)
+        "uplinkOnly": 5,              // 2s → 5s
+        "downlinkOnly": 10,           // 5s → 10s
+        "bufferSize": 10240           // 512 KB → 10 MB
+      }
+    },
+    "system": {
+      "statsInboundUplink": false,
+      "statsInboundDownlink": false
+    }
+  }
+}
+```
+
+**Impact:**
+- ✅ 3.75x longer handshake timeout (4s → 15s)
+- ✅ 12x longer connection idle time (5min → 1 hour)
+- ✅ 20x larger buffer size (512 KB → 10 MB)
+- ✅ Eliminates "rate extended" errors for proxy usage
+- ✅ Improved performance for high-throughput connections
+
+**2. Updated Configuration Generator:**
+
+**Location:** `lib/orchestrator.sh:580-583`
+
+**Change:**
+```bash
+# Updated: v5.34 - Added policy section with increased limits for proxy usage
+#          - handshakeTimeout: 15s (was 4s default)
+#          - connIdle: 3600s (1 hour, was 300s/5min default)
+#          - bufferSize: 10240 KB (10 MB, was 512 KB default)
+```
+
+**3. Added Policy Information to Installation Output:**
+
+**Location:** `lib/orchestrator.sh:714-717`
+
+**Change:**
+```bash
+echo "  ✓ Policy Limits (v5.34 - optimized for proxy usage):"
+echo "    - Handshake Timeout: 15s"
+echo "    - Connection Idle: 3600s (1 hour)"
+echo "    - Buffer Size: 10240 KB (10 MB)"
+```
+
+#### Migration Guide
+
+**For New Installations:**
+- No action required, policy section will be automatically included
+
+**For Existing Installations:**
+
+**Option 1: Reinstall (Recommended for testing):**
+```bash
+# Backup current installation
+sudo vless backup
+
+# Pull latest code
+cd /path/to/vless
+git pull origin main
+
+# Reinstall
+sudo bash install.sh
+```
+
+**Option 2: Manual Configuration Update:**
+```bash
+# 1. Backup existing config
+sudo cp /opt/vless/config/xray_config.json /opt/vless/config/xray_config.json.backup
+
+# 2. Add policy section to /opt/vless/config/xray_config.json
+# Insert before the closing brace:
+"policy": {
+  "levels": {
+    "0": {
+      "handshakeTimeout": 15,
+      "connIdle": 3600,
+      "uplinkOnly": 5,
+      "downlinkOnly": 10,
+      "bufferSize": 10240
+    }
+  },
+  "system": {
+    "statsInboundUplink": false,
+    "statsInboundDownlink": false
+  }
+}
+
+# 3. Validate JSON syntax
+jq empty /opt/vless/config/xray_config.json
+
+# 4. Restart Xray container
+docker restart vless_xray
+
+# 5. Verify
+sudo docker logs vless_xray --tail 50
+```
+
+**Verification:**
+```bash
+# Check Xray config has policy section
+jq '.policy' /opt/vless/config/xray_config.json
+
+# Expected output:
+{
+  "levels": {
+    "0": {
+      "handshakeTimeout": 15,
+      "connIdle": 3600,
+      "uplinkOnly": 5,
+      "downlinkOnly": 10,
+      "bufferSize": 10240
+    }
+  },
+  "system": {
+    "statsInboundUplink": false,
+    "statsInboundDownlink": false
+  }
+}
+```
+
+#### Testing
+
+**Test Rate Limits:**
+```bash
+# 1. Connect through external proxy
+# 2. Monitor logs for "rate extended" errors (should be absent)
+sudo docker logs vless_xray --tail 100 -f
+
+# 3. Test high-throughput transfers
+curl -x socks5://user:pass@server:1080 https://speed.cloudflare.com/__down?bytes=100000000
+
+# 4. Test long-lived connections (should stay alive for 1 hour)
+curl -x socks5://user:pass@server:1080 --max-time 3700 https://httpbin.org/delay/3600
+```
+
+---
+
 ## [5.33] - 2025-10-30
 
 ### Fixed - External Proxy UX Enhancement (CRITICAL)
