@@ -577,6 +577,10 @@ EOF
 #                                 "false" (default) for VLESS only
 # Returns: 0 on success, 1 on failure
 # Updated: TASK-11.1 - Added proxy support parameter
+# Updated: v5.33 - Added policy section with increased limits for proxy usage
+#          - handshakeTimeout: 15s (was 4s default)
+#          - connIdle: 3600s (1 hour, was 300s/5min default)
+#          - bufferSize: 10240 KB (10 MB, was 512 KB default)
 # =============================================================================
 create_xray_config() {
     local enable_proxy="${1:-false}"
@@ -661,7 +665,22 @@ fi)],
     }
   ]$(if [[ "$enable_proxy" == "true" ]]; then
     generate_routing_json
-fi)
+fi),
+  "policy": {
+    "levels": {
+      "0": {
+        "handshakeTimeout": 15,
+        "connIdle": 3600,
+        "uplinkOnly": 5,
+        "downlinkOnly": 10,
+        "bufferSize": 10240
+      }
+    },
+    "system": {
+      "statsInboundUplink": false,
+      "statsInboundDownlink": false
+    }
+  }
 }
 EOF
 
@@ -692,6 +711,10 @@ EOF
     else
         echo "  ✓ DNS Servers: 1.1.1.1, 8.8.8.8, 77.88.8.8 (default fallback)"
     fi
+    echo "  ✓ Policy Limits (v5.33 - optimized for proxy usage):"
+    echo "    - Handshake Timeout: 15s"
+    echo "    - Connection Idle: 3600s (1 hour)"
+    echo "    - Buffer Size: 10240 KB (10 MB)"
 
     if [[ "$enable_proxy" == "true" ]]; then
         if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
