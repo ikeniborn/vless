@@ -1,8 +1,9 @@
 # MTProxy Integration Documentation
 
-**Version:** 6.0-draft
-**Status:** 📝 PLANNING PHASE
+**Version:** 6.1-draft (Extended Features)
+**Status:** 📝 PLANNING PHASE (Base + Advanced Features)
 **Priority:** HIGH
+**Last Updated:** 2025-11-08
 
 ---
 
@@ -10,7 +11,9 @@
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| **[00_mtproxy_integration_plan.md](00_mtproxy_integration_plan.md)** | Comprehensive integration plan | Developers, Project Managers |
+| **[00_mtproxy_integration_plan.md](00_mtproxy_integration_plan.md)** | Base implementation plan (v6.0) | Developers, Project Managers |
+| **[01_advanced_features.md](01_advanced_features.md)** | Advanced features specification (v6.1+) | Developers, Architects |
+| **[02_install_integration.md](02_install_integration.md)** | Integration with install.sh | Developers |
 | **This README** | Quick reference and overview | All stakeholders |
 
 ---
@@ -34,22 +37,39 @@
 
 Добавить MTProxy в VLESS Reality VPN project (v5.33) как **opt-in сервис** для пользователей Telegram.
 
-### Scope v6.0
+### Scope v6.0 (Base Implementation)
 
 **В scope:**
 - ✅ Отдельный Docker контейнер `vless_mtproxy`
-- ✅ Opt-in установка через wizard
+- ✅ Opt-in установка через install.sh wizard
 - ✅ Генерация клиентских конфигураций (deep links, QR codes)
 - ✅ fail2ban интеграция
 - ✅ UFW firewall rules
-- ✅ CLI управление секретами
+- ✅ CLI управление секретами (single-user mode)
 - ✅ Базовый мониторинг (/stats endpoint)
+- ✅ Heredoc-based конфигурация (соответствие PRD v4.1+)
 
-**Не в scope (future):**
-- ❌ Multi-user support (один секрет для всех)
-- ❌ Promoted channel интеграция
-- ❌ Advanced statistics
-- ❌ HAProxy routing
+**Детали:** См. [00_mtproxy_integration_plan.md](00_mtproxy_integration_plan.md)
+
+---
+
+### Scope v6.1 (Advanced Features)
+
+**В scope:**
+- ✅ Multi-user support с уникальными секретами (до 50 пользователей)
+- ✅ Fake-TLS support (`ee` prefix secrets) для дополнительной маскировки
+- ✅ Promoted channel интеграция (@MTProxybot)
+- ✅ Advanced statistics & analytics (HAProxy logging + external analytics)
+- ✅ Per-user secret management CLI
+- ✅ Graceful secret rotation без остановки сервиса
+
+**Ограничения протокола (Protocol Constraints):**
+- ⚠️ HAProxy SNI routing - **невозможно** (MTProto не использует SNI)
+- ⚠️ Per-secret statistics - **не поддерживается** MTProxy (только server-level stats)
+- ⚠️ Live secret reload - **невозможно** (требуется graceful restart)
+- ⚠️ Max 50 users - рекомендация для стабильности (технически до 100)
+
+**Детали:** См. [01_advanced_features.md](01_advanced_features.md)
 
 ### Architecture Changes
 
@@ -118,21 +138,34 @@
 
 **Installation:**
 ```bash
-sudo vless-mtproxy-setup              # Interactive wizard
+sudo vless-mtproxy-setup              # Interactive wizard (called from install.sh)
 sudo vless-mtproxy-uninstall          # Complete removal
 ```
 
-**Secret Management:**
+**Secret Management (v6.0 - Single-user mode):**
 ```bash
 sudo vless-mtproxy add-secret [--with-padding]
 sudo vless-mtproxy list-secrets
 sudo vless-mtproxy remove-secret <secret>
 sudo vless-mtproxy regenerate-secret <old-secret>
+sudo vless-mtproxy show-config [<secret>]
+```
+
+**Multi-User Support (v6.1 - Advanced):**
+```bash
+# User-based secret management
+sudo vless-mtproxy add-user <username> [--fake-tls <domain>]
+sudo vless-mtproxy remove-user <username>
+sudo vless-mtproxy list-users
+sudo vless-mtproxy show-user-config <username>
+
+# Promoted channel integration
+sudo vless-mtproxy set-promoted-channel <channel_id>
+sudo vless-mtproxy remove-promoted-channel
 ```
 
 **Configuration:**
 ```bash
-sudo vless-mtproxy show-config [<secret>]
 sudo vless-mtproxy set-port <port>
 sudo vless-mtproxy set-workers <count>
 ```
@@ -239,8 +272,16 @@ sudo vless status                     # Shows MTProxy section
 ```
 docs/mtproxy/
 ├── README.md                              ← You are here (Quick reference)
-└── 00_mtproxy_integration_plan.md         ← Comprehensive plan (23KB, 1500+ lines)
+├── 00_mtproxy_integration_plan.md         ← Base implementation v6.0 (63KB, 2000+ lines)
+├── 01_advanced_features.md                ← Advanced features v6.1+ (detailed specification)
+└── 02_install_integration.md              ← Integration with install.sh (heredoc patterns)
 ```
+
+**Рекомендуемый порядок чтения:**
+1. README.md (этот файл) - общий обзор
+2. 00_mtproxy_integration_plan.md - базовая реализация
+3. 01_advanced_features.md - расширенные функции (опционально)
+4. 02_install_integration.md - детали интеграции с install.sh
 
 ---
 
@@ -248,37 +289,60 @@ docs/mtproxy/
 
 ### Для пользователей проекта:
 1. **Читайте:** Этот README для понимания что такое MTProxy
-2. **Ждите:** v6.0 release (implementation в процессе)
-3. **После релиза:** Запустите `sudo vless-mtproxy-setup`
+2. **Ждите:** v6.0 release (базовая функциональность)
+3. **После релиза v6.0:** Запустите `sudo ./install.sh` и выберите MTProxy при установке
+4. **Для v6.1 features:** Дождитесь релиза v6.1 (multi-user support, promoted channels)
 
-### Для разработчиков:
-1. **Читайте:** [00_mtproxy_integration_plan.md](00_mtproxy_integration_plan.md) (полный plan)
-2. **Изучите:** Section 8 (Implementation Phases) для task breakdown
-3. **Начните:** Phase 1 (Core Infrastructure)
+### Для разработчиков (v6.0 Base Implementation):
+1. **Читайте:** [00_mtproxy_integration_plan.md](00_mtproxy_integration_plan.md) (полный план v6.0)
+2. **Изучите:** [02_install_integration.md](02_install_integration.md) (интеграция с install.sh)
+3. **Начните:** Phase 1 - Core Infrastructure (Docker container)
+
+### Для разработчиков (v6.1 Advanced Features):
+1. **Читайте:** [01_advanced_features.md](01_advanced_features.md) (спецификация расширенных функций)
+2. **Изучите:** Protocol Constraints секцию (ограничения MTProto)
+3. **Начните:** После завершения v6.0 (multi-user требует базовой инфраструктуры)
 
 ### Для project managers:
 1. **Executive Summary:** [00_mtproxy_integration_plan.md#1-executive-summary](00_mtproxy_integration_plan.md#1-executive-summary)
-2. **Timeline:** 4 weeks (7 phases)
-3. **Resources:** 1 developer, existing VLESS infrastructure
-4. **Risk:** LOW-MEDIUM (см. Risk Assessment)
+2. **v6.0 Timeline:** 4 weeks (7 phases, базовая функциональность)
+3. **v6.1 Timeline:** +2-3 weeks (расширенные функции)
+4. **Resources:** 1 developer, existing VLESS infrastructure
+5. **Risk:** LOW-MEDIUM (см. Risk Assessment в 00_mtproxy_integration_plan.md)
 
 ---
 
 ## Status & Next Steps
 
-**Current Status:** 📝 PLANNING PHASE (Documentation Complete)
+**Current Status:** 📝 PLANNING PHASE (Documentation v6.0 + v6.1 Complete)
 
-**Next Steps:**
-1. ✅ **DONE:** Comprehensive documentation created
-2. ⏳ **TODO:** Review and approval by stakeholders
-3. ⏳ **TODO:** Begin Phase 1 implementation (Core Infrastructure)
-4. ⏳ **TODO:** Update CHANGELOG.md with v6.0 plans
+**Documentation Status:**
+- ✅ **DONE:** Base implementation plan (v6.0) - 00_mtproxy_integration_plan.md
+- ✅ **DONE:** Advanced features specification (v6.1) - 01_advanced_features.md
+- ⏳ **IN PROGRESS:** Integration with install.sh - 02_install_integration.md (создаётся)
+- ✅ **DONE:** Quick reference README (этот файл)
+
+**Next Steps (v6.0 - Base Implementation):**
+1. ✅ **DONE:** Comprehensive documentation created (v6.0 + v6.1)
+2. ⏳ **TODO:** Complete 02_install_integration.md (install.sh + heredoc patterns)
+3. ⏳ **TODO:** Review and approval by stakeholders
+4. ⏳ **TODO:** Begin Phase 1 implementation (Core Infrastructure)
+5. ⏳ **TODO:** Update CHANGELOG.md with v6.0 plans
+
+**Next Steps (v6.1 - Advanced Features):**
+1. ⏳ **TODO:** Complete v6.0 base implementation first
+2. ⏳ **TODO:** Implement multi-user support (unique secrets per user)
+3. ⏳ **TODO:** Implement promoted channel integration
+4. ⏳ **TODO:** Implement advanced analytics (HAProxy logging)
+5. ⏳ **TODO:** Document protocol limitations and workarounds
 
 **Timeline:**
-- Planning: Week 1 (CURRENT)
-- Implementation: Weeks 2-5 (Phases 1-7)
-- Testing & QA: Week 6
-- Release: v6.0 (ETA: +6 weeks from approval)
+- **Planning:** Week 1 (CURRENT - документация v6.0 + v6.1)
+- **v6.0 Implementation:** Weeks 2-5 (Phases 1-7, базовая функциональность)
+- **v6.0 Testing & QA:** Week 6
+- **v6.0 Release:** ETA: +6 weeks from approval
+- **v6.1 Implementation:** +2-3 weeks after v6.0 (расширенные функции)
+- **v6.1 Release:** ETA: +9 weeks from approval
 
 ---
 
@@ -295,6 +359,6 @@ docs/mtproxy/
 ---
 
 **Created:** 2025-11-07
-**Last Updated:** 2025-11-07
-**Version:** 1.0 (Initial draft)
-**Status:** ✅ COMPLETE (Ready for review)
+**Last Updated:** 2025-11-08
+**Version:** 1.1 (Updated with v6.1 advanced features + install.sh integration)
+**Status:** ⏳ IN PROGRESS (Awaiting 02_install_integration.md completion)
