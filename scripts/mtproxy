@@ -19,14 +19,14 @@
 #   logs            - Show MTProxy logs
 #
 # Usage:
-#   vless-mtproxy <command> [options]
+#   mtproxy <command> [options]
 #
 # Examples:
-#   vless-mtproxy add-secret --type dd
-#   vless-mtproxy add-secret --type ee --domain www.google.com --user alice
-#   vless-mtproxy list-secrets
-#   vless-mtproxy status
-#   vless-mtproxy stats --live
+#   mtproxy add-secret --type dd
+#   mtproxy add-secret --type ee --domain www.google.com --user alice
+#   mtproxy list-secrets
+#   mtproxy status
+#   mtproxy stats --live
 #
 # Author: VLESS Development Team
 # Date: 2025-11-08
@@ -76,19 +76,19 @@ fi
 # ============================================================================
 
 log_info() {
-    echo -e "${BLUE}[vless-mtproxy]${NC} $*"
+    echo -e "${BLUE}[mtproxy]${NC} $*"
 }
 
 log_success() {
-    echo -e "${GREEN}[vless-mtproxy ✓]${NC} $*"
+    echo -e "${GREEN}[mtproxy ✓]${NC} $*"
 }
 
 log_error() {
-    echo -e "${RED}[vless-mtproxy ✗]${NC} $*" >&2
+    echo -e "${RED}[mtproxy ✗]${NC} $*" >&2
 }
 
 log_warning() {
-    echo -e "${YELLOW}[vless-mtproxy ⚠]${NC} $*"
+    echo -e "${YELLOW}[mtproxy ⚠]${NC} $*"
 }
 
 # ============================================================================
@@ -131,7 +131,7 @@ cmd_add_secret() {
     # For ee type, domain is required
     if [[ "$secret_type" == "ee" ]] && [[ -z "$domain" ]]; then
         log_error "Domain required for ee-type secret (fake-TLS)"
-        log_error "Usage: vless-mtproxy add-secret --type ee --domain www.google.com"
+        log_error "Usage: mtproxy add-secret --type ee --domain www.google.com"
         return 1
     fi
 
@@ -170,7 +170,7 @@ cmd_add_secret() {
     [[ -n "$domain" ]] && echo -e "${BLUE}Domain:${NC} ${domain}"
     [[ -n "$username" ]] && echo -e "${BLUE}User:${NC}   ${username}"
     echo ""
-    echo -e "${YELLOW}⚠️  Restart MTProxy to apply changes:${NC} vless-mtproxy restart"
+    echo -e "${YELLOW}⚠️  Restart MTProxy to apply changes:${NC} mtproxy restart"
     echo ""
 
     return 0
@@ -191,7 +191,7 @@ cmd_remove_secret() {
 
     if [[ -z "$identifier" ]]; then
         log_error "Secret or username required"
-        log_error "Usage: vless-mtproxy remove-secret <SECRET_OR_USER>"
+        log_error "Usage: mtproxy remove-secret <SECRET_OR_USER>"
         return 1
     fi
 
@@ -209,7 +209,7 @@ cmd_remove_secret() {
     fi
 
     log_success "Secret removed successfully"
-    log_warning "Restart MTProxy to apply changes: vless-mtproxy restart"
+    log_warning "Restart MTProxy to apply changes: mtproxy restart"
 
     return 0
 }
@@ -302,7 +302,7 @@ cmd_stats() {
         echo ""
         mtproxy_get_stats || {
             echo -e "${YELLOW}Stats not available${NC}"
-            echo "Is MTProxy running? Check: vless-mtproxy status"
+            echo "Is MTProxy running? Check: mtproxy status"
             return 1
         }
     fi
@@ -361,7 +361,7 @@ ${CYAN}║          MTProxy Management CLI (v6.1)                       ║${NC}
 ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}
 
 ${BLUE}USAGE:${NC}
-    vless-mtproxy <command> [options]
+    mtproxy <command> [options]
 
 ${BLUE}COMMANDS:${NC}
     ${GREEN}Secret Management:${NC}
@@ -384,37 +384,37 @@ ${BLUE}COMMANDS:${NC}
 
 ${BLUE}EXAMPLES:${NC}
     ${YELLOW}# Add standard secret${NC}
-    vless-mtproxy add-secret --type standard
+    mtproxy add-secret --type standard
 
     ${YELLOW}# Add dd-type secret (random padding)${NC}
-    vless-mtproxy add-secret --type dd
+    mtproxy add-secret --type dd
 
     ${YELLOW}# Add ee-type secret (fake-TLS)${NC}
-    vless-mtproxy add-secret --type ee --domain www.google.com
+    mtproxy add-secret --type ee --domain www.google.com
 
     ${YELLOW}# Add secret for specific user (v6.1)${NC}
-    vless-mtproxy add-secret --type dd --user alice
+    mtproxy add-secret --type dd --user alice
 
     ${YELLOW}# List all secrets${NC}
-    vless-mtproxy list-secrets
+    mtproxy list-secrets
 
     ${YELLOW}# Remove secret${NC}
-    vless-mtproxy remove-secret <SECRET_OR_USER>
+    mtproxy remove-secret <SECRET_OR_USER>
 
     ${YELLOW}# Container management${NC}
-    vless-mtproxy start
-    vless-mtproxy stop
-    vless-mtproxy restart
-    vless-mtproxy status
+    mtproxy start
+    mtproxy stop
+    mtproxy restart
+    mtproxy status
 
     ${YELLOW}# Show statistics${NC}
-    vless-mtproxy stats
-    vless-mtproxy stats --live
+    mtproxy stats
+    mtproxy stats --live
 
     ${YELLOW}# Show logs${NC}
-    vless-mtproxy logs
-    vless-mtproxy logs --tail 100
-    vless-mtproxy logs --follow
+    mtproxy logs
+    mtproxy logs --tail 100
+    mtproxy logs --follow
 
 ${BLUE}SECRET TYPES:${NC}
     ${GREEN}standard${NC}  - 32 hex characters (basic MTProxy secret)
@@ -435,14 +435,14 @@ main() {
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root"
-        log_error "Use: sudo vless-mtproxy <command>"
+        log_error "Use: sudo mtproxy <command>"
         exit 1
     fi
 
     # Check if MTProxy is installed
     if ! mtproxy_is_installed; then
         log_error "MTProxy is not installed"
-        log_error "Run installation wizard: sudo vless-mtproxy-setup"
+        log_error "Run installation wizard: sudo mtproxy-setup"
         exit 1
     fi
 
