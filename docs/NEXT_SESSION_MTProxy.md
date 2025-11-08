@@ -53,7 +53,7 @@
 
 #### PHASE 2.2: CLI Commands ✅
 - **scripts/mtproxy** (499 lines)
-  - Renamed from vless-mtproxy → mtproxy (naming correction)
+  - Renamed from mtproxy → mtproxy (naming correction)
   - Full management interface for MTProxy
   - 12 commands: add-secret, list-secrets, remove-secret, start, stop, restart, status, stats, logs, help
   - Sources lib/mtproxy_manager.sh + lib/mtproxy_secret_manager.sh
@@ -122,7 +122,7 @@
 
 ### PHASES 7-8: Security + Monitoring
 - UFW rules: `sudo ufw limit 8443/tcp comment 'MTProxy Telegram'`
-- fail2ban jail: `/etc/fail2ban/jail.d/vless-mtproxy.conf`
+- fail2ban jail: `/etc/fail2ban/jail.d/mtproxy.conf`
 - Integration с `vless status` command
 
 ### Дополнительные features (v6.2+):
@@ -159,7 +159,7 @@
 eae3f49 - docs(mtproxy): Update NEXT_SESSION - PHASES 0-4 complete
 ecde056 - feat(mtproxy): PHASE 4 Fake-TLS domain validation
 c411895 - feat(mtproxy): PHASE 3 Multi-user integration
-1983703 - refactor(mtproxy): Rename vless-mtproxy → mtproxy
+1983703 - refactor(mtproxy): Rename mtproxy → mtproxy
 b5c9571 - feat(mtproxy): Phase 2.2 CLI commands
 c15c0ae - wip(mtproxy): Phase 1.3-2.1 secret management
 5dadb9a - wip(mtproxy): Phase 0-1 infrastructure

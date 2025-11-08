@@ -1,7 +1,7 @@
 # MTProxy Integration Documentation
 
-**Version:** 6.1-draft (Extended Features)
-**Status:** 📝 PLANNING PHASE (Base + Advanced Features)
+**Version:** v6.1 (Released)
+**Status:** ✅ COMPLETED (Core Features Implemented)
 **Priority:** HIGH
 **Last Updated:** 2025-11-08
 
@@ -138,41 +138,41 @@
 
 **Installation:**
 ```bash
-sudo vless-mtproxy-setup              # Interactive wizard (called from install.sh)
-sudo vless-mtproxy-uninstall          # Complete removal
+sudo mtproxy-setup              # Interactive wizard (called from install.sh)
+sudo mtproxy-uninstall          # Complete removal
 ```
 
 **Secret Management (v6.0 - Single-user mode):**
 ```bash
-sudo vless-mtproxy add-secret [--with-padding]
-sudo vless-mtproxy list-secrets
-sudo vless-mtproxy remove-secret <secret>
-sudo vless-mtproxy regenerate-secret <old-secret>
-sudo vless-mtproxy show-config [<secret>]
+sudo mtproxy add-secret [--with-padding]
+sudo mtproxy list-secrets
+sudo mtproxy remove-secret <secret>
+sudo mtproxy regenerate-secret <old-secret>
+sudo mtproxy show-config [<secret>]
 ```
 
 **Multi-User Support (v6.1 - Advanced):**
 ```bash
 # User-based secret management
-sudo vless-mtproxy add-user <username> [--fake-tls <domain>]
-sudo vless-mtproxy remove-user <username>
-sudo vless-mtproxy list-users
-sudo vless-mtproxy show-user-config <username>
+sudo mtproxy add-user <username> [--fake-tls <domain>]
+sudo mtproxy remove-user <username>
+sudo mtproxy list-users
+sudo mtproxy show-user-config <username>
 
 # Promoted channel integration
-sudo vless-mtproxy set-promoted-channel <channel_id>
-sudo vless-mtproxy remove-promoted-channel
+sudo mtproxy set-promoted-channel <channel_id>
+sudo mtproxy remove-promoted-channel
 ```
 
 **Configuration:**
 ```bash
-sudo vless-mtproxy set-port <port>
-sudo vless-mtproxy set-workers <count>
+sudo mtproxy set-port <port>
+sudo mtproxy set-workers <count>
 ```
 
 **Monitoring:**
 ```bash
-sudo vless-mtproxy stats [--live]
+sudo mtproxy stats [--live]
 sudo vless status                     # Shows MTProxy section
 ```
 
@@ -242,7 +242,7 @@ sudo vless status                     # Shows MTProxy section
 **Steps:**
 1. Backup current configuration
 2. Update codebase to v6.0
-3. Run `vless-mtproxy-setup`
+3. Run `mtproxy-setup`
 4. Verify installation
 5. Test client connection
 
