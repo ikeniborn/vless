@@ -726,6 +726,283 @@ mtproxy_is_running() {
 }
 
 # ============================================================================
+# FUNCTION: get_server_ip (v6.1)
+# ============================================================================
+# Description: Get server's public IP address
+#
+# Parameters:
+#   None
+#
+# Returns:
+#   Stdout: IP address
+#   Exit: 0 on success, 1 on failure
+#
+# Example:
+#   server_ip=$(get_server_ip)
+# ============================================================================
+get_server_ip() {
+    local ip=""
+
+    # Method 1: Try ip route (most reliable for VPS)
+    if command -v ip &>/dev/null; then
+        ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[^ ]+' | head -1)
+    fi
+
+    # Method 2: Try hostname -I (fallback)
+    if [[ -z "$ip" ]] && command -v hostname &>/dev/null; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+
+    # Method 3: Try external IP detection (last resort)
+    if [[ -z "$ip" ]]; then
+        # Try multiple services for reliability
+        for service in "ifconfig.me" "icanhazip.com" "ipinfo.io/ip"; do
+            ip=$(curl -s --max-time 5 "https://${service}" 2>/dev/null | grep -oE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$')
+            if [[ -n "$ip" ]]; then
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$ip" ]]; then
+        mtproxy_log_error "Failed to detect server IP"
+        return 1
+    fi
+
+    echo "$ip"
+    return 0
+}
+
+# ============================================================================
+# FUNCTION: generate_mtproxy_deeplink (v6.1)
+# ============================================================================
+# Description: Generate Telegram MTProxy deep link for user
+#
+# Parameters:
+#   $1 - username (string)
+#   $2 - server_ip (optional, auto-detected if not provided)
+#
+# Returns:
+#   Stdout: tg://proxy?server=IP&port=8443&secret=HEX
+#   Exit: 0 on success, 1 on failure
+#
+# Example:
+#   deeplink=$(generate_mtproxy_deeplink "alice")
+#   deeplink=$(generate_mtproxy_deeplink "alice" "203.0.113.1")
+#
+# Format:
+#   tg://proxy?server=IP&port=PORT&secret=SECRET
+# ============================================================================
+generate_mtproxy_deeplink() {
+    local username="$1"
+    local server_ip="${2:-}"
+
+    # Validate username
+    if [[ -z "$username" ]]; then
+        mtproxy_log_error "Username required"
+        return 1
+    fi
+
+    # Get user info from users.json
+    local users_json="/opt/vless/data/users.json"
+    if [[ ! -f "$users_json" ]]; then
+        mtproxy_log_error "Users database not found: $users_json"
+        return 1
+    fi
+
+    # Extract MTProxy secret for user
+    local mtproxy_secret
+    mtproxy_secret=$(jq -r --arg user "$username" '.users[] | select(.username == $user) | .mtproxy_secret' "$users_json" 2>/dev/null)
+
+    if [[ -z "$mtproxy_secret" ]] || [[ "$mtproxy_secret" == "null" ]]; then
+        mtproxy_log_error "User '$username' has no MTProxy secret"
+        mtproxy_log_info "To add MTProxy secret: vless add-user $username (during creation)"
+        return 1
+    fi
+
+    # Get server IP if not provided
+    if [[ -z "$server_ip" ]]; then
+        server_ip=$(get_server_ip)
+        if [[ -z "$server_ip" ]]; then
+            return 1
+        fi
+    fi
+
+    # Get MTProxy port from config
+    local mtproxy_port="8443"  # Default
+    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
+        mtproxy_port=$(jq -r '.port // 8443' "${MTPROXY_CONFIG_JSON}" 2>/dev/null)
+    fi
+
+    # Generate deep link
+    local deeplink="tg://proxy?server=${server_ip}&port=${mtproxy_port}&secret=${mtproxy_secret}"
+
+    echo "$deeplink"
+    return 0
+}
+
+# ============================================================================
+# FUNCTION: generate_mtproxy_qrcode (v6.1)
+# ============================================================================
+# Description: Generate QR code PNG for MTProxy deep link
+#
+# Parameters:
+#   $1 - username (string)
+#   $2 - output_file (optional, default: /opt/vless/data/clients/<username>/mtproxy_qr.png)
+#
+# Returns:
+#   Exit: 0 on success, 1 on failure
+#
+# Example:
+#   generate_mtproxy_qrcode "alice"
+#   generate_mtproxy_qrcode "alice" "/tmp/alice_mtproxy.png"
+#
+# Dependencies:
+#   - qrencode package (apt install qrencode)
+# ============================================================================
+generate_mtproxy_qrcode() {
+    local username="$1"
+    local output_file="${2:-}"
+
+    # Validate username
+    if [[ -z "$username" ]]; then
+        mtproxy_log_error "Username required"
+        return 1
+    fi
+
+    # Check if qrencode is available
+    if ! command -v qrencode &>/dev/null; then
+        mtproxy_log_error "qrencode not found"
+        mtproxy_log_info "Install with: sudo apt install qrencode"
+        return 1
+    fi
+
+    # Set default output file if not provided
+    if [[ -z "$output_file" ]]; then
+        local user_dir="/opt/vless/data/clients/${username}"
+        if [[ ! -d "$user_dir" ]]; then
+            mkdir -p "$user_dir"
+            chmod 700 "$user_dir"
+        fi
+        output_file="${user_dir}/mtproxy_qr.png"
+    fi
+
+    # Generate deep link
+    local deeplink
+    deeplink=$(generate_mtproxy_deeplink "$username")
+    if [[ -z "$deeplink" ]]; then
+        return 1
+    fi
+
+    # Generate QR code (300x300px, high error correction)
+    if ! qrencode -o "$output_file" -s 10 -l H "$deeplink" 2>/dev/null; then
+        mtproxy_log_error "Failed to generate QR code"
+        return 1
+    fi
+
+    # Set permissions
+    chmod 600 "$output_file"
+
+    mtproxy_log_success "QR code generated: $output_file"
+    return 0
+}
+
+# ============================================================================
+# FUNCTION: show_mtproxy_config (v6.1)
+# ============================================================================
+# Description: Display MTProxy configuration for user
+#
+# Parameters:
+#   $1 - username (string)
+#
+# Returns:
+#   Exit: 0 on success, 1 on failure
+#
+# Example:
+#   show_mtproxy_config "alice"
+# ============================================================================
+show_mtproxy_config() {
+    local username="$1"
+
+    # Validate username
+    if [[ -z "$username" ]]; then
+        mtproxy_log_error "Username required"
+        return 1
+    fi
+
+    # Get user info from users.json
+    local users_json="/opt/vless/data/users.json"
+    if [[ ! -f "$users_json" ]]; then
+        mtproxy_log_error "Users database not found: $users_json"
+        return 1
+    fi
+
+    # Extract user data
+    local user_data
+    user_data=$(jq -r --arg user "$username" '.users[] | select(.username == $user)' "$users_json" 2>/dev/null)
+
+    if [[ -z "$user_data" ]]; then
+        mtproxy_log_error "User not found: $username"
+        return 1
+    fi
+
+    # Extract MTProxy fields
+    local mtproxy_secret mtproxy_secret_type mtproxy_domain
+    mtproxy_secret=$(echo "$user_data" | jq -r '.mtproxy_secret // "null"')
+    mtproxy_secret_type=$(echo "$user_data" | jq -r '.mtproxy_secret_type // "null"')
+    mtproxy_domain=$(echo "$user_data" | jq -r '.mtproxy_domain // "null"')
+
+    if [[ "$mtproxy_secret" == "null" ]]; then
+        mtproxy_log_error "User '$username' has no MTProxy configuration"
+        mtproxy_log_info "To add MTProxy secret: recreate user with MTProxy option enabled"
+        return 1
+    fi
+
+    # Get server IP
+    local server_ip
+    server_ip=$(get_server_ip)
+
+    # Get MTProxy port
+    local mtproxy_port="8443"
+    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
+        mtproxy_port=$(jq -r '.port // 8443' "${MTPROXY_CONFIG_JSON}" 2>/dev/null)
+    fi
+
+    # Generate deep link
+    local deeplink
+    deeplink=$(generate_mtproxy_deeplink "$username" "$server_ip")
+
+    # Display configuration
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║          MTProxy Configuration for: ${username}$(printf '%*s' $((23 - ${#username})) '')║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}Server:${NC}       $server_ip"
+    echo -e "${BLUE}Port:${NC}         $mtproxy_port"
+    echo -e "${BLUE}Secret Type:${NC}  $mtproxy_secret_type"
+    if [[ "$mtproxy_domain" != "null" ]]; then
+        echo -e "${BLUE}Domain:${NC}       $mtproxy_domain (fake-TLS)"
+    fi
+    echo -e "${BLUE}Secret:${NC}       ${mtproxy_secret:0:32}..."
+    echo ""
+    echo -e "${YELLOW}Deep Link:${NC}"
+    echo "$deeplink"
+    echo ""
+    echo -e "${YELLOW}Setup Instructions:${NC}"
+    echo "1. Open Telegram on your device"
+    echo "2. Click the deep link above (or scan QR code)"
+    echo "3. Telegram will prompt to add MTProxy"
+    echo "4. Confirm to enable proxy"
+    echo ""
+    echo -e "${YELLOW}QR Code:${NC}"
+    echo "Generate QR code: mtproxy generate-qr $username"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
 # FUNCTION: regenerate_mtproxy_secret_file_from_users (v6.1)
 # ============================================================================
 # Description: Regenerate MTProxy proxy-secret file from users.json database

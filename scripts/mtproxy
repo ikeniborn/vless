@@ -352,6 +352,47 @@ cmd_logs() {
 }
 
 # ============================================================================
+# Command: show-config (v6.1)
+# ============================================================================
+cmd_show_config() {
+    local username="$1"
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        log_error "Usage: mtproxy show-config <USERNAME>"
+        return 1
+    fi
+
+    show_mtproxy_config "$username"
+}
+
+# ============================================================================
+# Command: generate-qr (v6.1)
+# ============================================================================
+cmd_generate_qr() {
+    local username="$1"
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        log_error "Usage: mtproxy generate-qr <USERNAME>"
+        return 1
+    fi
+
+    log_info "Generating QR code for: ${username}"
+
+    if generate_mtproxy_qrcode "$username"; then
+        log_success "QR code generated successfully"
+        echo ""
+        echo "Location: /opt/vless/data/clients/${username}/mtproxy_qr.png"
+        echo ""
+        echo "Download the QR code and scan it with Telegram on your device"
+    else
+        log_error "Failed to generate QR code"
+        return 1
+    fi
+}
+
+# ============================================================================
 # Help Message
 # ============================================================================
 show_help() {
@@ -378,6 +419,10 @@ ${BLUE}COMMANDS:${NC}
     ${GREEN}Monitoring:${NC}
         stats           Show statistics
         logs            Show container logs
+
+    ${GREEN}Client Configuration (v6.1):${NC}
+        show-config     Show MTProxy configuration for user
+        generate-qr     Generate QR code for user
 
     ${GREEN}Help:${NC}
         help            Show this help message
@@ -415,6 +460,10 @@ ${BLUE}EXAMPLES:${NC}
     mtproxy logs
     mtproxy logs --tail 100
     mtproxy logs --follow
+
+    ${YELLOW}# Client configuration (v6.1)${NC}
+    mtproxy show-config alice
+    mtproxy generate-qr alice
 
 ${BLUE}SECRET TYPES:${NC}
     ${GREEN}standard${NC}  - 32 hex characters (basic MTProxy secret)
@@ -481,6 +530,20 @@ main() {
             ;;
         logs)
             cmd_logs "$@"
+            ;;
+        show-config)
+            if [[ $# -eq 0 ]]; then
+                log_error "Username required"
+                exit 1
+            fi
+            cmd_show_config "$@"
+            ;;
+        generate-qr)
+            if [[ $# -eq 0 ]]; then
+                log_error "Username required"
+                exit 1
+            fi
+            cmd_generate_qr "$@"
             ;;
         help|--help|-h)
             show_help
