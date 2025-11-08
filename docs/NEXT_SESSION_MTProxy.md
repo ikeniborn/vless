@@ -1,11 +1,11 @@
 # MTProxy v6.0+v6.1 Integration - Next Session Guide
 
-## Текущий статус (2025-11-08, 50% core features complete)
+## Текущий статус (2025-11-08, 75% core features complete)
 
 **Git Branch:** `feature/mtproxy-v6.0-v6.1`
-**Latest Commit:** `c15c0ae` - wip(mtproxy): Phase 1.3-2.1 secret management (checkpoint 2)
+**Latest Commit:** `ecde056` - feat(mtproxy): PHASE 4 Fake-TLS domain validation (checkpoint 4)
 
-### Выполнено (6 фаз)
+### Выполнено (8 фаз)
 
 #### PHASE 0: Planning & Research ✅
 - Feature branch created
@@ -36,100 +36,65 @@
   - Integrated with existing heredoc pattern
 
 #### PHASE 2.1: Secret Management System ✅
-- **lib/mtproxy_secret_manager.sh** (620 lines, 9 functions)
+- **lib/mtproxy_secret_manager.sh** (600 lines, 10 functions)
   - `generate_mtproxy_secret()` - 3 types:
     - `standard`: 32 hex characters
     - `dd`: "dd" + 32 hex (random padding)
     - `ee`: "ee" + 32 hex + 16 hex domain (fake-TLS)
   - `encode_domain_to_hex()` - domain encoding for ee-type
   - `validate_mtproxy_secret()` - regex format validation
+  - `validate_mtproxy_domain()` - NEW (v6.1): domain validation with DNS check
   - `add_secret_to_db()` - atomic add with flock
   - `remove_secret_from_db()` - atomic remove
   - `list_secrets()` - formatted output
   - `secret_exists()` - existence check
   - JSON storage: `/opt/vless/config/mtproxy/secrets.json`
 
+#### PHASE 2.2: CLI Commands ✅
+- **scripts/mtproxy** (499 lines)
+  - Renamed from vless-mtproxy → mtproxy (naming correction)
+  - Full management interface for MTProxy
+  - 12 commands: add-secret, list-secrets, remove-secret, start, stop, restart, status, stats, logs, help
+  - Sources lib/mtproxy_manager.sh + lib/mtproxy_secret_manager.sh
+  - Root privilege check, installation check
+
+#### PHASE 3: Multi-User Integration (v6.1) ✅
+- **users.json schema extended** (3 new fields):
+  - `mtproxy_secret` (string|null) - Per-user MTProxy secret
+  - `mtproxy_secret_type` (string|null) - Secret type: standard|dd|ee
+  - `mtproxy_domain` (string|null) - Domain for ee-type secrets
+
+- **lib/user_management.sh** (updated):
+  - `add_user_to_json()` - добавлены параметры $8, $9, $10 для MTProxy fields
+  - `create_user()` - Step 3.8: интерактивный выбор MTProxy secret
+  - `create_user()` - Step 6.7: автоматическая регенерация proxy-secret file
+
+- **lib/mtproxy_manager.sh** (updated):
+  - `regenerate_mtproxy_secret_file_from_users()` - NEW function (79 lines)
+  - Читает users.json вместо secrets.json
+  - Multi-user support: proxy-secret file с N строками
+  - Автоматическое обновление mtproxy_config.json (multi_user: true)
+
+#### PHASE 4: Fake-TLS Domain Validation (v6.1) ✅
+- **validate_mtproxy_domain()** в lib/mtproxy_secret_manager.sh (57 lines):
+  - Regex validation: ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$
+  - Length check: max 253 chars (FQDN)
+  - Reserved domains block: localhost, private IP (127.x, 10.x, 172.x, 192.168.x)
+  - Optional DNS check via nslookup/host
+  - Recommended domains: www.google.com, www.cloudflare.com, www.bing.com
+
+- **create_user()** updated:
+  - Использует validate_mtproxy_domain() для ee-type
+  - Список рекомендуемых доменов
+  - Улучшенные error messages
+
 ---
 
-## Осталось выполнить (остальные 50%)
+## Осталось выполнить (остальные 25%)
 
 ### Критичные задачи (необходимы для MVP):
 
-#### PHASE 2.2: CLI Commands ⏳ (НАЧАТЬ ОТСЮДА)
-**Цель:** Создать `scripts/mtproxy` CLI для управления MTProxy
 
-**Требуемые команды:**
-```bash
-# Secret management
-mtproxy add-secret [--type standard|dd|ee] [--domain DOMAIN] [--user USERNAME]
-mtproxy list-secrets
-mtproxy remove-secret <SECRET_OR_USER>
-mtproxy regenerate-secret <SECRET_OR_USER>
-
-# Container management
-mtproxy start
-mtproxy stop
-mtproxy restart
-mtproxy status
-mtproxy logs [--tail N] [--follow]
-
-# Statistics
-mtproxy stats [--live]
-
-# Client configuration (Phase 5 integration)
-mtproxy show-config <USER>
-mtproxy generate-qr <USER>
-```
-
-**Файл:** `scripts/mtproxy`
-**Symlink:** `/usr/local/bin/mtproxy` (создать при установке)
-**Pattern:** Аналогично `scripts/vless` (если есть в проекте)
-
----
-
-#### PHASE 3: Multi-User Integration (v6.1) ⏳
-**Цель:** Интеграция с `users.json` для per-user secrets
-
-**Задачи:**
-1. Расширить schema `users.json`:
-   ```json
-   {
-     "users": [
-       {
-         "username": "alice",
-         "uuid": "...",
-         "mtproxy_secret": "ee...",  // NEW field
-         "mtproxy_secret_type": "ee", // NEW field
-         "created": "..."
-       }
-     ]
-   }
-   ```
-
-2. Обновить `lib/user_management.sh`:
-   - `create_user()` - добавить флаг `--with-mtproxy`
-   - Автоматическая генерация MTProxy secret при создании user
-
-3. Обновить `lib/mtproxy_secret_manager.sh`:
-   - Поддержка multi-user режима (один secret на user)
-   - `secrets.json` → array of user secrets
-
-4. Обновить `lib/mtproxy_manager.sh`:
-   - `generate_mtproxy_secret_file()` - multi-line output (один secret на строку)
-   - Установить `multi_user: true` в `mtproxy_config.json`
-
----
-
-#### PHASE 4: Fake-TLS Support (v6.1 ee-secrets) ⏳
-**Цель:** Полная реализация ee-type секретов для DPI resistance
-
-**Задачи:**
-1. CLI команда: `mtproxy add-secret --type ee --domain www.google.com`
-2. Domain validation (DNS check опционально)
-3. Тестирование генерации ee-secrets
-4. Документация по выбору домена (требования MTProxy)
-
----
 
 #### PHASE 5: Client Configuration Generation ⏳
 **Цель:** Автоматическая генерация deep links и QR codes
@@ -389,13 +354,18 @@ source lib/mtproxy_secret_manager.sh
 ## Git Commits History
 
 ```
+ecde056 - feat(mtproxy): PHASE 4 Fake-TLS domain validation (checkpoint 4)
+c411895 - feat(mtproxy): PHASE 3 Multi-user integration (checkpoint 3)
+1983703 - refactor(mtproxy): Rename vless-mtproxy → mtproxy (naming correction)
+b5c9571 - feat(mtproxy): Phase 2.2 CLI commands (checkpoint 3)
 c15c0ae - wip(mtproxy): Phase 1.3-2.1 secret management (checkpoint 2)
-5dadb9a - wip(mtproxy): Phase 0-1 infrastructure (checkpoint)
+5dadb9a - wip(mtproxy): Phase 0-1 infrastructure (checkpoint 1)
 893e8fd - Merge pull request #13 (master branch HEAD)
 ```
 
 ---
 
-**Начать следующую сессию с PHASE 2.2 (CLI Creation)**
+**PROGRESS: ~75% core features complete (PHASES 0-4 done)**
+**NEXT: PHASE 5 (Client Configuration Generation - deep links, QR codes)**
 
 Good luck! 🚀
