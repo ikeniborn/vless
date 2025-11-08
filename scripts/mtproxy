@@ -1,0 +1,561 @@
+#!/bin/bash
+# ============================================================================
+# VLESS Reality VPN - MTProxy Management CLI
+# Version: 6.1.0
+# ============================================================================
+#
+# Purpose:
+#   Command-line interface for managing MTProxy Telegram proxy service
+#
+# Commands:
+#   add-secret      - Add new MTProxy secret
+#   list-secrets    - List all secrets
+#   remove-secret   - Remove secret
+#   start           - Start MTProxy container
+#   stop            - Stop MTProxy container
+#   restart         - Restart MTProxy container
+#   status          - Show MTProxy status
+#   stats           - Show MTProxy statistics
+#   logs            - Show MTProxy logs
+#
+# Usage:
+#   mtproxy <command> [options]
+#
+# Examples:
+#   mtproxy add-secret --type dd
+#   mtproxy add-secret --type ee --domain www.google.com --user alice
+#   mtproxy list-secrets
+#   mtproxy status
+#   mtproxy stats --live
+#
+# Author: VLESS Development Team
+# Date: 2025-11-08
+# ============================================================================
+
+set -euo pipefail
+
+# ============================================================================
+# Global Variables
+# ============================================================================
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly VLESS_HOME="/opt/vless"
+readonly LIB_DIR="${VLESS_HOME}/lib"
+
+# Colors
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m'
+
+# ============================================================================
+# Source Required Modules
+# ============================================================================
+
+if [[ -f "${LIB_DIR}/mtproxy_manager.sh" ]]; then
+    # shellcheck source=/opt/vless/lib/mtproxy_manager.sh
+    source "${LIB_DIR}/mtproxy_manager.sh"
+else
+    echo -e "${RED}Error: mtproxy_manager.sh not found${NC}" >&2
+    echo "Expected location: ${LIB_DIR}/mtproxy_manager.sh" >&2
+    exit 1
+fi
+
+if [[ -f "${LIB_DIR}/mtproxy_secret_manager.sh" ]]; then
+    # shellcheck source=/opt/vless/lib/mtproxy_secret_manager.sh
+    source "${LIB_DIR}/mtproxy_secret_manager.sh"
+else
+    echo -e "${RED}Error: mtproxy_secret_manager.sh not found${NC}" >&2
+    exit 1
+fi
+
+# ============================================================================
+# Logging Functions
+# ============================================================================
+
+log_info() {
+    echo -e "${BLUE}[mtproxy]${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}[mtproxy ✓]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[mtproxy ✗]${NC} $*" >&2
+}
+
+log_warning() {
+    echo -e "${YELLOW}[mtproxy ⚠]${NC} $*"
+}
+
+# ============================================================================
+# Command: add-secret
+# ============================================================================
+cmd_add_secret() {
+    local secret_type="standard"
+    local domain=""
+    local username=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)
+                secret_type="$2"
+                shift 2
+                ;;
+            --domain)
+                domain="$2"
+                shift 2
+                ;;
+            --user)
+                username="$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Validate secret type
+    if [[ ! "$secret_type" =~ ^(standard|dd|ee)$ ]]; then
+        log_error "Invalid secret type: ${secret_type}"
+        log_error "Allowed types: standard, dd, ee"
+        return 1
+    fi
+
+    # For ee type, domain is required
+    if [[ "$secret_type" == "ee" ]] && [[ -z "$domain" ]]; then
+        log_error "Domain required for ee-type secret (fake-TLS)"
+        log_error "Usage: mtproxy add-secret --type ee --domain www.google.com"
+        return 1
+    fi
+
+    log_info "Generating MTProxy secret..."
+    log_info "  Type: ${secret_type}"
+    [[ -n "$domain" ]] && log_info "  Domain: ${domain}"
+    [[ -n "$username" ]] && log_info "  User: ${username}"
+
+    # Generate secret
+    local secret
+    if ! secret=$(generate_mtproxy_secret "$secret_type" "$domain"); then
+        log_error "Failed to generate secret"
+        return 1
+    fi
+
+    # Add to database
+    if ! add_secret_to_db "$secret" "$secret_type" "$username" "$domain"; then
+        log_error "Failed to add secret to database"
+        return 1
+    fi
+
+    # Regenerate proxy-secret file
+    if ! regenerate_proxy_secret_file; then
+        log_error "Failed to regenerate proxy-secret file"
+        return 1
+    fi
+
+    log_success "Secret added successfully"
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              MTProxy Secret Generated                        ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}Type:${NC}   ${secret_type}"
+    echo -e "${BLUE}Secret:${NC} ${secret}"
+    [[ -n "$domain" ]] && echo -e "${BLUE}Domain:${NC} ${domain}"
+    [[ -n "$username" ]] && echo -e "${BLUE}User:${NC}   ${username}"
+    echo ""
+    echo -e "${YELLOW}⚠️  Restart MTProxy to apply changes:${NC} mtproxy restart"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# Command: list-secrets
+# ============================================================================
+cmd_list_secrets() {
+    list_secrets
+}
+
+# ============================================================================
+# Command: remove-secret
+# ============================================================================
+cmd_remove_secret() {
+    local identifier="$1"
+
+    if [[ -z "$identifier" ]]; then
+        log_error "Secret or username required"
+        log_error "Usage: mtproxy remove-secret <SECRET_OR_USER>"
+        return 1
+    fi
+
+    log_info "Removing secret: ${identifier}"
+
+    if ! remove_secret_from_db "$identifier"; then
+        log_error "Failed to remove secret"
+        return 1
+    fi
+
+    # Regenerate proxy-secret file
+    if ! regenerate_proxy_secret_file; then
+        log_error "Failed to regenerate proxy-secret file"
+        return 1
+    fi
+
+    log_success "Secret removed successfully"
+    log_warning "Restart MTProxy to apply changes: mtproxy restart"
+
+    return 0
+}
+
+# ============================================================================
+# Command: start
+# ============================================================================
+cmd_start() {
+    log_info "Starting MTProxy..."
+    if mtproxy_start; then
+        log_success "MTProxy started"
+    else
+        log_error "Failed to start MTProxy"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: stop
+# ============================================================================
+cmd_stop() {
+    log_info "Stopping MTProxy..."
+    if mtproxy_stop; then
+        log_success "MTProxy stopped"
+    else
+        log_error "Failed to stop MTProxy"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: restart
+# ============================================================================
+cmd_restart() {
+    log_info "Restarting MTProxy..."
+    if mtproxy_restart; then
+        log_success "MTProxy restarted"
+    else
+        log_error "Failed to restart MTProxy"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: status
+# ============================================================================
+cmd_status() {
+    mtproxy_status
+}
+
+# ============================================================================
+# Command: stats
+# ============================================================================
+cmd_stats() {
+    local live_mode=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --live)
+                live_mode=true
+                shift
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ "$live_mode" == "true" ]]; then
+        log_info "Live stats mode (Ctrl+C to exit)"
+        echo ""
+        while true; do
+            clear
+            echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${CYAN}║          MTProxy Live Statistics                             ║${NC}"
+            echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            mtproxy_get_stats || echo -e "${YELLOW}Stats not available${NC}"
+            echo ""
+            echo -e "${BLUE}Updated: $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+            sleep 2
+        done
+    else
+        echo ""
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║              MTProxy Statistics                              ║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        mtproxy_get_stats || {
+            echo -e "${YELLOW}Stats not available${NC}"
+            echo "Is MTProxy running? Check: mtproxy status"
+            return 1
+        }
+    fi
+}
+
+# ============================================================================
+# Command: logs
+# ============================================================================
+cmd_logs() {
+    local tail_lines=50
+    local follow=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tail)
+                tail_lines="$2"
+                shift 2
+                ;;
+            --follow|-f)
+                follow=true
+                shift
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    local container_name="vless_mtproxy"
+
+    # Check if container exists
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        log_error "MTProxy container not found: ${container_name}"
+        return 1
+    fi
+
+    log_info "Showing MTProxy logs (last ${tail_lines} lines)"
+    echo ""
+
+    if [[ "$follow" == "true" ]]; then
+        docker logs -f --tail "$tail_lines" "$container_name"
+    else
+        docker logs --tail "$tail_lines" "$container_name"
+    fi
+}
+
+# ============================================================================
+# Command: show-config (v6.1)
+# ============================================================================
+cmd_show_config() {
+    local username="$1"
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        log_error "Usage: mtproxy show-config <USERNAME>"
+        return 1
+    fi
+
+    show_mtproxy_config "$username"
+}
+
+# ============================================================================
+# Command: generate-qr (v6.1)
+# ============================================================================
+cmd_generate_qr() {
+    local username="$1"
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        log_error "Usage: mtproxy generate-qr <USERNAME>"
+        return 1
+    fi
+
+    log_info "Generating QR code for: ${username}"
+
+    if generate_mtproxy_qrcode "$username"; then
+        log_success "QR code generated successfully"
+        echo ""
+        echo "Location: /opt/vless/data/clients/${username}/mtproxy_qr.png"
+        echo ""
+        echo "Download the QR code and scan it with Telegram on your device"
+    else
+        log_error "Failed to generate QR code"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Help Message
+# ============================================================================
+show_help() {
+    cat <<EOF
+${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}
+${CYAN}║          MTProxy Management CLI (v6.1)                       ║${NC}
+${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}
+
+${BLUE}USAGE:${NC}
+    mtproxy <command> [options]
+
+${BLUE}COMMANDS:${NC}
+    ${GREEN}Secret Management:${NC}
+        add-secret      Add new MTProxy secret
+        list-secrets    List all secrets
+        remove-secret   Remove secret by ID or username
+
+    ${GREEN}Container Management:${NC}
+        start           Start MTProxy container
+        stop            Stop MTProxy container
+        restart         Restart MTProxy container
+        status          Show MTProxy status
+
+    ${GREEN}Monitoring:${NC}
+        stats           Show statistics
+        logs            Show container logs
+
+    ${GREEN}Client Configuration (v6.1):${NC}
+        show-config     Show MTProxy configuration for user
+        generate-qr     Generate QR code for user
+
+    ${GREEN}Help:${NC}
+        help            Show this help message
+
+${BLUE}EXAMPLES:${NC}
+    ${YELLOW}# Add standard secret${NC}
+    mtproxy add-secret --type standard
+
+    ${YELLOW}# Add dd-type secret (random padding)${NC}
+    mtproxy add-secret --type dd
+
+    ${YELLOW}# Add ee-type secret (fake-TLS)${NC}
+    mtproxy add-secret --type ee --domain www.google.com
+
+    ${YELLOW}# Add secret for specific user (v6.1)${NC}
+    mtproxy add-secret --type dd --user alice
+
+    ${YELLOW}# List all secrets${NC}
+    mtproxy list-secrets
+
+    ${YELLOW}# Remove secret${NC}
+    mtproxy remove-secret <SECRET_OR_USER>
+
+    ${YELLOW}# Container management${NC}
+    mtproxy start
+    mtproxy stop
+    mtproxy restart
+    mtproxy status
+
+    ${YELLOW}# Show statistics${NC}
+    mtproxy stats
+    mtproxy stats --live
+
+    ${YELLOW}# Show logs${NC}
+    mtproxy logs
+    mtproxy logs --tail 100
+    mtproxy logs --follow
+
+    ${YELLOW}# Client configuration (v6.1)${NC}
+    mtproxy show-config alice
+    mtproxy generate-qr alice
+
+${BLUE}SECRET TYPES:${NC}
+    ${GREEN}standard${NC}  - 32 hex characters (basic MTProxy secret)
+    ${GREEN}dd${NC}        - "dd" + 32 hex (random padding enabled)
+    ${GREEN}ee${NC}        - "ee" + 32 hex + 16 hex domain (fake-TLS)
+
+${BLUE}MORE INFO:${NC}
+    Documentation: /opt/vless/docs/mtproxy/
+    User Guide:    /opt/vless/docs/mtproxy/user_guide.md
+
+EOF
+}
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+main() {
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        log_error "This script must be run as root"
+        log_error "Use: sudo mtproxy <command>"
+        exit 1
+    fi
+
+    # Check if MTProxy is installed
+    if ! mtproxy_is_installed; then
+        log_error "MTProxy is not installed"
+        log_error "Run installation wizard: sudo mtproxy-setup"
+        exit 1
+    fi
+
+    # Parse command
+    local command="${1:-help}"
+    shift || true
+
+    case "$command" in
+        add-secret)
+            cmd_add_secret "$@"
+            ;;
+        list-secrets)
+            cmd_list_secrets "$@"
+            ;;
+        remove-secret)
+            if [[ $# -eq 0 ]]; then
+                log_error "Secret or username required"
+                exit 1
+            fi
+            cmd_remove_secret "$@"
+            ;;
+        start)
+            cmd_start "$@"
+            ;;
+        stop)
+            cmd_stop "$@"
+            ;;
+        restart)
+            cmd_restart "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        stats)
+            cmd_stats "$@"
+            ;;
+        logs)
+            cmd_logs "$@"
+            ;;
+        show-config)
+            if [[ $# -eq 0 ]]; then
+                log_error "Username required"
+                exit 1
+            fi
+            cmd_show_config "$@"
+            ;;
+        generate-qr)
+            if [[ $# -eq 0 ]]; then
+                log_error "Username required"
+                exit 1
+            fi
+            cmd_generate_qr "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            log_error "Unknown command: ${command}"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# Execute main
+main "$@"

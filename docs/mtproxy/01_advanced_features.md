@@ -1,7 +1,7 @@
 # MTProxy Advanced Features Specification (v6.1+)
 
-**Version:** 6.1-draft (Advanced Features)
-**Status:** 📝 PLANNING (Extended Scope)
+**Version:** v6.1 (Advanced Features - Released)
+**Status:** ✅ COMPLETED (Multi-User + Fake-TLS Implemented)
 **Priority:** MEDIUM-HIGH
 **Created:** 2025-11-08
 **Last Updated:** 2025-11-08
@@ -117,9 +117,9 @@ CLI команды:
 vless-user add alice --with-mtproxy
 
 # Ручное управление
-vless-mtproxy enable-user alice
-vless-mtproxy disable-user alice
-vless-mtproxy regenerate-user-secret alice
+mtproxy enable-user alice
+mtproxy disable-user alice
+mtproxy regenerate-user-secret alice
 
 # Показать конфиги
 vless-user show alice  # включает MTProxy deep link
@@ -232,15 +232,15 @@ add_user_with_mtproxy() {
 CLI для управления MTProxy секретами пользователей.
 
 **Acceptance Criteria:**
-- ✅ `vless-mtproxy enable-user <username>` - включить MTProxy для пользователя
-- ✅ `vless-mtproxy disable-user <username>` - отключить (удалить секрет)
-- ✅ `vless-mtproxy regenerate-user-secret <username>` - сгенерировать новый секрет
-- ✅ `vless-mtproxy list-user-secrets` - показать все секреты (маскированные)
+- ✅ `mtproxy enable-user <username>` - включить MTProxy для пользователя
+- ✅ `mtproxy disable-user <username>` - отключить (удалить секрет)
+- ✅ `mtproxy regenerate-user-secret <username>` - сгенерировать новый секрет
+- ✅ `mtproxy list-user-secrets` - показать все секреты (маскированные)
 - ✅ `vless-user show <username>` - показывает MTProxy конфигурацию в output
 
 **CLI Output Example:**
 ```bash
-$ vless-mtproxy list-user-secrets
+$ mtproxy list-user-secrets
 
 MTProxy User Secrets:
 ┌──────────┬────────────────────────┬─────────┬───────────────┐
@@ -510,24 +510,24 @@ MTProxy supports only ONE -P parameter globally for ALL secrets.
 CLI для регистрации и управления promoted channel через @MTProxybot.
 
 **Acceptance Criteria:**
-- ✅ CLI: `vless-mtproxy setup-promoted-channel`
+- ✅ CLI: `mtproxy setup-promoted-channel`
   - Interactive wizard
   - Prompt для proxy tag (получен через @MTProxybot)
   - Prompt для channel username (опционально)
   - Сохранение в `/opt/vless/config/mtproxy/promoted_channel.json`
 
-- ✅ CLI: `vless-mtproxy show-promoted-channel`
+- ✅ CLI: `mtproxy show-promoted-channel`
   - Показывает текущий proxy tag
   - Показывает channel username (если есть)
   - Показывает статус (active/inactive)
 
-- ✅ CLI: `vless-mtproxy remove-promoted-channel`
+- ✅ CLI: `mtproxy remove-promoted-channel`
   - Удаляет `-P` параметр из MTProxy
   - Перезапускает контейнер
 
 **CLI Flow:**
 ```bash
-$ sudo vless-mtproxy setup-promoted-channel
+$ sudo mtproxy setup-promoted-channel
 
 === Promoted Channel Setup ===
 
@@ -646,7 +646,7 @@ services:
 # (manual steps in Telegram app)
 
 # 2. Configure in VLESS
-sudo vless-mtproxy setup-promoted-channel
+sudo mtproxy setup-promoted-channel
 # Enter proxy tag: <tag-from-bot>
 
 # 3. Verify MTProxy running with -P
@@ -1095,13 +1095,13 @@ tg://proxy?server=IP&port=8443&secret=ee1a2b3c...676f6f676c652e636f6d
 Генерация секретов с fake-TLS support (ee prefix + domain).
 
 **Acceptance Criteria:**
-- ✅ CLI: `vless-mtproxy add-secret --fake-tls --domain google.com`
+- ✅ CLI: `mtproxy add-secret --fake-tls --domain google.com`
   - Генерирует 16-byte секрет
   - Добавляет ee prefix
   - Кодирует домен в hex
   - Результат: `ee<secret><domain_hex>`
 
-- ✅ CLI: `vless-mtproxy add-user alice --with-mtproxy --fake-tls --domain cloudflare.com`
+- ✅ CLI: `mtproxy add-user alice --with-mtproxy --fake-tls --domain cloudflare.com`
   - Создаёт пользователя с fake-TLS секретом
   - Генерирует deep link с полным секретом
 
@@ -1195,7 +1195,7 @@ validate_domain() {
   azure.microsoft.com
   ```
 
-- ✅ CLI: `vless-mtproxy list-fake-tls-domains`
+- ✅ CLI: `mtproxy list-fake-tls-domains`
   ```
   Fake-TLS Domains (5):
   1. google.com
@@ -1205,11 +1205,11 @@ validate_domain() {
   5. azure.microsoft.com
   ```
 
-- ✅ CLI: `vless-mtproxy add-fake-tls-domain example.com`
+- ✅ CLI: `mtproxy add-fake-tls-domain example.com`
   - Validates domain
   - Adds to whitelist
 
-- ✅ CLI: `vless-mtproxy remove-fake-tls-domain example.com`
+- ✅ CLI: `mtproxy remove-fake-tls-domain example.com`
 
 ---
 
@@ -1459,30 +1459,30 @@ tshark -r /tmp/fake_tls_traffic.pcap -V -x
 vless-user add alice --with-mtproxy                    # Create user with MTProxy
 vless-user add bob --with-mtproxy --fake-tls --domain google.com  # With fake-TLS
 
-vless-mtproxy enable-user <username>                   # Enable MTProxy for existing user
-vless-mtproxy disable-user <username>                  # Disable MTProxy
-vless-mtproxy regenerate-user-secret <username>        # Generate new secret
-vless-mtproxy list-user-secrets                        # Show all user secrets
+mtproxy enable-user <username>                   # Enable MTProxy for existing user
+mtproxy disable-user <username>                  # Disable MTProxy
+mtproxy regenerate-user-secret <username>        # Generate new secret
+mtproxy list-user-secrets                        # Show all user secrets
 
 # === Fake-TLS ===
-vless-mtproxy add-secret --fake-tls --domain google.com
-vless-mtproxy list-fake-tls-domains
-vless-mtproxy add-fake-tls-domain example.com
-vless-mtproxy remove-fake-tls-domain example.com
+mtproxy add-secret --fake-tls --domain google.com
+mtproxy list-fake-tls-domains
+mtproxy add-fake-tls-domain example.com
+mtproxy remove-fake-tls-domain example.com
 
 # === Promoted Channel ===
-vless-mtproxy setup-promoted-channel                   # Interactive wizard
-vless-mtproxy show-promoted-channel
-vless-mtproxy remove-promoted-channel
+mtproxy setup-promoted-channel                   # Interactive wizard
+mtproxy show-promoted-channel
+mtproxy remove-promoted-channel
 
 # === Advanced Statistics ===
-vless-mtproxy stats-api start                          # Start Flask API server
-vless-mtproxy stats-api stop
+mtproxy stats-api start                          # Start Flask API server
+mtproxy stats-api stop
 curl http://localhost:8889/api/stats                   # Get JSON stats
 
 # === HAProxy Routing (v6.3) ===
-vless-mtproxy enable-haproxy-routing
-vless-mtproxy disable-haproxy-routing
+mtproxy enable-haproxy-routing
+mtproxy disable-haproxy-routing
 ```
 
 ### Appendix B: Configuration Files Structure

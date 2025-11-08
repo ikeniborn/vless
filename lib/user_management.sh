@@ -350,6 +350,9 @@ add_user_to_json() {
     local fingerprint="${5:-chrome}"  # Optional fingerprint (v1.3 schema update, default: chrome)
     local external_proxy_id="${6:-}"  # Optional external_proxy_id (v5.24 per-user routing)
     local connection_type="${7:-both}"  # Optional connection_type (v5.25: vpn|proxy|both, default: both)
+    local mtproxy_secret="${8:-}"     # Optional MTProxy secret (v6.1 per-user MTProxy)
+    local mtproxy_secret_type="${9:-}"  # Optional MTProxy secret type (v6.1: standard|dd|ee)
+    local mtproxy_domain="${10:-}"    # Optional MTProxy domain (v6.1: for ee-type secrets)
 
     log_info "Adding user to database..."
 
@@ -404,6 +407,21 @@ add_user_to_json() {
 
         # Add connection_type (v5.25 schema - per-user connection type: vpn|proxy|both)
         user_obj+=",\"connection_type\":\"$connection_type\""
+
+        # Add MTProxy fields (v6.1 schema - per-user MTProxy secret)
+        if [[ -n "$mtproxy_secret" ]]; then
+            user_obj+=",\"mtproxy_secret\":\"$mtproxy_secret\""
+            user_obj+=",\"mtproxy_secret_type\":\"$mtproxy_secret_type\""
+            if [[ -n "$mtproxy_domain" ]]; then
+                user_obj+=",\"mtproxy_domain\":\"$mtproxy_domain\""
+            else
+                user_obj+=",\"mtproxy_domain\":null"
+            fi
+        else
+            user_obj+=",\"mtproxy_secret\":null"
+            user_obj+=",\"mtproxy_secret_type\":null"
+            user_obj+=",\"mtproxy_domain\":null"
+        fi
 
         # Add timestamps
         user_obj+=",\"created\":\"$(date -Iseconds)\",\"created_timestamp\":$(date +%s)}"
@@ -2091,6 +2109,135 @@ create_user() {
         fi
     fi
 
+    # Step 3.8: Configure MTProxy secret (optional, v6.1)
+    local mtproxy_secret=""
+    local mtproxy_secret_type=""
+    local mtproxy_domain=""
+
+    echo ""
+    log_info "MTProxy Configuration (optional):"
+    echo "  Generate Telegram MTProxy secret for this user?"
+    echo "  MTProxy provides transport obfuscation for Telegram traffic."
+    echo ""
+
+    # Check if MTProxy is installed
+    local mtproxy_config="/opt/vless/config/mtproxy/mtproxy_config.json"
+    local mtproxy_available=false
+
+    if [[ -f "$mtproxy_config" ]]; then
+        mtproxy_available=true
+        echo "  MTProxy is installed and available"
+    else
+        echo "  MTProxy is not installed (run 'mtproxy-setup' to install)"
+    fi
+    echo ""
+
+    if [[ "$mtproxy_available" == "true" ]]; then
+        local mtproxy_choice
+        while true; do
+            read -r -p "Generate MTProxy secret? (y/n) [default: n]: " mtproxy_choice
+
+            # Default to no if empty
+            if [[ -z "$mtproxy_choice" ]]; then
+                mtproxy_choice="n"
+            fi
+
+            if [[ "$mtproxy_choice" =~ ^[Yy]$ ]]; then
+                # Select secret type
+                echo ""
+                log_info "Select MTProxy secret type:"
+                echo "  1) Standard (32 hex) - Basic MTProxy secret"
+                echo "  2) dd-type (random padding) - DPI resistance with random padding"
+                echo "  3) ee-type (fake-TLS) - Maximum DPI resistance, requires domain"
+                echo ""
+
+                local secret_type_choice
+                while true; do
+                    read -r -p "Enter choice [1-3, default: 2]: " secret_type_choice
+
+                    # Default to 2 (dd-type)
+                    if [[ -z "$secret_type_choice" ]]; then
+                        secret_type_choice="2"
+                    fi
+
+                    case "$secret_type_choice" in
+                        1)
+                            mtproxy_secret_type="standard"
+                            log_success "Selected secret type: standard"
+                            break
+                            ;;
+                        2)
+                            mtproxy_secret_type="dd"
+                            log_success "Selected secret type: dd (random padding)"
+                            break
+                            ;;
+                        3)
+                            mtproxy_secret_type="ee"
+                            log_success "Selected secret type: ee (fake-TLS)"
+
+                            # Prompt for domain (required for ee-type)
+                            echo ""
+                            echo "  Recommended domains: www.google.com, www.cloudflare.com, www.bing.com"
+                            echo ""
+                            while true; do
+                                read -r -p "Enter domain for fake-TLS (e.g., www.google.com): " mtproxy_domain
+
+                                if [[ -z "$mtproxy_domain" ]]; then
+                                    log_error "Domain is required for ee-type secrets"
+                                    continue
+                                fi
+
+                                # Validate domain using mtproxy_secret_manager function
+                                if validate_mtproxy_domain "$mtproxy_domain" "false"; then
+                                    log_success "Domain validated: $mtproxy_domain"
+                                    break
+                                else
+                                    log_error "Invalid domain. Please try again"
+                                fi
+                            done
+                            break
+                            ;;
+                        *)
+                            log_error "Invalid choice. Please enter 1, 2, or 3"
+                            ;;
+                    esac
+                done
+
+                # Source mtproxy_secret_manager.sh
+                if [[ -f "${SCRIPT_DIR}/mtproxy_secret_manager.sh" ]]; then
+                    source "${SCRIPT_DIR}/mtproxy_secret_manager.sh"
+                else
+                    log_error "MTProxy secret manager not found: ${SCRIPT_DIR}/mtproxy_secret_manager.sh"
+                    log_warning "Skipping MTProxy configuration"
+                    mtproxy_secret=""
+                    mtproxy_secret_type=""
+                    mtproxy_domain=""
+                    break
+                fi
+
+                # Generate secret
+                log_info "Generating MTProxy secret..."
+                mtproxy_secret=$(generate_mtproxy_secret "$mtproxy_secret_type" "$mtproxy_domain")
+
+                if [[ -z "$mtproxy_secret" ]]; then
+                    log_error "Failed to generate MTProxy secret"
+                    log_warning "Skipping MTProxy configuration"
+                    mtproxy_secret=""
+                    mtproxy_secret_type=""
+                    mtproxy_domain=""
+                else
+                    log_success "MTProxy secret generated: ${mtproxy_secret:0:16}..."
+                fi
+                break
+            elif [[ "$mtproxy_choice" =~ ^[Nn]$ ]]; then
+                log_info "Skipping MTProxy configuration"
+                break
+            else
+                log_error "Invalid choice. Please enter y or n"
+            fi
+        done
+    fi
+
     # Step 4: Create user directory
     local user_dir="${CLIENTS_DIR}/${username}"
     if ! mkdir -p "$user_dir"; then
@@ -2100,8 +2247,8 @@ create_user() {
     chmod 700 "$user_dir"
     log_success "Created user directory: $user_dir"
 
-    # Step 5: Add user to users.json (atomic) with proxy password, shortId, fingerprint, external_proxy_id, and connection_type (v5.25)
-    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint" "$external_proxy_id" "$connection_type"; then
+    # Step 5: Add user to users.json (atomic) with proxy password, shortId, fingerprint, external_proxy_id, connection_type, and MTProxy fields (v6.1)
+    if ! add_user_to_json "$username" "$uuid" "$proxy_password" "$short_id" "$fingerprint" "$external_proxy_id" "$connection_type" "$mtproxy_secret" "$mtproxy_secret_type" "$mtproxy_domain"; then
         # Cleanup on failure
         rm -rf "$user_dir"
         return 1
@@ -2133,6 +2280,27 @@ create_user() {
         if ! apply_per_user_routing; then
             log_warning "Failed to apply per-user routing (continuing anyway)"
             # Don't fail completely - routing will be applied on next reload
+        fi
+    fi
+
+    # Step 6.7: Regenerate MTProxy secret file (v6.1)
+    # Only if mtproxy_secret is set, otherwise skip
+    if [[ -n "$mtproxy_secret" ]]; then
+        log_info "Regenerating MTProxy secret file..."
+
+        # Source mtproxy_manager.sh
+        if [[ -f "${SCRIPT_DIR}/mtproxy_manager.sh" ]]; then
+            source "${SCRIPT_DIR}/mtproxy_manager.sh"
+
+            if ! regenerate_mtproxy_secret_file_from_users; then
+                log_warning "Failed to regenerate MTProxy secret file (continuing anyway)"
+                # Don't fail completely - secret file can be regenerated manually
+            else
+                log_success "MTProxy secret file updated"
+                log_info "Restart MTProxy to apply changes: mtproxy restart"
+            fi
+        else
+            log_warning "MTProxy manager not found, skipping secret file regeneration"
         fi
     fi
 

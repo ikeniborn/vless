@@ -1,9 +1,10 @@
 # MTProxy Integration with install.sh
 
 **Version:** 1.0
-**Status:** 📝 DRAFT
-**Priority:** HIGH
+**Status:** ⏳ TODO (Deferred to v6.2 - PHASE 6 not implemented)
+**Priority:** MEDIUM
 **Last Updated:** 2025-11-08
+**Note:** Core MTProxy features (v6.0+v6.1) are COMPLETED. This document describes installation wizard integration which is deferred to v6.2 release.
 **Related Documents:**
 - [00_mtproxy_integration_plan.md](00_mtproxy_integration_plan.md) - Base implementation plan
 - [01_advanced_features.md](01_advanced_features.md) - Advanced features specification
@@ -16,7 +17,7 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Integration Overview](#2-integration-overview)
 3. [Heredoc Configuration Patterns](#3-heredoc-configuration-patterns)
-4. [vless-mtproxy-setup Script Structure](#4-vless-mtproxy-setup-script-structure)
+4. [mtproxy-setup Script Structure](#4-mtproxy-setup-script-structure)
 5. [Docker Compose Integration](#5-docker-compose-integration)
 6. [Configuration File Generation](#6-configuration-file-generation)
 7. [Opt-in Installation Flow](#7-opt-in-installation-flow)
@@ -39,7 +40,7 @@
 **Integration Points:**
 1. **install.sh** - Add opt-in prompt after Step 10
 2. **lib/mtproxy_manager.sh** - NEW module for MTProxy operations
-3. **scripts/vless-mtproxy-setup** - Standalone setup wizard
+3. **scripts/mtproxy-setup** - Standalone setup wizard
 4. **Docker Compose** - Add mtproxy service via heredoc
 
 **Compliance:**
@@ -105,12 +106,12 @@ main() {
 
     if [[ "$mtproxy_choice" =~ ^[Yy]$ ]]; then
         print_message "${COLOR_BLUE}" "Starting MTProxy installation wizard..."
-        /opt/vless/scripts/vless-mtproxy-setup || {
+        /opt/vless/scripts/mtproxy-setup || {
             print_warning "MTProxy installation failed, but VLESS installation is complete"
         }
     else
         print_message "${COLOR_YELLOW}" "MTProxy installation skipped"
-        print_message "${COLOR_CYAN}" "You can install it later with: sudo vless-mtproxy-setup"
+        print_message "${COLOR_CYAN}" "You can install it later with: sudo mtproxy-setup"
     fi
 
     # Final success message
@@ -156,9 +157,9 @@ Add as Step 11, increment TOTAL_STEPS to 11:
 │       └── mtproxy.log
 │
 └── scripts/
-    ├── vless-mtproxy-setup           # NEW v6.0 - Interactive setup wizard
-    ├── vless-mtproxy                 # NEW v6.0 - Management CLI
-    └── vless-mtproxy-uninstall       # NEW v6.0 - Complete removal
+    ├── mtproxy-setup           # NEW v6.0 - Interactive setup wizard
+    ├── mtproxy                 # NEW v6.0 - Management CLI
+    └── mtproxy-uninstall       # NEW v6.0 - Complete removal
 ```
 
 ---
@@ -388,9 +389,9 @@ generate_proxy_secret_file() {
 
 ---
 
-## 4. vless-mtproxy-setup Script Structure
+## 4. mtproxy-setup Script Structure
 
-**Location:** `/opt/vless/scripts/vless-mtproxy-setup`
+**Location:** `/opt/vless/scripts/mtproxy-setup`
 
 **Purpose:** Interactive wizard for MTProxy installation (v6.0 base functionality).
 
@@ -406,8 +407,8 @@ generate_proxy_secret_file() {
 #   Supports both v6.0 (single-user) and v6.1 (multi-user) modes.
 #
 # Usage:
-#   sudo vless-mtproxy-setup              # Interactive wizard
-#   MTPROXY_AUTO_MODE=yes sudo vless-mtproxy-setup  # Non-interactive (defaults)
+#   sudo mtproxy-setup              # Interactive wizard
+#   MTPROXY_AUTO_MODE=yes sudo mtproxy-setup  # Non-interactive (defaults)
 #
 # Requirements:
 #   - Must be run as root
@@ -862,13 +863,13 @@ display_final_instructions() {
 
     print_message "${COLOR_CYAN}" "Next Steps:"
     print_message "${COLOR_YELLOW}" "  1. Connect Telegram: Tap deep link or scan QR code"
-    print_message "${COLOR_YELLOW}" "  2. Check status: sudo vless-mtproxy stats"
+    print_message "${COLOR_YELLOW}" "  2. Check status: sudo mtproxy stats"
     print_message "${COLOR_YELLOW}" "  3. View logs: docker logs vless_mtproxy"
     echo ""
 
     print_message "${COLOR_CYAN}" "Management Commands:"
-    print_message "${COLOR_YELLOW}" "  sudo vless-mtproxy stats       # View statistics"
-    print_message "${COLOR_YELLOW}" "  sudo vless-mtproxy show-config # Show configuration"
+    print_message "${COLOR_YELLOW}" "  sudo mtproxy stats       # View statistics"
+    print_message "${COLOR_YELLOW}" "  sudo mtproxy show-config # Show configuration"
     print_message "${COLOR_YELLOW}" "  sudo vless status              # Overall status (includes MTProxy)"
     echo ""
 
@@ -876,7 +877,7 @@ display_final_instructions() {
         print_message "${COLOR_CYAN}" "Promoted Channel Setup:"
         print_message "${COLOR_YELLOW}" "  1. Message @MTProxybot in Telegram"
         print_message "${COLOR_YELLOW}" "  2. Register your proxy and get TAG"
-        print_message "${COLOR_YELLOW}" "  3. Run: sudo vless-mtproxy set-promoted-channel <TAG>"
+        print_message "${COLOR_YELLOW}" "  3. Run: sudo mtproxy set-promoted-channel <TAG>"
         echo ""
     fi
 
@@ -1121,7 +1122,7 @@ Would you like to install MTProxy? (y/n) [default=n]:
   ↓
 Starting MTProxy installation wizard...
   ↓
-[vless-mtproxy-setup runs]
+[mtproxy-setup runs]
   ↓
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   MTPROXY CONFIGURATION
@@ -1186,7 +1187,7 @@ tg://proxy?server=1.2.3.4&port=8443&secret=dd0123456789abcdef0123456789abcdef
 
 Next Steps:
   1. Connect Telegram: Tap deep link or scan QR code
-  2. Check status: sudo vless-mtproxy stats
+  2. Check status: sudo mtproxy stats
   3. View logs: docker logs vless_mtproxy
 
 [End of installation]
@@ -1394,11 +1395,11 @@ test_stats_endpoint
 
 ## 9. Appendix: Code Examples
 
-### 9.1 Complete vless-mtproxy Management CLI
+### 9.1 Complete mtproxy Management CLI
 
 ```bash
 #!/bin/bash
-# /opt/vless/scripts/vless-mtproxy
+# /opt/vless/scripts/mtproxy
 # MTProxy management CLI (placeholder - full implementation in Phase 2)
 
 set -euo pipefail
@@ -1471,7 +1472,7 @@ cmd_help() {
     cat <<EOF
 MTProxy Management CLI v6.0
 
-Usage: vless-mtproxy <command> [arguments]
+Usage: mtproxy <command> [arguments]
 
 Commands:
   stats               Show MTProxy statistics
@@ -1510,7 +1511,7 @@ esac
 
 ```bash
 #!/bin/bash
-# /opt/vless/scripts/vless-mtproxy-uninstall
+# /opt/vless/scripts/mtproxy-uninstall
 # Complete MTProxy removal
 
 set -euo pipefail
@@ -1614,6 +1615,6 @@ echo ""
 **Related Work:**
 - [ ] Implement lib/mtproxy_manager.sh module
 - [ ] Update install.sh with opt-in prompt
-- [ ] Create vless-mtproxy-setup script
+- [ ] Create mtproxy-setup script
 - [ ] Generate MTProxy Dockerfile
 - [ ] Test heredoc configuration generation

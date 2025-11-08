@@ -1,10 +1,10 @@
 # MTProxy Integration Plan for VLESS Reality VPN Project
 
-**Version:** 6.0-draft (MTProxy Support)
-**Status:** 📝 PLANNING (Documentation Phase)
+**Version:** v6.0 (MTProxy Support - Released)
+**Status:** ✅ COMPLETED (Core Implementation Finished)
 **Priority:** HIGH
 **Created:** 2025-11-07
-**Last Updated:** 2025-11-07
+**Last Updated:** 2025-11-08
 
 ---
 
@@ -127,7 +127,7 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
 **FR-MTPROXY-002: Opt-in Installation**
 - **Описание:** Установка MTProxy опциональна (как reverse proxy wizard)
 - **Детали:**
-  - Отдельный wizard: `vless-mtproxy-setup`
+  - Отдельный wizard: `mtproxy-setup`
   - Вопросы: порт (по умолчанию 8443), workers, секреты
   - Не устанавливается по умолчанию при `vless-install`
 
@@ -138,10 +138,10 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
   - Префикс `dd` для random padding (опционально)
   - Формат хранения: `/opt/vless/config/mtproxy_secrets.json`
   - CLI команды:
-    - `vless-mtproxy add-secret [--with-padding]`
-    - `vless-mtproxy list-secrets`
-    - `vless-mtproxy remove-secret <secret>`
-    - `vless-mtproxy regenerate-secret <old-secret>`
+    - `mtproxy add-secret [--with-padding]`
+    - `mtproxy list-secrets`
+    - `mtproxy remove-secret <secret>`
+    - `mtproxy regenerate-secret <old-secret>`
 
 **FR-MTPROXY-004: Client Configuration Generation**
 - **Описание:** Автоматическая генерация клиентских конфигураций
@@ -156,8 +156,8 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
 **FR-MTPROXY-005: fail2ban Integration**
 - **Описание:** Защита MTProxy от brute-force атак
 - **Детали:**
-  - Jail: `/etc/fail2ban/jail.d/vless-mtproxy.conf`
-  - Filter: `/etc/fail2ban/filter.d/vless-mtproxy.conf`
+  - Jail: `/etc/fail2ban/jail.d/mtproxy.conf`
+  - Filter: `/etc/fail2ban/filter.d/mtproxy.conf`
   - Log source: `/opt/vless/logs/mtproxy/error.log`
   - Ban threshold: 5 failures → 1 hour ban
   - Pattern matching: MTProxy authentication errors
@@ -333,8 +333,8 @@ CMD ["/usr/local/bin/mtproto-proxy", "-u", "nobody", "-p", "8888", "-H", "8443",
 Отдельный wizard для установки MTProxy (не включен в основной `vless-install`).
 
 **Acceptance Criteria:**
-- ✅ Скрипт: `/opt/vless/scripts/vless-mtproxy-setup`
-- ✅ Symlink: `/usr/local/bin/vless-mtproxy-setup`
+- ✅ Скрипт: `/opt/vless/scripts/mtproxy-setup`
+- ✅ Symlink: `/usr/local/bin/mtproxy-setup`
 - ✅ Interactive prompts:
   1. "Install MTProxy? [y/N]"
   2. "MTProxy port [8443]:"
@@ -349,7 +349,7 @@ CMD ["/usr/local/bin/mtproto-proxy", "-u", "nobody", "-p", "8888", "-H", "8443",
 
 **User Flow:**
 ```bash
-$ sudo vless-mtproxy-setup
+$ sudo mtproxy-setup
 
 === MTProxy Setup Wizard ===
 
@@ -363,7 +363,7 @@ Enable random padding (recommended)? [Y/n]: y
 Generating secret...
 ✓ Secret generated: dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
 ✓ UFW rule added: 8443/tcp LIMIT
-✓ fail2ban jail created: vless-mtproxy
+✓ fail2ban jail created: mtproxy
 ✓ Docker container started: vless_mtproxy
 ✓ MTProxy running on port 8443
 
@@ -388,24 +388,24 @@ Next steps:
 CLI команды для управления MTProxy секретами.
 
 **Acceptance Criteria:**
-- ✅ Команда: `vless-mtproxy add-secret [--with-padding]`
+- ✅ Команда: `mtproxy add-secret [--with-padding]`
   - Генерирует 16-byte секрет: `head -c 16 /dev/urandom | xxd -ps`
   - Опционально добавляет префикс `dd` для padding
   - Сохраняет в `/opt/vless/config/mtproxy_secrets.json`
   - Обновляет Docker контейнер с новым секретом
   - Output: новый secret в hex формате
 
-- ✅ Команда: `vless-mtproxy list-secrets`
+- ✅ Команда: `mtproxy list-secrets`
   - Показывает все активные секреты
   - Формат: таблица (Secret, Padding, Created, Active)
   - Маскирует часть секрета: `dd1a2b...4b5c`
 
-- ✅ Команда: `vless-mtproxy remove-secret <secret>`
+- ✅ Команда: `mtproxy remove-secret <secret>`
   - Удаляет секрет из конфигурации
   - Перезапускает MTProxy контейнер
   - Предупреждает если это последний секрет
 
-- ✅ Команда: `vless-mtproxy regenerate-secret <old-secret>`
+- ✅ Команда: `mtproxy regenerate-secret <old-secret>`
   - Генерирует новый секрет
   - Заменяет старый
   - Перезапускает контейнер
@@ -451,14 +451,14 @@ CLI команды для управления MTProxy секретами.
   - Path: `/opt/vless/data/mtproxy/mtproxy_qr.png`
   - Кодирует deep link
 
-- ✅ Команда: `vless-mtproxy show-config [<secret>]`
+- ✅ Команда: `mtproxy show-config [<secret>]`
   - Показывает deep link для секрета
   - Показывает путь к QR code
   - Если secret не указан - показывает для активного
 
 **User Flow:**
 ```bash
-$ sudo vless-mtproxy add-secret --with-padding
+$ sudo mtproxy add-secret --with-padding
 
 ✓ Secret generated: dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
 
@@ -467,7 +467,7 @@ Client configuration saved:
   QR code: /opt/vless/data/mtproxy/mtproxy_qr.png
 
 To view configuration:
-  sudo vless-mtproxy show-config
+  sudo mtproxy show-config
 ```
 
 ---
@@ -481,29 +481,29 @@ To view configuration:
 Защита MTProxy от brute-force атак через fail2ban.
 
 **Acceptance Criteria:**
-- ✅ Jail file: `/etc/fail2ban/jail.d/vless-mtproxy.conf`
+- ✅ Jail file: `/etc/fail2ban/jail.d/mtproxy.conf`
   ```ini
-  [vless-mtproxy]
+  [mtproxy]
   enabled = true
   port = 8443
   protocol = tcp
-  filter = vless-mtproxy
+  filter = mtproxy
   logpath = /opt/vless/logs/mtproxy/error.log
   maxretry = 5
   bantime = 3600
   findtime = 600
   ```
 
-- ✅ Filter file: `/etc/fail2ban/filter.d/vless-mtproxy.conf`
+- ✅ Filter file: `/etc/fail2ban/filter.d/mtproxy.conf`
   ```ini
   [Definition]
   failregex = ^.*authentication failed.*from.*<HOST>.*$
   ignoreregex =
   ```
 
-- ✅ Log rotation: `/etc/logrotate.d/vless-mtproxy`
-- ✅ Автоматическое создание при `vless-mtproxy-setup`
-- ✅ Тестирование: `fail2ban-regex /opt/vless/logs/mtproxy/error.log /etc/fail2ban/filter.d/vless-mtproxy.conf`
+- ✅ Log rotation: `/etc/logrotate.d/mtproxy`
+- ✅ Автоматическое создание при `mtproxy-setup`
+- ✅ Тестирование: `fail2ban-regex /opt/vless/logs/mtproxy/error.log /etc/fail2ban/filter.d/mtproxy.conf`
 
 ---
 
@@ -559,7 +559,7 @@ To view configuration:
     Port: 8443
   ```
 
-- ✅ Команда: `vless-mtproxy stats`
+- ✅ Команда: `mtproxy stats`
   - Показывает детальные метрики
   - Обновление каждые 5 секунд (live mode: `--live`)
 
@@ -674,7 +674,7 @@ sudo tcpdump -i any port 8443 -w mtproxy_traffic.pcap
 - ✅ Interactive wizard с валидацией ввода
 - ✅ Clear error messages при ошибках
 - ✅ QR code генерация для простого подключения
-- ✅ Help text в CLI: `vless-mtproxy --help`
+- ✅ Help text в CLI: `mtproxy --help`
 - ✅ User guide в `/docs/mtproxy/user_guide.md`
 
 **User Guide Structure:**
@@ -831,14 +831,14 @@ services:
 │       └── error.log               # Error logs (for fail2ban)
 │
 └── scripts/
-    ├── vless-mtproxy-setup         # Setup wizard
-    └── vless-mtproxy               # Management CLI
+    ├── mtproxy-setup         # Setup wizard
+    └── mtproxy               # Management CLI
 
 /etc/fail2ban/
 ├── jail.d/
-│   └── vless-mtproxy.conf          # MTProxy jail
+│   └── mtproxy.conf          # MTProxy jail
 └── filter.d/
-    └── vless-mtproxy.conf          # MTProxy filter
+    └── mtproxy.conf          # MTProxy filter
 ```
 
 ### 7.3 Network Configuration
@@ -911,12 +911,12 @@ sudo ufw limit 8443/tcp comment 'MTProxy (Telegram)'
 **fail2ban Configuration:**
 
 ```ini
-# /etc/fail2ban/jail.d/vless-mtproxy.conf
-[vless-mtproxy]
+# /etc/fail2ban/jail.d/mtproxy.conf
+[mtproxy]
 enabled = true
 port = 8443
 protocol = tcp
-filter = vless-mtproxy
+filter = mtproxy
 logpath = /opt/vless/logs/mtproxy/error.log
 maxretry = 5
 bantime = 3600
@@ -925,7 +925,7 @@ action = iptables-multiport[name=MTProxy, port="8443", protocol=tcp]
 ```
 
 ```ini
-# /etc/fail2ban/filter.d/vless-mtproxy.conf
+# /etc/fail2ban/filter.d/mtproxy.conf
 [Definition]
 # Match MTProxy authentication failures
 failregex = ^.*authentication.*failed.*<HOST>.*$
@@ -995,7 +995,7 @@ curl http://localhost:8888/stats
    - Валидация через `jq`
    - Atomic writes (temp file + mv)
 
-3. ✅ Создать CLI: `scripts/vless-mtproxy`
+3. ✅ Создать CLI: `scripts/mtproxy`
    - Subcommands: add-secret, list-secrets, remove-secret, regenerate-secret
    - Symlink в `/usr/local/bin/`
 
@@ -1008,13 +1008,13 @@ curl http://localhost:8888/stats
 **Testing:**
 ```bash
 # Test secret generation
-sudo vless-mtproxy add-secret --with-padding
+sudo mtproxy add-secret --with-padding
 
 # Test list
-sudo vless-mtproxy list-secrets
+sudo mtproxy list-secrets
 
 # Test remove
-sudo vless-mtproxy remove-secret <secret>
+sudo mtproxy remove-secret <secret>
 
 # Verify container restart
 docker logs vless_mtproxy | grep "secret"
@@ -1050,14 +1050,14 @@ docker logs vless_mtproxy | grep "secret"
 **Testing:**
 ```bash
 # Test config generation
-sudo vless-mtproxy add-secret --with-padding
+sudo mtproxy add-secret --with-padding
 
 # Verify files created
 ls -la /opt/vless/data/mtproxy/
 # Should see: mtproxy_link.txt, mtproxy_qr.png
 
 # Test show-config
-sudo vless-mtproxy show-config
+sudo mtproxy show-config
 ```
 
 ---
@@ -1067,7 +1067,7 @@ sudo vless-mtproxy show-config
 **Goal:** Opt-in установка через wizard
 
 **Tasks:**
-1. ✅ Создать `scripts/vless-mtproxy-setup`
+1. ✅ Создать `scripts/mtproxy-setup`
    - Interactive prompts
    - Валидация ввода
    - Port conflict check
@@ -1084,7 +1084,7 @@ sudo vless-mtproxy show-config
    - Generate client configs
    - Display results
 
-3. ✅ Создать `scripts/vless-mtproxy-uninstall`
+3. ✅ Создать `scripts/mtproxy-uninstall`
    - Stop container
    - Remove UFW rule
    - Remove fail2ban jail
@@ -1100,11 +1100,11 @@ sudo vless-mtproxy show-config
 **Testing:**
 ```bash
 # Test installation
-sudo vless-mtproxy-setup
+sudo mtproxy-setup
 # Follow prompts, verify all steps complete
 
 # Test uninstallation
-sudo vless-mtproxy-uninstall
+sudo mtproxy-uninstall
 # Verify container stopped, UFW rule removed
 ```
 
@@ -1116,13 +1116,13 @@ sudo vless-mtproxy-uninstall
 
 **Tasks:**
 1. ✅ Создать fail2ban jail
-   - File: `/etc/fail2ban/jail.d/vless-mtproxy.conf`
+   - File: `/etc/fail2ban/jail.d/mtproxy.conf`
    - Port: 8443
    - Maxretry: 5
    - Bantime: 3600
 
 2. ✅ Создать fail2ban filter
-   - File: `/etc/fail2ban/filter.d/vless-mtproxy.conf`
+   - File: `/etc/fail2ban/filter.d/mtproxy.conf`
    - Regex: MTProxy authentication errors
 
 3. ✅ Добавить UFW rule management
@@ -1141,7 +1141,7 @@ sudo vless-mtproxy-uninstall
 ```bash
 # Test fail2ban filter
 fail2ban-regex /opt/vless/logs/mtproxy/error.log \
-  /etc/fail2ban/filter.d/vless-mtproxy.conf
+  /etc/fail2ban/filter.d/mtproxy.conf
 
 # Simulate attack (5 failed connections)
 for i in {1..6}; do
@@ -1149,7 +1149,7 @@ for i in {1..6}; do
 done
 
 # Check ban
-sudo fail2ban-client status vless-mtproxy
+sudo fail2ban-client status mtproxy
 # Should show banned IP
 
 # Test UFW rule
@@ -1177,7 +1177,7 @@ sudo ufw status | grep 8443
    - Optional: live mode (`--live`, refresh every 5s)
 
 4. ✅ Логирование
-   - Rotate logs: `/etc/logrotate.d/vless-mtproxy`
+   - Rotate logs: `/etc/logrotate.d/mtproxy`
    - Error log для fail2ban
    - Optional: access log (privacy consideration)
 
@@ -1190,10 +1190,10 @@ sudo vless status
 # Should show MTProxy section with metrics
 
 # Test stats command
-sudo vless-mtproxy stats
+sudo mtproxy stats
 
 # Test live mode
-sudo vless-mtproxy stats --live
+sudo mtproxy stats --live
 # Should refresh every 5 seconds
 ```
 
@@ -1232,7 +1232,7 @@ sudo vless-mtproxy stats --live
 sudo bash tests/test_mtproxy.sh
 
 # E2E test (manual)
-# 1. Install MTProxy: sudo vless-mtproxy-setup
+# 1. Install MTProxy: sudo mtproxy-setup
 # 2. Open Telegram app
 # 3. Tap deep link: tg://proxy?server=...
 # 4. Verify connection: send test message
@@ -1352,7 +1352,7 @@ test_stats_api
 
 | Test ID | Scenario | Steps | Expected Result |
 |---------|----------|-------|-----------------|
-| E2E-001 | Fresh install | 1. Run vless-mtproxy-setup<br>2. Follow prompts<br>3. Verify container | MTProxy running, secret generated |
+| E2E-001 | Fresh install | 1. Run mtproxy-setup<br>2. Follow prompts<br>3. Verify container | MTProxy running, secret generated |
 | E2E-002 | Client connection (Android) | 1. Copy deep link<br>2. Open in Telegram<br>3. Tap "Connect" | Proxy connected, green checkmark |
 | E2E-003 | Message send | 1. Send test message<br>2. Check delivery | Message sent successfully |
 | E2E-004 | fail2ban ban | 1. 6 failed connections<br>2. Check ban status | IP banned for 1 hour |
@@ -1371,7 +1371,7 @@ test_fresh_install() {
     MTPROXY_PORT=8443 \
     MTPROXY_WORKERS=1 \
     MTPROXY_PADDING=yes \
-    sudo vless-mtproxy-setup --non-interactive
+    sudo mtproxy-setup --non-interactive
 
     # Verify container running
     docker ps | grep -q vless_mtproxy || { echo "FAIL: Container not running"; return 1; }
@@ -1590,7 +1590,7 @@ test_fail2ban() {
     done
 
     # Check ban status
-    sudo fail2ban-client status vless-mtproxy
+    sudo fail2ban-client status mtproxy
     # Should show 1 banned IP
 }
 
@@ -1705,7 +1705,7 @@ test_ufw_rate_limit
 
 4. **Run MTProxy Setup**
    ```bash
-   sudo vless-mtproxy-setup
+   sudo mtproxy-setup
    # Follow interactive prompts
    ```
 
@@ -1739,7 +1739,7 @@ docker-compose stop mtproxy
 sudo ufw delete limit 8443/tcp
 
 # Remove fail2ban jail
-sudo rm /etc/fail2ban/jail.d/vless-mtproxy.conf
+sudo rm /etc/fail2ban/jail.d/mtproxy.conf
 sudo fail2ban-client reload
 
 # Restore backup
@@ -1770,8 +1770,8 @@ docker-compose restart
    sudo ufw delete limit 8443/tcp
 
    # Remove fail2ban jail
-   sudo rm /etc/fail2ban/jail.d/vless-mtproxy.conf
-   sudo rm /etc/fail2ban/filter.d/vless-mtproxy.conf
+   sudo rm /etc/fail2ban/jail.d/mtproxy.conf
+   sudo rm /etc/fail2ban/filter.d/mtproxy.conf
    sudo fail2ban-client reload
 
    # Remove MTProxy files (optional - keep for future)
@@ -1811,7 +1811,7 @@ docker-compose restart
 
 **Scenario:** User wants to completely remove MTProxy
 
-**Uninstall Script:** `vless-mtproxy-uninstall`
+**Uninstall Script:** `mtproxy-uninstall`
 
 ```bash
 #!/bin/bash
@@ -1842,8 +1842,8 @@ sudo ufw delete limit 8443/tcp
 
 # 4. Remove fail2ban jail
 echo "Removing fail2ban jail..."
-sudo rm /etc/fail2ban/jail.d/vless-mtproxy.conf
-sudo rm /etc/fail2ban/filter.d/vless-mtproxy.conf
+sudo rm /etc/fail2ban/jail.d/mtproxy.conf
+sudo rm /etc/fail2ban/filter.d/mtproxy.conf
 sudo fail2ban-client reload
 
 # 5. Remove configs (optional)
@@ -1941,22 +1941,22 @@ echo "MTProxy uninstalled successfully!"
 
 ```bash
 # MTProxy Setup
-vless-mtproxy-setup              # Interactive installation wizard
-vless-mtproxy-uninstall          # Remove MTProxy completely
+mtproxy-setup              # Interactive installation wizard
+mtproxy-uninstall          # Remove MTProxy completely
 
 # Secret Management
-vless-mtproxy add-secret [--with-padding]
-vless-mtproxy list-secrets
-vless-mtproxy remove-secret <secret>
-vless-mtproxy regenerate-secret <old-secret>
+mtproxy add-secret [--with-padding]
+mtproxy list-secrets
+mtproxy remove-secret <secret>
+mtproxy regenerate-secret <old-secret>
 
 # Configuration
-vless-mtproxy show-config [<secret>]
-vless-mtproxy set-port <port>
-vless-mtproxy set-workers <count>
+mtproxy show-config [<secret>]
+mtproxy set-port <port>
+mtproxy set-workers <count>
 
 # Monitoring
-vless-mtproxy stats [--live]
+mtproxy stats [--live]
 vless status  # Shows MTProxy section
 
 # Docker Operations
@@ -1966,7 +1966,7 @@ docker-compose restart mtproxy
 docker logs vless_mtproxy
 
 # fail2ban
-sudo fail2ban-client status vless-mtproxy
+sudo fail2ban-client status mtproxy
 sudo fail2ban-client unban <IP>
 
 # UFW
@@ -1988,20 +1988,20 @@ sudo ufw delete limit 8443/tcp
 ├── logs/mtproxy/
 │   └── error.log
 ├── scripts/
-│   ├── vless-mtproxy-setup
-│   ├── vless-mtproxy-uninstall
-│   └── vless-mtproxy
+│   ├── mtproxy-setup
+│   ├── mtproxy-uninstall
+│   └── mtproxy
 └── lib/
     ├── mtproxy_manager.sh
     └── mtproxy_secret_manager.sh
 
 /etc/fail2ban/
-├── jail.d/vless-mtproxy.conf
-└── filter.d/vless-mtproxy.conf
+├── jail.d/mtproxy.conf
+└── filter.d/mtproxy.conf
 
 /usr/local/bin/
-├── vless-mtproxy-setup -> /opt/vless/scripts/vless-mtproxy-setup
-└── vless-mtproxy -> /opt/vless/scripts/vless-mtproxy
+├── mtproxy-setup -> /opt/vless/scripts/mtproxy-setup
+└── mtproxy -> /opt/vless/scripts/mtproxy
 ```
 
 ---
