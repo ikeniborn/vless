@@ -726,7 +726,108 @@ mtproxy_is_running() {
 }
 
 # ============================================================================
+# FUNCTION: regenerate_mtproxy_secret_file_from_users (v6.1)
+# ============================================================================
+# Description: Regenerate MTProxy proxy-secret file from users.json database
+#
+# Parameters:
+#   None
+#
+# Returns:
+#   0 on success, 1 on failure
+#
+# Example:
+#   regenerate_mtproxy_secret_file_from_users
+#
+# Notes:
+#   - Reads users.json (/opt/vless/data/users.json)
+#   - Extracts users with mtproxy_secret != null
+#   - Generates proxy-secret file (one secret per line)
+#   - Updates mtproxy_config.json (multi_user: true if > 1 secret)
+# ============================================================================
+regenerate_mtproxy_secret_file_from_users() {
+    mtproxy_log_info "Regenerating MTProxy secret file from users.json..."
+
+    # Verify users.json exists
+    local users_json="/opt/vless/data/users.json"
+    if [[ ! -f "$users_json" ]]; then
+        mtproxy_log_error "Users database not found: $users_json"
+        return 1
+    fi
+
+    # Extract users with MTProxy secrets
+    local secrets_array
+    secrets_array=$(jq -r '.users[] | select(.mtproxy_secret != null) | .mtproxy_secret' "$users_json" 2>/dev/null)
+
+    if [[ -z "$secrets_array" ]]; then
+        mtproxy_log_warning "No users with MTProxy secrets found"
+        mtproxy_log_info "To add MTProxy secret: vless add-user <username>"
+        return 1
+    fi
+
+    # Count secrets
+    local secrets_count
+    secrets_count=$(echo "$secrets_array" | wc -l)
+
+    if [[ "$secrets_count" -eq 0 ]]; then
+        mtproxy_log_warning "No MTProxy secrets found in users database"
+        return 1
+    fi
+
+    # Create backup if file exists
+    if [[ -f "${MTPROXY_SECRET_FILE}" ]]; then
+        cp "${MTPROXY_SECRET_FILE}" "${MTPROXY_SECRET_FILE}.bak"
+    fi
+
+    # Generate proxy-secret file (one secret per line)
+    echo "$secrets_array" > "${MTPROXY_SECRET_FILE}"
+
+    # Validate file
+    if [[ ! -f "${MTPROXY_SECRET_FILE}" ]] || [[ ! -s "${MTPROXY_SECRET_FILE}" ]]; then
+        mtproxy_log_error "Failed to create ${MTPROXY_SECRET_FILE}"
+
+        # Restore backup
+        if [[ -f "${MTPROXY_SECRET_FILE}.bak" ]]; then
+            mv "${MTPROXY_SECRET_FILE}.bak" "${MTPROXY_SECRET_FILE}"
+        fi
+
+        return 1
+    fi
+
+    # Set strict permissions
+    chmod 600 "${MTPROXY_SECRET_FILE}"
+    chown root:root "${MTPROXY_SECRET_FILE}" 2>/dev/null || true
+
+    # Update mtproxy_config.json: multi_user = true if > 1 secret
+    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
+        local multi_user_mode="false"
+        if [[ "$secrets_count" -gt 1 ]]; then
+            multi_user_mode="true"
+        fi
+
+        # Update multi_user field
+        local temp_config="${MTPROXY_CONFIG_JSON}.tmp.$$"
+        jq ".multi_user = ${multi_user_mode}" "${MTPROXY_CONFIG_JSON}" > "$temp_config"
+
+        if jq empty "$temp_config" 2>/dev/null; then
+            mv "$temp_config" "${MTPROXY_CONFIG_JSON}"
+            mtproxy_log_info "Updated mtproxy_config.json: multi_user = $multi_user_mode"
+        else
+            rm -f "$temp_config"
+            mtproxy_log_warning "Failed to update mtproxy_config.json (invalid JSON)"
+        fi
+    fi
+
+    mtproxy_log_success "MTProxy secret file regenerated"
+    mtproxy_log_info "  File: ${MTPROXY_SECRET_FILE}"
+    mtproxy_log_info "  Secrets count: ${secrets_count}"
+    mtproxy_log_info "  Multi-user mode: $([ "$secrets_count" -gt 1 ] && echo "YES (v6.1)" || echo "NO (v6.0)")"
+
+    return 0
+}
+
+# ============================================================================
 # Module Initialization Complete
 # ============================================================================
 
-mtproxy_log_info "MTProxy Manager module loaded (v6.0)"
+mtproxy_log_info "MTProxy Manager module loaded (v6.1)"
