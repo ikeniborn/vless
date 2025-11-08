@@ -7,6 +7,195 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [6.1] - 2025-11-08
+
+### Added - MTProxy v6.1 (Multi-User + Fake-TLS)
+
+**Migration Type:** Backward compatible, opt-in feature
+
+**Impact:** NEW FEATURE - Telegram MTProxy with per-user secrets and fake-TLS support
+
+#### Features
+
+**1. Multi-User MTProxy Secrets (v6.1):**
+- Per-user MTProxy secret assignment during user creation
+- Automatic proxy-secret file regeneration from users.json
+- Multi-user mode support (up to 16 secrets)
+- 3 new fields in users.json schema: `mtproxy_secret`, `mtproxy_secret_type`, `mtproxy_domain`
+
+**2. Fake-TLS Support (v6.1 ee-type secrets):**
+- ee-type secrets for DPI resistance: `ee` + 32 hex + 16 hex domain
+- Domain validation with optional DNS check
+- Recommended domains: www.google.com, www.cloudflare.com, www.bing.com
+- Automatic domain encoding for MTProxy protocol
+
+**3. Client Configuration Generation (v6.1):**
+- Deep link generation: `tg://proxy?server=IP&port=8443&secret=HEX`
+- QR code generation (qrencode, 300x300px PNG)
+- Auto-detect server IP (3 methods: ip route, hostname, external services)
+- CLI commands: `mtproxy show-config <user>`, `mtproxy generate-qr <user>`
+
+**4. CLI Management:**
+- `mtproxy add-secret` - Add standalone secret (standard/dd/ee types)
+- `mtproxy list-secrets` - List all secrets from database
+- `mtproxy remove-secret` - Remove secret by ID or username
+- `mtproxy start/stop/restart` - Container lifecycle management
+- `mtproxy status` - Show MTProxy status with config details
+- `mtproxy stats [--live]` - Statistics display (live mode updates every 2s)
+- `mtproxy logs [--tail N] [--follow]` - Docker logs access
+- `mtproxy show-config <user>` - Display user configuration
+- `mtproxy generate-qr <user>` - Generate QR code for user
+
+#### Technical Details
+
+**New Files:**
+- `lib/mtproxy_manager.sh` (1073 lines, 16 functions)
+- `lib/mtproxy_secret_manager.sh` (600 lines, 10 functions)
+- `scripts/mtproxy` (557 lines, 14 commands)
+- `docker/mtproxy/Dockerfile` (multi-stage alpine build)
+- `docker/mtproxy/entrypoint.sh` (192 lines)
+
+**Integration:**
+- `lib/user_management.sh` - Step 3.8: MTProxy secret selection during user creation
+- `lib/docker_compose_generator.sh` - Conditional MTProxy service generation
+- users.json schema extended with 3 new fields
+
+**Security:**
+- Non-root container (uid=9999)
+- Healthcheck: TCP port 8443
+- Stats endpoint: localhost:8888 only
+- QR codes: permissions 600
+- Atomic operations with flock
+
+**Secret Types:**
+- `standard` - 32 hex characters (basic MTProxy secret)
+- `dd` - "dd" + 32 hex (random padding enabled, DPI resistance)
+- `ee` - "ee" + 32 hex + 16 hex domain (fake-TLS, maximum DPI resistance)
+
+#### Usage Examples
+
+```bash
+# Create user with MTProxy secret (during user creation)
+sudo vless add-user alice
+> Generate MTProxy secret? (y/n): y
+> Select secret type: 2 (dd-type)
+> MTProxy secret generated: dd1a2b3c...
+
+# Show configuration for user
+sudo mtproxy show-config alice
+> Deep Link: tg://proxy?server=203.0.113.1&port=8443&secret=dd1a2b...
+
+# Generate QR code
+sudo mtproxy generate-qr alice
+> QR code generated: /opt/vless/data/clients/alice/mtproxy_qr.png
+
+# Add standalone secret (ee-type with fake-TLS)
+sudo mtproxy add-secret --type ee --domain www.google.com --user bob
+
+# Container management
+sudo mtproxy start
+sudo mtproxy stop
+sudo mtproxy restart
+sudo mtproxy status
+sudo mtproxy stats --live
+
+# View logs
+sudo mtproxy logs --tail 100 --follow
+```
+
+#### Migration Notes
+
+**From VLESS v5.x to v6.1:**
+1. MTProxy is opt-in (not required for existing installations)
+2. Existing users.json files are compatible (3 new nullable fields)
+3. No changes to VLESS or proxy functionality
+4. MTProxy runs as standalone service (port 8443, separate from VLESS)
+
+**Installation:**
+- Run `mtproxy-setup` wizard (when available in next release)
+- Or manually configure MTProxy via `lib/mtproxy_manager.sh`
+
+#### Known Limitations
+
+1. Installation wizard (mtproxy-setup) - coming in v6.2
+2. UFW/fail2ban integration - coming in v6.2
+3. Promoted channel support - coming in v6.2
+4. qrencode dependency required for QR codes (apt install qrencode)
+
+#### References
+
+- MTProxy protocol: https://github.com/TelegramMessenger/MTProxy
+- Deep link format: tg://proxy?server=IP&port=PORT&secret=SECRET
+- Documentation: /opt/vless/docs/mtproxy/
+
+---
+
+## [6.0] - 2025-11-08
+
+### Added - MTProxy Base Infrastructure
+
+**Migration Type:** Backward compatible, opt-in feature
+
+**Impact:** NEW FEATURE - Official Telegram MTProxy server integration
+
+#### Features
+
+**1. MTProxy Docker Container:**
+- Multi-stage alpine build (builder + runtime)
+- Compiles from TelegramMessenger/MTProxy source
+- Non-root user (uid=9999)
+- Healthcheck: TCP port 8443
+- Dynamic configuration via mtproxy_config.json
+
+**2. Secret Management:**
+- JSON database: /opt/vless/config/mtproxy/secrets.json
+- Atomic operations with flock
+- 3 secret types: standard (32 hex), dd (34 hex), ee (50 hex)
+- Domain encoding for ee-type (fake-TLS)
+
+**3. Docker Compose Integration:**
+- Conditional MTProxy service generation
+- Ports: 8443 (public), 127.0.0.1:8888 (stats only)
+- Environment variable: ENABLE_MTPROXY=true
+- Heredoc-based configuration (no templates)
+
+**4. Configuration Management:**
+- mtproxy_config.json: port, workers, stats_port, multi_user
+- proxy-secret file: one secret per line (multi-user support)
+- proxy-multi.conf: Telegram DC addresses
+
+#### Technical Details
+
+**Architecture:**
+- 6th container in VLESS stack (was 5)
+- Standalone service (does NOT route through HAProxy or Xray)
+- Direct client → MTProxy → Telegram DC path
+- Transport obfuscation: AES-256-CTR
+
+**Ports:**
+- 8443 - MTProxy public port (Telegram traffic)
+- 127.0.0.1:8888 - Stats endpoint (localhost only)
+
+**Files:**
+- `/opt/vless/config/mtproxy/` - configuration directory
+- `/opt/vless/data/mtproxy/` - persistent data
+- `/opt/vless/logs/mtproxy/` - logs directory
+
+#### Usage
+
+```bash
+# Check MTProxy status
+docker ps | grep mtproxy
+
+# View logs
+docker logs vless_mtproxy
+
+# Access stats endpoint
+curl http://127.0.0.1:8888/stats
+```
+
+---
+
 ## [5.34] - 2025-10-31
 
 ### Fixed - Xray Proxy Rate Limiting (CRITICAL)
