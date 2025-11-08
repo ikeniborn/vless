@@ -55,12 +55,14 @@ log_error() {
 generate_docker_compose() {
     local nginx_ports=("$@")
     local enable_reverse_proxy="${ENABLE_REVERSE_PROXY:-false}"
+    local enable_mtproxy="${ENABLE_MTPROXY:-false}"
 
-    log "Generating docker-compose.yml (heredoc-based, v5.26 conditional nginx)"
+    log "Generating docker-compose.yml (heredoc-based, v6.0 with MTProxy)"
     log "  VLESS Port: ${VLESS_PORT} (HAProxy backend)"
     log "  Docker Subnet: ${DOCKER_SUBNET}"
     log "  Reverse Proxy: ${enable_reverse_proxy}"
     log "  Nginx Ports: ${nginx_ports[*]:-none} (localhost only)"
+    log "  MTProxy: ${enable_mtproxy}"
 
     # Create backup if file exists
     if [ -f "${DOCKER_COMPOSE_FILE}" ]; then
@@ -149,7 +151,61 @@ NO_NGINX_SERVICE
 )
     fi
 
-    # Generate docker-compose.yml via heredoc (v5.26)
+    # Generate MTProxy service section conditionally (v6.0)
+    local mtproxy_service_section=""
+    if [[ "${enable_mtproxy}" == "true" ]]; then
+        # Read MTProxy configuration if exists
+        local mtproxy_port="${MTPROXY_PORT:-8443}"
+        local mtproxy_stats_port="${MTPROXY_STATS_PORT:-8888}"
+
+        mtproxy_service_section=$(cat <<'MTPROXY_SERVICE'
+
+  # ===========================================================================
+  # MTProxy Service (v6.0 - Telegram Proxy)
+  # Official Telegram MTProxy for transport obfuscation
+  # ===========================================================================
+  mtproxy:
+    build:
+      context: ${VLESS_DIR}
+      dockerfile: docker/mtproxy/Dockerfile
+    image: vless/mtproxy:latest
+    container_name: vless_mtproxy
+    restart: unless-stopped
+    ports:
+      - "8443:8443"                    # MTProxy public port (Telegram traffic)
+      - "127.0.0.1:8888:8888"          # Stats endpoint (localhost only)
+    volumes:
+      - ${VLESS_DIR}/config/mtproxy:/etc/mtproxy:ro
+      - ${VLESS_DIR}/logs/mtproxy:/var/log/mtproxy
+      - ${VLESS_DIR}/data/mtproxy:/var/lib/mtproxy
+    networks:
+      - vless_reality_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8443"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+MTPROXY_SERVICE
+)
+    else
+        mtproxy_service_section=$(cat <<'NO_MTPROXY_SERVICE'
+
+  # ===========================================================================
+  # MTProxy Service: DISABLED (v6.0)
+  # MTProxy was not enabled during installation
+  # To enable: run 'sudo vless-mtproxy-setup'
+  # ===========================================================================
+NO_MTPROXY_SERVICE
+)
+    fi
+
+    # Generate docker-compose.yml via heredoc (v6.0)
     # Note: 'version' attribute removed (obsolete in Docker Compose v2)
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
 services:
@@ -265,6 +321,7 @@ ${nginx_service_section}
     tmpfs:
       - /var/cache/nginx:uid=101,gid=101
       - /var/run:uid=101,gid=101
+${mtproxy_service_section}
 
 # =============================================================================
 # Networks
