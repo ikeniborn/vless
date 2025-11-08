@@ -2177,6 +2177,8 @@ create_user() {
 
                             # Prompt for domain (required for ee-type)
                             echo ""
+                            echo "  Recommended domains: www.google.com, www.cloudflare.com, www.bing.com"
+                            echo ""
                             while true; do
                                 read -r -p "Enter domain for fake-TLS (e.g., www.google.com): " mtproxy_domain
 
@@ -2185,12 +2187,12 @@ create_user() {
                                     continue
                                 fi
 
-                                # Basic domain validation
-                                if [[ "$mtproxy_domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
-                                    log_success "Domain: $mtproxy_domain"
+                                # Validate domain using mtproxy_secret_manager function
+                                if validate_mtproxy_domain "$mtproxy_domain" "false"; then
+                                    log_success "Domain validated: $mtproxy_domain"
                                     break
                                 else
-                                    log_error "Invalid domain format. Please try again"
+                                    log_error "Invalid domain. Please try again"
                                 fi
                             done
                             break

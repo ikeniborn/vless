@@ -513,6 +513,86 @@ regenerate_proxy_secret_file() {
 }
 
 # ============================================================================
+# FUNCTION: validate_mtproxy_domain (v6.1)
+# ============================================================================
+# Description: Validate domain for ee-type (fake-TLS) MTProxy secrets
+#
+# Parameters:
+#   $1 - domain (string, e.g., "www.google.com")
+#   $2 - dns_check (optional, "true"|"false", default: "false")
+#
+# Returns:
+#   0 if valid, 1 if invalid
+#
+# Examples:
+#   validate_mtproxy_domain "www.google.com"           # Basic validation
+#   validate_mtproxy_domain "www.google.com" "true"    # With DNS check
+#
+# Notes:
+#   - MTProxy fake-TLS требует реально существующий домен
+#   - Домен должен быть популярным сайтом (не блокируется в регионе)
+#   - Рекомендуемые домены: www.google.com, www.cloudflare.com, www.bing.com
+# ============================================================================
+validate_mtproxy_domain() {
+    local domain="$1"
+    local dns_check="${2:-false}"
+
+    # Validate domain format (basic regex)
+    if [[ -z "$domain" ]]; then
+        secret_log_error "Domain cannot be empty"
+        return 1
+    fi
+
+    # Check length (max 253 chars for FQDN)
+    if [[ ${#domain} -gt 253 ]]; then
+        secret_log_error "Domain too long (max 253 characters)"
+        return 1
+    fi
+
+    # Regex validation: alphanumeric with dots and hyphens
+    if ! [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]]; then
+        secret_log_error "Invalid domain format: $domain"
+        secret_log_error "Valid format: alphanumeric with dots and hyphens (e.g., www.google.com)"
+        return 1
+    fi
+
+    # Check for localhost/reserved domains
+    if [[ "$domain" =~ ^(localhost|127\.|10\.|172\.|192\.168\.) ]]; then
+        secret_log_error "Domain cannot be localhost or private IP"
+        return 1
+    fi
+
+    # Optional DNS check
+    if [[ "$dns_check" == "true" ]]; then
+        secret_log_info "Performing DNS check for: $domain"
+
+        # Try nslookup first
+        if command -v nslookup &>/dev/null; then
+            if ! nslookup "$domain" &>/dev/null; then
+                secret_log_warning "DNS resolution failed for: $domain"
+                secret_log_warning "Domain may not exist or DNS is unreachable"
+                secret_log_warning "MTProxy ee-type requires real, resolvable domain"
+                return 1
+            fi
+        # Fallback to host command
+        elif command -v host &>/dev/null; then
+            if ! host "$domain" &>/dev/null; then
+                secret_log_warning "DNS resolution failed for: $domain"
+                secret_log_warning "Domain may not exist or DNS is unreachable"
+                return 1
+            fi
+        else
+            secret_log_warning "DNS check requested but no nslookup/host command available"
+            secret_log_warning "Skipping DNS validation (domain format check passed)"
+        fi
+
+        secret_log_success "DNS check passed: $domain"
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # Module Initialization Complete
 # ============================================================================
 
