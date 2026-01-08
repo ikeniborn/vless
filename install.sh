@@ -401,6 +401,41 @@ main() {
             print_warning "Deploy hook script not found, skipping"
         fi
 
+        # Install logrotate configuration for renewal logs (v5.25)
+        print_message "${COLOR_CYAN}" "Installing logrotate configuration..."
+        cat > /etc/logrotate.d/vless-certbot-renew <<'LOGROTATE_EOF'
+# VLESS Certificate Renewal Logs Rotation
+# Part of VLESS + Reality VPN v5.25
+
+/opt/vless/logs/certbot-renew.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+}
+
+/opt/vless/logs/certbot-renew-metrics.json {
+    weekly
+    rotate 12
+    compress
+    missingok
+    notifempty
+    create 0644 root root
+}
+LOGROTATE_EOF
+
+        if [[ -f /etc/logrotate.d/vless-certbot-renew ]]; then
+            chmod 644 /etc/logrotate.d/vless-certbot-renew
+            print_success "Logrotate configuration installed"
+            print_message "${COLOR_GREEN}" "  Logs: 30 days retention"
+            print_message "${COLOR_GREEN}" "  Metrics: 12 weeks retention"
+        else
+            print_warning "Failed to create logrotate configuration"
+        fi
+
         print_success "TLS certificate acquisition complete"
         print_message "${COLOR_GREEN}" "  Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
         print_message "${COLOR_GREEN}" "  Auto-renewal: Enabled (twice daily)"
