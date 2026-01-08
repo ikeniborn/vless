@@ -497,6 +497,70 @@ sudo vless test-security --quick
 
 ---
 
+### Skills System Overview
+
+**Location:** `.claude/skills/`
+**Purpose:** Автоматизация development, troubleshooting, documentation, и testing workflows
+
+#### Available Skills (12 total)
+
+**Troubleshooting (4 skills):**
+- **diagnose-issue** - Систематическая диагностика с playbooks (container unhealthy, port conflict, cert renewal, routing)
+- **analyze-logs** - Pattern matching в логах (Xray, HAProxy errors)
+- **validate-config** - Валидация конфигураций перед применением
+- **trace-data-flow** - Визуализация traffic path через систему
+
+**Development (4 skills):**
+- **add-feature** - Полный lifecycle добавления функции (planning → code → test → docs → git)
+- **refactor-module** - Безопасный рефакторинг с проверкой call chains
+- **add-cli-command** - Добавление новой CLI команды
+- **update-architecture-docs** - Синхронизация YAML документации с кодом
+
+**Documentation (2 skills):**
+- **sync-yaml-with-code** - Автоматический sync YAML с code changes
+- **generate-mermaid-diagram** - Генерация Mermaid диаграмм из YAML
+
+**Testing (2 skills):**
+- **run-test-suite** - Запуск unit/integration/security/performance tests
+- **validate-deployment** - Comprehensive deployment validation checklist
+
+#### How to Use Skills
+
+**Natural language invocation:**
+```
+"Diagnose why vless_xray container is unhealthy"
+→ Uses diagnose-issue skill with container-unhealthy playbook
+
+"Add user quota feature to user management"
+→ Uses add-feature skill with full lifecycle
+
+"Sync YAML documentation with recent code changes"
+→ Uses sync-yaml-with-code skill
+```
+
+**Key Features:**
+- ✅ **YAML-aware:** Skills auto-load `docs/architecture/yaml/` для контекста
+- ✅ **Hybrid automation:** Read-only операции автоматически, write operations с approval gates
+- ✅ **Safety enforced:** Обязательное логирование, YAML updates, validation перед changes
+- ✅ **Integrated:** Используют существующие CLI tools (`vless`, `mtproxy`, etc.)
+
+#### Skill Structure
+
+Each skill includes:
+- **SKILL.md** - Workflow definition с phases и approval gates
+- **Templates** - JSON/markdown шаблоны для structured output
+- **Playbooks** - Step-by-step руководства для типичных сценариев (troubleshooting)
+- **Patterns** - Error patterns для автоматического matching (log analysis)
+
+**Shared resources:**
+- `_shared/vless-constants.json` - System constants (paths, ports, containers)
+- `_shared/container-names.json` - Container registry с health check URLs
+- `_shared/common-issues.json` - База знаний (6 issues с fixes)
+
+🔗 **Подробности:** `.claude/skills/README.md` (если создан)
+
+---
+
 ## 8. DOCUMENTATION NAVIGATION
 
 ### Navigation Map by Use Case

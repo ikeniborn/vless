@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "project": "VLESS + Reality VPN",
+  "description": "System constants for VLESS skills - paths, containers, ports, validation commands",
+
+  "paths": {
+    "install_root": "/opt/vless",
+    "lib_dir": "/opt/vless/lib",
+    "config_dir": "/opt/vless/config",
+    "data_dir": "/opt/vless/data",
+    "logs_dir": "/opt/vless/logs",
+    "yaml_docs": "docs/architecture/yaml",
+    "project_root": "/home/ikeniborn/Documents/Project/vless"
+  },
+
+  "containers": {
+    "haproxy": "vless_haproxy",
+    "xray": "vless_xray",
+    "nginx_reverseproxy": "vless_nginx_reverseproxy",
+    "certbot_nginx": "vless_certbot_nginx",
+    "fake_site": "vless_fake_site",
+    "mtproxy": "vless_mtproxy"
+  },
+
+  "ports": {
+    "https_tls": 443,
+    "socks5_tls": 1080,
+    "http_proxy_tls": 8118,
+    "mtproxy_public": 8443,
+    "xray_internal": 8443,
+    "nginx_backend_start": 9443,
+    "nginx_backend_end": 9452,
+    "haproxy_stats": 9000
+  },
+
+  "validation_commands": {
+    "xray_config": "xray test -c /opt/vless/config/xray_config.json",
+    "haproxy_config": "haproxy -c -f /opt/vless/config/haproxy.cfg",
+    "json_syntax": "jq empty",
+    "yaml_syntax": "yamllint"
+  },
+
+  "config_files": {
+    "xray": "/opt/vless/config/xray_config.json",
+    "haproxy": "/opt/vless/config/haproxy.cfg",
+    "external_proxy": "/opt/vless/config/external_proxy.json",
+    "users": "/opt/vless/data/users.json",
+    "mtproxy_secrets": "/opt/vless/data/mtproxy_secrets.db"
+  },
+
+  "cli_tools": {
+    "vless": "/usr/local/bin/vless",
+    "mtproxy": "/usr/local/bin/mtproxy",
+    "vless_external_proxy": "/usr/local/bin/vless-external-proxy",
+    "vless_proxy": "/usr/local/bin/vless-proxy"
+  },
+
+  "docker_network": {
+    "name": "vless_reality_net",
+    "type": "bridge",
+    "subnet": "172.20.0.0/16"
+  }
+}

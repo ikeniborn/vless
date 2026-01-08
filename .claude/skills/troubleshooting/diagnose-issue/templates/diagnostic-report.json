@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "template_name": "diagnostic-report",
+  "description": "Template for systematic diagnostic reports",
+
+  "report_structure": {
+    "header": {
+      "title": "🔍 DIAGNOSTIC REPORT",
+      "issue_id": "{issue_id или 'unknown'}",
+      "category": "{category: container|networking|certificates|routing|other}",
+      "severity": "{severity: CRITICAL|HIGH|MEDIUM|LOW}",
+      "timestamp": "{ISO 8601 timestamp}",
+      "diagnostician": "Claude Code VLESS Diagnostic Skill v1.0"
+    },
+
+    "symptoms_detected": {
+      "description": "Observed symptoms from user report and diagnostic commands",
+      "format": "markdown list",
+      "examples": [
+        "docker ps shows (unhealthy) for vless_xray",
+        "HAProxy logs show 'Connection refused'",
+        "Port 443 returns 'Address already in use'"
+      ]
+    },
+
+    "diagnostic_results": {
+      "system_status": {
+        "command": "sudo vless status",
+        "output": "{full command output}"
+      },
+      "container_health": {
+        "command": "docker ps --filter 'name=vless' --format 'table {{.Names}}\\t{{.Status}}'",
+        "output": "{filtered output - only vless_* containers}"
+      },
+      "port_bindings": {
+        "command": "sudo ss -tulnp | grep -E ':(443|1080|8118|8443|9000)'",
+        "output": "{show which ports in use and by which process}"
+      },
+      "log_analysis": {
+        "vless_xray": {
+          "command": "docker logs vless_xray --tail 50 | grep -i 'error\\|fail\\|fatal'",
+          "errors_found": "{list of error messages}",
+          "error_count": "{number of errors}"
+        },
+        "vless_haproxy": {
+          "command": "docker logs vless_haproxy --tail 50 | grep -i 'error\\|fail\\|fatal'",
+          "errors_found": "{list of error messages}",
+          "error_count": "{number of errors}"
+        }
+      },
+      "additional_diagnostics": {
+        "description": "Playbook-specific diagnostic results",
+        "format": "depends on playbook used"
+      }
+    },
+
+    "identified_issue": {
+      "issue_id": "{ID from common-issues.json if matched}",
+      "match_confidence": "{percentage: 0-100%}",
+      "most_likely_cause": "{cause description from common-issues.json}",
+      "explanation": "{detailed explanation why this is the cause}",
+      "alternative_causes": [
+        "{cause 1 with lower probability}",
+        "{cause 2 with lower probability}"
+      ]
+    },
+
+    "recommended_fix": {
+      "description": "Primary fix with highest success probability",
+      "commands": [
+        "{command 1 with explanation}",
+        "{command 2 with explanation}",
+        "..."
+      ],
+      "command_format": "bash code block with comments",
+      "validation": {
+        "description": "How to verify fix worked",
+        "commands": [
+          "{validation command 1}",
+          "{validation command 2}"
+        ],
+        "expected_results": "{what should happen after fix}"
+      },
+      "estimated_downtime": "{0s (graceful reload) | 5-10s (restart) | etc}",
+      "approval_required": true
+    },
+
+    "alternative_fixes": {
+      "description": "If recommended fix doesn't work, try these",
+      "fixes": [
+        {
+          "name": "{Alternative fix 1}",
+          "commands": ["..."],
+          "when_to_use": "{condition for using this fix}"
+        }
+      ]
+    },
+
+    "prevention": {
+      "description": "Steps to prevent this issue in the future",
+      "recommendations": [
+        "{prevention step 1}",
+        "{prevention step 2}",
+        "..."
+      ]
+    },
+
+    "related_issues": {
+      "description": "Other issues that might be related or could occur next",
+      "issues": [
+        {
+          "issue_id": "{related_issue_id}",
+          "relationship": "{how it relates - e.g., 'may cause', 'caused by', 'related to'}"
+        }
+      ]
+    },
+
+    "footer": {
+      "playbook_used": "{playbook name if applicable}",
+      "diagnostic_duration": "{time spent on diagnostics}",
+      "next_steps": "{what user should do - apply fix, manual investigation, escalate}"
+    }
+  },
+
+  "markdown_template": "# 🔍 DIAGNOSTIC REPORT\n\n**Issue ID:** {{issue_id}}\n**Category:** {{category}}\n**Severity:** {{severity}}\n**Time:** {{timestamp}}\n\n---\n\n## Symptoms Detected\n\n{{symptoms_list}}\n\n---\n\n## Diagnostic Results\n\n### System Status\n```bash\n{{system_status_output}}\n```\n\n### Container Health\n```\n{{container_health_output}}\n```\n\n### Port Bindings\n```\n{{port_bindings_output}}\n```\n\n### Log Analysis\n\n**vless_xray:**\n```\n{{xray_errors}}\n```\n\n**vless_haproxy:**\n```\n{{haproxy_errors}}\n```\n\n---\n\n## Identified Issue\n\n**Most Likely Cause:** {{cause}}\n\n**Explanation:** {{explanation}}\n\n**Match Confidence:** {{confidence}}%\n\n---\n\n## Recommended Fix\n\n{{fix_description}}\n\n```bash\n{{fix_commands}}\n```\n\n**Validation:**\n```bash\n{{validation_commands}}\n```\n\n**Expected:** {{expected_results}}\n\n**Downtime:** {{estimated_downtime}}\n\n---\n\n## Prevention\n\n{{prevention_steps}}\n\n---\n\n## Related Issues\n\n{{related_issues_list}}\n\n---\n\n**Playbook Used:** {{playbook}}\n**Diagnostic Duration:** {{duration}}\n\n**Next Steps:** {{next_steps}}"
+}

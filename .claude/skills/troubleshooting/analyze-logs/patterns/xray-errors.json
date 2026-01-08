@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "description": "Known error patterns in Xray logs",
+
+  "patterns": [
+    {
+      "id": "xray_port_bind_fail",
+      "regex": "failed to listen on.*:443|address already in use.*:443",
+      "severity": "CRITICAL",
+      "category": "port_conflict",
+      "description": "Xray cannot bind to port 443",
+      "recommendation": "Change Xray port to 8443 in xray_config.json"
+    },
+    {
+      "id": "xray_config_invalid",
+      "regex": "failed to.*config|invalid config|parse.*failed",
+      "severity": "CRITICAL",
+      "category": "configuration",
+      "description": "Xray configuration file syntax error",
+      "recommendation": "Run 'xray test -c config.json' to find syntax errors"
+    },
+    {
+      "id": "xray_fallback_unreachable",
+      "regex": "failed to dial.*fallback|connection refused.*fallback",
+      "severity": "HIGH",
+      "category": "routing",
+      "description": "Xray cannot reach fallback destination",
+      "recommendation": "Verify fallback destination (should be vless_fake_site:80)"
+    },
+    {
+      "id": "xray_tls_handshake_fail",
+      "regex": "tls.*handshake.*failed|tls.*error",
+      "severity": "MEDIUM",
+      "category": "tls",
+      "description": "TLS handshake failure (possible DPI probe or invalid client)",
+      "recommendation": "Normal occasional occurrences, investigate if frequent"
+    },
+    {
+      "id": "xray_auth_fail",
+      "regex": "authentication failed|invalid.*uuid|unknown user",
+      "severity": "LOW",
+      "category": "authentication",
+      "description": "Client authentication failed (wrong UUID or credentials)",
+      "recommendation": "Check client configuration, verify user exists in users.json"
+    }
+  ]
+}
