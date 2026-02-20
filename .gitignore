@@ -206,3 +206,7 @@ tmp/
 # =============================================================================
 # Sphinx intermediate build files (html/ is committed)
 docs/sphinx/_build/.doctrees/
+
+# Claude Code Agent Workspace
+.claude/workspace/
+.claude/sessions/

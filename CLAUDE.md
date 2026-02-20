@@ -607,22 +607,4 @@ Each skill includes:
 
 ---
 
-**END OF OPTIMIZED PROJECT MEMORY**
 
-**Optimization Results (v2 - 2025-10-26):**
-```
-Before: 1016 lines, ~35 KB
-After:  ~500 lines, ~25 KB
-Reduction: ~51% lines, ~29% size
-
-Changes:
-- ✅ Сохранены все Workflow Rules (PART I) - критичны для AI execution
-- ✅ Удалены дубликаты технических параметров (ссылки на docs/prd/)
-- ✅ Удалена детальная структура проекта (ссылки на docs/prd/04_architecture.md)
-- ✅ Сокращен Project Overview до essentials + v5.24 features
-- ✅ Сохранен Quick Reference (Top-5 NFR + Top-5 Issues + Debug Commands)
-- ✅ Расширена Navigation Map с Use Cases (для быстрого поиска)
-- ✅ Добавлена секция v5.24 (Per-User External Proxy commands & debug)
-```
-
-This document serves as the optimized single source of truth for both workflow execution rules and project-specific quick reference for the VLESS + Reality VPN Server project.
