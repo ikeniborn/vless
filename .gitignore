@@ -204,3 +204,5 @@ tmp/
 # =============================================================================
 # END OF GITIGNORE
 # =============================================================================
+# Sphinx intermediate build files (html/ is committed)
+docs/sphinx/_build/.doctrees/
