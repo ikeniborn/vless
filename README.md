@@ -30,7 +30,7 @@ Client
   └─ TCP:8118 ─► vless_nginx (TLS termination) ──► vless_xray:18118 (HTTP proxy)
 ```
 
-**Контейнеры:** `vless_nginx` · `vless_xray` · `vless_fake_site`
+**Контейнеры:** `vless_nginx` · `vless_xray` · `vless_fake_site` · `vless_nginx_reverseproxy` *(опционально, только при включённом reverse proxy)*
 
 ---
 

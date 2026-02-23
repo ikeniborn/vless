@@ -28,8 +28,8 @@
 #   2 - Permission error (not root)
 #   3 - Dependency error
 #
-# Version: 5.26.1
-# Date: 2025-10-27
+# Version: 5.33.0
+# Date: 2026-02-23
 ################################################################################
 
 set -euo pipefail
@@ -44,7 +44,7 @@ readonly COLOR_RESET='\033[0m'
 
 # Version tracking (matches CHANGELOG.md)
 # Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
-readonly VLESS_VERSION="5.26.1"
+readonly VLESS_VERSION="5.33.0"
 
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -137,7 +137,7 @@ print_banner() {
 ║          VLESS + Reality VPN Server Installation            ║
 ║                                                              ║
 ║  Production-grade CLI-based Reality protocol deployment     ║
-║  Version: 5.26.1 (Conditional nginx validation)            ║
+║  Version: 5.33.0                                           ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 EOF

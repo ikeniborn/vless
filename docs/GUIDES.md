@@ -62,17 +62,27 @@ sudo ./install.sh
 ```
 /opt/vless/
 ├── config/
-│   ├── xray_config.json       # Конфигурация Xray
-│   ├── nginx/nginx.conf       # Конфигурация Nginx (stream + http)
-│   └── keys/                  # Reality ключи
+│   ├── xray_config.json         # Конфигурация Xray
+│   ├── nginx/nginx.conf         # Конфигурация vless_nginx (stream + http)
+│   ├── reverse-proxy/           # Конфиги vless_nginx_reverseproxy (если включён)
+│   └── keys/                    # Reality ключи (private.key, public.key)
 ├── data/
-│   ├── users.json             # База пользователей
-│   ├── transports.json        # Tier 2 транспорты
-│   └── clients/<name>/        # Конфигурации клиентов
+│   ├── users.json               # База пользователей
+│   ├── transports.json          # Tier 2 транспорты
+│   └── clients/<name>/          # Конфигурации клиентов (URI, QR, proxy-файлы)
 └── logs/
     ├── xray/
     └── nginx/
 ```
+
+**Контейнеры Docker:**
+
+| Контейнер | Назначение | Всегда |
+|---|---|---|
+| `vless_nginx` | SNI routing (443), TLS termination (1080/8118), Tier 2 http block (8448) | ✅ |
+| `vless_xray` | VLESS Reality + SOCKS5 + HTTP + Tier 2 inbounds | ✅ |
+| `vless_fake_site` | Fallback сайт для Reality handshake | ✅ |
+| `vless_nginx_reverseproxy` | Reverse proxy к внешним сайтам (поддомены) | Опционально |
 
 **CLI-инструменты** после установки:
 ```

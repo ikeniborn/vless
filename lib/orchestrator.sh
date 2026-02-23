@@ -20,11 +20,10 @@
 set -euo pipefail
 
 # =============================================================================
-# IMPORT v4.3 MODULES
+# IMPORT MODULES
 # =============================================================================
-# Source HAProxy and docker-compose generators (v4.3 unified architecture)
-# These modules are required for Nginx configuration and docker-compose generation
-# v5.30: nginx_stream_generator.sh replaces haproxy_config_manager.sh
+# Source Nginx and docker-compose generators
+# v5.30: nginx_stream_generator.sh (stream+http) replaced haproxy_config_manager.sh
 SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh"
 [[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
@@ -130,8 +129,8 @@ orchestrate_installation() {
         chmod 755 "${LOGS_DIR}/fake-site"
     fi
 
-    # Set permissions on Let's Encrypt live directory for HAProxy access
-    # HAProxy (host network mode, non-root) needs rx to traverse path
+    # Set permissions on Let's Encrypt live directory for container access
+    # vless_nginx (nginx:1.27-alpine) needs rx to traverse path
     if [[ -d "/etc/letsencrypt/live" ]]; then
         chmod 755 /etc/letsencrypt/live || {
             echo -e "${YELLOW}Warning: Failed to set permissions on /etc/letsencrypt/live${NC}" >&2
@@ -943,8 +942,8 @@ init_proxy_allowed_ips() {
     local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
     local default_ips='["127.0.0.1"]'
 
-    # v4.3: HAProxy runs in host network mode, only localhost needed
-    # All traffic from HAProxy to Xray uses 127.0.0.1
+    # v5.30: vless_nginx connects via Docker network; default "localhost only"
+    # is a conservative starting point — override via proxy_allowed_ips.json
 
     # Create proxy_allowed_ips.json with appropriate defaults
     cat > "$proxy_ips_file" <<EOF
@@ -1117,7 +1116,7 @@ generate_nginx_config_wrapper() {
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_docker_compose() {
-    echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v4.3 unified HAProxy)...${NC}"
+    echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v5.30 Nginx stream+http)...${NC}"
 
     # Set required environment variables for the external generator
     # Note: VLESS_DIR already set in docker_compose_generator.sh (sourced at top)
@@ -1148,12 +1147,12 @@ create_docker_compose() {
         echo "  ✓ Mode: PUBLIC PROXY with Nginx unified stream TLS (v5.30)"
         echo "  ✓ Nginx: Handles ALL ports (443 SNI, 1080 SOCKS5 TLS, 8118 HTTP TLS)"
         echo "  ✓ Xray: Localhost ports 8443 (VLESS), 10800 (SOCKS5), 18118 (HTTP)"
-        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to HAProxy"
-        echo "  ✓ Architecture: Client → HAProxy (TLS) → Xray (auth) → Internet"
+        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to vless_nginx"
+        echo "  ✓ Architecture: Client → vless_nginx (TLS) → Xray (auth) → Internet"
     else
-        echo "  ✓ Mode: VLESS-only with HAProxy passthrough (v4.3)"
-        echo "  ✓ Exposed ports: 443 (VLESS Reality via HAProxy)"
-        echo "  ✓ Xray: Localhost 8443 (HAProxy forwards from port 443)"
+        echo "  ✓ Mode: VLESS-only with Nginx SNI passthrough (v5.30)"
+        echo "  ✓ Exposed ports: 443 (VLESS Reality via Nginx ssl_preread)"
+        echo "  ✓ Xray: Docker network port 8443 (Nginx forwards from port 443)"
     fi
 
     echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
@@ -1399,7 +1398,7 @@ deploy_containers() {
     [[ ! -f "${KEYS_DIR}/private.key" ]] && missing_files+=("${KEYS_DIR}/private.key")
     [[ ! -f "${KEYS_DIR}/public.key" ]] && missing_files+=("${KEYS_DIR}/public.key")
 
-    # v4.3: HAProxy config checked via docker-compose generator (lib/haproxy_config_manager.sh)
+    # v5.30: nginx config generated via lib/nginx_stream_generator.sh (called from create_nginx_config)
 
     if [[ ${#missing_files[@]} -gt 0 ]]; then
         echo -e "${RED}✗ Pre-flight check failed: Missing critical files (${#missing_files[@]})${NC}" >&2
@@ -1739,7 +1738,7 @@ set_permissions() {
     done
 
     # CONFIG_DIR and subdirectories: 755 (readable by container users)
-    # This allows Xray (root) and HAProxy (uid=99) containers to read config files
+    # This allows Xray (root) and Nginx containers to read config files
     if [[ -d "${CONFIG_DIR}" ]]; then
         chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
     fi

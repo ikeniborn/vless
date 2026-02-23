@@ -1,7 +1,7 @@
 #!/bin/bash
 # cli/vless-proxy
 #
-# VLESS v4.3 - Reverse Proxy Management Tool (HAProxy Unified)
+# VLESS v5.33 - Reverse Proxy Management Tool
 # Comprehensive CLI for managing reverse proxy configurations
 #
 # Commands:
@@ -18,9 +18,9 @@
 #   - HAProxy unified architecture (SNI routing on port 443)
 #   - Subdomain-based access: https://domain (NO port number!)
 #   - Nginx backends: localhost-only (127.0.0.1:9443-9452)
-#   - NO UFW port opening required (HAProxy already on 443)
+#   - NO UFW port opening required (vless_nginx already on 443)
 #
-# Version: 4.3.0
+# Version: 5.33.0
 # Author: VLESS Development Team
 # Date: 2025-10-18
 

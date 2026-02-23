@@ -1,17 +1,17 @@
 #!/bin/bash
 #
 # VLESS Reality VPN - Main CLI Interface
-# Version: 4.3.0 (HAProxy Unified)
+# Version: 5.33.0
 #
 # Usage: vless <command> [arguments]
 #
 # This is the main CLI wrapper that provides user-friendly commands
 # for managing the VLESS Reality VPN server.
 #
-# v4.3 Changes:
-# - HAProxy unified architecture (VLESS + SOCKS5 + HTTP + Reverse Proxies)
+# Architecture (v5.30+):
+# - Nginx stream+http replaces HAProxy (SNI routing port 443, TLS ports 1080/8118)
+# - Tier 2 transports: WebSocket (8444), XHTTP (8445), gRPC (8446)
 # - Subdomain-based reverse proxy access (https://domain without port)
-# - Enhanced status command with HAProxy frontends and routes
 #
 
 set -euo pipefail
