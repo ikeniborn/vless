@@ -34,7 +34,7 @@ INSTALL_PATH="/opt/vless"
 LIB_PATH="${INSTALL_PATH}/lib"
 
 # Source library files
-source "${LIB_PATH}/haproxy_config_manager.sh"  # provides: add_reverse_proxy_route, remove_reverse_proxy_route
+source "${LIB_PATH}/nginx_stream_generator.sh"   # provides: add_reverse_proxy_route, remove_reverse_proxy_route
 source "${LIB_PATH}/nginx_config_generator.sh"
 source "${LIB_PATH}/xray_http_inbound.sh"
 source "${LIB_PATH}/letsencrypt_integration.sh"

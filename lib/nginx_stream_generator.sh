@@ -36,6 +36,106 @@
 #   $5 - grpc_subdomain: gRPC subdomain (optional, Phase 2 / v5.32)
 # Returns: nginx.conf content on stdout; 0 on success, 1 on failure
 # ============================================================================
+NGINX_CONF="${NGINX_CONF:-/opt/vless/config/nginx/nginx.conf}"
+
+# ============================================================================
+# FUNCTION: add_reverse_proxy_route
+# ============================================================================
+# Description: Adds SNI map entry for a reverse proxy subdomain in nginx.conf.
+#   Inserts "domain  vless_nginx_reverseproxy:port;" before the 'default'
+#   line in the stream map block, then reloads vless_nginx (zero-downtime).
+#
+# Arguments:
+#   $1 - domain: subdomain to route (e.g., claude.example.com)
+#   $2 - port:   vless_nginx_reverseproxy backend port (e.g., 9443)
+# Returns: 0 on success, 1 on failure
+# ============================================================================
+add_reverse_proxy_route() {
+    local domain="$1"
+    local port="$2"
+    local conf="${NGINX_CONF}"
+
+    if [[ -z "$domain" || -z "$port" ]]; then
+        echo "ERROR: add_reverse_proxy_route requires <domain> <port>" >&2
+        return 1
+    fi
+
+    if [[ ! -f "$conf" ]]; then
+        echo "ERROR: nginx.conf not found: $conf" >&2
+        return 1
+    fi
+
+    # Escape dots for use in sed/grep patterns (domain is a literal string)
+    local domain_esc
+    domain_esc=$(printf '%s' "$domain" | sed 's/\./\\./g')
+
+    # Idempotent: skip if entry already exists
+    if grep -qP "^\s*${domain_esc}\s" "$conf"; then
+        echo "INFO: SNI route already exists: ${domain}" >&2
+        return 0
+    fi
+
+    cp "$conf" "${conf}.bak"
+
+    # Insert before the 'default' line inside the map block
+    sed -i "/default\s\+vless_xray:8443/i\\        ${domain}    vless_nginx_reverseproxy:${port};  # Reverse proxy" \
+        "$conf"
+
+    if ! docker exec vless_nginx nginx -t 2>/dev/null; then
+        echo "ERROR: nginx -t failed after adding route, rolling back" >&2
+        mv "${conf}.bak" "$conf"
+        return 1
+    fi
+
+    docker exec vless_nginx nginx -s reload
+    echo "INFO: SNI route added: ${domain} → vless_nginx_reverseproxy:${port}" >&2
+    return 0
+}
+
+# ============================================================================
+# FUNCTION: remove_reverse_proxy_route
+# ============================================================================
+# Description: Removes the SNI map entry for a reverse proxy subdomain
+#   from nginx.conf, then reloads vless_nginx (zero-downtime).
+#
+# Arguments:
+#   $1 - domain: subdomain to remove (e.g., claude.example.com)
+# Returns: 0 on success, 1 on failure
+# ============================================================================
+remove_reverse_proxy_route() {
+    local domain="$1"
+    local conf="${NGINX_CONF}"
+
+    if [[ -z "$domain" ]]; then
+        echo "ERROR: remove_reverse_proxy_route requires <domain>" >&2
+        return 1
+    fi
+
+    if [[ ! -f "$conf" ]]; then
+        echo "ERROR: nginx.conf not found: $conf" >&2
+        return 1
+    fi
+
+    # Escape dots for use in sed pattern (domain is a literal string)
+    local domain_esc
+    domain_esc=$(printf '%s' "$domain" | sed 's/\./\\./g')
+
+    cp "$conf" "${conf}.bak"
+
+    # Remove the SNI map entry for this domain
+    sed -i "/^\s*${domain_esc}\s/d" "$conf"
+
+    if ! docker exec vless_nginx nginx -t 2>/dev/null; then
+        echo "ERROR: nginx -t failed after removing route, rolling back" >&2
+        mv "${conf}.bak" "$conf"
+        return 1
+    fi
+
+    docker exec vless_nginx nginx -s reload
+    echo "INFO: SNI route removed: ${domain}" >&2
+    return 0
+}
+
 generate_nginx_config() {
     local cert_domain="${1}"
     local enable_tier2="${2:-false}"
