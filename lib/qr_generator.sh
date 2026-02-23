@@ -91,14 +91,22 @@ validate_vless_uri() {
         return 1
     fi
 
-    # Check for required parameters
-    local required_params=("encryption" "flow" "security" "sni" "fp" "pbk" "sid" "type")
+    # Check for required parameters (v5.25: 'flow' is conditional — only required for Reality transport)
+    local required_params=("encryption" "security" "sni" "fp" "pbk" "sid" "type")
     for param in "${required_params[@]}"; do
         if ! [[ "$uri" =~ $param= ]]; then
             log_error "Invalid URI: Missing parameter '$param'"
             return 1
         fi
     done
+
+    # flow is required only for Reality transport (Tier 2 transports WS/XHTTP/gRPC do not use flow)
+    if [[ "$uri" =~ security=reality ]]; then
+        if ! [[ "$uri" =~ flow= ]]; then
+            log_error "Invalid URI: Reality transport requires 'flow' parameter"
+            return 1
+        fi
+    fi
 
     # Validate UUID format
     if ! [[ "$uri" =~ vless://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@ ]]; then

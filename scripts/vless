@@ -621,6 +621,52 @@ main() {
             show_usage
             ;;
 
+        # v5.25: XTLS Vision migration safety-net
+        migrate-vision|migrate_vision)
+            check_root
+            source_modules
+            echo ""
+            echo "═══════════════════════════════════════════════════════"
+            echo "  XTLS Vision Migration (v5.25)"
+            echo "═══════════════════════════════════════════════════════"
+            migrate_xtls_vision
+            ;;
+
+        # v5.33: Tier 2 Transport Management CLI
+        add-transport|addtransport)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: transport type and subdomain required${NC}" >&2
+                echo "Usage: vless add-transport <type> <subdomain>" >&2
+                echo "Types: ws, xhttp, grpc" >&2
+                echo "Example: vless add-transport ws ws.example.com" >&2
+                exit 1
+            fi
+            source_modules
+            source "${LIB_DIR}/transport_manager.sh"
+            add_transport "$1" "$2"
+            ;;
+
+        list-transports|listtransports)
+            check_root
+            source_modules
+            source "${LIB_DIR}/transport_manager.sh"
+            list_transports
+            ;;
+
+        remove-transport|removetransport)
+            check_root
+            if [[ $# -lt 1 ]]; then
+                echo -e "${RED}Error: transport type required${NC}" >&2
+                echo "Usage: vless remove-transport <type>" >&2
+                echo "Types: ws, xhttp, grpc" >&2
+                exit 1
+            fi
+            source_modules
+            source "${LIB_DIR}/transport_manager.sh"
+            remove_transport "$1"
+            ;;
+
         *)
             echo -e "${RED}Error: Unknown command '${command}'${NC}" >&2
             echo "Run 'vless help' to see available commands" >&2

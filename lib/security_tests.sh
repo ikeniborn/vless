@@ -1314,6 +1314,51 @@ parse_arguments() {
     done
 }
 
+# ==============================================================================
+# TEST: test_xtls_vision_enabled (TC-01, v5.25)
+# ==============================================================================
+# Description: Verify all Xray VLESS clients have flow=xtls-rprx-vision configured
+#              Required for XTLS Vision DPI bypass (Tier 1 obfuscation)
+# ==============================================================================
+test_xtls_vision_enabled() {
+    print_test_header "XTLS Vision — flow field verification (TC-01)"
+
+    local xray_config="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
+
+    if [[ ! -f "$xray_config" ]]; then
+        print_skip "Xray config not found (installation may not be complete)"
+        return 0
+    fi
+
+    # Check all Reality clients have flow=xtls-rprx-vision
+    local clients_without_flow
+    clients_without_flow=$(jq '[.inbounds[0].settings.clients[] | select(.flow != "xtls-rprx-vision")] | length' \
+        "$xray_config" 2>/dev/null || echo "-1")
+
+    if [[ "$clients_without_flow" == "-1" ]]; then
+        print_failure "XTLS Vision: Could not parse xray_config.json"
+        return 1
+    elif [[ "$clients_without_flow" == "0" ]]; then
+        print_success "XTLS Vision: All client objects have flow=xtls-rprx-vision"
+    else
+        print_failure "XTLS Vision: $clients_without_flow client(s) missing flow field — run 'vless migrate-vision'"
+        return 1
+    fi
+
+    # Verify no clients have empty/null flow
+    local clients_empty_flow
+    clients_empty_flow=$(jq '[.inbounds[0].settings.clients[] | select(.flow == "" or .flow == null)] | length' \
+        "$xray_config" 2>/dev/null || echo "0")
+
+    if [[ "$clients_empty_flow" != "0" ]]; then
+        print_failure "XTLS Vision: $clients_empty_flow client(s) have empty/null flow field"
+        return 1
+    fi
+
+    print_success "XTLS Vision TC-01: PASSED"
+    return 0
+}
+
 print_summary() {
     print_header "ENCRYPTION SECURITY TEST SUMMARY"
 
@@ -1400,6 +1445,7 @@ main() {
     test_06_tls_vulnerabilities || true
     test_07_proxy_protocol_security || true
     test_08_data_leak_detection || true
+    test_xtls_vision_enabled || true  # TC-01 (v5.25): XTLS Vision flow field verification
 
     # Print summary and exit
     print_summary

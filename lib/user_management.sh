@@ -784,6 +784,54 @@ reload_xray() {
 }
 
 # ============================================================================
+# FUNCTION: generate_transport_uri (v5.30)
+# ============================================================================
+# Description: Generate transport-specific VLESS URI
+# Arguments:
+#   $1 - transport_type: reality|ws|xhttp|grpc
+#   $2 - uuid
+#   $3 - server_ip
+#   $4 - domain (for SNI and subdomain construction)
+#   $5 - server_port (default: 443)
+#   $6 - username (for URI fragment/remark)  [R10 fix: explicit parameter, not from outer scope]
+# Returns: VLESS URI string
+# ============================================================================
+generate_transport_uri() {
+    local transport_type="$1"
+    local uuid="$2"
+    local server_ip="$3"
+    local domain="$4"
+    local server_port="${5:-443}"
+    local username="${6:-user}"   # R10 fix: $username explicitly in scope
+
+    case "$transport_type" in
+        reality)
+            # Existing Reality URI format (delegate to generate_vless_uri)
+            generate_vless_uri "$username" "$uuid"
+            ;;
+        ws)
+            # WebSocket + TLS URI (Nginx terminates TLS on ws.domain)
+            local ws_subdomain="ws.${domain}"
+            echo "vless://${uuid}@${ws_subdomain}:${server_port}?encryption=none&security=tls&sni=${ws_subdomain}&fp=chrome&type=ws&path=%2Fvless-ws#${username}-ws"
+            ;;
+        xhttp)
+            # XHTTP/SplitHTTP + TLS URI (Nginx terminates TLS on xhttp.domain)
+            local xhttp_subdomain="xhttp.${domain}"
+            echo "vless://${uuid}@${xhttp_subdomain}:${server_port}?encryption=none&security=tls&sni=${xhttp_subdomain}&fp=chrome&type=splithttp&path=%2Fapi%2Fv2#${username}-xhttp"
+            ;;
+        grpc)
+            # gRPC + TLS URI (Nginx terminates TLS on grpc.domain)
+            local grpc_subdomain="grpc.${domain}"
+            echo "vless://${uuid}@${grpc_subdomain}:${server_port}?encryption=none&security=tls&sni=${grpc_subdomain}&fp=chrome&type=grpc&serviceName=GunService#${username}-grpc"
+            ;;
+        *)
+            log_error "Unknown transport type: $transport_type (must be: reality, ws, xhttp, grpc)"
+            return 1
+            ;;
+    esac
+}
+
+# ============================================================================
 # Generate VLESS URI
 # ============================================================================
 
@@ -1849,6 +1897,62 @@ migrate_users_schema_v525() {
     ) 200>"$LOCK_FILE"
 
     log_success "Schema migration completed: $missing_count user(s) updated with connection_type=both"
+    return 0
+}
+
+# ============================================================================
+# FUNCTION: migrate_xtls_vision (v5.25)
+# ============================================================================
+# Description: Add flow=xtls-rprx-vision to all existing Xray client objects
+#              that were created before XTLS Vision was added to the code.
+#              Safety-net: on current installations all users already have flow.
+# Returns: 0 on success, 1 on failure
+# ============================================================================
+migrate_xtls_vision() {
+    log_info "Checking XTLS Vision migration status..."
+
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        log_error "Xray configuration not found: $XRAY_CONFIG"
+        return 1
+    fi
+
+    # Count clients missing flow field
+    local missing_count
+    missing_count=$(jq '[.inbounds[0].settings.clients[] | select(.flow == null or .flow == "")] | length' \
+        "$XRAY_CONFIG" 2>/dev/null || echo "0")
+
+    if [[ "$missing_count" == "0" ]]; then
+        log_success "XTLS Vision already configured for all users (no migration needed)"
+        return 0
+    fi
+
+    log_info "Found $missing_count user(s) without flow field — migrating..."
+
+    # Backup
+    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.bak.migrate.$$"
+
+    # Add flow field to all clients missing it
+    local temp_file="${XRAY_CONFIG}.tmp.migrate.$$"
+    jq '(.inbounds[0].settings.clients[] | select(.flow == null or .flow == "")) |= . + {"flow": "xtls-rprx-vision"}' \
+        "$XRAY_CONFIG" > "$temp_file"
+
+    if ! jq empty "$temp_file" 2>/dev/null; then
+        log_error "Migration produced invalid JSON"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    mv "$temp_file" "$XRAY_CONFIG"
+    chmod 644 "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.migrate.$$"
+
+    log_success "XTLS Vision migration complete: $missing_count user(s) updated"
+    log_warning "IMPORTANT: Existing clients must update their VLESS URI to include flow=xtls-rprx-vision"
+    log_warning "Use 'vless list-users' to regenerate QR codes/URIs for affected users"
+
+    # Reload Xray to apply changes
+    docker restart vless_xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
+
     return 0
 }
 
