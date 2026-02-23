@@ -1137,7 +1137,7 @@ create_docker_compose() {
     fi
 
     echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE}"
-    echo "  ✓ Nginx image: nginx:1.27-alpine (v5.30 stream+http, replaces HAProxy)"
+    echo "  ✓ Nginx image: nginx:1.27-alpine (stream+http unified)"
     echo "  ✓ Xray image: ${XRAY_IMAGE}"
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"

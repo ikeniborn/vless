@@ -309,7 +309,7 @@ main() {
         status)
             check_root
             echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-            echo -e "${BLUE}║          VLESS v4.3 - Service Status (HAProxy Unified)      ║${NC}"
+            echo -e "${BLUE}║            VLESS v5.33 - Service Status                     ║${NC}"
             echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
             echo ""
 
@@ -318,37 +318,37 @@ main() {
             docker ps --filter "name=vless" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
             echo ""
 
-            # HAProxy Status (v4.3)
-            echo -e "${CYAN}HAProxy v4.3 Status:${NC}"
-            if docker ps --filter "name=vless-haproxy" --format "{{.Names}}" | grep -q "vless-haproxy"; then
-                echo -e "  ${GREEN}✓ HAProxy Running${NC}"
+            # Nginx Status
+            echo -e "${CYAN}Nginx Status:${NC}"
+            if docker ps --filter "name=vless_nginx" --format "{{.Names}}" | grep -q "vless_nginx"; then
+                echo -e "  ${GREEN}✓ vless_nginx Running${NC}"
 
-                # Show frontends
+                # Show port routing
                 echo ""
-                echo -e "${CYAN}HAProxy Frontends:${NC}"
-                echo "  1. vless-reality    → TCP port 443 (VLESS Reality passthrough)"
-                echo "  2. socks5-tls       → TCP port 1080 (SOCKS5 + TLS termination)"
-                echo "  3. http-tls         → TCP port 8118 (HTTP + TLS termination)"
+                echo -e "${CYAN}Nginx Port Routing:${NC}"
+                echo "  1. TCP:443  → ssl_preread SNI routing → vless_xray:8443 (VLESS Reality)"
+                echo "  2. TCP:1080 → TLS termination → vless_xray:10800 (SOCKS5)"
+                echo "  3. TCP:8118 → TLS termination → vless_xray:18118 (HTTP proxy)"
 
                 # Show active reverse proxy routes
                 echo ""
                 echo -e "${CYAN}Reverse Proxy Routes (SNI):${NC}"
-                if [[ -f "${INSTALL_ROOT}/config/haproxy.cfg" ]]; then
-                    local route_count=$(grep -c "use_backend nginx_" "${INSTALL_ROOT}/config/haproxy.cfg" 2>/dev/null || echo "0")
+                if [[ -f "${INSTALL_ROOT}/data/reverse_proxies.json" ]]; then
+                    local route_count=$(jq -r '.proxies | length' "${INSTALL_ROOT}/data/reverse_proxies.json" 2>/dev/null || echo "0")
                     if [ "$route_count" -gt 0 ]; then
                         echo -e "  ${GREEN}Active Routes: $route_count${NC}"
-                        grep "acl is_" "${INSTALL_ROOT}/config/haproxy.cfg" | grep -v "#" | while read -r line; do
-                            local domain=$(echo "$line" | awk '{print $NF}')
+                        jq -r '.proxies[].subdomain // .proxies[].domain' \
+                            "${INSTALL_ROOT}/data/reverse_proxies.json" 2>/dev/null | while read -r domain; do
                             echo "    → https://$domain"
                         done
                     else
                         echo "  ${YELLOW}No reverse proxy routes configured${NC}"
                     fi
                 else
-                    echo "  ${YELLOW}HAProxy config not found${NC}"
+                    echo "  ${YELLOW}No reverse proxy routes configured${NC}"
                 fi
             else
-                echo -e "  ${RED}✗ HAProxy Not Running${NC}"
+                echo -e "  ${RED}✗ vless_nginx Not Running${NC}"
             fi
 
             # External Proxy Status (v5.23)

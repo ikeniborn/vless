@@ -291,23 +291,26 @@ PHASE N CHECKPOINT:
 ## 6. PROJECT OVERVIEW
 
 **Project Name:** VLESS + Reality VPN Server
-**Version:** 5.24 (Per-User External Proxy Support)
+**Version:** 5.33
 **Target Scale:** 10-50 concurrent users
 **Deployment:** Linux servers (Ubuntu 20.04+, Debian 10+)
-**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, HAProxy, Nginx
+**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, Nginx
 
 **Core Features:**
 - Deploy production-ready VPN in < 5 minutes
 - DPI-resistant via Reality protocol (TLS 1.3 masquerading)
-- Dual proxy support (SOCKS5 + HTTP) with unified credentials
+- Dual proxy support (SOCKS5 + HTTP) with TLS termination via Nginx
 - Subdomain-based reverse proxy (https://domain, NO port!)
-- **NEW v5.24:** Per-user external proxy support (route specific users through upstream proxies)
+- Per-user external proxy support (route specific users through upstream proxies)
+- Tier 2 transports: WebSocket / XHTTP / gRPC via CDN
 
-**Architecture v5.24:**
+**Architecture v5.33:**
 ```
-Client → HAProxy (port 443) → Xray → External Proxy (optional, per-user) → Internet
-         HAProxy (port 1080) → Xray SOCKS5
-         HAProxy (port 8118) → Xray HTTP
+Client
+  ├─ TCP:443 ──► vless_nginx (ssl_preread SNI) ──► vless_xray:8443 (VLESS Reality)
+  │                                              └─► port 8448 → Tier 2 (WS/XHTTP/gRPC)
+  ├─ TCP:1080 ─► vless_nginx (TLS termination) ──► vless_xray:10800 (SOCKS5)
+  └─ TCP:8118 ─► vless_nginx (TLS termination) ──► vless_xray:18118 (HTTP proxy)
 ```
 
 **Key Paths:**
@@ -316,14 +319,14 @@ Client → HAProxy (port 443) → Xray → External Proxy (optional, per-user) �
 - Data: `/opt/vless/data/`
 - Users DB: `/opt/vless/data/users.json` (v5.24: includes `external_proxy_id` field)
 
-**CLI Commands (v5.24):**
+**CLI Commands (v5.33):**
 ```bash
 # User Management
 sudo vless add-user <username>
 sudo vless remove-user <username>
 sudo vless list-users
 
-# Per-User External Proxy (NEW v5.24)
+# Per-User External Proxy
 sudo vless set-proxy <username> <proxy-id|none>
 sudo vless show-proxy <username>
 sudo vless list-proxy-assignments
@@ -333,9 +336,15 @@ sudo vless-external-proxy add
 sudo vless-external-proxy list
 sudo vless-external-proxy status
 
+# Tier 2 Transports
+sudo vless add-transport <ws|xhttp|grpc> <subdomain>
+sudo vless list-transports
+sudo vless remove-transport <type>
+
 # Status & Logs
 sudo vless status
 sudo vless logs xray
+sudo vless logs nginx
 ```
 
 🔗 **Полная документация:** `docs/prd/` (7 модулей, 171 KB)
@@ -348,11 +357,11 @@ sudo vless logs xray
 
 | ID | Название | Target | Acceptance |
 |----|----------|--------|------------|
-| **NFR-SEC-001** | Mandatory TLS Policy | TLS 1.3 only | HAProxy TLS termination for ports 1080/8118 |
+| **NFR-SEC-001** | Mandatory TLS Policy | TLS 1.3 only | Nginx TLS termination for ports 1080/8118 |
 | **NFR-OPS-001** | Zero Manual Intervention | 100% automated | Let's Encrypt auto-renewal via certbot |
-| **NFR-PERF-001** | TLS Performance Overhead | < 10% latency | HAProxy graceful reload < 1 second |
+| **NFR-PERF-001** | TLS Performance Overhead | < 10% latency | Nginx graceful reload < 1 second |
 | **NFR-USABILITY-001** | Installation Simplicity | < 5 minutes | Interactive installer with validation |
-| **NFR-RELIABILITY-001** | Cert Renewal Reliability | 99.9% success | Certbot renewal + HAProxy reload cron job |
+| **NFR-RELIABILITY-001** | Cert Renewal Reliability | 99.9% success | Certbot renewal + Nginx reload cron job |
 
 🔗 **Полный список:** docs/prd/03_nfr.md
 
@@ -385,30 +394,30 @@ sudo ss -tulnp | grep :443
 
 ---
 
-#### Issue 3: HAProxy Not Routing Reverse Proxy
+#### Issue 3: Nginx Not Routing Reverse Proxy
 **Symptoms:** 503 Service Unavailable for subdomain
 
 **Detection:**
 ```bash
-curl http://127.0.0.1:9000/stats  # Check HAProxy stats
-docker logs vless_haproxy --tail 50
+docker exec vless_nginx nginx -t      # Check nginx config
+docker logs vless_nginx --tail 50
 ```
 
 **Solution:**
 ```bash
-# Verify dynamic ACL section
-grep "DYNAMIC_REVERSE_PROXY_ROUTES" /opt/vless/config/haproxy.cfg
+# Verify SNI map includes the subdomain
+grep "your.subdomain.com" /opt/vless/config/nginx/nginx.conf
 
-# Manual HAProxy reload
-docker exec vless_haproxy haproxy -sf $(docker exec vless_haproxy cat /var/run/haproxy.pid)
+# Manual Nginx reload (zero-downtime)
+docker exec vless_nginx nginx -s reload
 ```
 
 ---
 
 #### Issue 4: Xray Container Unhealthy - Wrong Port Configuration
-**Symptoms:** vless_xray shows (unhealthy), HAProxy logs "Connection refused"
+**Symptoms:** vless_xray shows (unhealthy), vless_nginx logs "Connection refused"
 
-**Root Cause:** Xray configured to listen on port 443 instead of 8443 (v4.3+ requires Xray on internal port 8443)
+**Root Cause:** Xray configured to listen on port 443 instead of 8443 (requires Xray on internal port 8443)
 
 **Solution:**
 ```bash
@@ -463,13 +472,13 @@ sudo ss -tulnp | grep -E '443|1080|8118'
 ```bash
 sudo vless logs xray
 docker logs vless_xray --tail 50
-docker logs vless_haproxy --tail 50
+docker logs vless_nginx --tail 50
 ```
 
 **Config Validation:**
 ```bash
 jq . /opt/vless/config/xray_config.json
-haproxy -c -f /opt/vless/config/haproxy.cfg
+docker exec vless_nginx nginx -t
 ```
 
 **Per-User Proxy Debug (v5.24):**
@@ -506,7 +515,7 @@ sudo vless test-security --quick
 
 **Troubleshooting (4 skills):**
 - **diagnose-issue** - Систематическая диагностика с playbooks (container unhealthy, port conflict, cert renewal, routing)
-- **analyze-logs** - Pattern matching в логах (Xray, HAProxy errors)
+- **analyze-logs** - Pattern matching в логах (Xray, Nginx errors)
 - **validate-config** - Валидация конфигураций перед применением
 - **trace-data-flow** - Визуализация traffic path через систему
 
@@ -570,7 +579,7 @@ Each skill includes:
 
 **Для разработки новых features:**
 - **docs/prd/02_functional_requirements.md** - All FR-* requirements (14 requirements, включая v5.24 per-user proxy)
-- **docs/prd/04_architecture.md** - Section 4.7 HAProxy Unified Architecture, network diagrams, routing logic
+- **docs/prd/04_architecture.md** - Nginx stream+http architecture, network diagrams, routing logic
 - **docs/prd/03_nfr.md** - Non-functional requirements (Security, Performance, Reliability)
 
 **Для тестирования:**

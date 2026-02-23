@@ -58,7 +58,7 @@ generate_docker_compose() {
     local enable_mtproxy="${ENABLE_MTPROXY:-false}"
 
     log "Generating docker-compose.yml (heredoc-based, v6.0 with MTProxy)"
-    log "  VLESS Port: ${VLESS_PORT} (HAProxy backend)"
+    log "  VLESS Port: ${VLESS_PORT} (Xray internal port)"
     log "  Docker Subnet: ${DOCKER_SUBNET}"
     log "  Reverse Proxy: ${enable_reverse_proxy}"
     log "  Nginx Ports: ${nginx_ports[*]:-none} (localhost only)"

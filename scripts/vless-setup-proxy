@@ -300,9 +300,9 @@ prompt_port() {
     echo -e "${YELLOW}Доступные порты: 9443-9452 (всего 10 слотов)${NC}" >&2
     echo "  Использовано: $proxy_count/10" >&2
     echo "" >&2
-    echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Architecture:${NC}" >&2
+    echo -e "${CYAN}${ICON_INFO} Nginx Architecture:${NC}" >&2
     echo "  - Nginx слушает на 127.0.0.1:<port> (localhost-only)" >&2
-    echo "  - HAProxy маршрутизирует по SNI с порта 443" >&2
+    echo "  - vless_nginx маршрутизирует по SNI с порта 443 (ssl_preread)" >&2
     echo "  - Публичный доступ: https://<domain> (БЕЗ номера порта!)" >&2
     echo "" >&2
 
@@ -501,19 +501,19 @@ check_proxy_limitations() {
     # Check 0: Docker containers status
     print_step "Проверка статуса Docker контейнеров..."
 
-    local haproxy_status
-    haproxy_status=$(docker ps --filter "name=vless_haproxy" --format "{{.Status}}" 2>/dev/null)
+    local nginx_main_status
+    nginx_main_status=$(docker ps --filter "name=vless_nginx" --format "{{.Status}}" 2>/dev/null | grep -v "reverseproxy" | head -1)
 
-    if [ -z "$haproxy_status" ]; then
-        limitation_messages+=("❌ КРИТИЧНО: HAProxy контейнер не запущен")
+    if [ -z "$nginx_main_status" ]; then
+        limitation_messages+=("❌ КРИТИЧНО: vless_nginx контейнер не запущен")
         limitation_messages+=("   Запустите VPN сервер: cd /opt/vless && docker compose up -d")
         has_limitations=true
-    elif ! echo "$haproxy_status" | grep -q "Up"; then
-        limitation_messages+=("❌ КРИТИЧНО: HAProxy контейнер не работает (статус: $haproxy_status)")
-        limitation_messages+=("   Проверьте логи: docker logs vless_haproxy --tail 50")
+    elif ! echo "$nginx_main_status" | grep -q "Up"; then
+        limitation_messages+=("❌ КРИТИЧНО: vless_nginx контейнер не работает (статус: $nginx_main_status)")
+        limitation_messages+=("   Проверьте логи: docker logs vless_nginx --tail 50")
         has_limitations=true
     else
-        print_success "HAProxy контейнер работает"
+        print_success "vless_nginx контейнер работает"
     fi
 
     local nginx_status
@@ -898,30 +898,20 @@ EOF"
         warnings+=("   Создастся автоматически при генерации конфигурации")
     fi
 
-    # Check 10: HAProxy Config Syntax (v5.15 - Critical)
-    print_step "Проверка синтаксиса HAProxy конфигурации..."
+    # Check 10: Nginx Config Syntax (Critical)
+    print_step "Проверка синтаксиса Nginx конфигурации..."
 
-    local haproxy_config="/opt/vless/config/haproxy.cfg"
+    local nginx_config="/opt/vless/config/nginx/nginx.conf"
 
-    if [ -f "$haproxy_config" ]; then
-        # Validate syntax using running HAProxy container (has access to certificates)
-        # v5.16: Changed from 'docker run' to 'docker exec' to access mounted certificates
+    if [ -f "$nginx_config" ]; then
         local validation_output
-        validation_output=$(docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg 2>&1)
+        validation_output=$(docker exec vless_nginx nginx -t 2>&1)
         local validation_exit=$?
 
         if [ $validation_exit -eq 0 ]; then
-            print_success "HAProxy конфигурация валидна"
-
-            # Check if certificate exists
-            if [ -f "/opt/vless/certs/combined.pem" ]; then
-                print_success "HAProxy сертификат найден"
-            else
-                warnings+=("⚠️  HAProxy сертификат отсутствует")
-                warnings+=("   Будет создан автоматически при получении Let's Encrypt сертификата")
-            fi
+            print_success "Nginx конфигурация валидна"
         else
-            limitation_messages+=("❌ КРИТИЧНО: HAProxy конфигурация содержит ошибки")
+            limitation_messages+=("❌ КРИТИЧНО: Nginx конфигурация содержит ошибки")
             limitation_messages+=("")
             limitation_messages+=("   ${BOLD}Вывод проверки:${NC}")
             echo "$validation_output" | head -10 | while read line; do
@@ -930,17 +920,17 @@ EOF"
             limitation_messages+=("")
             limitation_messages+=("   ${BOLD}Требуемые действия:${NC}")
             limitation_messages+=("   1. Проверьте синтаксис вручную:")
-            limitation_messages+=("      $ docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg")
+            limitation_messages+=("      $ docker exec vless_nginx nginx -t")
             limitation_messages+=("")
             limitation_messages+=("   2. Восстановите из бэкапа (если доступен):")
-            limitation_messages+=("      $ sudo cp /opt/vless/config/haproxy.cfg.bak /opt/vless/config/haproxy.cfg")
+            limitation_messages+=("      $ sudo cp /opt/vless/config/nginx/nginx.conf.bak /opt/vless/config/nginx/nginx.conf")
             limitation_messages+=("")
             limitation_messages+=("   3. НЕ продолжайте установку до исправления!")
             has_limitations=true
         fi
     else
-        limitation_messages+=("❌ КРИТИЧНО: HAProxy конфигурация не найдена")
-        limitation_messages+=("   Файл отсутствует: $haproxy_config")
+        limitation_messages+=("❌ КРИТИЧНО: Nginx конфигурация не найдена")
+        limitation_messages+=("   Файл отсутствует: $nginx_config")
         limitation_messages+=("   Требуется переустановка VLESS VPN сервера")
         has_limitations=true
     fi
@@ -1022,21 +1012,19 @@ prompt_confirmation() {
     echo -e "  ${BOLD}Enhanced Security:${NC}       ${ENHANCED_SECURITY_HEADERS:-false}" >&2
     echo -e "  ${BOLD}Custom User-Agent:${NC}       ${CUSTOM_USER_AGENT:0:60}..." >&2
     echo "" >&2
-    echo -e "${YELLOW}${BOLD}Что будет выполнено (v4.3):${NC}" >&2
+    echo -e "${YELLOW}${BOLD}Что будет выполнено:${NC}" >&2
     echo "  1. DNS validation (обязательно!)" >&2
     echo "  2. Получение Let's Encrypt сертификата для $domain" >&2
-    echo "  3. Создание HAProxy combined.pem (fullchain + privkey)" >&2
-    echo "  4. Создание Nginx reverse proxy конфигурации (localhost:$port)" >&2
-    echo "  5. Создание Xray HTTP inbound (localhost:10080+)" >&2
-    echo "  6. Добавление HAProxy SNI route: $domain → nginx:$port" >&2
-    echo "  7. Настройка fail2ban защиты" >&2
-    echo "  8. Генерация HTTP Basic Auth креденшелов" >&2
+    echo "  3. Создание Nginx reverse proxy конфигурации (localhost:$port)" >&2
+    echo "  4. Добавление SNI route в vless_nginx: $domain → nginx:$port" >&2
+    echo "  5. Настройка fail2ban защиты" >&2
+    echo "  6. Генерация HTTP Basic Auth креденшелов" >&2
     echo "" >&2
-    echo -e "${CYAN}${ICON_INFO} v4.3 Architecture:${NC}" >&2
-    echo "  - HAProxy (port 443) принимает все HTTPS трафик" >&2
-    echo "  - SNI routing по имени домена (TLS passthrough НЕ используется)" >&2
+    echo -e "${CYAN}${ICON_INFO} Architecture:${NC}" >&2
+    echo "  - vless_nginx (port 443) принимает HTTPS трафик (ssl_preread SNI)" >&2
+    echo "  - SNI routing по имени домена → vless_nginx_reverseproxy" >&2
     echo "  - Nginx backend слушает ТОЛЬКО на 127.0.0.1:$port" >&2
-    echo "  - UFW порт НЕ открывается (не нужен, HAProxy уже на 443)" >&2
+    echo "  - UFW порт НЕ открывается (vless_nginx уже на 443)" >&2
     echo "" >&2
 
     read -p "Продолжить установку? [y/N]: " -n 1 -r
@@ -1138,14 +1126,14 @@ setup_reverse_proxy() {
         return 1
     fi
 
-    # Step 8: Add HAProxy SNI route (v4.3)
-    print_step "Добавление HAProxy SNI route..."
+    # Step 8: Add Nginx SNI route
+    print_step "Добавление Nginx SNI route..."
     if ! add_reverse_proxy_route "$domain" "$port"; then
-        print_error "Не удалось добавить HAProxy route"
+        print_error "Не удалось добавить Nginx route"
         print_warning "Маршрут придётся добавить вручную"
         return 1
     fi
-    print_success "HAProxy route добавлен: $domain → nginx:$port"
+    print_success "Nginx route добавлен: $domain → nginx:$port"
 
     # Step 9: Reload services
     print_step "Перезагрузка сервисов..."
@@ -1156,7 +1144,7 @@ setup_reverse_proxy() {
     echo "" >&2
     echo -e "${CYAN}${ICON_INFO} ${BOLD}Ожидание стабилизации сервисов...${NC}" >&2
     echo "   Это нормально и занимает 30-60 секунд." >&2
-    echo "   При активных VPN соединениях HAProxy выполняет graceful reload." >&2
+    echo "   При активных VPN соединениях Nginx выполняет graceful reload." >&2
     echo "" >&2
 
     print_step "Проверка работоспособности reverse proxy (5 checks)..."
@@ -1169,10 +1157,10 @@ setup_reverse_proxy() {
     fi
     echo "" >&2
     echo -e "${GREEN}${ICON_SUCCESS} ${BOLD}Все проверки пройдены (5/5)${NC}" >&2
-    echo "   ✅ HAProxy configuration" >&2
-    echo "   ✅ Nginx configuration" >&2
+    echo "   ✅ Nginx SNI routing" >&2
+    echo "   ✅ Nginx reverse proxy configuration" >&2
     echo "   ✅ Port binding" >&2
-    echo "   ✅ HAProxy backend health" >&2
+    echo "   ✅ Backend health" >&2
     echo "   ✅ HTTP connectivity (end-to-end)" >&2
     echo "" >&2
     print_success "Reverse proxy готов к использованию"
@@ -1183,7 +1171,7 @@ setup_reverse_proxy() {
     echo "" >&2
     echo -e "${GREEN}${BOLD}Reverse Proxy готов к использованию!${NC}" >&2
     echo "" >&2
-    echo -e "${CYAN}${BOLD}Детали конфигурации (v4.3):${NC}" >&2
+    echo -e "${CYAN}${BOLD}Детали конфигурации:${NC}" >&2
     echo -e "  ${BOLD}URL:${NC}      ${GREEN}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}" >&2
     echo -e "  ${BOLD}Backend:${NC}  127.0.0.1:${port} (localhost-only)" >&2
     echo -e "  ${BOLD}Username:${NC} $username" >&2
@@ -1195,8 +1183,8 @@ setup_reverse_proxy() {
     echo "  3. Введите username/password при запросе" >&2
     echo "  4. Вы будете перенаправлены на ${target}" >&2
     echo "" >&2
-    echo -e "${CYAN}${ICON_INFO} v4.3 HAProxy Routing:${NC}" >&2
-    echo "  - HAProxy принимает HTTPS запросы на порту 443" >&2
+    echo -e "${CYAN}${ICON_INFO} Nginx Routing:${NC}" >&2
+    echo "  - vless_nginx принимает HTTPS запросы на порту 443 (ssl_preread)" >&2
     echo "  - SNI-based routing: по имени домена ($domain)" >&2
     echo "  - Nginx backend слушает только localhost (недоступен извне)" >&2
     echo "" >&2
@@ -1231,10 +1219,10 @@ main() {
 
     # Print welcome banner
     clear
-    print_header "${ICON_ROCKET} VLESS v4.3 - Reverse Proxy Setup Wizard (HAProxy Unified)"
+    print_header "${ICON_ROCKET} VLESS v5.33 - Reverse Proxy Setup Wizard"
 
     echo -e "${CYAN}Этот wizard поможет настроить reverse proxy для доступа к заблокированным сайтам.${NC}" >&2
-    echo -e "${YELLOW}v4.3: Unified HAProxy architecture - subdomain access без номера порта!${NC}" >&2
+    echo -e "${YELLOW}Nginx SNI architecture - subdomain access без номера порта!${NC}" >&2
     echo "" >&2
 
     # Collect parameters

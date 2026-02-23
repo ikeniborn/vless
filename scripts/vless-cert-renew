@@ -6,11 +6,9 @@
 # This script is called by certbot after successful certificate renewal.
 # Handles certificate updates for vless_nginx, Xray, and Reverse Proxy.
 #
-# v5.30 Changes:
-# - ✅ Replaces HAProxy combined.pem with direct nginx -s reload (zero-downtime)
-# - ✅ vless_nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed
-#
-# v5.25 Enhancements (preserved):
+# Features:
+# - ✅ Uses nginx -s reload for zero-downtime certificate updates
+# - ✅ vless_nginx uses fullchain.pem + privkey.pem directly
 # - ✅ Retry logic with exponential backoff for transient failures
 # - ✅ Automatic rollback on critical failures
 # - ✅ Pre-renewal validation (certificates, config, containers, disk space)
@@ -18,13 +16,10 @@
 # - ✅ Execution metrics tracking in JSON format
 # - ✅ Graceful degradation (continue with other domains if one fails)
 # - ✅ Verbose debug mode via VLESS_RENEW_VERBOSE=1
-#
-# v4.3 Features (updated for v5.30):
-# - Uses nginx -s reload instead of haproxy combined.pem creation
-# - Restarts Xray container (VLESS Reality)
-# - Reloads Nginx reverse proxy
-# - Updates reverse_proxies.json database
-# - Supports multiple renewed domains
+# - ✅ Restarts Xray container (VLESS Reality)
+# - ✅ Reloads Nginx reverse proxy
+# - ✅ Updates reverse_proxies.json database
+# - ✅ Supports multiple renewed domains
 #
 # Usage: Called automatically by certbot via --deploy-hook
 # Location: /usr/local/bin/vless-cert-renew

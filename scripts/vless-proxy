@@ -128,8 +128,8 @@ cmd_list() {
 
     echo -e "${CYAN}${BOLD}Найдено: $proxy_count proxy (макс. 10)${NC}"
     echo ""
-    echo -e "${YELLOW}${ICON_INFO} v4.3: Subdomain access без порта - https://<domain>${NC}"
-    echo -e "${DIM}  HAProxy маршрутизирует на port 443 → nginx backends (localhost:9443-9452)${NC}"
+    echo -e "${YELLOW}${ICON_INFO} Subdomain access без порта - https://<domain>${NC}"
+    echo -e "${DIM}  Nginx SNI routing на port 443 → nginx reverse proxy backends${NC}"
     echo ""
 
     # Table header
@@ -221,12 +221,12 @@ cmd_show() {
     echo -e "  Статус:             $([ "$enabled" = "true" ] && echo "${GREEN}${ICON_SUCCESS} Enabled${NC}" || echo "${RED}${ICON_WARNING} Disabled${NC}")"
     echo ""
 
-    echo -e "${CYAN}${BOLD}Публичный доступ (v4.3):${NC}"
+    echo -e "${CYAN}${BOLD}Публичный доступ:${NC}"
     echo -e "  ${BOLD}URL:${NC}                ${GREEN}${BOLD}https://${domain}${NC}  ${YELLOW}(БЕЗ номера порта!)${NC}"
     echo -e "  Username:           ${BOLD}$username${NC}"
     echo -e "  Password:           ${BOLD}${GREEN}$password${NC}"
     echo ""
-    echo -e "${DIM}  HAProxy Routing:  port 443 → SNI: $domain → nginx:$port (TLS) → https://$target (direct)${NC}"
+    echo -e "${DIM}  Nginx Routing:  port 443 → SNI: $domain → nginx:$port (TLS) → https://$target (direct)${NC}"
     echo ""
 
     echo -e "${CYAN}${BOLD}Let's Encrypt Certificate:${NC}"
@@ -291,15 +291,14 @@ cmd_remove() {
     xray_tag=$(echo "$proxy_json" | jq -r '.xray_inbound_tag')
 
     # Show what will be removed
-    echo -e "${YELLOW}${BOLD}Будет удалено (v5.3):${NC}"
-    echo "  - Nginx конфигурация"
-    echo "  - HAProxy SNI route для $domain"
+    echo -e "${YELLOW}${BOLD}Будет удалено:${NC}"
+    echo "  - Nginx конфигурация (SNI route для $domain)"
     echo "  - fail2ban правило для порта $port"
     echo "  - .htpasswd файл"
     echo "  - Порт $port из docker-compose.yml"
     echo "  - Запись из БД"
     echo ""
-    echo -e "${CYAN}${ICON_INFO} v4.3: UFW правило НЕ удаляется (не создавалось, HAProxy уже на 443)${NC}"
+    echo -e "${CYAN}${ICON_INFO} UFW правило НЕ удаляется (vless_nginx уже на 443)${NC}"
     echo -e "${RED}${BOLD}⚠️  Let's Encrypt сертификат НЕ будет удалён (может быть использован повторно)${NC}"
     echo ""
 
@@ -328,12 +327,12 @@ cmd_remove() {
     #     print_warning "Не удалось удалить Xray inbound"
     # fi
 
-    # 3. Remove HAProxy SNI route (v4.3)
-    print_info "Удаление HAProxy SNI route..."
+    # 3. Remove Nginx SNI route
+    print_info "Удаление Nginx SNI route..."
     if remove_reverse_proxy_route "$domain"; then
-        print_success "HAProxy route удалён"
+        print_success "Nginx route удалён"
     else
-        print_warning "Не удалось удалить HAProxy route (возможно, уже удалён)"
+        print_warning "Не удалось удалить Nginx route (возможно, уже удалён)"
     fi
 
     # 4. Remove fail2ban port
@@ -379,8 +378,8 @@ cmd_remove() {
     if ! validate_reverse_proxy_removed "$domain" "$port"; then
         print_warning "Некоторые компоненты reverse proxy не удалены полностью"
         print_info "Проверьте вручную: sudo vless-proxy list"
-        print_info "HAProxy config: docker exec vless_haproxy grep '${domain}' /usr/local/etc/haproxy/haproxy.cfg"
         print_info "Nginx config: ls -la /opt/vless/config/reverse-proxy/${domain}.conf"
+        print_info "Nginx routes: docker exec vless_nginx nginx -t"
     else
         print_success "Все компоненты успешно удалены - валидация пройдена"
     fi
@@ -560,7 +559,7 @@ cmd_check_certs() {
 
 show_usage() {
     cat <<EOF
-${BOLD}VLESS v4.3 - Reverse Proxy Management Tool (HAProxy Unified)${NC}
+${BOLD}VLESS v5.33 - Reverse Proxy Management Tool${NC}
 
 ${CYAN}${BOLD}ИСПОЛЬЗОВАНИЕ:${NC}
   sudo vless-proxy <command> [options]
@@ -583,15 +582,15 @@ ${CYAN}${BOLD}ПРИМЕРЫ:${NC}
   sudo vless-proxy renew-cert proxy.example.com
   sudo vless-proxy check-certs
 
-${CYAN}${BOLD}v4.3 ОСОБЕННОСТИ:${NC}
+${CYAN}${BOLD}ОСОБЕННОСТИ:${NC}
   - Subdomain-based access: ${GREEN}https://domain${NC} (БЕЗ номера порта!)
-  - HAProxy SNI routing на port 443
-  - Nginx backends: localhost-only (127.0.0.1:9443-9452)
+  - Nginx SNI routing на port 443 (ssl_preread)
+  - vless_nginx_reverseproxy: TLS termination для reverse proxy backends
   - Unified certificate management
   - NO UFW port opening required
 
 ${CYAN}${BOLD}ПОДРОБНОСТИ:${NC}
-  Документация: /opt/vless/docs/REVERSE_PROXY_GUIDE.md
+  Документация: docs/GUIDES.md (секция 7)
 
 EOF
 }
