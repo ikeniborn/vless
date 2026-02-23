@@ -210,26 +210,26 @@ NO_MTPROXY_SERVICE
     cat > "${DOCKER_COMPOSE_FILE}" <<EOF
 services:
   # ===========================================================================
-  # HAProxy Service (v4.3 NEW - Unified TLS Termination)
-  # Handles ALL ports: 443 (SNI routing), 1080 (SOCKS5 TLS), 8118 (HTTP TLS)
+  # Nginx Service (v5.30 — replaces HAProxy)
+  # stream block: Port 443 (ssl_preread SNI routing), 1080/8118 (TLS termination)
+  # http block:   Port 8448 (loopback, Tier 2 transports — WS/XHTTP/gRPC)
   # ===========================================================================
-  haproxy:
-    image: haproxy:2.8-alpine
-    container_name: vless_haproxy
+  vless_nginx:
+    image: nginx:1.27-alpine
+    container_name: vless_nginx
     restart: unless-stopped
     networks:
       - vless_reality_net
     cap_add:
-      - NET_BIND_SERVICE  # Required: HAProxy runs as uid=99, needs capability to bind ports < 1024
+      - NET_BIND_SERVICE  # Required: bind ports < 1024 (443, 1080, 8118)
     ports:
-      - "443:443"      # HTTPS SNI routing
-      - "1080:1080"    # SOCKS5 with TLS
-      - "8118:8118"    # HTTP proxy with TLS
-      - "9000:9000"    # HAProxy stats page (localhost only in haproxy.cfg)
+      - "443:443"      # HTTPS SNI routing (stream, ssl_preread — no TLS termination)
+      - "1080:1080"    # SOCKS5 with TLS termination
+      - "8118:8118"    # HTTP proxy with TLS termination
     volumes:
-      - ${VLESS_DIR}/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro  # Certificates for all ports
-      - ${VLESS_DIR}/logs/haproxy/:/var/log/haproxy/
+      - \${VLESS_DIR}/config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - \${VLESS_DIR}/logs/nginx/:/var/log/nginx/
     ulimits:
       nofile:
         soft: 65536
@@ -241,6 +241,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ===========================================================================
   # Xray-core Service (VLESS Reality + Proxy Inbounds)

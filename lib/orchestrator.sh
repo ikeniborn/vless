@@ -23,9 +23,10 @@ set -euo pipefail
 # IMPORT v4.3 MODULES
 # =============================================================================
 # Source HAProxy and docker-compose generators (v4.3 unified architecture)
-# These modules are required for HAProxy configuration and docker-compose generation
+# These modules are required for Nginx configuration and docker-compose generation
+# v5.30: nginx_stream_generator.sh replaces haproxy_config_manager.sh
 SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[[ -f "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh"
+[[ -f "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh"
 [[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
 
 # =============================================================================
@@ -210,9 +211,9 @@ orchestrate_installation() {
         echo "  ℹ️  Reverse proxy disabled, skipping nginx HTTP context generation"
     fi
 
-    # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
-    generate_haproxy_config_wrapper || {
-        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+    # Step 6.5: Generate Nginx configuration (v5.30 unified stream+http, replaces HAProxy)
+    generate_nginx_config_wrapper || {
+        echo -e "${RED}Failed to generate Nginx configuration${NC}" >&2
         return 1
     }
 
@@ -984,48 +985,41 @@ EOF
 }
 
 # =============================================================================
-# FUNCTION: generate_haproxy_config_wrapper
+# FUNCTION: generate_nginx_config_wrapper (v5.30)
 # =============================================================================
-# Description: Wrapper for lib/haproxy_config_manager.sh::generate_haproxy_config()
-# Uses: DOMAIN, ENABLE_PUBLIC_PROXY (from interactive_params.sh)
+# Description: Wrapper for lib/nginx_stream_generator.sh::generate_nginx_config()
+#              Replaces generate_haproxy_config_wrapper() from v4.3-v5.29
+# Uses: DOMAIN, CERT_DOMAIN, VLESS_DIR (from environment / interactive_params.sh)
 # Returns: 0 on success, 1 on failure
-#
-# v5.26 Changes:
-#   - Pass ENABLE_PUBLIC_PROXY and ENABLE_REVERSE_PROXY parameters
-#   - Conditional output for public proxy ports and reverse proxy
 # =============================================================================
-generate_haproxy_config_wrapper() {
-    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v5.26 conditional features)...${NC}"
+generate_nginx_config_wrapper() {
+    echo -e "${CYAN}[6.5/12] Generating Nginx configuration (v5.30, stream+http blocks)...${NC}"
 
-    # Extract main domain from DOMAIN (remove subdomain if present)
-    local main_domain="${DOMAIN}"
-    local vless_domain="${DOMAIN}"
+    local cert_domain="${CERT_DOMAIN:-${DOMAIN}}"
 
-    # Generate random stats password
-    local stats_password
-    stats_password=$(openssl rand -hex 8)
+    # Create nginx config directory
+    mkdir -p "${VLESS_DIR}/config/nginx" || {
+        echo -e "${RED}Failed to create ${VLESS_DIR}/config/nginx directory${NC}" >&2
+        return 1
+    }
 
-    # Call the imported function from haproxy_config_manager.sh (v5.26: pass ENABLE_PUBLIC_PROXY + ENABLE_REVERSE_PROXY)
-    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}" "${ENABLE_PUBLIC_PROXY}" "${ENABLE_REVERSE_PROXY:-false}"; then
-        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+    # Create nginx logs directory
+    mkdir -p "${VLESS_DIR}/logs/nginx" || {
+        echo -e "${YELLOW}Warning: Failed to create ${VLESS_DIR}/logs/nginx directory${NC}"
+    }
+
+    # Generate nginx.conf (Phase 0: no Tier 2 subdomains yet; they are added by transport_manager.sh)
+    if ! generate_nginx_config "${cert_domain}" "false" > "${VLESS_DIR}/config/nginx/nginx.conf"; then
+        echo -e "${RED}Failed to generate Nginx configuration${NC}" >&2
         return 1
     fi
 
-    echo "  ✓ HAProxy config: ${CONFIG_DIR}/haproxy.cfg"
+    echo "  ✓ Nginx config: ${VLESS_DIR}/config/nginx/nginx.conf"
+    echo "  ✓ Stream ports: 443 (SNI ssl_preread), 1080 (SOCKS5 TLS), 8118 (HTTP TLS)"
+    echo "  ✓ HTTP block: port 8448 (Tier 2 loopback placeholder)"
+    echo "  ✓ Cert domain: ${cert_domain}"
 
-    # Conditional output based on public proxy mode (v5.25)
-    if [[ "${ENABLE_PUBLIC_PROXY}" == "true" ]]; then
-        echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
-        echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
-    else
-        echo "  ✓ Frontend ports: 443 (VLESS Reality via SNI passthrough)"
-        echo "  ✓ Mode: VLESS-only (no public proxy)"
-    fi
-
-    echo "  ✓ Stats URL: http://127.0.0.1:9000/stats"
-    echo "  ✓ Stats password: ${stats_password}"
-
-    echo -e "${GREEN}✓ HAProxy configuration created${NC}"
+    echo -e "${GREEN}✓ Nginx configuration created${NC}"
     return 0
 }
 
@@ -1058,16 +1052,15 @@ create_docker_compose() {
     fi
 
     echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE}"
-    echo "  ✓ HAProxy image: haproxy:2.8-alpine (NEW in v4.3)"
+    echo "  ✓ Nginx image: nginx:1.27-alpine (v5.30 stream+http, replaces HAProxy)"
     echo "  ✓ Xray image: ${XRAY_IMAGE}"
-    echo "  ✓ Nginx image: ${NGINX_IMAGE}"
     echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
     echo "  ✓ Security: hardened containers with minimal capabilities"
 
-    # v4.3: HAProxy unified architecture
+    # v5.30: Nginx unified architecture (replaces HAProxy)
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo "  ✓ Mode: PUBLIC PROXY with HAProxy unified TLS (v4.3)"
-        echo "  ✓ HAProxy: Handles ALL ports (443, 1080, 8118) with TLS/passthrough"
+        echo "  ✓ Mode: PUBLIC PROXY with Nginx unified stream TLS (v5.30)"
+        echo "  ✓ Nginx: Handles ALL ports (443 SNI, 1080 SOCKS5 TLS, 8118 HTTP TLS)"
         echo "  ✓ Xray: Localhost ports 8443 (VLESS), 10800 (SOCKS5), 18118 (HTTP)"
         echo "  ✓ TLS certificates: /etc/letsencrypt mounted to HAProxy"
         echo "  ✓ Architecture: Client → HAProxy (TLS) → Xray (auth) → Internet"
@@ -1249,17 +1242,17 @@ EOF
         echo "  ✓ No old reverse proxy port rules found"
     fi
 
-    # v5.1: Allow HAProxy external port 443 (NOT VLESS_PORT which is internal 8443)
-    # HAProxy listens on 443 externally, forwards to Xray on 8443 internally
-    local haproxy_external_port=443
-    echo "  Allowing port ${haproxy_external_port} (HAProxy external frontend)..."
-    if ufw status numbered | grep -q "${haproxy_external_port}/tcp.*ALLOW"; then
-        echo "  ✓ Port ${haproxy_external_port}/tcp already allowed"
+    # v5.30: Allow Nginx external port 443 (NOT VLESS_PORT which is internal 8443)
+    # Nginx stream listens on 443 externally via ssl_preread SNI routing, forwards Reality to Xray on 8443
+    local nginx_external_port=443
+    echo "  Allowing port ${nginx_external_port} (Nginx external SNI frontend)..."
+    if ufw status numbered | grep -q "${nginx_external_port}/tcp.*ALLOW"; then
+        echo "  ✓ Port ${nginx_external_port}/tcp already allowed"
     else
-        ufw allow "${haproxy_external_port}/tcp" comment 'HAProxy VLESS+Reverse Proxy (v4.3)' || {
+        ufw allow "${nginx_external_port}/tcp" comment 'Nginx VLESS+Reverse Proxy (v5.30)' || {
             echo -e "${YELLOW}Warning: Failed to add UFW rule${NC}"
         }
-        echo "  ✓ Port ${haproxy_external_port}/tcp allowed"
+        echo "  ✓ Port ${nginx_external_port}/tcp allowed"
     fi
 
     # v4.3: Ensure ports 9443-9452 are NOT exposed (localhost-only nginx backends)
@@ -1413,21 +1406,23 @@ deploy_containers() {
         echo "  ℹ Nginx reverse proxy container skipped (feature disabled)"
     fi
 
-    # v4.3: Check HAProxy container (unified TLS termination in bridge network)
-    local haproxy_status=$(docker inspect "${HAPROXY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$haproxy_status" == "running" ]]; then
-        echo "  ✓ HAProxy container running"
+    # v5.30: Check vless_nginx container (replaces vless_haproxy — unified stream+http)
+    local nginx_main_status
+    nginx_main_status=$(docker inspect "vless_nginx" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$nginx_main_status" == "running" ]]; then
+        echo "  ✓ vless_nginx container running"
 
         # Check for bind errors in logs (common issue: Permission denied on ports)
-        local haproxy_logs=$(docker logs "${HAPROXY_CONTAINER_NAME}" 2>&1 | tail -20)
-        if echo "$haproxy_logs" | grep -q "cannot bind socket"; then
-            echo -e "${RED}HAProxy has bind errors (check logs)${NC}" >&2
-            docker compose logs haproxy
+        local nginx_main_logs
+        nginx_main_logs=$(docker logs "vless_nginx" 2>&1 | tail -20)
+        if echo "$nginx_main_logs" | grep -q "bind() to.*failed"; then
+            echo -e "${RED}vless_nginx has bind errors (check logs)${NC}" >&2
+            docker compose logs vless_nginx
             return 1
         fi
     else
-        echo -e "${RED}HAProxy container failed to start (status: $haproxy_status)${NC}" >&2
-        docker compose logs haproxy
+        echo -e "${RED}vless_nginx container failed to start (status: $nginx_main_status)${NC}" >&2
+        docker compose logs vless_nginx
         return 1
     fi
 
@@ -1670,21 +1665,20 @@ set_permissions() {
     find "${KEYS_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
     chmod 600 "${ENV_FILE}" 2>/dev/null || true
 
-    # EXCEPTION: HAProxy config must be world-readable for haproxy user (uid=99 in container)
-    # HAProxy container runs as non-root user and needs to read this file
-    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
-        chmod 644 "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || {
-            echo -e "  ${YELLOW}⚠ WARNING: Failed to set permissions on haproxy.cfg${NC}" >&2
+    # v5.30: Nginx config must be readable by nginx container user
+    if [[ -f "${CONFIG_DIR}/nginx/nginx.conf" ]]; then
+        chmod 644 "${CONFIG_DIR}/nginx/nginx.conf" 2>/dev/null || {
+            echo -e "  ${YELLOW}⚠ WARNING: Failed to set permissions on nginx.conf${NC}" >&2
         }
-        # Verify permissions were set correctly
-        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
-        if [[ "$haproxy_perms" == "644" ]]; then
-            echo "  ✓ haproxy.cfg: 644 (readable by container uid=99)"
+        local nginx_conf_perms
+        nginx_conf_perms=$(stat -c '%a' "${CONFIG_DIR}/nginx/nginx.conf" 2>/dev/null || echo "000")
+        if [[ "$nginx_conf_perms" == "644" ]]; then
+            echo "  ✓ nginx.conf: 644 (readable by nginx container)"
         else
-            echo -e "  ${RED}✗ haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}" >&2
+            echo -e "  ${RED}✗ nginx.conf: $nginx_conf_perms (EXPECTED 644)${NC}" >&2
         fi
     else
-        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found at ${CONFIG_DIR}/haproxy.cfg${NC}" >&2
+        echo -e "  ${YELLOW}⚠ WARNING: nginx.conf not found at ${CONFIG_DIR}/nginx/nginx.conf${NC}" >&2
     fi
 
     # EXCEPTION: Xray config must be world-readable (chmod 644)

@@ -1,12 +1,16 @@
 #!/bin/bash
 #==============================================================================
 # Certificate Renewal Deploy Hook
-# Part of VLESS + Reality VPN v5.25
+# Part of VLESS + Reality VPN v5.30
 #
 # This script is called by certbot after successful certificate renewal.
-# Handles certificate updates for HAProxy, Xray, and Reverse Proxy.
+# Handles certificate updates for vless_nginx, Xray, and Reverse Proxy.
 #
-# v5.25 Enhancements:
+# v5.30 Changes:
+# - ✅ Replaces HAProxy combined.pem with direct nginx -s reload (zero-downtime)
+# - ✅ vless_nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed
+#
+# v5.25 Enhancements (preserved):
 # - ✅ Retry logic with exponential backoff for transient failures
 # - ✅ Automatic rollback on critical failures
 # - ✅ Pre-renewal validation (certificates, config, containers, disk space)
@@ -15,9 +19,8 @@
 # - ✅ Graceful degradation (continue with other domains if one fails)
 # - ✅ Verbose debug mode via VLESS_RENEW_VERBOSE=1
 #
-# v4.3 Features (preserved):
-# - Creates HAProxy combined.pem (fullchain + privkey)
-# - Gracefully reloads HAProxy (zero downtime)
+# v4.3 Features (updated for v5.30):
+# - Uses nginx -s reload instead of haproxy combined.pem creation
 # - Restarts Xray container (VLESS Reality)
 # - Reloads Nginx reverse proxy
 # - Updates reverse_proxies.json database
@@ -568,86 +571,38 @@ main() {
     # Track per-domain status for graceful degradation
     declare -A domain_status
 
-    # PHASE 2: Create HAProxy combined.pem (v5.25 - with rollback)
+    # PHASE 2: Reload vless_nginx (v5.30 — replaces HAProxy combined.pem + reload)
+    # Nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed
     log_info ""
-    log_info "━━━ Phase 2: Creating HAProxy combined.pem ━━━"
+    log_info "━━━ Phase 2: Reloading vless_nginx (v5.30) ━━━"
+    log_info "Note: Nginx uses fullchain.pem + privkey.pem directly — no combined.pem required"
 
     for domain in $renewed_domains; do
         log_info "Processing: $domain"
-
-        # Backup existing combined.pem
-        backup_combined_pem "$domain"
-
-        # Create new combined.pem
-        if command -v create_haproxy_combined_cert &>/dev/null; then
-            if create_haproxy_combined_cert "$domain" >> "$LOG_FILE" 2>&1; then
-                log_info "  ✅ Combined.pem created for $domain"
-                domain_status["$domain"]="success"
-            else
-                log_error "  ❌ Failed to create combined.pem for $domain"
-                rollback_combined_pem "$domain"
-                domain_status["$domain"]="failed"
-            fi
-        else
-            log_error "  ❌ Certificate manager module not found"
-            domain_status["$domain"]="failed"
-        fi
+        domain_status["$domain"]="success"
     done
 
-    # Check if any domain succeeded
-    local any_success=false
-    for domain in $renewed_domains; do
-        if [[ "${domain_status[$domain]}" == "success" ]]; then
-            any_success=true
-            break
-        fi
-    done
-
-    if [[ "$any_success" == "false" ]]; then
-        log_critical "All domains failed combined.pem creation, aborting"
-        local end_time=$(date +%s)
-        local execution_time=$((end_time - START_TIME))
-        save_renewal_metrics "$renewed_domains" "failed" "$execution_time" "All domains failed"
-        exit 1
-    fi
-
-    # PHASE 3: Reload HAProxy (v5.25 - with retry and full rollback)
+    # PHASE 3: Reload vless_nginx (zero-downtime via nginx -s reload)
     log_info ""
-    log_info "━━━ Phase 3: Reloading HAProxy ━━━"
+    log_info "━━━ Phase 3: nginx -s reload (zero-downtime) ━━━"
 
-    if command -v reload_haproxy_after_cert_update &>/dev/null; then
-        if retry_with_backoff "$RETRY_MAX_ATTEMPTS" "$RETRY_INITIAL_DELAY" "$RETRY_MAX_DELAY" reload_haproxy_after_cert_update; then
-            log_info "✅ HAProxy reloaded successfully"
+    local nginx_reload_ok=false
+    if docker ps --format '{{.Names}}' | grep -q "vless_nginx"; then
+        if retry_with_backoff "$RETRY_MAX_ATTEMPTS" "$RETRY_INITIAL_DELAY" "$RETRY_MAX_DELAY" \
+            docker exec vless_nginx nginx -s reload; then
+            log_info "✅ vless_nginx reloaded successfully (zero-downtime)"
+            nginx_reload_ok=true
         else
-            log_critical "❌ HAProxy reload failed after $RETRY_MAX_ATTEMPTS attempts"
-            log_critical "Rolling back all domains..."
-
-            # Rollback all domains
-            for domain in $renewed_domains; do
-                if [[ "${domain_status[$domain]}" == "success" ]]; then
-                    rollback_combined_pem "$domain"
-                fi
-            done
-
-            # Try reload with old certificates
-            log_info "Attempting HAProxy reload with old certificates..."
-            if reload_haproxy_after_cert_update >> "$LOG_FILE" 2>&1; then
-                log_warning "HAProxy reloaded with old certificates"
-            else
-                log_critical "Rollback reload also failed - manual intervention required"
-            fi
-
+            log_critical "❌ vless_nginx reload failed after $RETRY_MAX_ATTEMPTS attempts"
+            log_critical "Manual intervention required: docker exec vless_nginx nginx -s reload"
             local end_time=$(date +%s)
             local execution_time=$((end_time - START_TIME))
-            save_renewal_metrics "$renewed_domains" "failed" "$execution_time" "HAProxy reload failed"
+            save_renewal_metrics "$renewed_domains" "failed" "$execution_time" "vless_nginx reload failed"
             exit 1
         fi
     else
-        log_error "Certificate manager module not found"
-        local end_time=$(date +%s)
-        local execution_time=$((end_time - START_TIME))
-        save_renewal_metrics "$renewed_domains" "error" "$execution_time" "Certificate manager not found"
-        exit 1
+        log_warning "vless_nginx container not running — skipping reload (non-critical if not installed)"
+        nginx_reload_ok=true  # Non-critical if container not yet deployed
     fi
 
     # PHASE 4: Restart Xray container (v5.25 - with retry)
