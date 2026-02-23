@@ -55,7 +55,7 @@ BOLD='\033[1m'
 
 # Source library files
 source "${LIB_PATH}/certificate_manager.sh"     # v4.3: DNS validation + unified cert acquisition
-source "${LIB_PATH}/haproxy_config_manager.sh"  # v4.3: HAProxy dynamic routing
+source "${LIB_PATH}/haproxy_config_manager.sh"  # provides: add_reverse_proxy_route, remove_reverse_proxy_route
 source "${LIB_PATH}/nginx_config_generator.sh"
 # source "${LIB_PATH}/xray_http_inbound.sh"  # v5.3: Deprecated - nginx proxies directly to target
 source "${LIB_PATH}/letsencrypt_integration.sh"
