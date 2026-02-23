@@ -263,11 +263,18 @@ services:
       - ${VLESS_DIR}/config/xray_config.json:/etc/xray/config.json:ro
       - ${VLESS_DIR}/logs/xray/:/var/log/xray/
     expose:
-      # v4.3 CHANGE: Ports exposed ONLY within Docker network (not to host)
-      # HAProxy accesses these via service name: vless_xray:8443
-      - "8443"   # VLESS Reality inbound
-      - "10800"  # SOCKS5 proxy (plaintext, HAProxy terminates TLS)
-      - "18118"  # HTTP proxy (plaintext, HAProxy terminates TLS)
+      # Ports exposed ONLY within Docker network (not to host)
+      # vless_nginx accesses these via service name: vless_xray:PORT
+      - "8443"   # VLESS Reality inbound (ssl_preread passthrough from nginx port 443)
+      - "10800"  # SOCKS5 proxy (plaintext, Nginx terminates TLS on port 1080)
+      - "18118"  # HTTP proxy (plaintext, Nginx terminates TLS on port 8118)
+$(if [[ "${ENABLE_TIER2_TRANSPORTS:-false}" == "true" ]]; then
+cat <<TIER2_EXPOSE
+      - "8444"   # VLESS WebSocket plaintext (Nginx Tier 2 http block → Xray, v5.30)
+      - "8445"   # VLESS XHTTP/SplitHTTP plaintext (Nginx Tier 2 http block → Xray, v5.31)
+      - "8446"   # VLESS gRPC plaintext (Nginx Tier 2 http block → Xray, v5.32)
+TIER2_EXPOSE
+fi)
     networks:
       - vless_reality_net
     logging:

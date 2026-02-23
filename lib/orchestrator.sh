@@ -569,6 +569,93 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: generate_websocket_inbound_json (v5.30)
+# =============================================================================
+# Description: Returns JSON for VLESS WebSocket inbound (no TLS — Nginx terminates)
+# Port: 8444 (internal Docker network only — vless_nginx proxies from 443 SNI)
+# =============================================================================
+generate_websocket_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "port": 8444,
+    "protocol": "vless",
+    "tag": "vless-websocket",
+    "settings": {
+      "clients": [],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "ws",
+      "wsSettings": {
+        "path": "/vless-ws",
+        "headers": {}
+      }
+    }
+  }
+EOF
+}
+
+# =============================================================================
+# FUNCTION: generate_xhttp_inbound_json (v5.31)
+# =============================================================================
+# Description: Returns JSON for VLESS XHTTP/SplitHTTP inbound (no TLS — Nginx terminates)
+# Port: 8445 (internal Docker network only)
+# Requires: Xray-core >= 24.9 (satisfied by teddysun/xray:24.11.30)
+# =============================================================================
+generate_xhttp_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "port": 8445,
+    "protocol": "vless",
+    "tag": "vless-xhttp",
+    "settings": {
+      "clients": [],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "splithttp",
+      "splithttpSettings": {
+        "path": "/api/v2",
+        "maxUploadSize": 1000000,
+        "maxConcurrentUploads": 10,
+        "minUploadIntervalMs": 0
+      }
+    }
+  }
+EOF
+}
+
+# =============================================================================
+# FUNCTION: generate_grpc_inbound_json (v5.32)
+# =============================================================================
+# Description: Returns JSON for VLESS gRPC inbound (TLS terminated by Nginx http block)
+# Port: 8446 (internal Docker network only)
+# =============================================================================
+generate_grpc_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "port": 8446,
+    "protocol": "vless",
+    "tag": "vless-grpc",
+    "settings": {
+      "clients": [],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "grpc",
+      "grpcSettings": {
+        "serviceName": "GunService",
+        "multiMode": false,
+        "idle_timeout": 60,
+        "health_check_timeout": 20
+      },
+      "security": "none"
+    }
+  }
+EOF
+}
+
+# =============================================================================
 # FUNCTION: create_xray_config
 # =============================================================================
 # Description: Create Xray configuration file (xray_config.json)
@@ -576,6 +663,8 @@ EOF
 # Arguments:
 #   $1 - enable_proxy (optional): "true" to enable SOCKS5/HTTP proxy support
 #                                 "false" (default) for VLESS only
+#   $2 - enable_tier2 (optional): "true" to add WS/XHTTP/gRPC Tier 2 inbounds
+#                                 "false" (default) — only Reality inbound
 # Returns: 0 on success, 1 on failure
 # Updated: TASK-11.1 - Added proxy support parameter
 # Updated: v5.33 - Added policy section with increased limits for proxy usage
@@ -585,6 +674,7 @@ EOF
 # =============================================================================
 create_xray_config() {
     local enable_proxy="${1:-false}"
+    local enable_tier2="${2:-false}"   # v5.30: Tier 2 transports (WS/XHTTP/gRPC) flag
     echo -e "${CYAN}[4/12] Creating Xray configuration...${NC}"
 
     # Validate required variables
@@ -651,6 +741,10 @@ create_xray_config() {
   }$(if [[ "$enable_proxy" == "true" ]]; then
     generate_socks5_inbound_json
     generate_http_inbound_json
+fi)$(if [[ "$enable_tier2" == "true" ]]; then
+    generate_websocket_inbound_json
+    generate_xhttp_inbound_json
+    generate_grpc_inbound_json
 fi)],
   "outbounds": [
     {
