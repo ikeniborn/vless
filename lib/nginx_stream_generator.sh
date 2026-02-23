@@ -70,7 +70,7 @@ add_reverse_proxy_route() {
     domain_esc=$(printf '%s' "$domain" | sed 's/\./\\./g')
 
     # Idempotent: skip if entry already exists
-    if grep -qP "^\s*${domain_esc}\s" "$conf"; then
+    if grep -qE "^[[:space:]]*${domain_esc}[[:space:]]" "$conf"; then
         echo "INFO: SNI route already exists: ${domain}" >&2
         return 0
     fi
@@ -78,7 +78,7 @@ add_reverse_proxy_route() {
     cp "$conf" "${conf}.bak"
 
     # Insert before the 'default' line inside the map block
-    sed -i "/default\s\+vless_xray:8443/i\\        ${domain}    vless_nginx_reverseproxy:${port};  # Reverse proxy" \
+    sed -i "/default[[:space:]]\+vless_xray:8443/i\\        ${domain}    vless_nginx_reverseproxy:${port};  # Reverse proxy" \
         "$conf"
 
     if ! docker exec vless_nginx nginx -t 2>/dev/null; then
@@ -123,7 +123,7 @@ remove_reverse_proxy_route() {
     cp "$conf" "${conf}.bak"
 
     # Remove the SNI map entry for this domain
-    sed -i "/^\s*${domain_esc}\s/d" "$conf"
+    sed -i "/^[[:space:]]*${domain_esc}[[:space:]]/d" "$conf"
 
     if ! docker exec vless_nginx nginx -t 2>/dev/null; then
         echo "ERROR: nginx -t failed after removing route, rolling back" >&2
