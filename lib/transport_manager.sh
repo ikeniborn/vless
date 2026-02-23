@@ -10,7 +10,6 @@
 #
 # Dependencies:
 #   - lib/nginx_stream_generator.sh (generate_nginx_config)
-#   - lib/orchestrator.sh (create_xray_config)
 #   - docker (docker exec vless_nginx nginx -s reload, docker restart vless_xray)
 #
 # Data file: ${VLESS_HOME}/data/transports.json
@@ -53,9 +52,9 @@ add_transport() {
         *) log_error "Unknown transport type: $transport_type (must be: ws, xhttp, grpc)"; return 1 ;;
     esac
 
-    # Validate subdomain format
-    if [[ -z "$subdomain" ]] || ! [[ "$subdomain" =~ \. ]]; then
-        log_error "Invalid subdomain: '$subdomain' (expected format: sub.example.com)"
+    # Validate subdomain format (strict RFC 1123 hostname)
+    if ! [[ "$subdomain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$ ]]; then
+        log_error "Invalid subdomain: '$subdomain' (expected format: sub.example.com, RFC 1123)"
         return 1
     fi
 
@@ -76,29 +75,70 @@ add_transport() {
         return 1
     fi
 
-    # Add to transports.json
+    # Add to transports.json (with jq empty validation before mv)
     local temp
     temp="${TRANSPORTS_JSON}.tmp.$$"
     jq --arg t "$transport_type" --arg s "$subdomain" --argjson p "$port" \
         '.transports += [{"type": $t, "subdomain": $s, "port": $p, "enabled": true}]' \
-        "$TRANSPORTS_JSON" > "$temp" && mv "$temp" "$TRANSPORTS_JSON"
+        "$TRANSPORTS_JSON" > "$temp" || { rm -f "$temp"; log_error "Failed to update transports.json"; return 1; }
+    if ! jq empty "$temp" 2>/dev/null; then
+        rm -f "$temp"
+        log_error "transports.json update produced invalid JSON"
+        return 1
+    fi
+    mv "$temp" "$TRANSPORTS_JSON"
 
     log_success "Transport '$transport_type' registered: $subdomain → vless_xray:$port"
 
-    # Source required libs (may already be sourced by scripts/vless)
+    # Source nginx generator (may already be sourced by scripts/vless)
     local lib_dir
     lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     [[ -f "${lib_dir}/nginx_stream_generator.sh" ]] && source "${lib_dir}/nginx_stream_generator.sh"
-    [[ -f "${lib_dir}/orchestrator.sh" ]] && source "${lib_dir}/orchestrator.sh"
 
-    # Regenerate Xray config with Tier 2 inbounds
-    log_info "Regenerating Xray config with Tier 2 inbounds..."
-    local enable_proxy="${ENABLE_PUBLIC_PROXY:-false}"
-    if create_xray_config "$enable_proxy" "true" 2>&1; then
-        log_success "Xray config regenerated with Tier 2 inbounds"
-    else
-        log_error "Failed to regenerate Xray config"
+    # Surgically append the new Tier 2 inbound to xray_config.json without touching existing clients.
+    # IMPORTANT: do NOT call create_xray_config() here — it writes empty "clients": [] and erases users.
+    local xray_config="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
+    if [[ ! -f "$xray_config" ]]; then
+        log_error "xray_config.json not found: $xray_config"
         return 1
+    fi
+
+    # Check if this inbound tag is already present (idempotency guard)
+    local inbound_tag
+    case "$transport_type" in
+        ws)    inbound_tag="vless-websocket" ;;
+        xhttp) inbound_tag="vless-xhttp"    ;;
+        grpc)  inbound_tag="vless-grpc"     ;;
+    esac
+    local already_exists
+    already_exists=$(jq -r --arg tag "$inbound_tag" '.inbounds[] | select(.tag == $tag) | .tag' "$xray_config" 2>/dev/null || true)
+    if [[ -n "$already_exists" ]]; then
+        log_info "Inbound '$inbound_tag' already present in xray_config.json — skipping"
+    else
+        log_info "Appending '$inbound_tag' inbound to xray_config.json..."
+        local new_inbound
+        case "$transport_type" in
+            ws)
+                new_inbound='{"port":8444,"protocol":"vless","tag":"vless-websocket","settings":{"clients":[],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/vless-ws","headers":{}}}}'
+                ;;
+            xhttp)
+                new_inbound='{"port":8445,"protocol":"vless","tag":"vless-xhttp","settings":{"clients":[],"decryption":"none"},"streamSettings":{"network":"splithttp","splithttpSettings":{"path":"/api/v2","maxUploadSize":1000000,"maxConcurrentUploads":10,"minUploadIntervalMs":0}}}'
+                ;;
+            grpc)
+                new_inbound='{"port":8446,"protocol":"vless","tag":"vless-grpc","settings":{"clients":[],"decryption":"none"},"streamSettings":{"network":"grpc","grpcSettings":{"serviceName":"GunService","multiMode":false,"idle_timeout":60,"health_check_timeout":20},"security":"none"}}'
+                ;;
+        esac
+        local xray_temp
+        xray_temp="${xray_config}.tmp.$$"
+        jq --argjson inbound "$new_inbound" '.inbounds += [$inbound]' \
+            "$xray_config" > "$xray_temp" || { rm -f "$xray_temp"; log_error "Failed to append inbound to xray_config.json"; return 1; }
+        if ! jq empty "$xray_temp" 2>/dev/null; then
+            rm -f "$xray_temp"
+            log_error "xray_config.json update produced invalid JSON"
+            return 1
+        fi
+        mv "$xray_temp" "$xray_config"
+        log_success "Inbound '$inbound_tag' appended to xray_config.json (existing users preserved)"
     fi
 
     # Rebuild Nginx config with all current transport subdomains
@@ -212,11 +252,17 @@ remove_transport() {
         return 1
     fi
 
-    # Remove from transports.json
+    # Remove from transports.json (with jq empty validation before mv)
     local temp
     temp="${TRANSPORTS_JSON}.tmp.$$"
     jq --arg t "$transport_type" '.transports = [.transports[] | select(.type != $t)]' \
-        "$TRANSPORTS_JSON" > "$temp" && mv "$temp" "$TRANSPORTS_JSON"
+        "$TRANSPORTS_JSON" > "$temp" || { rm -f "$temp"; log_error "Failed to update transports.json"; return 1; }
+    if ! jq empty "$temp" 2>/dev/null; then
+        rm -f "$temp"
+        log_error "transports.json update produced invalid JSON"
+        return 1
+    fi
+    mv "$temp" "$TRANSPORTS_JSON"
 
     log_success "Transport '$transport_type' removed from transports.json"
 
@@ -233,7 +279,13 @@ remove_transport() {
         local xray_temp
         xray_temp="${xray_config}.tmp.$$"
         jq --arg tag "$tag" '.inbounds = [.inbounds[] | select(.tag != $tag)]' \
-            "$xray_config" > "$xray_temp" && mv "$xray_temp" "$xray_config"
+            "$xray_config" > "$xray_temp" || { rm -f "$xray_temp"; log_error "Failed to update xray_config.json"; return 1; }
+        if ! jq empty "$xray_temp" 2>/dev/null; then
+            rm -f "$xray_temp"
+            log_error "xray_config.json update produced invalid JSON"
+            return 1
+        fi
+        mv "$xray_temp" "$xray_config"
         log_success "Removed inbound '$tag' from xray_config.json"
     else
         log_warning "xray_config.json not found — skipping inbound removal"

@@ -66,8 +66,8 @@ readonly DOCKER_NETWORK_NAME="vless_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="vless_xray"
-readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: Full container name
-readonly HAPROXY_CONTAINER_NAME="vless_haproxy"  # v4.3: HAProxy unified TLS termination
+readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: reverse proxy (optional)
+readonly NGINX_MAIN_CONTAINER_NAME="vless_nginx"           # v5.30: main stream+http proxy
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
@@ -128,13 +128,6 @@ orchestrate_installation() {
             return 1
         }
         chmod 755 "${LOGS_DIR}/fake-site"
-    fi
-    if [[ -d "${LOGS_DIR}/haproxy" ]]; then
-        chown -R root:root "${LOGS_DIR}/haproxy" || {
-            echo -e "${RED}Failed to set haproxy logs ownership${NC}" >&2
-            return 1
-        }
-        chmod 755 "${LOGS_DIR}/haproxy"
     fi
 
     # Set permissions on Let's Encrypt live directory for HAProxy access
@@ -334,7 +327,6 @@ create_directory_structure() {
         "${INSTALL_ROOT}/lib"
         "${LOGS_DIR}"
         "${LOGS_DIR}/xray"
-        "${LOGS_DIR}/haproxy"
         "${LOGS_DIR}/nginx"
         "${LOGS_DIR}/fake-site"
         "${KEYS_DIR}"
@@ -454,8 +446,8 @@ generate_routing_json() {
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
     local docker_subnet=""
 
-    # v4.3: HAProxy runs in host network mode, no need for Docker subnet
-    # All traffic from HAProxy to Xray uses 127.0.0.1 (localhost)
+    # v5.30: vless_nginx (stream block) connects to Xray via Docker network (not localhost)
+    # Ports 10800/18118 NOT exposed to host — Docker network provides isolation
 
     # Check if proxy_allowed_ips.json exists (user-defined overrides)
     if [[ -f "$proxy_ips_file" ]]; then
@@ -472,11 +464,11 @@ generate_routing_json() {
     fi
 
     # Generate routing configuration with server-level IP whitelist
-    # v4.3+ HAProxy Architecture: Blocking rule removed because:
-    #   - Ports 10800/18118 NOT exposed publicly (HAProxy terminates TLS on 1080/8118)
+    # v5.30+ Nginx Architecture: Blocking rule removed because:
+    #   - Ports 10800/18118 NOT exposed publicly (Nginx terminates TLS on 1080/8118)
     #   - Docker network provides isolation
-    #   - HAProxy connects from Docker network IP (not whitelisted 127.0.0.1)
-    #   - Blocking rule would break HAProxy → Xray proxy connections
+    #   - vless_nginx connects from Docker network IP (not whitelisted 127.0.0.1)
+    #   - Blocking rule would break Nginx → Xray proxy connections
     # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
     # v5.31: Changed to AsIs for mobile network compatibility
     cat <<EOF
@@ -501,16 +493,16 @@ EOF
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
 # Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
 # Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
-# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
+# Note: v5.30 - TLS handled by Nginx stream block, Xray uses plaintext inbound
 # =============================================================================
 generate_socks5_inbound_json() {
-    # v4.3: HAProxy unified TLS termination
-    # Architecture: Client → HAProxy (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
+    # v5.30: Nginx stream TLS termination
+    # Architecture: Client → vless_nginx (TLS, 0.0.0.0:1080) → Xray (plaintext, :10800)
     #
-    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:10800)
-    # - HAProxy handles TLS termination on public port 1080
+    # IMPORTANT: Xray listens plaintext on port 10800 (Docker network only)
+    # - Nginx handles TLS termination on public port 1080
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by HAProxy)
+    # - No TLS streamSettings in Xray config (handled by Nginx)
 
     cat <<'EOF'
   ,{
@@ -538,16 +530,16 @@ EOF
 # Description: Generate HTTP proxy inbound configuration for Xray
 # Returns: JSON string for HTTP inbound (to be appended to inbounds array)
 # Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
-# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
+# Note: v5.30 - TLS handled by Nginx stream block, Xray uses plaintext inbound
 # =============================================================================
 generate_http_inbound_json() {
-    # v4.3: HAProxy unified TLS termination
-    # Architecture: Client → HAProxy (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
+    # v5.30: Nginx stream TLS termination
+    # Architecture: Client → vless_nginx (TLS, 0.0.0.0:8118) → Xray (plaintext, :18118)
     #
-    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:18118)
-    # - HAProxy handles TLS termination on public port 8118
+    # IMPORTANT: Xray listens plaintext on port 18118 (Docker network only)
+    # - Nginx handles TLS termination on public port 8118
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by HAProxy)
+    # - No TLS streamSettings in Xray config (handled by Nginx)
 
     cat <<'EOF'
   ,{
@@ -1215,6 +1207,7 @@ NGINX_IMAGE=${NGINX_IMAGE}
 
 # Paths
 INSTALL_ROOT=${INSTALL_ROOT}
+VLESS_DIR=${INSTALL_ROOT}
 CONFIG_DIR=${CONFIG_DIR}
 DATA_DIR=${DATA_DIR}
 
@@ -1884,18 +1877,19 @@ verify_file_permissions() {
         ((ISSUES++))
     fi
 
-    # Check haproxy.cfg (CRITICAL)
-    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
-        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
-        if [[ "$haproxy_perms" == "644" ]]; then
-            echo -e "  ${GREEN}✓ haproxy.cfg: 644 (OK)${NC}"
+    # Check nginx/nginx.conf (CRITICAL — v5.30: replaces haproxy.cfg)
+    if [[ -f "${CONFIG_DIR}/nginx/nginx.conf" ]]; then
+        local nginx_perms
+        nginx_perms=$(stat -c '%a' "${CONFIG_DIR}/nginx/nginx.conf" 2>/dev/null || echo "000")
+        if [[ "$nginx_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ nginx/nginx.conf: 644 (OK)${NC}"
         else
-            echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}"
-            echo -e "  ${YELLOW}  → HAProxy container may fail to start${NC}"
+            echo -e "  ${YELLOW}⚠ WARNING: nginx/nginx.conf: $nginx_perms (EXPECTED 644)${NC}"
+            echo -e "  ${YELLOW}  → vless_nginx container may fail to load config${NC}"
             ((WARNINGS++))
         fi
     else
-        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found${NC}"
+        echo -e "  ${YELLOW}⚠ WARNING: nginx/nginx.conf not found${NC}"
         ((WARNINGS++))
     fi
 
@@ -1937,7 +1931,7 @@ verify_file_permissions() {
         echo ""
         echo -e "${YELLOW}Run manual fixes above, then:${NC}"
         echo -e "${YELLOW}  docker restart vless_xray${NC}"
-        echo -e "${YELLOW}  docker restart vless_haproxy${NC}"
+        echo -e "${YELLOW}  docker restart vless_nginx${NC}"
         return 1
     fi
 }

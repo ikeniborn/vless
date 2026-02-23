@@ -126,8 +126,8 @@ save_renewal_metrics() {
     local certbot_version
     certbot_version=$(certbot --version 2>&1 | awk '{print $2}' || echo "unknown")
 
-    local haproxy_version
-    haproxy_version=$(docker exec vless_haproxy haproxy -v 2>&1 | head -n1 || echo "unknown")
+    local nginx_version
+    nginx_version=$(docker exec vless_nginx nginx -v 2>&1 | head -n1 || echo "unknown")
 
     # Create metrics JSON
     cat > "$METRICS_FILE" <<EOF
@@ -138,7 +138,7 @@ save_renewal_metrics() {
   "execution_time_seconds": $execution_time,
   "error_message": "$error_msg",
   "certbot_version": "$certbot_version",
-  "haproxy_version": "$haproxy_version"
+  "nginx_version": "$nginx_version"
 }
 EOF
 
@@ -298,33 +298,33 @@ validate_certificate_files() {
     return 0
 }
 
-validate_haproxy_config() {
-    log_debug "Validating HAProxy configuration"
+validate_nginx_config() {
+    log_debug "Validating Nginx configuration"
 
     # Check container exists
-    if ! docker ps -a --format '{{.Names}}' | grep -q "vless_haproxy"; then
-        log_error "HAProxy container not found"
+    if ! docker ps -a --format '{{.Names}}' | grep -q "vless_nginx"; then
+        log_error "vless_nginx container not found"
         return 1
     fi
 
-    # Check config syntax
+    # Check nginx config syntax
     local config_check
-    config_check=$(docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg 2>&1 || true)
+    config_check=$(docker exec vless_nginx nginx -t 2>&1 || true)
 
-    if echo "$config_check" | grep -qi "alert\|^\\[ERROR\\]"; then
-        log_error "HAProxy configuration validation failed:"
+    if echo "$config_check" | grep -qi "^nginx: \[emerg\]\|^nginx: \[alert\]\|^nginx: \[crit\]"; then
+        log_error "Nginx configuration validation failed:"
         log_error "$config_check"
         return 1
     fi
 
-    log_debug "  ✓ HAProxy configuration is valid"
+    log_debug "  ✓ Nginx configuration is valid"
     return 0
 }
 
 validate_container_health() {
     log_debug "Validating container health"
 
-    local critical_containers=("vless_haproxy" "vless_xray")
+    local critical_containers=("vless_nginx" "vless_xray")
 
     for container in "${critical_containers[@]}"; do
         # Check exists
@@ -348,9 +348,9 @@ validate_container_health() {
 
         # Check process running inside container
         case "$container" in
-            vless_haproxy)
-                if ! docker exec "$container" pidof haproxy &>/dev/null; then
-                    log_error "HAProxy process not running inside container"
+            vless_nginx)
+                if ! docker exec "$container" nginx -t &>/dev/null; then
+                    log_error "Nginx config check failed inside container"
                     return 1
                 fi
                 ;;
@@ -430,9 +430,9 @@ pre_renewal_validation() {
         fi
     done
 
-    # Check 2: HAProxy config
-    if ! validate_haproxy_config; then
-        log_error "HAProxy configuration validation failed"
+    # Check 2: Nginx config
+    if ! validate_nginx_config; then
+        log_error "Nginx configuration validation failed"
         validation_failed=true
     fi
 
@@ -571,27 +571,20 @@ main() {
     # Track per-domain status for graceful degradation
     declare -A domain_status
 
-    # PHASE 2: Reload vless_nginx (v5.30 — replaces HAProxy combined.pem + reload)
-    # Nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed
-    log_info ""
-    log_info "━━━ Phase 2: Reloading vless_nginx (v5.30) ━━━"
-    log_info "Note: Nginx uses fullchain.pem + privkey.pem directly — no combined.pem required"
-
+    # Mark all domains as success initially; individual failures will update per-domain status
     for domain in $renewed_domains; do
-        log_info "Processing: $domain"
         domain_status["$domain"]="success"
     done
 
-    # PHASE 3: Reload vless_nginx (zero-downtime via nginx -s reload)
+    # PHASE 2: Reload vless_nginx (zero-downtime via nginx -s reload)
+    # Nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed (v5.30)
     log_info ""
-    log_info "━━━ Phase 3: nginx -s reload (zero-downtime) ━━━"
+    log_info "━━━ Phase 2: nginx -s reload (zero-downtime) ━━━"
 
-    local nginx_reload_ok=false
     if docker ps --format '{{.Names}}' | grep -q "vless_nginx"; then
         if retry_with_backoff "$RETRY_MAX_ATTEMPTS" "$RETRY_INITIAL_DELAY" "$RETRY_MAX_DELAY" \
             docker exec vless_nginx nginx -s reload; then
             log_info "✅ vless_nginx reloaded successfully (zero-downtime)"
-            nginx_reload_ok=true
         else
             log_critical "❌ vless_nginx reload failed after $RETRY_MAX_ATTEMPTS attempts"
             log_critical "Manual intervention required: docker exec vless_nginx nginx -s reload"
@@ -602,14 +595,13 @@ main() {
         fi
     else
         log_warning "vless_nginx container not running — skipping reload (non-critical if not installed)"
-        nginx_reload_ok=true  # Non-critical if container not yet deployed
     fi
 
     # PHASE 4: Restart Xray container (v5.25 - with retry)
     log_info ""
     log_info "━━━ Phase 4: Restarting Xray container ━━━"
 
-    if retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 docker-compose restart xray; then
+    if retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 docker restart vless_xray; then
         sleep 2
 
         if docker ps | grep -q "vless_xray.*Up"; then

@@ -268,13 +268,10 @@ services:
       - "8443"   # VLESS Reality inbound (ssl_preread passthrough from nginx port 443)
       - "10800"  # SOCKS5 proxy (plaintext, Nginx terminates TLS on port 1080)
       - "18118"  # HTTP proxy (plaintext, Nginx terminates TLS on port 8118)
-$(if [[ "${ENABLE_TIER2_TRANSPORTS:-false}" == "true" ]]; then
-cat <<TIER2_EXPOSE
       - "8444"   # VLESS WebSocket plaintext (Nginx Tier 2 http block → Xray, v5.30)
       - "8445"   # VLESS XHTTP/SplitHTTP plaintext (Nginx Tier 2 http block → Xray, v5.31)
       - "8446"   # VLESS gRPC plaintext (Nginx Tier 2 http block → Xray, v5.32)
-TIER2_EXPOSE
-fi)
+      # Note: expose only publishes within Docker network — NOT to host ports
     networks:
       - vless_reality_net
     logging:
