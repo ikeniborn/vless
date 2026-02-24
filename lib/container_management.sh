@@ -13,7 +13,7 @@
 #
 # Usage:
 #   source lib/container_management.sh
-#   ensure_container_running "vless_haproxy"
+#   ensure_container_running "familytraffic"
 #   ensure_all_containers_running
 #
 # Version: 5.22.0
@@ -47,8 +47,8 @@ fi
 #   0 if running, 1 if not running
 #
 # Example:
-#   if is_container_running "vless_haproxy"; then
-#       echo "HAProxy is running"
+#   if is_container_running "familytraffic"; then
+#       echo "familytraffic is running"
 #   fi
 # =============================================================================
 is_container_running() {
@@ -79,7 +79,7 @@ is_container_running() {
 #   0 if container running/started successfully, 1 on failure
 #
 # Example:
-#   ensure_container_running "vless_haproxy" 30
+#   ensure_container_running "familytraffic" 30
 # =============================================================================
 ensure_container_running() {
     local container="$1"
@@ -147,10 +147,11 @@ ensure_container_running() {
 #   fi
 # =============================================================================
 ensure_all_containers_running() {
-    local containers=("vless_haproxy" "familytraffic" "familytraffic_reverseproxy")
+    # v5.33: single container replaces multi-container architecture
+    local containers=("familytraffic")
     local failed=()
 
-    log "Checking critical containers..."
+    log "Checking critical containers (v5.33 single container)..."
 
     for container in "${containers[@]}"; do
         if ! ensure_container_running "$container"; then
@@ -162,10 +163,10 @@ ensure_all_containers_running() {
         log_error "Failed to start containers: ${failed[*]}"
         log_error ""
         log_error "TROUBLESHOOTING:"
-        log_error "  1. Check all container status: docker ps -a"
-        log_error "  2. Check specific logs: docker logs <container> --tail 50"
-        log_error "  3. Restart all services: cd /opt/familytraffic && docker compose up -d"
-        log_error "  4. Check docker-compose.yml: docker compose config"
+        log_error "  1. Check container status: docker ps -a"
+        log_error "  2. Check logs: docker logs familytraffic --tail 50"
+        log_error "  3. Restart: cd /opt/familytraffic && docker compose up -d"
+        log_error "  4. Check supervisord: docker exec familytraffic supervisorctl status"
         return 1
     fi
 
@@ -186,7 +187,7 @@ ensure_all_containers_running() {
 #   0 if operation succeeded, 1 if all attempts failed
 #
 # Example:
-#   retry_operation 3 "HAProxy reload" reload_haproxy --silent
+#   retry_operation 3 "nginx reload" nginx -s reload --silent
 # =============================================================================
 retry_operation() {
     local max_attempts="$1"
