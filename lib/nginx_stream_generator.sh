@@ -6,8 +6,8 @@
 # Architecture (v5.30):
 #   stream block — L4 routing (replaces HAProxy mode tcp):
 #     - Port 443: ssl_preread SNI routing (Reality passthrough, Tier2 → loopback 8448)
-#     - Port 1080: TLS termination → vless_xray:10800 (SOCKS5 plaintext)
-#     - Port 8118: TLS termination → vless_xray:18118 (HTTP proxy plaintext)
+#     - Port 1080: TLS termination → 127.0.0.1:10800 (SOCKS5 plaintext)
+#     - Port 8118: TLS termination → 127.0.0.1:18118 (HTTP proxy plaintext)
 #   http block — Tier 2 TLS termination (populated by Phase 2 / transport_manager.sh):
 #     - Port 8448: loopback target from stream SNI map; ws/xhttp/grpc server blocks
 #
@@ -78,17 +78,17 @@ add_reverse_proxy_route() {
     cp "$conf" "${conf}.bak"
 
     # Insert before the 'default' line inside the map block
-    sed -i "/default[[:space:]]\+vless_xray:8443/i\\        ${domain}    vless_nginx_reverseproxy:${port};  # Reverse proxy" \
+    sed -i "/default[[:space:]]\+127\.0\.0\.1:8443/i\\        ${domain}    127.0.0.1:${port};  # Reverse proxy" \
         "$conf"
 
-    if ! docker exec vless_nginx nginx -t 2>/dev/null; then
+    if ! docker exec familytraffic nginx -t 2>/dev/null; then
         echo "ERROR: nginx -t failed after adding route, rolling back" >&2
         mv "${conf}.bak" "$conf"
         return 1
     fi
 
-    docker exec vless_nginx nginx -s reload
-    echo "INFO: SNI route added: ${domain} → vless_nginx_reverseproxy:${port}" >&2
+    docker exec familytraffic nginx -s reload
+    echo "INFO: SNI route added: ${domain} → 127.0.0.1:${port}" >&2
     return 0
 }
 
@@ -125,13 +125,13 @@ remove_reverse_proxy_route() {
     # Remove the SNI map entry for this domain
     sed -i "/^[[:space:]]*${domain_esc}[[:space:]]/d" "$conf"
 
-    if ! docker exec vless_nginx nginx -t 2>/dev/null; then
+    if ! docker exec familytraffic nginx -t 2>/dev/null; then
         echo "ERROR: nginx -t failed after removing route, rolling back" >&2
         mv "${conf}.bak" "$conf"
         return 1
     fi
 
-    docker exec vless_nginx nginx -s reload
+    docker exec familytraffic nginx -s reload
     echo "INFO: SNI route removed: ${domain}" >&2
     return 0
 }
@@ -181,7 +181,7 @@ fi)
 $(if [[ -n "$grpc_subdomain" ]]; then
     echo "        ${grpc_subdomain}     127.0.0.1:8448;  # gRPC Tier 2"
 fi)
-        default             vless_xray:8443;  # Reality passthrough (no TLS termination)
+        default             127.0.0.1:8443;  # Reality passthrough (no TLS termination)
     }
 
     # -------------------------------------------------------------------------
@@ -198,7 +198,7 @@ fi)
 
     # -------------------------------------------------------------------------
     # Port 1080: SOCKS5 with TLS termination (replaces HAProxy frontend socks5_tls)
-    # TLS terminated here; plaintext forwarded to vless_xray:10800
+    # TLS terminated here; plaintext forwarded to 127.0.0.1:10800
     # -------------------------------------------------------------------------
     server {
         listen 1080 ssl;
@@ -206,14 +206,14 @@ fi)
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         ssl_ciphers         TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384;
-        proxy_pass          vless_xray:10800;
+        proxy_pass          127.0.0.1:10800;
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
     }
 
     # -------------------------------------------------------------------------
     # Port 8118: HTTP proxy with TLS termination (replaces HAProxy frontend http_tls)
-    # TLS terminated here; plaintext forwarded to vless_xray:18118
+    # TLS terminated here; plaintext forwarded to 127.0.0.1:18118
     # -------------------------------------------------------------------------
     server {
         listen 8118 ssl;
@@ -221,7 +221,7 @@ fi)
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         ssl_ciphers         TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384;
-        proxy_pass          vless_xray:18118;
+        proxy_pass          127.0.0.1:18118;
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
     }
@@ -257,7 +257,7 @@ cat <<WS_BLOCK
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         location /vless-ws {
-            proxy_pass http://vless_xray:8444;
+            proxy_pass http://127.0.0.1:8444;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -279,7 +279,7 @@ cat <<XHTTP_BLOCK
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         location /api/v2 {
-            proxy_pass http://vless_xray:8445;
+            proxy_pass http://127.0.0.1:8445;
             proxy_http_version 1.1;
             proxy_set_header Host \$host;
             proxy_set_header Connection "";
@@ -302,13 +302,31 @@ cat <<GRPC_BLOCK
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         location /GunService/ {
-            grpc_pass grpc://vless_xray:8446;
+            grpc_pass grpc://127.0.0.1:8446;
             grpc_read_timeout 300s;
             grpc_send_timeout 300s;
         }
     }
 GRPC_BLOCK
 fi)
+
+    # -------------------------------------------------------------------------
+    # Port 80: ACME HTTP-01 challenge (certbot webroot renewal)
+    # -------------------------------------------------------------------------
+    server {
+        listen 80 default_server;
+        server_name _;
+        root /var/www/html;
+
+        location /.well-known/acme-challenge/ {
+            root /var/www/html;
+            allow all;
+        }
+
+        location / {
+            return 301 https://\$host\$request_uri;
+        }
+    }
 }
 EOF
 }
