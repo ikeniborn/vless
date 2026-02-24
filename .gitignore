@@ -56,6 +56,10 @@ qr_codes/
 *.png
 *.sh
 
+# Exception: Docker container scripts (part of source code, not generated)
+!docker/familytraffic/*.sh
+!lib/migrate_rename.sh
+
 # Backup files
 data/backups/
 *.bak
