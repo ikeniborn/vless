@@ -48,7 +48,7 @@ log_debug() {
 # Configuration paths
 # Note: CONFIG_DIR, DATA_DIR, KEYS_DIR, LOGS_DIR are defined as readonly in orchestrator.sh
 # We only define paths not available from orchestrator
-INSTALL_DIR="/opt/vless"
+INSTALL_DIR="/opt/familytraffic"
 BACKUP_DIR="${INSTALL_DIR}/backups"
 
 # Security configuration

@@ -1,4 +1,4 @@
-# VLESS + Reality VPN Server
+# familyTraffic VPN Server
 
 **v5.33** · Production Ready · MIT License
 
@@ -19,18 +19,18 @@ VLESS + Reality — самодостаточный VPN-сервер с защи�
 ```
 Client
   │
-  ├─ TCP:443 ──► vless_nginx (ssl_preread SNI)
-  │                 ├─ Reality clients  ──► vless_xray:8443  (VLESS Reality)
+  ├─ TCP:443 ──► familytraffic (ssl_preread SNI)
+  │                 ├─ Reality clients  ──► 127.0.0.1:8443  (VLESS Reality)
   │                 └─ Tier 2 subdomains ─► port 8448 (http block)
-  │                                           ├─► vless_xray:8444 (WebSocket)
-  │                                           ├─► vless_xray:8445 (XHTTP)
-  │                                           └─► vless_xray:8446 (gRPC)
+  │                                           ├─► 127.0.0.1:8444 (WebSocket)
+  │                                           ├─► 127.0.0.1:8445 (XHTTP)
+  │                                           └─► 127.0.0.1:8446 (gRPC)
   │
-  ├─ TCP:1080 ─► vless_nginx (TLS termination) ──► vless_xray:10800 (SOCKS5)
-  └─ TCP:8118 ─► vless_nginx (TLS termination) ──► vless_xray:18118 (HTTP proxy)
+  ├─ TCP:1080 ─► familytraffic (TLS termination) ──► 127.0.0.1:10800 (SOCKS5)
+  └─ TCP:8118 ─► familytraffic (TLS termination) ──► 127.0.0.1:18118 (HTTP proxy)
 ```
 
-**Контейнеры:** `vless_nginx` · `vless_xray` · `vless_fake_site` · `vless_nginx_reverseproxy` *(опционально, только при включённом reverse proxy)*
+**Контейнер:** `familytraffic` (единый контейнер: nginx + xray + certbot + supervisord)
 
 ---
 
@@ -51,7 +51,7 @@ Client
 
 ```bash
 git clone <repo-url>
-cd vless
+cd familytraffic
 sudo ./install.sh
 ```
 
@@ -66,52 +66,43 @@ sudo ./install.sh
 ### Пользователи
 
 ```
-vless add-user <name>          Создать пользователя (выводит QR + URI)
-vless remove-user <name>       Удалить пользователя
-vless list-users               Список всех пользователей
-vless show-user <name>         Показать конфигурацию и QR код
+familytraffic add-user <name>          Создать пользователя (выводит QR + URI)
+familytraffic remove-user <name>       Удалить пользователя
+familytraffic list-users               Список всех пользователей
+familytraffic show-user <name>         Показать конфигурацию и QR код
 ```
 
 ### Tier 2 транспорты
 
 ```
-vless add-transport <type> <subdomain>    Включить транспорт (ws|xhttp|grpc)
-vless list-transports                     Список активных транспортов
-vless remove-transport <type>             Отключить транспорт
+familytraffic add-transport <type> <subdomain>    Включить транспорт (ws|xhttp|grpc)
+familytraffic list-transports                     Список активных транспортов
+familytraffic remove-transport <type>             Отключить транспорт
 ```
 
 ### Per-user external proxy
 
 ```
-vless set-proxy <user> <proxy-id|none>   Назначить proxy пользователю
-vless show-proxy <user>                  Показать назначение
-vless list-proxy-assignments             Список всех назначений
+familytraffic set-proxy <user> <proxy-id|none>   Назначить proxy пользователю
+familytraffic show-proxy <user>                  Показать назначение
+familytraffic list-proxy-assignments             Список всех назначений
 ```
 
 ### External proxy (server-level)
 
 ```
-vless-external-proxy add                 Добавить upstream proxy
-vless-external-proxy list                Список proxies
-vless-external-proxy status              Статус + пользователи по proxies
-```
-
-### Reverse proxy
-
-```
-vless-proxy add                          Добавить reverse proxy (wizard)
-vless-proxy list                         Список routes
-vless-proxy remove <domain>              Удалить route
+familytraffic-external-proxy add                 Добавить upstream proxy
+familytraffic-external-proxy list                Список proxies
+familytraffic-external-proxy status              Статус + пользователи по proxies
 ```
 
 ### Сервис
 
 ```
-vless status                             Статус всех контейнеров
-vless logs [xray|nginx|all]              Логи
-vless restart                            Перезапуск
-vless test-security [--quick]            Тесты безопасности
-vless migrate-vision                     Миграция пользователей на XTLS Vision
+familytraffic status                             Статус контейнера
+familytraffic logs [xray|nginx|all]              Логи
+familytraffic restart                            Перезапуск
+familytraffic test-security [--quick]            Тесты безопасности
 ```
 
 ---
@@ -125,7 +116,7 @@ vless migrate-vision                     Миграция пользовател
 | Windows | [v2rayN](https://github.com/2dust/v2rayN) |
 | macOS / Linux | [v2rayA](https://v2raya.org) |
 
-Импортируйте URI из `vless show-user <name>` или отсканируйте QR код.
+Импортируйте URI из `familytraffic show-user <name>` или отсканируйте QR код.
 
 ---
 

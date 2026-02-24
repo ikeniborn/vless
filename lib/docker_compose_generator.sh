@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # Configuration
-VLESS_DIR="${VLESS_DIR:-/opt/vless}"
+VLESS_DIR="${VLESS_DIR:-/opt/familytraffic}"
 DOCKER_COMPOSE_FILE="${VLESS_DIR}/docker-compose.yml"
 DOCKER_SUBNET="${DOCKER_SUBNET:-172.20.0.0/16}"
 # v5.1: VLESS_PORT is internal port 8443 (HAProxy listens on 443 externally)
@@ -47,7 +47,7 @@ log_error() {
 #   0 on success, 1 on failure
 #
 # Output:
-#   Creates /opt/vless/docker-compose.yml
+#   Creates /opt/familytraffic/docker-compose.yml
 #
 # Example:
 #   generate_docker_compose 9443 9444 9445

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib/nginx_stream_generator.sh
 # Nginx Configuration Generator (v5.30)
-# Replaces lib/haproxy_config_manager.sh — generates /opt/vless/config/nginx/nginx.conf
+# Replaces lib/haproxy_config_manager.sh — generates /opt/familytraffic/config/nginx/nginx.conf
 #
 # Architecture (v5.30):
 #   stream block — L4 routing (replaces HAProxy mode tcp):
@@ -36,7 +36,7 @@
 #   $5 - grpc_subdomain: gRPC subdomain (optional, Phase 2 / v5.32)
 # Returns: nginx.conf content on stdout; 0 on success, 1 on failure
 # ============================================================================
-NGINX_CONF="${NGINX_CONF:-/opt/vless/config/nginx/nginx.conf}"
+NGINX_CONF="${NGINX_CONF:-/opt/familytraffic/config/nginx/nginx.conf}"
 
 # ============================================================================
 # FUNCTION: add_reverse_proxy_route

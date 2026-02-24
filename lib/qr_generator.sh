@@ -39,7 +39,7 @@ set -euo pipefail
 # ============================================================================
 
 # Installation paths (only define if not already set)
-[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/familytraffic"
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
 [[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
 [[ -z "${KEYS_DIR:-}" ]] && readonly KEYS_DIR="${VLESS_HOME}/keys"

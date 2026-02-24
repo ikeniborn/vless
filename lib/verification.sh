@@ -13,7 +13,7 @@
 #
 # Functions:
 #   1. verify_installation()       - Main verification orchestrator
-#   2. verify_directory_structure() - Check /opt/vless filesystem
+#   2. verify_directory_structure() - Check /opt/familytraffic filesystem
 #   3. verify_file_permissions()   - Validate security permissions
 #   4. verify_docker_network()     - Check Docker bridge network
 #   5. verify_containers()         - Health check containers
@@ -34,7 +34,7 @@
 # Dependencies:
 #   - Docker & Docker Compose
 #   - jq
-#   - /opt/vless installation
+#   - /opt/familytraffic installation
 #
 # Author: Claude Code Agent
 # Date: 2025-10-02
@@ -46,11 +46,11 @@ set -euo pipefail
 # Global Variables
 # ============================================================================
 
-VLESS_HOME="/opt/vless"
+VLESS_HOME="/opt/familytraffic"
 # INSTALL_ROOT and XRAY_IMAGE are set as readonly in orchestrator.sh (loaded before verification.sh)
 # Only set them if not already defined (standalone execution mode)
 if [[ -z "${INSTALL_ROOT:-}" ]]; then
-    INSTALL_ROOT="/opt/vless"
+    INSTALL_ROOT="/opt/familytraffic"
 fi
 if [[ -z "${XRAY_IMAGE:-}" ]]; then
     XRAY_IMAGE="teddysun/xray:24.11.30"
@@ -314,82 +314,82 @@ verify_containers() {
     log_info "Verification 4/8: Checking container health..."
 
     # Check xray container using docker inspect (more reliable)
-    local xray_status=$(docker inspect vless_xray -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    local xray_status=$(docker inspect familytraffic -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
     if [[ "$xray_status" == "running" ]]; then
-        log_success "Container 'vless_xray' is running"
+        log_success "Container 'familytraffic' is running"
 
         # Check uptime
-        local started_at=$(docker inspect vless_xray -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        local started_at=$(docker inspect familytraffic -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
         if [[ -n "$started_at" ]]; then
             log_info "  Started at: $started_at"
         fi
 
         # Check for critical errors in logs
-        local xray_logs=$(docker logs vless_xray 2>&1 | tail -20)
+        local xray_logs=$(docker logs familytraffic 2>&1 | tail -20)
         if echo "$xray_logs" | grep -qE "(CRITICAL|FATAL|panic)"; then
-            log_warning "Container 'vless_xray' has critical messages in logs"
+            log_warning "Container 'familytraffic' has critical messages in logs"
         fi
     elif [[ "$xray_status" == "not-found" ]]; then
-        log_error "Container 'vless_xray' not found"
+        log_error "Container 'familytraffic' not found"
     else
-        log_error "Container 'vless_xray' exists but status is: $xray_status"
+        log_error "Container 'familytraffic' exists but status is: $xray_status"
     fi
 
     # Check nginx container using docker inspect (more reliable)
-    local nginx_status=$(docker inspect vless_fake_site -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    local nginx_status=$(docker inspect familytraffic -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
     if [[ "$nginx_status" == "running" ]]; then
-        log_success "Container 'vless_fake_site' is running"
+        log_success "Container 'familytraffic' is running"
 
         # Check uptime
-        local started_at=$(docker inspect vless_fake_site -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
+        local started_at=$(docker inspect familytraffic -f '{{.State.StartedAt}}' 2>/dev/null || echo "")
         if [[ -n "$started_at" ]]; then
             log_info "  Started at: $started_at"
         fi
 
         # Check healthcheck status (added in v4.1.1)
-        local nginx_health=$(docker inspect vless_fake_site -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        local nginx_health=$(docker inspect familytraffic -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
         if [[ "$nginx_health" == "healthy" ]]; then
-            log_success "Container 'vless_fake_site' health: healthy"
+            log_success "Container 'familytraffic' health: healthy"
         elif [[ "$nginx_health" == "starting" ]]; then
-            log_info "  Container 'vless_fake_site' health: starting"
+            log_info "  Container 'familytraffic' health: starting"
         elif [[ "$nginx_health" == "unhealthy" ]]; then
-            log_error "Container 'vless_fake_site' health: unhealthy"
+            log_error "Container 'familytraffic' health: unhealthy"
         fi
 
         # Check Nginx logs for critical errors only (ignore informational warnings)
-        local nginx_logs=$(docker logs vless_fake_site 2>&1 | tail -20)
+        local nginx_logs=$(docker logs familytraffic 2>&1 | tail -20)
         if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
-            log_error "Container 'vless_fake_site' has critical errors in logs"
+            log_error "Container 'familytraffic' has critical errors in logs"
         elif echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
             log_info "  Nginx running in read-only mode (expected for security)"
         fi
     elif [[ "$nginx_status" == "not-found" ]]; then
-        log_error "Container 'vless_fake_site' not found"
+        log_error "Container 'familytraffic' not found"
     else
-        log_error "Container 'vless_fake_site' exists but status is: $nginx_status"
+        log_error "Container 'familytraffic' exists but status is: $nginx_status"
     fi
 
     # Check if containers are on the correct network
-    local xray_networks=$(docker inspect vless_xray -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
+    local xray_networks=$(docker inspect familytraffic -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
     if [[ "$xray_networks" =~ vless_reality_net ]]; then
-        log_success "Container 'vless_xray' is connected to vless_reality_net"
+        log_success "Container 'familytraffic' is connected to vless_reality_net"
     else
-        log_error "Container 'vless_xray' is not connected to vless_reality_net (networks: $xray_networks)"
+        log_error "Container 'familytraffic' is not connected to vless_reality_net (networks: $xray_networks)"
     fi
 
-    local nginx_networks=$(docker inspect vless_fake_site -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
+    local nginx_networks=$(docker inspect familytraffic -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
     if [[ "$nginx_networks" =~ vless_reality_net ]]; then
-        log_success "Container 'vless_fake_site' is connected to vless_reality_net"
+        log_success "Container 'familytraffic' is connected to vless_reality_net"
     else
-        log_error "Container 'vless_fake_site' is not connected to vless_reality_net (networks: $nginx_networks)"
+        log_error "Container 'familytraffic' is not connected to vless_reality_net (networks: $nginx_networks)"
     fi
 
     # Check restart policy
-    local xray_restart=$(docker inspect vless_xray -f '{{.HostConfig.RestartPolicy.Name}}' 2>/dev/null || echo "")
+    local xray_restart=$(docker inspect familytraffic -f '{{.HostConfig.RestartPolicy.Name}}' 2>/dev/null || echo "")
     if [[ "$xray_restart" == "unless-stopped" ]]; then
-        log_success "Container 'vless_xray' restart policy: unless-stopped"
+        log_success "Container 'familytraffic' restart policy: unless-stopped"
     else
-        log_warning "Container 'vless_xray' restart policy: $xray_restart (expected unless-stopped)"
+        log_warning "Container 'familytraffic' restart policy: $xray_restart (expected unless-stopped)"
     fi
 
     # Check HAProxy container if proxy enabled (v4.3+)
@@ -444,12 +444,12 @@ verify_xray_config() {
     log_success "Xray configuration JSON syntax is valid"
 
     # Validate with xray -test
-    if docker exec vless_xray xray -test -config=/etc/xray/config.json &>/dev/null; then
+    if docker exec familytraffic xray -test -config=/etc/xray/config.json &>/dev/null; then
         log_success "Xray configuration validation passed (xray -test)"
     else
         log_error "Xray configuration validation failed (xray -test)"
         # Show detailed error
-        local error_output=$(docker exec vless_xray xray -test -config=/etc/xray/config.json 2>&1 || true)
+        local error_output=$(docker exec familytraffic xray -test -config=/etc/xray/config.json 2>&1 || true)
         echo "    Error details:"
         echo "$error_output" | sed 's/^/    /'
     fi
@@ -591,10 +591,10 @@ verify_container_internet() {
 
     # [1/4] Test connectivity from xray container using detected DNS
     log_info "  [1/4] Testing xray container internet connectivity..."
-    if docker exec vless_xray ping -c 3 -W 5 "$test_dns" &>/dev/null; then
-        log_success "Container 'vless_xray' can reach internet (ping ${test_dns})"
+    if docker exec familytraffic ping -c 3 -W 5 "$test_dns" &>/dev/null; then
+        log_success "Container 'familytraffic' can reach internet (ping ${test_dns})"
     else
-        log_error "Container 'vless_xray' cannot reach internet (ping ${test_dns} failed)"
+        log_error "Container 'familytraffic' cannot reach internet (ping ${test_dns} failed)"
         log_warning "  This may indicate UFW Docker forwarding issue"
         log_warning "  Check: sudo ufw status | grep DOCKER"
     fi
@@ -602,22 +602,22 @@ verify_container_internet() {
 
     # [2/4] Test DNS resolution from xray container
     log_info "  [2/4] Testing DNS resolution capability..."
-    if docker exec vless_xray ping -c 3 -W 5 google.com &>/dev/null; then
-        log_success "Container 'vless_xray' has DNS resolution"
+    if docker exec familytraffic ping -c 3 -W 5 google.com &>/dev/null; then
+        log_success "Container 'familytraffic' has DNS resolution"
     else
-        log_error "Container 'vless_xray' cannot resolve DNS (ping google.com failed)"
+        log_error "Container 'familytraffic' cannot resolve DNS (ping google.com failed)"
         log_warning "  This may indicate DNS server unavailability"
         log_warning "  Current DNS: ${test_dns}"
     fi
     echo ""
 
     # [3/4] Test connectivity from nginx container (if exists)
-    if docker ps --format '{{.Names}}' | grep -q '^vless_fake_site$'; then
+    if docker ps --format '{{.Names}}' | grep -q '^familytraffic$'; then
         log_info "  [3/4] Testing nginx reverse proxy container..."
-        if docker exec vless_fake_site ping -c 3 -W 5 "$test_dns" &>/dev/null; then
-            log_success "Container 'vless_fake_site' can reach internet (ping ${test_dns})"
+        if docker exec familytraffic ping -c 3 -W 5 "$test_dns" &>/dev/null; then
+            log_success "Container 'familytraffic' can reach internet (ping ${test_dns})"
         else
-            log_error "Container 'vless_fake_site' cannot reach internet (ping ${test_dns} failed)"
+            log_error "Container 'familytraffic' cannot reach internet (ping ${test_dns} failed)"
         fi
         echo ""
     fi
@@ -629,7 +629,7 @@ verify_container_internet() {
         local dest_host=$(echo "$dest" | cut -d':' -f1)
         local dest_port=$(echo "$dest" | cut -d':' -f2)
 
-        if docker exec vless_xray timeout 5 bash -c "echo > /dev/tcp/$dest_host/$dest_port" 2>/dev/null; then
+        if docker exec familytraffic timeout 5 bash -c "echo > /dev/tcp/$dest_host/$dest_port" 2>/dev/null; then
             log_success "Container can reach Reality destination: $dest"
         else
             log_warning "Container cannot reach Reality destination: $dest"
@@ -681,17 +681,17 @@ verify_port_listening() {
         local haproxy_bindings=$(docker inspect vless_haproxy -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
         if [[ "$haproxy_bindings" =~ "443" ]]; then
             log_success "Container 'vless_haproxy' port binding: $haproxy_bindings"
-            log_info "  Container 'vless_xray' port 8443 uses 'expose' (Docker-internal) - expected for v4.3"
+            log_info "  Container 'familytraffic' port 8443 uses 'expose' (Docker-internal) - expected for v4.3"
         else
             log_error "Container 'vless_haproxy' port 443 is not bound to host"
         fi
     else
         # Legacy architecture or custom port
-        local port_bindings=$(docker inspect vless_xray -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
+        local port_bindings=$(docker inspect familytraffic -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
         if [[ "$port_bindings" =~ "$vless_port" ]]; then
-            log_success "Container 'vless_xray' port binding: $port_bindings"
+            log_success "Container 'familytraffic' port binding: $port_bindings"
         else
-            log_error "Container 'vless_xray' port $vless_port is not bound to host"
+            log_error "Container 'familytraffic' port $vless_port is not bound to host"
         fi
     fi
 
@@ -721,13 +721,13 @@ display_verification_summary() {
         echo ""
         echo "Next steps:"
         echo "  1. Create your first user:"
-        echo "     sudo /opt/vless/vless add-user <username>"
+        echo "     sudo /opt/familytraffic/vless add-user <username>"
         echo ""
         echo "  2. View service status:"
         echo "     docker ps | grep vless"
         echo ""
         echo "  3. Check logs:"
-        echo "     docker-compose -f /opt/vless/docker-compose.yml logs"
+        echo "     docker-compose -f /opt/familytraffic/docker-compose.yml logs"
         echo ""
     else
         log_error "VERIFICATION FAILED (${#VERIFICATION_ERRORS[@]} errors)"
@@ -740,7 +740,7 @@ display_verification_summary() {
         echo "Please review the errors above and fix them before proceeding."
         echo ""
         echo "Common fixes:"
-        echo "  1. Container issues: docker-compose -f /opt/vless/docker-compose.yml up -d"
+        echo "  1. Container issues: docker-compose -f /opt/familytraffic/docker-compose.yml up -d"
         echo "  2. Permission issues: Run the installation script again as root"
         echo "  3. Network issues: Check UFW Docker forwarding configuration"
         echo ""

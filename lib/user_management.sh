@@ -55,7 +55,7 @@ fi
 # ============================================================================
 
 # Installation paths (only define if not already set)
-[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/familytraffic"
 [[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${VLESS_HOME}/data/users.json"
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
 [[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${VLESS_HOME}/.env"
@@ -274,7 +274,7 @@ validate_external_proxy_assignment() {
     fi
 
     # Check if external_proxy.json exists
-    local external_proxy_db="/opt/vless/config/external_proxy.json"
+    local external_proxy_db="/opt/familytraffic/config/external_proxy.json"
     if [[ ! -f "$external_proxy_db" ]]; then
         log_error "External proxy database not found: $external_proxy_db"
         log_info "Run 'vless-external-proxy add' to configure external proxies first"
@@ -693,8 +693,8 @@ apply_per_user_routing() {
     local script_dir
     script_dir="$(dirname "${BASH_SOURCE[0]}")"
 
-    if [[ -f "/opt/vless/lib/xray_routing_manager.sh" ]]; then
-        source "/opt/vless/lib/xray_routing_manager.sh"
+    if [[ -f "/opt/familytraffic/lib/xray_routing_manager.sh" ]]; then
+        source "/opt/familytraffic/lib/xray_routing_manager.sh"
     elif [[ -f "${script_dir}/xray_routing_manager.sh" ]]; then
         source "${script_dir}/xray_routing_manager.sh"
     else
@@ -760,7 +760,7 @@ apply_per_user_routing() {
 reload_xray() {
     log_info "Reloading Xray configuration..."
 
-    local compose_dir="/opt/vless"
+    local compose_dir="/opt/familytraffic"
 
     if ! docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
         log_warning "Xray container is not running, skipping reload"
@@ -1257,7 +1257,7 @@ reset_proxy_password() {
     echo "SOCKS5: ${socks_scheme}://${username}:${new_password}@${proxy_host}:1080"
     echo "HTTP:   ${http_scheme}://${username}:${new_password}@${proxy_host}:8118"
     echo ""
-    echo "NOTE: Proxy config files updated in /opt/vless/data/clients/$username/"
+    echo "NOTE: Proxy config files updated in /opt/familytraffic/data/clients/$username/"
     echo "═══════════════════════════════════════════════════════"
     echo ""
 
@@ -1304,7 +1304,7 @@ get_server_ip() {
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: socks5_config.txt with SOCKS5 URI
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1350,7 +1350,7 @@ export_socks5_config() {
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: http_config.txt with HTTP URI
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1396,7 +1396,7 @@ export_http_config() {
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: vscode_settings.json with VSCode proxy configuration
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1451,7 +1451,7 @@ EOF
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: docker_daemon.json with Docker proxy configuration
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1500,7 +1500,7 @@ EOF
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: bash_exports.sh with proxy environment variables
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1556,7 +1556,7 @@ EOF
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: git_config.txt with Git proxy setup commands
 # Related: TASK-3.6 (v3.3 Git Config)
@@ -1637,7 +1637,7 @@ EOF
 #   $1 - username
 #   $2 - proxy_password (optional, will read from users.json if not provided)
 # Returns: 0 on success, 1 on failure
-# Output: 6 proxy config files in /opt/vless/data/clients/$username/
+# Output: 6 proxy config files in /opt/familytraffic/data/clients/$username/
 # Related: TASK-11.4 (Proxy Configuration Export)
 # =============================================================================
 export_all_proxy_configs() {
@@ -2160,7 +2160,7 @@ create_user() {
         echo "  Route this user's traffic through an external proxy?"
         echo ""
 
-        local external_proxy_db="/opt/vless/config/external_proxy.json"
+        local external_proxy_db="/opt/familytraffic/config/external_proxy.json"
 
         # Check if external proxies are configured
         if [[ -f "$external_proxy_db" ]]; then
@@ -2225,7 +2225,7 @@ create_user() {
     echo ""
 
     # Check if MTProxy is installed
-    local mtproxy_config="/opt/vless/config/mtproxy/mtproxy_config.json"
+    local mtproxy_config="/opt/familytraffic/config/mtproxy/mtproxy_config.json"
     local mtproxy_available=false
 
     if [[ -f "$mtproxy_config" ]]; then
@@ -2673,7 +2673,7 @@ cmd_set_user_proxy() {
 
     # Auto-activate proxy if not already active
     if [[ -n "$proxy_id" && "$proxy_id" != "none" && "$proxy_id" != "null" ]]; then
-        local proxy_db="${EXTERNAL_PROXY_DB:-/opt/vless/config/external_proxy.json}"
+        local proxy_db="${EXTERNAL_PROXY_DB:-/opt/familytraffic/config/external_proxy.json}"
         if [[ -f "$proxy_db" ]]; then
             local is_active
             is_active=$(jq -r --arg id "$proxy_id" '.proxies[] | select(.id == $id) | .active' "$proxy_db" 2>/dev/null || echo "false")
@@ -2774,7 +2774,7 @@ cmd_show_user_proxy() {
         echo "    Client → HAProxy → Xray → Internet"
     else
         # Get proxy details from external_proxy.json
-        local ext_proxy_db="/opt/vless/config/external_proxy.json"
+        local ext_proxy_db="/opt/familytraffic/config/external_proxy.json"
         if [[ -f "$ext_proxy_db" ]]; then
             local proxy_type proxy_address proxy_port test_status
             proxy_type=$(jq -r --arg id "$proxy_id" \
@@ -2881,7 +2881,7 @@ cmd_list_proxy_assignments() {
             local user_array=($users_list)
 
             # Get proxy details
-            local ext_proxy_db="/opt/vless/config/external_proxy.json"
+            local ext_proxy_db="/opt/familytraffic/config/external_proxy.json"
             local proxy_info="$proxy_id"
             if [[ -f "$ext_proxy_db" ]]; then
                 local proxy_type proxy_address

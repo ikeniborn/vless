@@ -430,7 +430,7 @@ reload_haproxy_after_cert_update() {
         echo "" >&2
         echo "TROUBLESHOOTING:" >&2
         echo "  1. Check HAProxy config permissions:" >&2
-        echo "     sudo ls -la /opt/vless/config/haproxy.cfg" >&2
+        echo "     sudo ls -la /opt/familytraffic/config/haproxy.cfg" >&2
         echo "     (Should be: -rw-r--r-- root root)" >&2
         echo "  2. Verify config inside container:" >&2
         echo "     docker exec vless_haproxy ls -la /usr/local/etc/haproxy/haproxy.cfg" >&2

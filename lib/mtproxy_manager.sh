@@ -47,7 +47,7 @@ set -euo pipefail
 # ============================================================================
 
 # Installation paths (only define if not already set)
-[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/familytraffic"
 [[ -z "${MTPROXY_CONFIG_DIR:-}" ]] && readonly MTPROXY_CONFIG_DIR="${VLESS_HOME}/config/mtproxy"
 [[ -z "${MTPROXY_DATA_DIR:-}" ]] && readonly MTPROXY_DATA_DIR="${VLESS_HOME}/data/mtproxy"
 [[ -z "${MTPROXY_LOGS_DIR:-}" ]] && readonly MTPROXY_LOGS_DIR="${VLESS_HOME}/logs/mtproxy"
@@ -804,7 +804,7 @@ generate_mtproxy_deeplink() {
     fi
 
     # Get user info from users.json
-    local users_json="/opt/vless/data/users.json"
+    local users_json="/opt/familytraffic/data/users.json"
     if [[ ! -f "$users_json" ]]; then
         mtproxy_log_error "Users database not found: $users_json"
         return 1
@@ -848,7 +848,7 @@ generate_mtproxy_deeplink() {
 #
 # Parameters:
 #   $1 - username (string)
-#   $2 - output_file (optional, default: /opt/vless/data/clients/<username>/mtproxy_qr.png)
+#   $2 - output_file (optional, default: /opt/familytraffic/data/clients/<username>/mtproxy_qr.png)
 #
 # Returns:
 #   Exit: 0 on success, 1 on failure
@@ -879,7 +879,7 @@ generate_mtproxy_qrcode() {
 
     # Set default output file if not provided
     if [[ -z "$output_file" ]]; then
-        local user_dir="/opt/vless/data/clients/${username}"
+        local user_dir="/opt/familytraffic/data/clients/${username}"
         if [[ ! -d "$user_dir" ]]; then
             mkdir -p "$user_dir"
             chmod 700 "$user_dir"
@@ -931,7 +931,7 @@ show_mtproxy_config() {
     fi
 
     # Get user info from users.json
-    local users_json="/opt/vless/data/users.json"
+    local users_json="/opt/familytraffic/data/users.json"
     if [[ ! -f "$users_json" ]]; then
         mtproxy_log_error "Users database not found: $users_json"
         return 1
@@ -1017,7 +1017,7 @@ show_mtproxy_config() {
 #   regenerate_mtproxy_secret_file_from_users
 #
 # Notes:
-#   - Reads users.json (/opt/vless/data/users.json)
+#   - Reads users.json (/opt/familytraffic/data/users.json)
 #   - Extracts users with mtproxy_secret != null
 #   - Generates proxy-secret file (one secret per line)
 #   - Updates mtproxy_config.json (multi_user: true if > 1 secret)
@@ -1026,7 +1026,7 @@ regenerate_mtproxy_secret_file_from_users() {
     mtproxy_log_info "Regenerating MTProxy secret file from users.json..."
 
     # Verify users.json exists
-    local users_json="/opt/vless/data/users.json"
+    local users_json="/opt/familytraffic/data/users.json"
     if [[ ! -f "$users_json" ]]; then
         mtproxy_log_error "Users database not found: $users_json"
         return 1

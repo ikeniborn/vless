@@ -11,7 +11,7 @@
 #
 # Architecture:
 #   - Single whitelist for ALL proxy users (server-level, not per-user)
-#   - Stored in: /opt/vless/config/proxy_allowed_ips.json
+#   - Stored in: /opt/familytraffic/config/proxy_allowed_ips.json
 #   - Applied via Xray routing rules (source field only, no user field)
 #   - Works for HTTP/SOCKS5/VLESS protocols
 #
@@ -39,8 +39,8 @@ set -euo pipefail
 # Global Variables (conditional to avoid conflicts when sourced by CLI)
 # ============================================================================
 
-readonly PROXY_IPS_FILE="/opt/vless/config/proxy_allowed_ips.json"
-[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
+readonly PROXY_IPS_FILE="/opt/familytraffic/config/proxy_allowed_ips.json"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/familytraffic/config/xray_config.json"
 [[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_proxy_ips.lock"
 
 # Colors for output (conditional to avoid conflicts when sourced by CLI)
@@ -645,7 +645,7 @@ reload_xray() {
     # This function should be provided by user_management.sh
     # If not available, provide basic implementation
     if ! type reload_xray_container &>/dev/null; then
-        local compose_dir="/opt/vless"
+        local compose_dir="/opt/familytraffic"
         if docker ps --format '{{.Names}}' | grep -q "^vless_xray$"; then
             (cd "$compose_dir" && docker compose restart xray) 2>/dev/null
             return $?

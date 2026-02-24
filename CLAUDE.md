@@ -290,61 +290,61 @@ PHASE N CHECKPOINT:
 
 ## 6. PROJECT OVERVIEW
 
-**Project Name:** VLESS + Reality VPN Server
+**Project Name:** familyTraffic VPN Server
 **Version:** 5.33
 **Target Scale:** 10-50 concurrent users
 **Deployment:** Linux servers (Ubuntu 20.04+, Debian 10+)
-**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, Nginx
+**Technology Stack:** Docker, Xray-core, VLESS, Reality Protocol, SOCKS5, HTTP, Nginx, supervisord
 
 **Core Features:**
 - Deploy production-ready VPN in < 5 minutes
 - DPI-resistant via Reality protocol (TLS 1.3 masquerading)
 - Dual proxy support (SOCKS5 + HTTP) with TLS termination via Nginx
-- Subdomain-based reverse proxy (https://domain, NO port!)
+- Single Docker container: nginx + xray + certbot + supervisord
 - Per-user external proxy support (route specific users through upstream proxies)
 - Tier 2 transports: WebSocket / XHTTP / gRPC via CDN
 
 **Architecture v5.33:**
 ```
 Client
-  ├─ TCP:443 ──► vless_nginx (ssl_preread SNI) ──► vless_xray:8443 (VLESS Reality)
-  │                                              └─► port 8448 → Tier 2 (WS/XHTTP/gRPC)
-  ├─ TCP:1080 ─► vless_nginx (TLS termination) ──► vless_xray:10800 (SOCKS5)
-  └─ TCP:8118 ─► vless_nginx (TLS termination) ──► vless_xray:18118 (HTTP proxy)
+  ├─ TCP:443 ──► familytraffic (ssl_preread SNI) ──► 127.0.0.1:8443 (VLESS Reality)
+  │                                               └─► port 8448 → Tier 2 (WS/XHTTP/gRPC)
+  ├─ TCP:1080 ─► familytraffic (TLS termination) ──► 127.0.0.1:10800 (SOCKS5)
+  └─ TCP:8118 ─► familytraffic (TLS termination) ──► 127.0.0.1:18118 (HTTP proxy)
 ```
 
 **Key Paths:**
-- Installation: `/opt/vless/` (HARDCODED, cannot be changed)
-- Config: `/opt/vless/config/`
-- Data: `/opt/vless/data/`
-- Users DB: `/opt/vless/data/users.json` (v5.24: includes `external_proxy_id` field)
+- Installation: `/opt/familytraffic/` (HARDCODED, cannot be changed)
+- Config: `/opt/familytraffic/config/`
+- Data: `/opt/familytraffic/data/`
+- Users DB: `/opt/familytraffic/data/users.json` (v5.24: includes `external_proxy_id` field)
 
 **CLI Commands (v5.33):**
 ```bash
 # User Management
-sudo vless add-user <username>
-sudo vless remove-user <username>
-sudo vless list-users
+sudo familytraffic add-user <username>
+sudo familytraffic remove-user <username>
+sudo familytraffic list-users
 
 # Per-User External Proxy
-sudo vless set-proxy <username> <proxy-id|none>
-sudo vless show-proxy <username>
-sudo vless list-proxy-assignments
+sudo familytraffic set-proxy <username> <proxy-id|none>
+sudo familytraffic show-proxy <username>
+sudo familytraffic list-proxy-assignments
 
 # External Proxy Management
-sudo vless-external-proxy add
-sudo vless-external-proxy list
-sudo vless-external-proxy status
+sudo familytraffic-external-proxy add
+sudo familytraffic-external-proxy list
+sudo familytraffic-external-proxy status
 
 # Tier 2 Transports
-sudo vless add-transport <ws|xhttp|grpc> <subdomain>
-sudo vless list-transports
-sudo vless remove-transport <type>
+sudo familytraffic add-transport <ws|xhttp|grpc> <subdomain>
+sudo familytraffic list-transports
+sudo familytraffic remove-transport <type>
 
 # Status & Logs
-sudo vless status
-sudo vless logs xray
-sudo vless logs nginx
+sudo familytraffic status
+sudo familytraffic logs xray
+sudo familytraffic logs nginx
 ```
 
 🔗 **Полная документация:** `docs/prd/` (7 модулей, 171 KB)
@@ -462,44 +462,43 @@ docker restart vless_nginx_reverseproxy
 
 **System Status:**
 ```bash
-sudo vless status
+sudo familytraffic status
 docker ps
-docker network inspect vless_reality_net
 sudo ss -tulnp | grep -E '443|1080|8118'
 ```
 
 **Logs:**
 ```bash
-sudo vless logs xray
-docker logs vless_xray --tail 50
-docker logs vless_nginx --tail 50
+sudo familytraffic logs xray
+docker logs familytraffic --tail 50
+docker exec familytraffic supervisorctl status
 ```
 
 **Config Validation:**
 ```bash
-jq . /opt/vless/config/xray_config.json
-docker exec vless_nginx nginx -t
+jq . /opt/familytraffic/config/xray_config.json
+docker exec familytraffic nginx -t
 ```
 
 **Per-User Proxy Debug (v5.24):**
 ```bash
 # Show per-user assignments
-sudo vless list-proxy-assignments
+sudo familytraffic list-proxy-assignments
 
 # Check specific user
-sudo vless show-proxy alice
+sudo familytraffic show-proxy alice
 
 # Verify routing rules in Xray config
-jq '.routing.rules' /opt/vless/config/xray_config.json
+jq '.routing.rules' /opt/familytraffic/config/xray_config.json
 ```
 
 **Security Testing:**
 ```bash
 # Run comprehensive security test suite
-sudo vless test-security
+sudo familytraffic test-security
 
 # Quick mode (skip long-running tests)
-sudo vless test-security --quick
+sudo familytraffic test-security --quick
 ```
 
 🔗 **Полный список:** docs/prd/06_appendix.md (Debug & Troubleshooting)

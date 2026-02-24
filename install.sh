@@ -46,6 +46,13 @@ readonly COLOR_RESET='\033[0m'
 # Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
 readonly VLESS_VERSION="5.33.0"
 
+# Container image configuration (v5.33 familyTraffic)
+# GHCR_IMAGE: auto-detected from git remote URL, can be overridden via environment
+GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/$(git config --get remote.origin.url 2>/dev/null | sed 's|.*github.com[:/]\(.*\)\.git|\1|; s|.*github.com[:/]\(.*\)|\1|' | cut -d/ -f1)/familytraffic}"
+readonly GHCR_IMAGE
+VERSION="${VERSION:-latest}"
+readonly VERSION
+
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
@@ -223,7 +230,7 @@ source_libraries() {
 #   5. Install missing dependencies
 #   6. Detect old installations
 #   7. Collect installation parameters interactively
-#   8. Orchestrate the installation process (creates /opt/vless)
+#   8. Orchestrate the installation process (creates /opt/familytraffic)
 #   9. Verify installation success
 #   10. Display sudoers configuration instructions
 ################################################################################
@@ -407,7 +414,7 @@ main() {
 # VLESS Certificate Renewal Logs Rotation
 # Part of VLESS + Reality VPN v5.25
 
-/opt/vless/logs/certbot-renew.log {
+/opt/familytraffic/logs/certbot-renew.log {
     daily
     rotate 30
     compress
@@ -417,7 +424,7 @@ main() {
     create 0644 root root
 }
 
-/opt/vless/logs/certbot-renew-metrics.json {
+/opt/familytraffic/logs/certbot-renew-metrics.json {
     weekly
     rotate 12
     compress
@@ -442,10 +449,10 @@ LOGROTATE_EOF
         echo ""
     fi
 
-    # Step 8: Orchestrate installation (THIS creates /opt/vless and copies files)
+    # Step 8: Orchestrate installation (THIS creates /opt/familytraffic and copies files)
     print_step 8 "Orchestrating installation"
-    print_message "${COLOR_BLUE}" "  → Creating /opt/vless directory structure"
-    print_message "${COLOR_BLUE}" "  → Copying files from project to /opt/vless"
+    print_message "${COLOR_BLUE}" "  → Creating /opt/familytraffic directory structure"
+    print_message "${COLOR_BLUE}" "  → Copying files from project to /opt/familytraffic"
     print_message "${COLOR_BLUE}" "  → Configuring Docker network"
     print_message "${COLOR_BLUE}" "  → Setting up Xray configuration"
     print_message "${COLOR_BLUE}" "  → Deploying containers"
@@ -480,7 +487,7 @@ LOGROTATE_EOF
     print_message "${COLOR_YELLOW}" "  3. Check service status: vless status"
     print_message "${COLOR_YELLOW}" "  4. View logs: vless logs"
     echo ""
-    print_message "${COLOR_CYAN}" "Installation directory: /opt/vless"
+    print_message "${COLOR_CYAN}" "Installation directory: /opt/familytraffic"
     print_message "${COLOR_CYAN}" "Management command: vless"
     echo ""
 

@@ -50,7 +50,7 @@ SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Installation paths
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
 readonly CONFIG_DIR="${INSTALL_ROOT}/config"
 readonly DATA_DIR="${INSTALL_ROOT}/data"
 readonly LOGS_DIR="${INSTALL_ROOT}/logs"
@@ -67,6 +67,10 @@ readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="vless_xray"
 readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: reverse proxy (optional)
 readonly NGINX_MAIN_CONTAINER_NAME="vless_nginx"           # v5.30: main stream+http proxy
+
+# familyTraffic container image (v5.33 single-container)
+[[ -z "${GHCR_IMAGE:-}" ]] && GHCR_IMAGE="ghcr.io/OWNER/familytraffic"
+[[ -z "${VERSION:-}" ]] && VERSION="latest"
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
@@ -299,7 +303,7 @@ orchestrate_installation() {
 # =============================================================================
 # FUNCTION: create_directory_structure
 # =============================================================================
-# Description: Create /opt/vless directory structure with proper permissions
+# Description: Create /opt/familytraffic directory structure with proper permissions
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_directory_structure() {
@@ -441,7 +445,7 @@ generate_short_id() {
 # Note: NO per-user IP filtering (user field doesn't work for HTTP/SOCKS5)
 # =============================================================================
 generate_routing_json() {
-    local proxy_ips_file="/opt/vless/config/proxy_allowed_ips.json"
+    local proxy_ips_file="/opt/familytraffic/config/proxy_allowed_ips.json"
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
     local docker_subnet=""
 
@@ -1213,6 +1217,11 @@ DATA_DIR=${DATA_DIR}
 # TLS Certificate Configuration (v3.3 - for public proxy mode)
 DOMAIN=${DOMAIN:-}
 EMAIL=${EMAIL:-}
+
+# Container Image Configuration (v5.33 familyTraffic)
+GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/OWNER/familytraffic}
+VERSION=${VERSION:-latest}
+ACME_EMAIL=${EMAIL:-}
 EOF
 
     if [[ ! -f "${ENV_FILE}" ]]; then
@@ -1527,7 +1536,7 @@ install_cli_tools() {
 
     # Get the project root (assuming script is in lib/ subdirectory)
     local project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    local cli_source="${project_root}/scripts/vless"
+    local cli_source="${project_root}/scripts/familytraffic"
 
     # Check if CLI script exists in project
     if [[ ! -f "$cli_source" ]]; then
@@ -1537,22 +1546,26 @@ install_cli_tools() {
     fi
 
     # Copy CLI script to installation directory
-    cp "$cli_source" "${SCRIPTS_DIR}/vless" || {
+    cp "$cli_source" "${SCRIPTS_DIR}/familytraffic" || {
         echo -e "${RED}Failed to copy CLI script${NC}" >&2
         return 1
     }
 
     # Make it executable
-    chmod 755 "${SCRIPTS_DIR}/vless" || {
+    chmod 755 "${SCRIPTS_DIR}/familytraffic" || {
         echo -e "${RED}Failed to set execute permission${NC}" >&2
         return 1
     }
 
     # Create symlink in /usr/local/bin
-    ln -sf "${SCRIPTS_DIR}/vless" /usr/local/bin/vless || {
+    ln -sf "${SCRIPTS_DIR}/familytraffic" /usr/local/bin/familytraffic || {
         echo -e "${RED}Failed to create symlink${NC}" >&2
         return 1
     }
+
+    # Create backwards-compat symlink: vless → familytraffic
+    ln -sf /usr/local/bin/familytraffic /usr/local/bin/vless || true
+    echo "  ✓ Compat symlink: /usr/local/bin/vless → familytraffic"
 
     # Install vless-proxy CLI tool (v5.26: only if reverse proxy enabled)
     if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then

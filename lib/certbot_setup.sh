@@ -278,7 +278,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Twice daily renewal check
-0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/vless-cert-renew" >> /opt/vless/logs/certbot-renew.log 2>&1
+0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/vless-cert-renew" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
 EOF
 
     # Set correct permissions
@@ -289,7 +289,7 @@ EOF
     echo "Cron file: $cron_file"
     echo "Schedule:  Twice daily (00:00 and 12:00 UTC)"
     echo "Command:   certbot renew --quiet --deploy-hook '/usr/local/bin/vless-cert-renew'"
-    echo "Log file:  /opt/vless/logs/certbot-renew.log"
+    echo "Log file:  /opt/familytraffic/logs/certbot-renew.log"
     echo ""
     echo "RENEWAL BEHAVIOR:"
     echo "  - Certbot checks twice daily if renewal needed"
@@ -300,7 +300,7 @@ EOF
     echo "MANUAL OPERATIONS:"
     echo "  - Dry-run test: sudo certbot renew --dry-run"
     echo "  - Force renewal: sudo certbot renew --force-renewal"
-    echo "  - Check logs:    cat /opt/vless/logs/certbot-renew.log"
+    echo "  - Check logs:    cat /opt/familytraffic/logs/certbot-renew.log"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""

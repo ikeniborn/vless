@@ -10,12 +10,12 @@
 #
 # Dependencies:
 #   - lib/nginx_stream_generator.sh (generate_nginx_config)
-#   - docker (docker exec vless_nginx nginx -s reload, docker restart vless_xray)
+#   - docker (docker exec familytraffic nginx -s reload, docker restart familytraffic)
 #
 # Data file: ${VLESS_HOME}/data/transports.json
 
 # Transport state file
-TRANSPORTS_JSON="${VLESS_HOME:-/opt/vless}/data/transports.json"
+TRANSPORTS_JSON="${VLESS_HOME:-/opt/familytraffic}/data/transports.json"
 
 # ============================================================================
 # INTERNAL: _init_transports_json
@@ -34,7 +34,7 @@ _init_transports_json() {
 #   - Updates transports.json
 #   - Regenerates xray_config.json with Tier 2 inbounds
 #   - Regenerates nginx.conf with SNI map entry + http server block
-#   - Reloads vless_xray (docker restart) and vless_nginx (nginx -s reload)
+#   - Reloads familytraffic (docker restart) and familytraffic (nginx -s reload)
 # Arguments:
 #   $1 - transport_type: ws|xhttp|grpc
 #   $2 - subdomain: e.g., ws.example.com
@@ -88,7 +88,7 @@ add_transport() {
     fi
     mv "$temp" "$TRANSPORTS_JSON"
 
-    log_success "Transport '$transport_type' registered: $subdomain → vless_xray:$port"
+    log_success "Transport '$transport_type' registered: $subdomain → familytraffic:$port"
 
     # Source nginx generator (may already be sourced by scripts/vless)
     local lib_dir
@@ -97,7 +97,7 @@ add_transport() {
 
     # Surgically append the new Tier 2 inbound to xray_config.json without touching existing clients.
     # IMPORTANT: do NOT call create_xray_config() here — it writes empty "clients": [] and erases users.
-    local xray_config="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
+    local xray_config="${XRAY_CONFIG:-/opt/familytraffic/config/xray_config.json}"
     if [[ ! -f "$xray_config" ]]; then
         log_error "xray_config.json not found: $xray_config"
         return 1
@@ -146,10 +146,10 @@ add_transport() {
 
     # Reload containers
     log_info "Reloading containers..."
-    docker restart vless_xray 2>/dev/null && log_success "vless_xray restarted" || \
-        log_warning "Failed to restart vless_xray (may not be running)"
-    docker exec vless_nginx nginx -s reload 2>/dev/null && log_success "vless_nginx reloaded" || \
-        log_warning "Failed to reload vless_nginx (may not be running)"
+    docker restart familytraffic 2>/dev/null && log_success "familytraffic restarted" || \
+        log_warning "Failed to restart familytraffic (may not be running)"
+    docker exec familytraffic nginx -s reload 2>/dev/null && log_success "familytraffic reloaded" || \
+        log_warning "Failed to reload familytraffic (may not be running)"
 
     log_success "Transport '$transport_type' is now active on $subdomain:443"
     return 0
@@ -167,7 +167,7 @@ _regenerate_nginx_config() {
         return 1
     fi
 
-    local nginx_conf_dir="${VLESS_DIR:-/opt/vless}/config/nginx"
+    local nginx_conf_dir="${VLESS_DIR:-/opt/familytraffic}/config/nginx"
     mkdir -p "$nginx_conf_dir" || {
         log_error "Failed to create $nginx_conf_dir"
         return 1
@@ -234,7 +234,7 @@ list_transports() {
 #   - Removes from transports.json
 #   - Removes inbound from xray_config.json
 #   - Regenerates nginx.conf (removing the server block and SNI map entry)
-#   - Restarts vless_xray
+#   - Restarts familytraffic
 # Arguments:
 #   $1 - transport_type: ws|xhttp|grpc
 # Returns: 0 on success, 1 on failure
@@ -267,7 +267,7 @@ remove_transport() {
     log_success "Transport '$transport_type' removed from transports.json"
 
     # Remove inbound from xray_config.json
-    local xray_config="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
+    local xray_config="${XRAY_CONFIG:-/opt/familytraffic/config/xray_config.json}"
     local tag
     case "$transport_type" in
         ws)    tag="vless-websocket" ;;
@@ -298,10 +298,10 @@ remove_transport() {
     _regenerate_nginx_config || log_warning "Failed to regenerate nginx.conf after removal"
 
     # Reload containers
-    docker restart vless_xray 2>/dev/null && log_success "vless_xray restarted" || \
-        log_warning "Failed to restart vless_xray"
-    docker exec vless_nginx nginx -s reload 2>/dev/null && log_success "vless_nginx reloaded" || \
-        log_warning "Failed to reload vless_nginx"
+    docker restart familytraffic 2>/dev/null && log_success "familytraffic restarted" || \
+        log_warning "Failed to restart familytraffic"
+    docker exec familytraffic nginx -s reload 2>/dev/null && log_success "familytraffic reloaded" || \
+        log_warning "Failed to reload familytraffic"
 
     log_success "Transport '$transport_type' ($existing) removed successfully"
     return 0

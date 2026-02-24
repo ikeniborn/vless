@@ -147,7 +147,7 @@ ensure_container_running() {
 #   fi
 # =============================================================================
 ensure_all_containers_running() {
-    local containers=("vless_haproxy" "vless_xray" "vless_nginx_reverseproxy")
+    local containers=("vless_haproxy" "familytraffic" "familytraffic_reverseproxy")
     local failed=()
 
     log "Checking critical containers..."
@@ -164,7 +164,7 @@ ensure_all_containers_running() {
         log_error "TROUBLESHOOTING:"
         log_error "  1. Check all container status: docker ps -a"
         log_error "  2. Check specific logs: docker logs <container> --tail 50"
-        log_error "  3. Restart all services: cd /opt/vless && docker compose up -d"
+        log_error "  3. Restart all services: cd /opt/familytraffic && docker compose up -d"
         log_error "  4. Check docker-compose.yml: docker compose config"
         return 1
     fi
@@ -249,7 +249,7 @@ retry_operation() {
 # Note: Not all containers have health checks configured
 #
 # Example:
-#   wait_for_container_healthy "vless_xray" 60
+#   wait_for_container_healthy "familytraffic" 60
 # =============================================================================
 wait_for_container_healthy() {
     local container="$1"

@@ -19,8 +19,8 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCKER_COMPOSE_PATH="/opt/vless/docker-compose.yml"
-DOCKER_COMPOSE_BACKUP_DIR="/opt/vless/data/backups"
+DOCKER_COMPOSE_PATH="/opt/familytraffic/docker-compose.yml"
+DOCKER_COMPOSE_BACKUP_DIR="/opt/familytraffic/data/backups"
 
 # Source docker compose generator (heredoc-based)
 source "${SCRIPT_DIR}/docker_compose_generator.sh"
