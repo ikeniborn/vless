@@ -243,10 +243,8 @@ obtain_certificate() {
         echo -e "${GREEN}✅ CERTIFICATE OBTAINED SUCCESSFULLY!${NC}"
         echo ""
 
-        # Create HAProxy combined.pem
-        if command -v create_haproxy_combined_cert &>/dev/null; then
-            create_haproxy_combined_cert "$domain"
-        fi
+        # v5.33: HAProxy combined.pem removed (single container, nginx reads LE certs directly)
+        # Nginx reload via supervisorctl SIGHUP is handled inside the container by certbot-renew.sh
 
         return 0
     fi
@@ -277,8 +275,8 @@ setup_renewal_cron() {
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
-# Twice daily renewal check
-0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/vless-cert-renew" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
+# Twice daily renewal check (v5.33: deploy-hook sends SIGHUP to nginx via supervisorctl)
+0 0,12 * * * root certbot renew --quiet --deploy-hook "docker exec familytraffic supervisorctl signal SIGHUP nginx" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
 EOF
 
     # Set correct permissions

@@ -76,7 +76,7 @@ readonly NGINX_MAIN_CONTAINER_NAME="vless_nginx"           # v5.30: main stream+
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
 [[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${DATA_DIR}/users.json"
 readonly DOCKER_COMPOSE_FILE="${INSTALL_ROOT}/docker-compose.yml"
-readonly NGINX_CONFIG="${FAKESITE_DIR}/default.conf"
+readonly NGINX_CONFIG="${CONFIG_DIR}/nginx/nginx.conf"
 [[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${INSTALL_ROOT}/.env"
 
 # UFW configuration
@@ -705,7 +705,7 @@ create_xray_config() {
       "decryption": "none",
       "fallbacks": [
         {
-          "dest": "vless_fake_site:80"
+          "dest": "127.0.0.1:80"
         }
       ]
     },
@@ -1444,80 +1444,39 @@ deploy_containers() {
     echo "  Waiting for containers to start..."
     sleep 5
 
-    # Check container status using docker inspect (more reliable than grep)
-    local xray_status=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$xray_status" == "running" ]]; then
-        echo "  ✓ Xray container running"
+    # v5.33: Check single familytraffic container (nginx + xray + supervisord)
+    local ft_status
+    ft_status=$(docker inspect "familytraffic" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$ft_status" == "running" ]]; then
+        echo "  ✓ familytraffic container running"
 
-        # Check healthcheck status (if available)
-        local xray_health=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-        if [[ "$xray_health" == "healthy" ]]; then
-            echo "  ✓ Xray container healthy"
-        elif [[ "$xray_health" == "starting" ]]; then
-            echo "  ℹ Xray container health: starting (will be checked later)"
-        elif [[ "$xray_health" != "no-healthcheck" ]]; then
-            echo -e "${YELLOW}  ⚠ Xray container health: $xray_health${NC}"
+        # Check healthcheck status
+        local ft_health
+        ft_health=$(docker inspect "familytraffic" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$ft_health" == "healthy" ]]; then
+            echo "  ✓ familytraffic container healthy"
+        elif [[ "$ft_health" == "starting" ]]; then
+            echo "  ℹ familytraffic health: starting (will be checked later)"
+        elif [[ "$ft_health" != "no-healthcheck" ]]; then
+            echo -e "${YELLOW}  ⚠ familytraffic health: $ft_health${NC}"
         fi
-    else
-        echo -e "${RED}Xray container failed to start (status: $xray_status)${NC}" >&2
-        docker compose logs xray
-        return 1
-    fi
 
-    # v5.26.1: Check nginx only if reverse proxy is enabled
-    # Use docker compose config to check if nginx service exists in docker-compose.yml
-    if docker compose config --services 2>/dev/null | grep -q '^nginx$'; then
-        local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-        if [[ "$nginx_status" == "running" ]]; then
-            echo "  ✓ Nginx container running"
-
-            # Check healthcheck status (added in v4.1.1)
-            local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-            if [[ "$nginx_health" == "healthy" ]]; then
-                echo "  ✓ Nginx container healthy"
-            elif [[ "$nginx_health" == "starting" ]]; then
-                echo "  ℹ Nginx container health: starting (will be checked later)"
-            elif [[ "$nginx_health" != "no-healthcheck" ]]; then
-                echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
-            fi
-
-            # Check Nginx logs for critical errors (ignore informational messages)
-            local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
-            if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
-                echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
-                docker compose logs nginx
-                return 1
-            fi
-            # Ignore read-only warnings - these are expected with security-hardened containers
-            if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
-                echo "  ℹ Nginx running in read-only mode (expected for security)"
-            fi
-        else
-            echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
-            docker compose logs nginx
+        # Check for bind errors in logs
+        local ft_logs
+        ft_logs=$(docker logs "familytraffic" 2>&1 | tail -20)
+        if echo "$ft_logs" | grep -q "bind() to.*failed"; then
+            echo -e "${RED}familytraffic has bind errors (check logs)${NC}" >&2
+            docker compose logs familytraffic
+            return 1
+        fi
+        if echo "$ft_logs" | grep -q "nginx: \[emerg\]"; then
+            echo -e "${RED}familytraffic nginx has critical errors${NC}" >&2
+            docker compose logs familytraffic
             return 1
         fi
     else
-        echo "  ℹ Nginx reverse proxy container skipped (feature disabled)"
-    fi
-
-    # v5.30: Check vless_nginx container (replaces vless_haproxy — unified stream+http)
-    local nginx_main_status
-    nginx_main_status=$(docker inspect "vless_nginx" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$nginx_main_status" == "running" ]]; then
-        echo "  ✓ vless_nginx container running"
-
-        # Check for bind errors in logs (common issue: Permission denied on ports)
-        local nginx_main_logs
-        nginx_main_logs=$(docker logs "vless_nginx" 2>&1 | tail -20)
-        if echo "$nginx_main_logs" | grep -q "bind() to.*failed"; then
-            echo -e "${RED}vless_nginx has bind errors (check logs)${NC}" >&2
-            docker compose logs vless_nginx
-            return 1
-        fi
-    else
-        echo -e "${RED}vless_nginx container failed to start (status: $nginx_main_status)${NC}" >&2
-        docker compose logs vless_nginx
+        echo -e "${RED}familytraffic container failed to start (status: $ft_status)${NC}" >&2
+        docker compose logs familytraffic
         return 1
     fi
 
