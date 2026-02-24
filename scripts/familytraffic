@@ -1,23 +1,23 @@
 #!/bin/bash
 #
-# VLESS Reality VPN - Main CLI Interface
+# familyTraffic VPN - Main CLI Interface
 # Version: 5.33.0
 #
-# Usage: vless <command> [arguments]
+# Usage: familytraffic <command> [arguments]
 #
 # This is the main CLI wrapper that provides user-friendly commands
-# for managing the VLESS Reality VPN server.
+# for managing the familyTraffic VPN server.
 #
-# Architecture (v5.30+):
-# - Nginx stream+http replaces HAProxy (SNI routing port 443, TLS ports 1080/8118)
+# Architecture (v5.33):
+# - Single container: nginx + xray + certbot + supervisord
+# - network_mode: host (no Docker DNS, all ports on 127.0.0.1/0.0.0.0)
 # - Tier 2 transports: WebSocket (8444), XHTTP (8445), gRPC (8446)
-# - Subdomain-based reverse proxy access (https://domain without port)
 #
 
 set -euo pipefail
 
 # Installation paths
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
 readonly LIB_DIR="${INSTALL_ROOT}/lib"
 readonly CONFIG_DIR="${INSTALL_ROOT}/config"
 readonly DATA_DIR="${INSTALL_ROOT}/data"
@@ -34,7 +34,7 @@ readonly NC='\033[0m' # No Color
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         echo -e "${RED}Error: This command must be run as root${NC}" >&2
-        echo "Please use: sudo vless $*" >&2
+        echo "Please use: sudo familytraffic $*" >&2
         exit 1
     fi
 }
@@ -43,11 +43,11 @@ check_root() {
 show_usage() {
     cat << EOF
 ${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}
-${BLUE}║          VLESS Reality VPN - CLI Management Tool            ║${NC}
+${BLUE}║        familyTraffic VPN - CLI Management Tool              ║${NC}
 ${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}
 
 ${CYAN}Usage:${NC}
-  vless <command> [arguments]
+  familytraffic <command> [arguments]
 
 ${CYAN}User Management:${NC}
   add-user <username>       Create a new VPN user
@@ -98,16 +98,16 @@ ${CYAN}Information:${NC}
   help                      Show this help message
 
 ${CYAN}Examples:${NC}
-  sudo vless add-user alice
-  sudo vless list-users
-  sudo vless set-proxy alice corporate-proxy-123
-  sudo vless show-proxy alice
-  sudo vless list-proxy-assignments
-  sudo vless show-proxy-ips
-  sudo vless set-proxy-ips 127.0.0.1,10.0.0.0/24
-  sudo vless status
-  sudo vless logs xray
-  sudo vless test-security --quick
+  sudo familytraffic add-user alice
+  sudo familytraffic list-users
+  sudo familytraffic set-proxy alice corporate-proxy-123
+  sudo familytraffic show-proxy alice
+  sudo familytraffic list-proxy-assignments
+  sudo familytraffic show-proxy-ips
+  sudo familytraffic set-proxy-ips 127.0.0.1,10.0.0.0/24
+  sudo familytraffic status
+  sudo familytraffic logs xray
+  sudo familytraffic test-security --quick
 
 ${YELLOW}Note:${NC} All commands require root privileges (use sudo)
 
@@ -146,7 +146,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless add-user <username>" >&2
+                echo "Usage: familytraffic add-user <username>" >&2
                 exit 1
             fi
             source_modules
@@ -157,7 +157,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless remove-user <username>" >&2
+                echo "Usage: familytraffic remove-user <username>" >&2
                 exit 1
             fi
             source_modules
@@ -174,7 +174,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless show-user <username>" >&2
+                echo "Usage: familytraffic show-user <username>" >&2
                 exit 1
             fi
             source_modules
@@ -185,7 +185,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless regenerate <username>" >&2
+                echo "Usage: familytraffic regenerate <username>" >&2
                 exit 1
             fi
             source_modules
@@ -196,7 +196,7 @@ main() {
             check_root
             if [[ $# -lt 2 ]]; then
                 echo -e "${RED}Error: Username and proxy ID required${NC}" >&2
-                echo "Usage: vless set-proxy <username> <proxy-id|none>" >&2
+                echo "Usage: familytraffic set-proxy <username> <proxy-id|none>" >&2
                 echo "Example: vless set-proxy alice corporate-proxy-123" >&2
                 echo "         vless set-proxy alice none" >&2
                 exit 1
@@ -209,7 +209,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: Username required${NC}" >&2
-                echo "Usage: vless show-proxy <username>" >&2
+                echo "Usage: familytraffic show-proxy <username>" >&2
                 exit 1
             fi
             source_modules
@@ -232,7 +232,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP list required${NC}" >&2
-                echo "Usage: vless set-proxy-ips <ip1,ip2,...>" >&2
+                echo "Usage: familytraffic set-proxy-ips <ip1,ip2,...>" >&2
                 echo "Example: vless set-proxy-ips 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
                 exit 1
             fi
@@ -244,7 +244,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
-                echo "Usage: vless add-proxy-ip <ip>" >&2
+                echo "Usage: familytraffic add-proxy-ip <ip>" >&2
                 echo "Example: vless add-proxy-ip 192.168.1.5" >&2
                 exit 1
             fi
@@ -256,7 +256,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
-                echo "Usage: vless remove-proxy-ip <ip>" >&2
+                echo "Usage: familytraffic remove-proxy-ip <ip>" >&2
                 echo "Example: vless remove-proxy-ip 192.168.1.5" >&2
                 exit 1
             fi
@@ -280,7 +280,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
-                echo "Usage: vless add-ufw-ip <ip>" >&2
+                echo "Usage: familytraffic add-ufw-ip <ip>" >&2
                 echo "Example: vless add-ufw-ip 192.168.1.100" >&2
                 exit 1
             fi
@@ -292,7 +292,7 @@ main() {
             check_root
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
-                echo "Usage: vless remove-ufw-ip <ip>" >&2
+                echo "Usage: familytraffic remove-ufw-ip <ip>" >&2
                 echo "Example: vless remove-ufw-ip 192.168.1.100" >&2
                 exit 1
             fi
@@ -309,26 +309,27 @@ main() {
         status)
             check_root
             echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-            echo -e "${BLUE}║            VLESS v5.33 - Service Status                     ║${NC}"
+            echo -e "${BLUE}║        familyTraffic v5.33 - Service Status                 ║${NC}"
             echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
             echo ""
 
             # Container status
             echo -e "${CYAN}Container Status:${NC}"
-            docker ps --filter "name=vless" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            docker ps --filter "name=familytraffic" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
             echo ""
 
-            # Nginx Status
-            echo -e "${CYAN}Nginx Status:${NC}"
-            if docker ps --filter "name=vless_nginx" --format "{{.Names}}" | grep -q "vless_nginx"; then
-                echo -e "  ${GREEN}✓ vless_nginx Running${NC}"
+            # Supervisor / service status inside container
+            echo -e "${CYAN}Services (inside container):${NC}"
+            if docker ps --filter "name=familytraffic" --format "{{.Names}}" | grep -q "familytraffic"; then
+                echo -e "  ${GREEN}✓ familytraffic Running${NC}"
+                docker exec familytraffic supervisorctl status 2>/dev/null || echo "  (supervisorctl not accessible)"
 
                 # Show port routing
                 echo ""
-                echo -e "${CYAN}Nginx Port Routing:${NC}"
-                echo "  1. TCP:443  → ssl_preread SNI routing → vless_xray:8443 (VLESS Reality)"
-                echo "  2. TCP:1080 → TLS termination → vless_xray:10800 (SOCKS5)"
-                echo "  3. TCP:8118 → TLS termination → vless_xray:18118 (HTTP proxy)"
+                echo -e "${CYAN}Port Routing:${NC}"
+                echo "  1. TCP:443  → ssl_preread SNI routing → 127.0.0.1:8443 (VLESS Reality)"
+                echo "  2. TCP:1080 → TLS termination → 127.0.0.1:10800 (SOCKS5)"
+                echo "  3. TCP:8118 → TLS termination → 127.0.0.1:18118 (HTTP proxy)"
 
                 # Show active reverse proxy routes
                 echo ""
@@ -348,7 +349,7 @@ main() {
                     echo "  ${YELLOW}No reverse proxy routes configured${NC}"
                 fi
             else
-                echo -e "  ${RED}✗ vless_nginx Not Running${NC}"
+                echo -e "  ${RED}✗ familytraffic Not Running${NC}"
             fi
 
             # External Proxy Status (v5.23)
@@ -492,7 +493,7 @@ main() {
         test)
             check_root
             echo "Testing Xray configuration..."
-            docker exec vless_xray xray -test -config=/etc/xray/xray_config.json
+            docker exec familytraffic xray -test -config=/etc/xray/config.json
             ;;
 
         test-security|security-test|security)
@@ -548,7 +549,7 @@ main() {
                 echo ""
                 echo "3. ${RED}Client Config Migration:${NC}"
                 echo "   All client proxy configs must be regenerated"
-                echo "   Use: sudo vless regenerate <username>"
+                echo "   Use: sudo familytraffic regenerate <username>"
                 echo ""
                 echo "4. ${RED}Security Critical:${NC}"
                 echo "   v3.2 transmitted credentials in PLAINTEXT"
@@ -560,7 +561,7 @@ main() {
                 echo -e "${YELLOW}Required Actions Before Update:${NC}"
                 echo "  1. Read migration guide: less ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
                 echo "  2. Prepare domain name (DNS A record pointing to server)"
-                echo "  3. Backup configs: sudo vless backup"
+                echo "  3. Backup configs: sudo familytraffic backup"
                 echo "  4. Test on staging environment first (recommended)"
                 echo ""
                 echo -e "${RED}⚠️  DO NOT proceed without reading migration guide${NC}"
@@ -581,13 +582,13 @@ main() {
             echo -e "${YELLOW}Update functionality not yet implemented.${NC}"
             echo ""
             echo "To update manually:"
-            echo "  1. Backup: sudo vless backup"
+            echo "  1. Backup: sudo familytraffic backup"
             echo "  2. Pull latest: git pull origin master"
             echo "  3. Re-run installer: sudo bash install.sh"
             echo ""
             echo "For v3.2 → v3.3 migration:"
             echo "  1. Follow: ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
-            echo "  2. Regenerate configs: sudo vless regenerate <username>"
+            echo "  2. Regenerate configs: sudo familytraffic regenerate <username>"
             echo ""
             ;;
 
@@ -608,10 +609,10 @@ main() {
 
         info)
             check_root
-            echo -e "${CYAN}VLESS Reality VPN Server Information${NC}"
+            echo -e "${CYAN}familyTraffic VPN Server Information${NC}"
             echo "─────────────────────────────────────"
             echo "Installation: ${INSTALL_ROOT}"
-            echo "Network: $(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || echo 'N/A')"
+            echo "Network: host (single container, no Docker network)"
             echo "Port: $(jq -r '.inbounds[0].port' ${CONFIG_DIR}/xray_config.json 2>/dev/null || echo 'N/A')"
             echo "Destination: $(jq -r '.inbounds[0].streamSettings.realitySettings.dest' ${CONFIG_DIR}/xray_config.json 2>/dev/null || echo 'N/A')"
             echo "Users: $(jq -r '.users | length' ${DATA_DIR}/users.json 2>/dev/null || echo '0')"
@@ -637,7 +638,7 @@ main() {
             check_root
             if [[ $# -lt 2 ]]; then
                 echo -e "${RED}Error: transport type and subdomain required${NC}" >&2
-                echo "Usage: vless add-transport <type> <subdomain>" >&2
+                echo "Usage: familytraffic add-transport <type> <subdomain>" >&2
                 echo "Types: ws, xhttp, grpc" >&2
                 echo "Example: vless add-transport ws ws.example.com" >&2
                 exit 1
@@ -658,7 +659,7 @@ main() {
             check_root
             if [[ $# -lt 1 ]]; then
                 echo -e "${RED}Error: transport type required${NC}" >&2
-                echo "Usage: vless remove-transport <type>" >&2
+                echo "Usage: familytraffic remove-transport <type>" >&2
                 echo "Types: ws, xhttp, grpc" >&2
                 exit 1
             fi
@@ -669,7 +670,7 @@ main() {
 
         *)
             echo -e "${RED}Error: Unknown command '${command}'${NC}" >&2
-            echo "Run 'vless help' to see available commands" >&2
+            echo "Run 'familytraffic help' to see available commands" >&2
             exit 1
             ;;
     esac

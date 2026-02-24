@@ -225,11 +225,8 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 9: Create Docker network
-    create_docker_network || {
-        echo -e "${RED}Failed to create Docker network${NC}" >&2
-        return 1
-    }
+    # Step 9: Docker network — SKIPPED (v5.33: single container uses network_mode: host)
+    echo -e "${CYAN}[9/12] Docker network: skipped (single container, network_mode: host)${NC}"
 
     # Step 9.5: Setup fail2ban (v3.3 - for all proxy modes: localhost + public)
     if [[ "${ENABLE_PROXY:-false}" == "true" ]]; then

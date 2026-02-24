@@ -243,6 +243,13 @@ main() {
     check_root
     print_success "Running with root privileges"
 
+    # Run migration (upgrade path: /opt/vless → /opt/familytraffic)
+    if [[ -d /opt/vless ]] && [[ ! -L /opt/vless ]]; then
+        print_message "${COLOR_YELLOW}" "\nDetected legacy /opt/vless installation, running migration..."
+        source "${SCRIPT_DIR}/lib/migrate_rename.sh"
+        migrate_rename
+    fi
+
     # Source all library modules
     print_message "${COLOR_BLUE}" "\nLoading installation modules..."
     source_libraries
