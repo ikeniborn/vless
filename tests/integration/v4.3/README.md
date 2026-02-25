@@ -53,7 +53,7 @@ Comprehensive test suite для валидации VLESS v4.3 HAProxy Unified So
 - HAProxy dynamic ACL section
 - HAProxy route management functions
 - Nginx config generator (port 9443-9452)
-- CLI tools integration (vless-setup-proxy, vless-proxy)
+- CLI tools integration (vless-setup-proxy, familytraffic-proxy)
 - Subdomain access format (https://domain, NO port)
 - Certificate requirement and DNS validation
 
@@ -149,13 +149,13 @@ sudo ./run_all_tests.sh
 ## Test Modes
 
 ### DEV MODE
-- **Trigger:** `DEV_MODE=true` or `/opt/vless/` not found
+- **Trigger:** `DEV_MODE=true` or `/opt/familytraffic/` not found
 - **Coverage:** Config validation, code checks
 - **Requirements:** Source code only
 - **Limitations:** No runtime tests, no network tests
 
 ### PRODUCTION MODE
-- **Trigger:** `/opt/vless/` exists
+- **Trigger:** `/opt/familytraffic/` exists
 - **Coverage:** Full runtime validation
 - **Requirements:** VLESS installed, Docker running
 - **Limitations:** None

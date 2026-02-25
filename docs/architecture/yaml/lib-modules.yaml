@@ -3,7 +3,7 @@ documentation_version: "v5.26"
 last_updated: "2026-01-07"
 
 project:
-  name: "VLESS + Reality VPN - Library Modules Architecture"
+  name: "familyTraffic VPN - Library Modules Architecture"
   version: "v5.26"
   description: "Comprehensive documentation of all lib/ shell modules, functions, dependencies, and call chains"
   total_modules: 44
@@ -12,7 +12,7 @@ project:
 
 modules:
   - name: "orchestrator.sh"
-    path: "/opt/vless/lib/orchestrator.sh"
+    path: "/opt/familytraffic/lib/orchestrator.sh"
     lines: 1881
     purpose: "Installation orchestration & workflow coordination - main entry point"
     criticality: "CRITICAL"
@@ -25,7 +25,7 @@ modules:
         parameters:
           - name: "INSTALL_ROOT"
             type: "string"
-            default: "/opt/vless"
+            default: "/opt/familytraffic"
             description: "Installation directory (hardcoded)"
         calls:
           - "install_system_dependencies()"
@@ -43,20 +43,20 @@ modules:
         line: 856
         purpose: "Generate Xray configuration from users.json and external_proxy.json"
         reads:
-          - "/opt/vless/data/users.json"
-          - "/opt/vless/config/external_proxy.json (optional)"
-        writes: "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/data/users.json"
+          - "/opt/familytraffic/config/external_proxy.json (optional)"
+        writes: "/opt/familytraffic/config/xray_config.json"
         validation: "xray test -c config.json"
         atomic_write: true
 
       - name: "reload_xray"
         line: 1234
         purpose: "Gracefully reload Xray configuration (SIGHUP signal)"
-        command: "docker exec vless_xray kill -HUP $(docker exec vless_xray pgrep xray)"
+        command: "docker exec familytraffic kill -HUP $(docker exec familytraffic pgrep xray)"
         downtime: "~0s (graceful)"
 
   - name: "user_management.sh"
-    path: "/opt/vless/lib/user_management.sh"
+    path: "/opt/familytraffic/lib/user_management.sh"
     lines: 3000
     purpose: "User CRUD operations + per-user proxy assignment (v5.24+)"
     criticality: "CRITICAL"
@@ -77,14 +77,14 @@ modules:
             type: "string (optional)"
             format: "username@vless.local"
         locking:
-          file: "/var/lock/vless_users.lock"
+          file: "/var/lock/familytraffic_users.lock"
           timeout: "10s"
         operations:
           - "Read users.json"
           - "Validate username uniqueness"
           - "Append new user object"
           - "Atomic write (temp file → rename)"
-        affected_files: ["/opt/vless/data/users.json"]
+        affected_files: ["/opt/familytraffic/data/users.json"]
         error_handling:
           - condition: "username exists"
             action: "return 1, log error"
@@ -115,7 +115,7 @@ modules:
       - name: "remove_user_from_json"
         line: 456
         purpose: "Remove user from users.json atomically"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
         operations:
           - "Read users.json"
           - "Filter out user by username"
@@ -123,10 +123,10 @@ modules:
         post_actions:
           - "regenerate xray_config.json"
           - "reload_xray()"
-          - "delete /opt/vless/data/clients/<username>/"
+          - "delete /opt/familytraffic/data/clients/<username>/"
 
   - name: "external_proxy_manager.sh"
-    path: "/opt/vless/lib/external_proxy_manager.sh"
+    path: "/opt/familytraffic/lib/external_proxy_manager.sh"
     lines: 1100
     purpose: "Upstream proxy chaining management (v5.23+ feature)"
     criticality: "HIGH"
@@ -154,8 +154,8 @@ modules:
           - "Regenerate xray_config.json"
           - "Restart Xray container"
         affected_files:
-          - "/opt/vless/config/external_proxy.json"
-          - "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/config/external_proxy.json"
+          - "/opt/familytraffic/config/xray_config.json"
 
       - name: "test_external_proxy"
         line: 345
@@ -169,7 +169,7 @@ modules:
             command: "time curl --proxy ... https://www.google.com"
 
   - name: "haproxy_config_manager.sh"
-    path: "/opt/vless/lib/haproxy_config_manager.sh"
+    path: "/opt/familytraffic/lib/haproxy_config_manager.sh"
     lines: 809
     purpose: "HAProxy unified config generation & dynamic ACL management"
     criticality: "CRITICAL"
@@ -180,8 +180,8 @@ modules:
         line: 78
         purpose: "Generate complete HAProxy configuration"
         reads:
-          - "/opt/vless/config/reverse-proxy/*.conf (for dynamic ACLs)"
-        writes: "/opt/vless/config/haproxy.cfg"
+          - "/opt/familytraffic/config/reverse-proxy/*.conf (for dynamic ACLs)"
+        writes: "/opt/familytraffic/config/haproxy.cfg"
         sections_generated:
           - "global (log, stats, user, maxconn)"
           - "defaults (timeouts, mode)"
@@ -219,11 +219,11 @@ modules:
       - name: "reload_haproxy"
         line: 678
         purpose: "Gracefully reload HAProxy without dropping connections"
-        command: "docker exec vless_haproxy haproxy -sf $(cat /var/run/haproxy.pid)"
+        command: "docker exec familytraffic-haproxy haproxy -sf $(cat /var/run/haproxy.pid)"
         downtime: "~0s (seamless)"
 
   - name: "reverseproxy_db.sh"
-    path: "/opt/vless/lib/reverseproxy_db.sh"
+    path: "/opt/familytraffic/lib/reverseproxy_db.sh"
     lines: 1245
     purpose: "Reverse proxy domain database & Nginx config management"
     criticality: "HIGH"
@@ -252,9 +252,9 @@ modules:
           - "Add HAProxy ACL"
           - "Reload HAProxy"
         affected_files:
-          - "/opt/vless/config/reverse-proxy/<domain>.conf"
-          - "/opt/vless/config/reverse-proxy/http_context.conf"
-          - "/opt/vless/config/haproxy.cfg"
+          - "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
+          - "/opt/familytraffic/config/reverse-proxy/http_context.conf"
+          - "/opt/familytraffic/config/haproxy.cfg"
           - "/etc/letsencrypt/live/<domain>/"
         duration: "~60-90 seconds (with cert acquisition)"
 
@@ -278,7 +278,7 @@ modules:
         error_if: "All ports occupied"
 
   - name: "xray_routing_manager.sh"
-    path: "/opt/vless/lib/xray_routing_manager.sh"
+    path: "/opt/familytraffic/lib/xray_routing_manager.sh"
     lines: 678
     purpose: "Xray routing rules generation for per-user external proxy (v5.24+)"
     criticality: "HIGH"
@@ -305,7 +305,7 @@ modules:
       - name: "generate_routing_rules"
         line: 234
         purpose: "Generate complete routing.rules[] section"
-        reads: "/opt/vless/data/users.json"
+        reads: "/opt/familytraffic/data/users.json"
         output:
           - rule: "Per-user external proxy routing"
             condition: "user in user[] array"
@@ -315,7 +315,7 @@ modules:
             outbound: "direct"
 
   - name: "qr_generator.sh"
-    path: "/opt/vless/lib/qr_generator.sh"
+    path: "/opt/familytraffic/lib/qr_generator.sh"
     lines: 456
     purpose: "QR code generation for client configurations"
     criticality: "MEDIUM"
@@ -352,10 +352,10 @@ modules:
           - "socks5_config.txt (credentials)"
           - "http_config.txt (credentials)"
           - "qr_codes.html (HTML with all QR codes)"
-        output_directory: "/opt/vless/data/clients/<username>/"
+        output_directory: "/opt/familytraffic/data/clients/<username>/"
 
   - name: "certificate_manager.sh"
-    path: "/opt/vless/lib/certificate_manager.sh"
+    path: "/opt/familytraffic/lib/certificate_manager.sh"
     lines: 892
     purpose: "Let's Encrypt certificate lifecycle management"
     criticality: "CRITICAL"
@@ -371,10 +371,10 @@ modules:
           - name: "email"
             type: "string"
         workflow:
-          - "Start vless_certbot_nginx container (port 80)"
+          - "Start familytraffic-certbot container (port 80)"
           - "Run certbot certonly --webroot -d <domain> -m <email>"
           - "Wait for ACME challenge completion"
-          - "Stop vless_certbot_nginx container"
+          - "Stop familytraffic-certbot container"
           - "Combine fullchain + privkey → combined.pem"
         outputs:
           - "/etc/letsencrypt/live/<domain>/fullchain.pem"
@@ -396,7 +396,7 @@ modules:
         chmod: "600 (secure permissions)"
 
   - name: "docker_compose_generator.sh"
-    path: "/opt/vless/lib/docker_compose_generator.sh"
+    path: "/opt/familytraffic/lib/docker_compose_generator.sh"
     lines: 1234
     purpose: "Generate docker-compose.yml from installation parameters"
     criticality: "CRITICAL"
@@ -408,16 +408,16 @@ modules:
         purpose: "Generate complete docker-compose.yml"
         reads:
           - "Installation parameters (DOMAIN, EMAIL, etc.)"
-        writes: "/opt/vless/docker-compose.yml"
+        writes: "/opt/familytraffic/docker-compose.yml"
         sections:
           - "version: '3.8'"
           - "services: (6 containers)"
-          - "networks: (vless_reality_net)"
+          - "networks: (familytraffic_net)"
           - "volumes: (bind mounts)"
         validation: "docker-compose config (validate syntax)"
 
   - name: "security_hardening.sh"
-    path: "/opt/vless/lib/security_hardening.sh"
+    path: "/opt/familytraffic/lib/security_hardening.sh"
     lines: 567
     purpose: "System security hardening (UFW, fail2ban, permissions)"
     criticality: "HIGH"
@@ -446,14 +446,14 @@ modules:
         line: 267
         purpose: "Set secure file permissions"
         operations:
-          - "chmod 600 /opt/vless/data/users.json"
-          - "chmod 600 /opt/vless/config/external_proxy.json"
-          - "chmod 644 /opt/vless/config/xray_config.json"
-          - "chmod 644 /opt/vless/config/haproxy.cfg"
-          - "chown root:root /opt/vless/config/*"
+          - "chmod 600 /opt/familytraffic/data/users.json"
+          - "chmod 600 /opt/familytraffic/config/external_proxy.json"
+          - "chmod 644 /opt/familytraffic/config/xray_config.json"
+          - "chmod 644 /opt/familytraffic/config/haproxy.cfg"
+          - "chown root:root /opt/familytraffic/config/*"
 
   - name: "interactive_params.sh"
-    path: "/opt/vless/lib/interactive_params.sh"
+    path: "/opt/familytraffic/lib/interactive_params.sh"
     lines: 789
     purpose: "Interactive parameter collection during installation"
     criticality: "HIGH"
@@ -481,7 +481,7 @@ modules:
           - "INSTALL_MTPROXY"
 
   - name: "dependencies.sh"
-    path: "/opt/vless/lib/dependencies.sh"
+    path: "/opt/familytraffic/lib/dependencies.sh"
     lines: 456
     purpose: "System dependency installation and validation"
     criticality: "CRITICAL"
@@ -508,7 +508,7 @@ modules:
         validation: "Check each package installed successfully"
 
   - name: "status_monitor.sh"
-    path: "/opt/vless/lib/status_monitor.sh"
+    path: "/opt/familytraffic/lib/status_monitor.sh"
     lines: 678
     purpose: "System status monitoring and reporting"
     criticality: "MEDIUM"
@@ -522,12 +522,12 @@ modules:
           - "Docker containers (docker ps)"
           - "Certificate expiration (openssl x509 -enddate)"
           - "HAProxy stats (http://127.0.0.1:9000/stats)"
-          - "Xray health (docker exec vless_xray xray version)"
-          - "Reverse proxy domains (ls /opt/vless/config/reverse-proxy/)"
+          - "Xray health (docker exec familytraffic xray version)"
+          - "Reverse proxy domains (ls /opt/familytraffic/config/reverse-proxy/)"
         output: "Formatted status report with ✓/✗ indicators"
 
   - name: "log_viewer.sh"
-    path: "/opt/vless/lib/log_viewer.sh"
+    path: "/opt/familytraffic/lib/log_viewer.sh"
     lines: 234
     purpose: "Unified log viewing interface"
     criticality: "LOW"
@@ -549,7 +549,7 @@ modules:
         command: "docker logs <container> --tail <N> [--follow]"
 
   - name: "security_tests.sh"
-    path: "/opt/vless/lib/security_tests.sh"
+    path: "/opt/familytraffic/lib/security_tests.sh"
     lines: 892
     purpose: "Comprehensive security test suite (v5.22+)"
     criticality: "MEDIUM"
@@ -588,7 +588,7 @@ modules:
               - "Password entropy check"
 
   - name: "mtproxy_manager.sh"
-    path: "/opt/vless/lib/mtproxy_manager.sh"
+    path: "/opt/familytraffic/lib/mtproxy_manager.sh"
     lines: 1134
     purpose: "MTProxy server management (v6.0+ planned)"
     criticality: "HIGH"
@@ -600,7 +600,7 @@ modules:
       - name: "generate_mtproxy_config"
         line: 45
         purpose: "Generate MTProxy configuration file"
-        writes: "/opt/vless/config/mtproxy/mtproxy_config.json"
+        writes: "/opt/familytraffic/config/mtproxy/mtproxy_config.json"
         structure:
           port: 8443
           workers: 2
@@ -638,7 +638,7 @@ modules:
           - "Uptime"
 
   - name: "mtproxy_secret_manager.sh"
-    path: "/opt/vless/lib/mtproxy_secret_manager.sh"
+    path: "/opt/familytraffic/lib/mtproxy_secret_manager.sh"
     lines: 567
     purpose: "MTProxy secret generation and management (v6.0+)"
     criticality: "HIGH"
@@ -666,7 +666,7 @@ modules:
       - name: "list_mtproxy_secrets"
         line: 123
         purpose: "List all secrets from proxy-secret file"
-        reads: "/opt/vless/config/mtproxy/proxy-secret"
+        reads: "/opt/familytraffic/config/mtproxy/proxy-secret"
         format: "One secret per line"
 
       - name: "remove_mtproxy_secret"
@@ -679,7 +679,7 @@ modules:
           - "Restart MTProxy container"
 
   - name: "os_detection.sh"
-    path: "/opt/vless/lib/os_detection.sh"
+    path: "/opt/familytraffic/lib/os_detection.sh"
     lines: 123
     purpose: "Detect OS version and validate compatibility"
     criticality: "MEDIUM"
@@ -696,7 +696,7 @@ modules:
         error_if: "Unsupported OS"
 
   - name: "letsencrypt_integration.sh"
-    path: "/opt/vless/lib/letsencrypt_integration.sh"
+    path: "/opt/familytraffic/lib/letsencrypt_integration.sh"
     lines: 678
     purpose: "Let's Encrypt ACME integration and automation"
     criticality: "CRITICAL"
@@ -718,98 +718,98 @@ modules:
 # Additional 30 modules documented with less detail (same pattern)
 
   - name: "client_config_generator.sh"
-    path: "/opt/vless/lib/client_config_generator.sh"
+    path: "/opt/familytraffic/lib/client_config_generator.sh"
     lines: 456
     purpose: "Generate client configuration files (JSON, URI, QR)"
     key_function: "generate_client_configs(username, uuid, domain)"
 
   - name: "uri_encoder.sh"
-    path: "/opt/vless/lib/uri_encoder.sh"
+    path: "/opt/familytraffic/lib/uri_encoder.sh"
     lines: 234
     purpose: "Generate connection URIs (vless://, socks5s://, https://)"
     key_function: "generate_vless_uri(uuid, domain, public_key, short_id)"
 
   - name: "validation.sh"
-    path: "/opt/vless/lib/validation.sh"
+    path: "/opt/familytraffic/lib/validation.sh"
     lines: 345
     purpose: "Input validation functions (username, UUID, domain, email)"
     key_functions: ["validate_username()", "validate_uuid()", "validate_domain()"]
 
   - name: "error_handling.sh"
-    path: "/opt/vless/lib/error_handling.sh"
+    path: "/opt/familytraffic/lib/error_handling.sh"
     lines: 123
     purpose: "Standardized error handling and logging"
     key_functions: ["log_error()", "log_warning()", "log_info()"]
 
   - name: "atomic_operations.sh"
-    path: "/opt/vless/lib/atomic_operations.sh"
+    path: "/opt/familytraffic/lib/atomic_operations.sh"
     lines: 234
     purpose: "Atomic file operations with locking"
     key_functions: ["atomic_write()", "acquire_lock()", "release_lock()"]
 
   - name: "container_manager.sh"
-    path: "/opt/vless/lib/container_manager.sh"
+    path: "/opt/familytraffic/lib/container_manager.sh"
     lines: 567
     purpose: "Docker container lifecycle management"
     feature_version: "v5.22+"
     key_functions: ["start_containers()", "stop_containers()", "health_check()"]
 
   - name: "backup_restore.sh"
-    path: "/opt/vless/lib/backup_restore.sh"
+    path: "/opt/familytraffic/lib/backup_restore.sh"
     lines: 456
     purpose: "Backup and restore critical files"
     key_functions: ["backup_config()", "restore_config()", "backup_users()"]
 
   - name: "network_utils.sh"
-    path: "/opt/vless/lib/network_utils.sh"
+    path: "/opt/familytraffic/lib/network_utils.sh"
     lines: 345
     purpose: "Network utility functions (port check, IP detection)"
     key_functions: ["check_port_available()", "get_server_ip()", "test_connectivity()"]
 
   - name: "string_utils.sh"
-    path: "/opt/vless/lib/string_utils.sh"
+    path: "/opt/familytraffic/lib/string_utils.sh"
     lines: 234
     purpose: "String manipulation utilities"
     key_functions: ["sanitize_domain()", "urlencode()", "base64_encode()"]
 
   - name: "json_parser.sh"
-    path: "/opt/vless/lib/json_parser.sh"
+    path: "/opt/familytraffic/lib/json_parser.sh"
     lines: 456
     purpose: "JSON parsing and manipulation (jq wrapper)"
     key_functions: ["json_get()", "json_set()", "json_delete()"]
 
   - name: "template_renderer.sh"
-    path: "/opt/vless/lib/template_renderer.sh"
+    path: "/opt/familytraffic/lib/template_renderer.sh"
     lines: 345
     purpose: "Configuration template rendering"
     key_functions: ["render_template()", "substitute_vars()"]
 
   - name: "migration_v4_to_v5.sh"
-    path: "/opt/vless/lib/migration_v4_to_v5.sh"
+    path: "/opt/familytraffic/lib/migration_v4_to_v5.sh"
     lines: 678
     purpose: "Migration from v4.x to v5.x architecture"
     key_functions: ["migrate_haproxy_config()", "migrate_users_json()"]
 
   - name: "update_manager.sh"
-    path: "/opt/vless/lib/update_manager.sh"
+    path: "/opt/familytraffic/lib/update_manager.sh"
     lines: 567
     purpose: "System update and version management"
     key_functions: ["check_updates()", "apply_updates()", "rollback()"]
 
   - name: "performance_monitor.sh"
-    path: "/opt/vless/lib/performance_monitor.sh"
+    path: "/opt/familytraffic/lib/performance_monitor.sh"
     lines: 234
     purpose: "Performance monitoring and metrics"
     key_functions: ["get_cpu_usage()", "get_memory_usage()", "get_network_stats()"]
 
   - name: "cleanup.sh"
-    path: "/opt/vless/lib/cleanup.sh"
+    path: "/opt/familytraffic/lib/cleanup.sh"
     lines: 123
     purpose: "Cleanup temporary files and logs"
     key_functions: ["cleanup_temp_files()", "rotate_logs()"]
 
   - name: "uninstall.sh"
-    path: "/opt/vless/lib/uninstall.sh"
+    path: "/opt/familytraffic/lib/uninstall.sh"
     lines: 456
     purpose: "Complete system uninstallation"
     key_functions: ["uninstall_vless()", "remove_containers()", "cleanup_configs()"]
@@ -869,13 +869,13 @@ module_dependencies:
       depends_on:
         - "xray_routing_manager.sh"
         - "orchestrator.sh::generate_xray_config"
-      trigger: "vless-external-proxy commands"
+      trigger: "familytraffic-external-proxy commands"
 
     reverse_proxy:
       depends_on:
         - "haproxy_config_manager.sh"
         - "certificate_manager.sh"
-      trigger: "vless-proxy commands"
+      trigger: "familytraffic-proxy commands"
 
 call_chains:
   add_user_flow:
@@ -887,7 +887,7 @@ call_chains:
       - step: 2
         module: "lib/user_management.sh"
         function: "add_user_to_json()"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
       - step: 3
         module: "lib/orchestrator.sh"
         function: "generate_xray_config()"
@@ -912,7 +912,7 @@ call_chains:
       - step: 2
         module: "lib/user_management.sh"
         function: "update_user_proxy_id()"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
       - step: 3
         module: "lib/xray_routing_manager.sh"
         function: "update_xray_routing_for_user()"
@@ -987,7 +987,7 @@ call_chains:
 
 locking_mechanisms:
   users_json_lock:
-    lock_file: "/var/lock/vless_users.lock"
+    lock_file: "/var/lock/familytraffic_users.lock"
     purpose: "Prevent concurrent modifications to users.json"
     used_by:
       - "add_user_to_json()"
@@ -997,7 +997,7 @@ locking_mechanisms:
     method: "flock"
 
   external_proxy_lock:
-    lock_file: "/var/lock/vless_external_proxy.lock"
+    lock_file: "/var/lock/familytraffic_external_proxy.lock"
     purpose: "Prevent concurrent modifications to external_proxy.json"
     used_by:
       - "add_proxy_to_json()"
@@ -1005,7 +1005,7 @@ locking_mechanisms:
     timeout: "10s"
 
   config_generation_lock:
-    lock_file: "/var/lock/vless_config_generation.lock"
+    lock_file: "/var/lock/familytraffic_config_generation.lock"
     purpose: "Prevent concurrent config regeneration"
     used_by:
       - "generate_xray_config()"
@@ -1024,8 +1024,8 @@ atomic_operations:
       - "Atomic rename (mv .tmp target)"
       - "Release lock"
     files_using_pattern:
-      - "/opt/vless/data/users.json"
-      - "/opt/vless/config/external_proxy.json"
+      - "/opt/familytraffic/data/users.json"
+      - "/opt/familytraffic/config/external_proxy.json"
 
   config_file_updates:
     pattern:
@@ -1035,9 +1035,9 @@ atomic_operations:
       - "If valid: atomic rename"
       - "If invalid: abort, log error, keep old config"
     files_using_pattern:
-      - "/opt/vless/config/xray_config.json"
-      - "/opt/vless/config/haproxy.cfg"
-      - "/opt/vless/config/reverse-proxy/*.conf"
+      - "/opt/familytraffic/config/xray_config.json"
+      - "/opt/familytraffic/config/haproxy.cfg"
+      - "/opt/familytraffic/config/reverse-proxy/*.conf"
 
 error_handling_patterns:
   validation_errors:
@@ -1090,7 +1090,7 @@ performance_characteristics:
       duration: "~300ms"
 
     restart_xray:
-      method: "docker restart vless_xray"
+      method: "docker restart familytraffic"
       downtime: "~2-5s (connections dropped)"
       duration: "~5s"
 
@@ -1134,7 +1134,7 @@ references:
 
   code_locations:
     - "lib/ - All library modules (44 modules, ~26,500 lines)"
-    - "scripts/ - CLI entry points (vless, vless-external-proxy, vless-proxy)"
+    - "scripts/ - CLI entry points (vless, familytraffic-external-proxy, familytraffic-proxy)"
     - "install.sh - Installation orchestrator"
 
 notes:

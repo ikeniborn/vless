@@ -339,7 +339,7 @@ graph TB
 
 ## Key Configuration Files
 
-**HAProxy Configuration** (`/opt/vless/config/haproxy.cfg`):
+**HAProxy Configuration** (`/opt/familytraffic/config/haproxy.cfg`):
 ```haproxy
 frontend http_proxy_tls_frontend
     bind *:8118 ssl crt /etc/letsencrypt/live/${DOMAIN}/combined.pem alpn h2,http/1.1
@@ -351,7 +351,7 @@ backend xray_http_plaintext
     server xray 127.0.0.1:18118 check
 ```
 
-**Xray Configuration** (`/opt/vless/config/xray_config.json`):
+**Xray Configuration** (`/opt/familytraffic/config/xray_config.json`):
 ```json
 {
   "inbounds": [
@@ -389,7 +389,7 @@ backend xray_http_plaintext
 }
 ```
 
-**Users Database** (`/opt/vless/data/users.json`):
+**Users Database** (`/opt/familytraffic/data/users.json`):
 ```json
 {
   "users": [
@@ -556,8 +556,8 @@ sequenceDiagram
 - **Cause:** HAProxy not forwarding to Xray, or Xray not listening on 18118
 - **Debug:**
   ```bash
-  docker logs vless_haproxy --tail 50 | grep 8118
-  docker exec vless_xray ss -tulnp | grep 18118
+  docker logs familytraffic-haproxy --tail 50 | grep 8118
+  docker exec familytraffic ss -tulnp | grep 18118
   ```
 
 **Issue 3: HTTPS sites work, HTTP sites don't**
@@ -568,8 +568,8 @@ sequenceDiagram
 - **Cause:** External proxy routing misconfigured
 - **Debug:**
   ```bash
-  sudo vless show-proxy <username>
-  jq '.routing.rules[] | select(.inboundTag[] == "http-in")' /opt/vless/config/xray_config.json
+  sudo familytraffic show-proxy <username>
+  jq '.routing.rules[] | select(.inboundTag[] == "http-in")' /opt/familytraffic/config/xray_config.json
   ```
 
 ---

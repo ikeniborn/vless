@@ -30,7 +30,7 @@ TESTS_FAILED=0
 TESTS_SKIPPED=0
 
 # Configuration
-INSTALL_ROOT="${INSTALL_ROOT:-/opt/vless}"
+INSTALL_ROOT="${INSTALL_ROOT:-/opt/familytraffic}"
 DEV_MODE="${DEV_MODE:-false}"
 
 # Logging
@@ -68,8 +68,8 @@ test_haproxy_container_running() {
         return 0
     fi
 
-    if docker ps --filter "name=vless-haproxy" --format "{{.Names}}" | grep -q "vless-haproxy"; then
-        local status=$(docker ps --filter "name=vless-haproxy" --format "{{.Status}}")
+    if docker ps --filter "name=familytraffic-haproxy" --format "{{.Names}}" | grep -q "familytraffic-haproxy"; then
+        local status=$(docker ps --filter "name=familytraffic-haproxy" --format "{{.Status}}")
         log_success "Test 1.1: HAProxy container running ($status)"
         return 0
     else
@@ -174,9 +174,9 @@ test_haproxy_xray_backend() {
         return 1
     fi
 
-    # Check server pointing to vless_xray:8443
-    if ! grep -A 5 "backend xray_reality" "$config_file" | grep -q "server xray vless_xray:8443"; then
-        log_error "Test 1.4: Backend 'xray_reality' not pointing to vless_xray:8443"
+    # Check server pointing to familytraffic_xray:8443
+    if ! grep -A 5 "backend xray_reality" "$config_file" | grep -q "server xray familytraffic_xray:8443"; then
+        log_error "Test 1.4: Backend 'xray_reality' not pointing to familytraffic_xray:8443"
         return 1
     fi
 
@@ -264,7 +264,7 @@ test_network_connectivity() {
     fi
 
     # Check if containers are on same network
-    local haproxy_network=$(docker inspect vless-haproxy | jq -r '.[0].HostConfig.NetworkMode')
+    local haproxy_network=$(docker inspect familytraffic-haproxy | jq -r '.[0].HostConfig.NetworkMode')
     local xray_network=$(docker inspect vless-xray | jq -r '.[0].HostConfig.NetworkMode')
 
     if [ "$haproxy_network" != "$xray_network" ]; then
@@ -273,7 +273,7 @@ test_network_connectivity() {
     fi
 
     # Test connectivity from HAProxy to Xray
-    if docker exec vless-haproxy nc -zv vless_xray 8443 2>&1 | grep -q "succeeded"; then
+    if docker exec familytraffic-haproxy nc -zv familytraffic_xray 8443 2>&1 | grep -q "succeeded"; then
         log_success "Test 1.7: Network connectivity HAProxy → Xray:8443 successful"
         return 0
     else

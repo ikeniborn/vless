@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 # Working directory (production files)
-/opt/vless/
+/opt/familytraffic/
 
 # Environment variables with private keys and passwords
 .env

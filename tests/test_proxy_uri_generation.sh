@@ -20,7 +20,7 @@ mkdir -p "$TEST_OUTPUT_DIR"
 
 # Source the user_management functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export VLESS_HOME="/tmp/test_vless_$$"
+export VLESS_HOME="/tmp/test_familytraffic_$$"
 export CLIENTS_DIR="${VLESS_HOME}/data/clients"
 export ENV_FILE="${VLESS_HOME}/.env"
 

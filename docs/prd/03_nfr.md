@@ -21,7 +21,7 @@
 #!/bin/bash
 # Validate mandatory TLS for public proxies
 
-CONFIG="/opt/vless/config/xray_config.json"
+CONFIG="/opt/familytraffic/config/xray_config.json"
 
 # Check each public inbound has TLS
 jq -r '.inbounds[] | select(.listen=="0.0.0.0") | "\(.tag): \(.streamSettings.security // "NONE")"' "$CONFIG" | while read line; do
@@ -268,7 +268,7 @@ openssl s_client -connect myproxy.example.com:443 -servername myproxy.example.co
 curl -I -u user:pass https://myproxy.example.com | grep Strict-Transport-Security
 
 # Check no access log
-ls -la /opt/vless/logs/nginx/reverse-proxy-access.log  # Should NOT exist
+ls -la /opt/familytraffic/logs/nginx/reverse-proxy-access.log  # Should NOT exist
 ```
 
 ---

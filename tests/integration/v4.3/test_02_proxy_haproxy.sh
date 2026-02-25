@@ -30,7 +30,7 @@ TESTS_FAILED=0
 TESTS_SKIPPED=0
 
 # Configuration
-INSTALL_ROOT="${INSTALL_ROOT:-/opt/vless}"
+INSTALL_ROOT="${INSTALL_ROOT:-/opt/familytraffic}"
 DEV_MODE="${DEV_MODE:-false}"
 
 # Logging
@@ -144,9 +144,9 @@ test_haproxy_proxy_backends() {
         return 1
     fi
 
-    # Check SOCKS5 backend server (vless_xray:10800)
-    if ! grep -A 5 "backend xray_socks5" "$config_file" | grep -q "server xray vless_xray:10800"; then
-        log_error "Test 2.3: SOCKS5 backend not pointing to vless_xray:10800"
+    # Check SOCKS5 backend server (familytraffic_xray:10800)
+    if ! grep -A 5 "backend xray_socks5" "$config_file" | grep -q "server xray familytraffic_xray:10800"; then
+        log_error "Test 2.3: SOCKS5 backend not pointing to familytraffic_xray:10800"
         return 1
     fi
 
@@ -156,9 +156,9 @@ test_haproxy_proxy_backends() {
         return 1
     fi
 
-    # Check HTTP backend server (vless_xray:18118)
-    if ! grep -A 5 "backend xray_http" "$config_file" | grep -q "server xray vless_xray:18118"; then
-        log_error "Test 2.3: HTTP backend not pointing to vless_xray:18118"
+    # Check HTTP backend server (familytraffic_xray:18118)
+    if ! grep -A 5 "backend xray_http" "$config_file" | grep -q "server xray familytraffic_xray:18118"; then
+        log_error "Test 2.3: HTTP backend not pointing to familytraffic_xray:18118"
         return 1
     fi
 

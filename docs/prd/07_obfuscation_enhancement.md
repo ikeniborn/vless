@@ -78,11 +78,11 @@
     │
     │ TCP:443 → ClientHello (маскировка под HTTPS к dest-домену)
     ▼
-HAProxy (vless_haproxy)
+HAProxy (familytraffic-haproxy)
     │ SNI passthrough (NO TLS termination для Reality)
     │ ACL: req_ssl_sni -i vless.example.com → backend xray_vless
     ▼
-Xray (vless_xray, port 8443)
+Xray (familytraffic, port 8443)
     │ Reality handshake: X25519 ECDH + uTLS fingerprint
     │ Decrypts VLESS payload
     ▼
@@ -102,7 +102,7 @@ Internet
     "settings": {
       "clients": [],
       "decryption": "none",
-      "fallbacks": [{ "dest": "vless_fake_site:80" }]
+      "fallbacks": [{ "dest": "familytraffic-fake-site:80" }]
     },
     "streamSettings": {
       "network": "tcp",
@@ -148,7 +148,7 @@ Reality — это эволюция TLS-камуфляжа, разработан
 | Нет CDN-совместимости | Reality не работает через Cloudflare и большинство CDN | Средняя | 🔴 Актуально (Tier 2) |
 | UDP не поддерживается | HAProxy и текущая архитектура — TCP only | Высокая | 🔴 Актуально (Tier 3) |
 | Единственный inbound | Один режим подключения — точка отказа при блокировке Reality | Средняя | 🔴 Актуально (Tier 2) |
-| Нет Nginx-контейнера | `vless_nginx_reverseproxy` не задеплоен (reverse proxy отключён) | Средняя | 🔴 Актуально — нужен `vless_nginx_tier2` для Tier 2 |
+| Нет Nginx-контейнера | `familytraffic-nginx` не задеплоен (reverse proxy отключён) | Средняя | 🔴 Актуально — нужен `familytraffic-nginx_tier2` для Tier 2 |
 
 ---
 
@@ -320,7 +320,7 @@ Internet
     │ UDP:443
     │ QUIC + TLS 1.3
     ▼
-vless_hysteria2 (отдельный контейнер)
+familytraffic-hysteria2 (отдельный контейнер)
     │ Декодирует Hysteria2
     ▼
 Internet
@@ -368,12 +368,12 @@ Internet
 
 **Архитектура (параллельный контейнер):**
 ```
-HAProxy (vless_haproxy)
+HAProxy (familytraffic-haproxy)
     ├─ SNI: vless.domain → Xray (Reality)
     ├─ SNI: singbox.domain → SingBox VLESS/Trojan/etc.
     └─ SNI: *.domain → Nginx (reverse proxy)
 
-vless_singbox (новый контейнер)
+familytraffic-singbox (новый контейнер)
     ├─ VLESS over WebSocket (port 8444)
     ├─ Trojan (port 8445)
     └─ Hysteria2 (UDP:8443 — прямой exposure)
@@ -506,7 +506,7 @@ uri+="&flow=xtls-rprx-vision"
 **Текущее состояние:** Все контейнеры используют TCP. `docker-compose.yml` не содержит UDP port mapping. HAProxy работает только в `mode tcp` (TCP-level LB).
 
 **Что требуется для Hysteria2/TUIC:**
-1. Новый контейнер `vless_hysteria2` (или `vless_singbox`)
+1. Новый контейнер `familytraffic-hysteria2` (или `familytraffic-singbox`)
 2. UDP port mapping: `"443:443/udp"` или `"8443:8443/udp"`
 3. UFW правила: `ufw allow 8443/udp`
 4. Отдельный Docker network или прямой host binding
@@ -548,7 +548,7 @@ uri+="&flow=xtls-rprx-vision"
 | **R2** | Hysteria2/TUIC требуют UDP — несовместимы с HAProxy TCP-архитектурой | High | Отдельный контейнер с прямым UDP port exposure (bypass HAProxy). Аналогично MTProxy pattern (`lib/mtproxy_manager.sh`). |
 | **R3** | SingBox как замена Xray потребует полной переработки конфигурационных модулей | High | Реализовывать SingBox как **параллельный** контейнер, не замену. Пользователь выбирает: Xray (Reality) ИЛИ SingBox (multi-protocol). |
 | **R4** | WebSocket на порту 443 конфликтует с Reality SNI passthrough | Medium | Subdomain routing: `vless.domain → Reality/Xray`, `ws.domain → WebSocket/Xray`. Оба через HAProxy SNI ACL. |
-| **R5** | gRPC требует HTTP/2 и HAProxy `mode http`, несовместимо с текущим `mode tcp` на порту 443 | Medium | gRPC inbound на отдельном порту (8444) с отдельным HAProxy frontend в `mode http`. ИЛИ gRPC через Nginx reverse proxy (добавить backend в `vless_nginx_reverseproxy`). |
+| **R5** | gRPC требует HTTP/2 и HAProxy `mode http`, несовместимо с текущим `mode tcp` на порту 443 | Medium | gRPC inbound на отдельном порту (8444) с отдельным HAProxy frontend в `mode http`. ИЛИ gRPC через Nginx reverse proxy (добавить backend в `familytraffic-nginx`). |
 | ~~**R6**~~ | ~~GFW детектирует VLESS+Reality по timing analysis (без XTLS Vision)~~ | ~~Low~~ | ✅ **ЗАКРЫТ** — `flow: "xtls-rprx-vision"` активен у всех пользователей (подтверждено SSH 2026-02-23) |
 
 ### 6.2 Операционные риски
@@ -665,9 +665,9 @@ XHTTP подтверждён на Android с августа 2024 (v3.9.34). iOS-
 **Влияние:** Высокое (CDN-совместимость)
 
 > **Архитектурное уточнение (на основе анализа живого сервера):**
-> HAProxy на порту 443 работает в `mode tcp` (SNI passthrough). TLS-терминация для Tier 2 транспортов **невозможна в HAProxy на порту 443** без нарушения Reality. Решение: отдельный контейнер **`vless_nginx_tier2`** принимает трафик от HAProxy и терминирует TLS для WS/XHTTP/gRPC.
+> HAProxy на порту 443 работает в `mode tcp` (SNI passthrough). TLS-терминация для Tier 2 транспортов **невозможна в HAProxy на порту 443** без нарушения Reality. Решение: отдельный контейнер **`familytraffic-nginx_tier2`** принимает трафик от HAProxy и терминирует TLS для WS/XHTTP/gRPC.
 >
-> На живом сервере **нет ни одного Nginx-контейнера** (reverse proxy был отключён при установке) — `vless_nginx_tier2` нужно создать с нуля.
+> На живом сервере **нет ни одного Nginx-контейнера** (reverse proxy был отключён при установке) — `familytraffic-nginx_tier2` нужно создать с нуля.
 
 **Правильная архитектура Tier 2:**
 ```
@@ -677,12 +677,12 @@ HAProxy :443 (mode tcp, SNI routing)
   ├── SNI grpc.domain  → backend nginx_tier2:8448
   └── (default)        → backend xray_vless:8443 (Reality — без изменений)
 
-vless_nginx_tier2 (НОВЫЙ контейнер, listen 8448 ssl http2)
-  ├── server_name ws.domain    → proxy_pass http://vless_xray:8444
-  ├── server_name xhttp.domain → proxy_pass http://vless_xray:8445
-  └── server_name grpc.domain  → grpc_pass grpc://vless_xray:8446
+familytraffic-nginx_tier2 (НОВЫЙ контейнер, listen 8448 ssl http2)
+  ├── server_name ws.domain    → proxy_pass http://familytraffic:8444
+  ├── server_name xhttp.domain → proxy_pass http://familytraffic:8445
+  └── server_name grpc.domain  → grpc_pass grpc://familytraffic:8446
 
-vless_xray (plaintext inbounds — без TLS, Nginx терминирует)
+familytraffic (plaintext inbounds — без TLS, Nginx терминирует)
   ├── :8443 Reality (существующий)
   ├── :8444 VLESS WS plaintext (новый)
   ├── :8445 VLESS XHTTP plaintext (новый)
@@ -693,7 +693,7 @@ vless_xray (plaintext inbounds — без TLS, Nginx терминирует)
 
 1. Новый Xray inbound на порту 8444 с `network: "ws"`, **без TLS** (Nginx терминирует)
 2. HAProxy SNI routing: `ws.example.com → nginx_tier2 backend (:8448)`
-3. Nginx `server_name ws.example.com` → `proxy_pass http://vless_xray:8444` + WebSocket upgrade headers
+3. Nginx `server_name ws.example.com` → `proxy_pass http://familytraffic:8444` + WebSocket upgrade headers
 4. Генератор клиентских конфигов для WS transport (`generate_transport_uri ws`)
 5. CLI команда: `vless add-transport ws <subdomain>`
 
@@ -701,22 +701,22 @@ vless_xray (plaintext inbounds — без TLS, Nginx терминирует)
 
 1. Новый Xray inbound на порту 8445 с `network: "splithttp"` (Xray >= 24.9 — уже используется 24.11.30 ✓)
 2. HAProxy SNI routing: `xhttp.example.com → nginx_tier2 backend`
-3. Nginx `server_name xhttp.example.com` → `proxy_pass http://vless_xray:8445` + chunked streaming
+3. Nginx `server_name xhttp.example.com` → `proxy_pass http://familytraffic:8445` + chunked streaming
 4. CDN-инструкция: как настроить Cloudflare для XHTTP
 
 **Подэтап 2c: gRPC (средний приоритет)**
 
 1. Новый Xray inbound на порту 8446 с `network: "grpc"`, **без TLS** (Nginx терминирует)
 2. HAProxy SNI routing: `grpc.example.com → nginx_tier2 backend`
-3. Nginx `server_name grpc.example.com` → `grpc_pass grpc://vless_xray:8446` (http2 required)
+3. Nginx `server_name grpc.example.com` → `grpc_pass grpc://familytraffic:8446` (http2 required)
 
 **Новые CLI-команды:**
 ```bash
-sudo vless add-transport ws subdomain.example.com
-sudo vless add-transport xhttp subdomain.example.com
-sudo vless add-transport grpc subdomain.example.com
-sudo vless list-transports
-sudo vless remove-transport ws
+sudo familytraffic add-transport ws subdomain.example.com
+sudo familytraffic add-transport xhttp subdomain.example.com
+sudo familytraffic add-transport grpc subdomain.example.com
+sudo familytraffic list-transports
+sudo familytraffic remove-transport ws
 ```
 
 ---
@@ -740,7 +740,7 @@ sudo vless remove-transport ws
   scripts/vless-tuic              # CLI для TUIC
 
 Изменения docker-compose.yml:
-  vless_hysteria2:
+  familytraffic-hysteria2:
     image: tobyxdd/hysteria:latest
     ports:
       - "8443:8443/udp"  # Прямой UDP, bypass HAProxy
@@ -752,7 +752,7 @@ UFW правила:
 
 **Установка (opt-in wizard):**
 ```bash
-sudo vless install-hysteria2
+sudo familytraffic install-hysteria2
 # Wizard: выбор порта, SSL cert, bandwidth limits
 # Генерация клиентских конфигов (Sing-Box format)
 ```
@@ -774,10 +774,10 @@ sudo vless install-hysteria2
   lib/singbox_manager.sh           # Управление SingBox контейнером
   scripts/vless-singbox            # CLI
 
-Контейнер vless_singbox:
+Контейнер familytraffic-singbox:
   - VLESS+Reality (дублирует Xray, для A/B тестирования)
-  - Hysteria2 (заменяет отдельный vless_hysteria2)
-  - TUIC v5 (заменяет отдельный vless_tuic)
+  - Hysteria2 (заменяет отдельный familytraffic-hysteria2)
+  - TUIC v5 (заменяет отдельный familytraffic-tuic)
   - Trojan+WebSocket+TLS
 ```
 
@@ -810,7 +810,7 @@ sudo vless install-hysteria2
         { "id": "...", "email": "torrih@vless.local",     "flow": "xtls-rprx-vision" }
       ],
       "decryption": "none",
-      "fallbacks": [{ "dest": "vless_fake_site:80" }]
+      "fallbacks": [{ "dest": "familytraffic-fake-site:80" }]
     },
     "streamSettings": {
       "network": "tcp",
@@ -851,19 +851,19 @@ vless://${UUID}@${SERVER}:443?encryption=none&flow=xtls-rprx-vision&security=rea
 }
 ```
 
-**HAProxy конфигурация** (SNI routing → `vless_nginx_tier2`, НЕ напрямую на Xray):
+**HAProxy конфигурация** (SNI routing → `familytraffic-nginx_tier2`, НЕ напрямую на Xray):
 
-> **Уточнение:** HAProxy на порту 443 работает в `mode tcp`. TLS-терминацию для WebSocket выполняет `vless_nginx_tier2` (новый контейнер). HAProxy только маршрутизирует по SNI.
+> **Уточнение:** HAProxy на порту 443 работает в `mode tcp`. TLS-терминацию для WebSocket выполняет `familytraffic-nginx_tier2` (новый контейнер). HAProxy только маршрутизирует по SNI.
 
 ```haproxy
 # В frontend https_sni_router, ПЕРЕД default_backend (R4 mitigation):
-acl is_vless_ws req_ssl_sni -i ws.example.com
-use_backend nginx_tier2 if is_vless_ws
+acl is_tier2_ws req_ssl_sni -i ws.example.com
+use_backend nginx_tier2 if is_tier2_ws
 
 # Единый backend для всех Tier 2 транспортов:
 backend nginx_tier2
     mode tcp
-    server nginx vless_nginx_tier2:8448 check inter 10s fall 3 rise 2
+    server nginx familytraffic-nginx_tier2:8448 check inter 10s fall 3 rise 2
 ```
 
 **Nginx конфигурация** (TLS termination → plaintext WebSocket к Xray):
@@ -877,7 +877,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
     location /vless-ws {
-        proxy_pass http://vless_xray:8444;   # plaintext к Xray
+        proxy_pass http://familytraffic:8444;   # plaintext к Xray
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -919,8 +919,8 @@ vless://${UUID}@ws.example.com:443?encryption=none&security=tls&sni=ws.example.c
 **HAProxy конфигурация** (к тому же единому `nginx_tier2` backend):
 
 ```haproxy
-acl is_vless_xhttp req_ssl_sni -i xhttp.example.com
-use_backend nginx_tier2 if is_vless_xhttp
+acl is_tier2_xhttp req_ssl_sni -i xhttp.example.com
+use_backend nginx_tier2 if is_tier2_xhttp
 # backend nginx_tier2 уже определён в секции 8.2 (shared с WS и gRPC)
 ```
 
@@ -935,7 +935,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
     location /api/v2 {
-        proxy_pass http://vless_xray:8445;   # plaintext к Xray
+        proxy_pass http://familytraffic:8445;   # plaintext к Xray
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_buffering off;
@@ -974,8 +974,8 @@ server {
 **HAProxy конфигурация** (к тому же `nginx_tier2` backend):
 
 ```haproxy
-acl is_vless_grpc req_ssl_sni -i grpc.example.com
-use_backend nginx_tier2 if is_vless_grpc
+acl is_tier2_grpc req_ssl_sni -i grpc.example.com
+use_backend nginx_tier2 if is_tier2_grpc
 # backend nginx_tier2 уже определён в секции 8.2 (shared с WS и XHTTP)
 ```
 
@@ -993,7 +993,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
     location /GunService/ {
-        grpc_pass grpc://vless_xray:8446;   # plaintext gRPC к Xray
+        grpc_pass grpc://familytraffic:8446;   # plaintext gRPC к Xray
         grpc_read_timeout 300s;
         grpc_send_timeout 300s;
         grpc_buffer_size 4k;
@@ -1077,7 +1077,7 @@ curl -o /dev/null -s -w "%{speed_download}" \
 └── ⏳ v5.25: Добавить test_xtls_vision_enabled() (TC-01) в security_tests.sh
 
 2026 Q2: Tier 2 — WebSocket + XHTTP + gRPC [ТЕКУЩИЙ ПРИОРИТЕТ]
-├── v5.30: vless_nginx_tier2 контейнер + WebSocket transport
+├── v5.30: familytraffic-nginx_tier2 контейнер + WebSocket transport
 │          (lib/orchestrator.sh + haproxy_config_manager.sh + nginx_config_generator.sh)
 ├── v5.31: XHTTP/SplitHTTP transport
 ├── v5.32: gRPC transport
@@ -1123,7 +1123,7 @@ curl -o /dev/null -s -w "%{speed_download}" \
 - [ ] Тест TC-01 (`test_xtls_vision_enabled`) добавлен ← **ОСТАЛОСЬ**
 
 **Tier 2 (Транспорты) — Definition of Done:**
-- [ ] `vless_nginx_tier2` контейнер добавлен в docker-compose.yml (НОВОЕ — нет nginx на сервере)
+- [ ] `familytraffic-nginx_tier2` контейнер добавлен в docker-compose.yml (НОВОЕ — нет nginx на сервере)
 - [ ] Новые inbound-ы добавлены в `create_xray_config()` с флагом `enable_tier2` (plaintext, без TLS)
 - [ ] `generate_tier2_nginx_config()` добавлена в nginx_config_generator.sh (WS + XHTTP + gRPC)
 - [ ] HAProxy SNI routing → `nginx_tier2` (единый backend для всех Tier 2)

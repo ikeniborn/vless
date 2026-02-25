@@ -20,12 +20,12 @@
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant CLI as vless-external-proxy CLI
+    participant CLI as familytraffic-external-proxy CLI
     participant ProxyMgr as external_proxy_manager.sh
     participant ProxyDB as external_proxy.json
     participant TestProxy as Connectivity Test
 
-    Admin->>CLI: sudo vless-external-proxy add
+    Admin->>CLI: sudo familytraffic-external-proxy add
 
     Note over CLI,ProxyMgr: Phase 1: Interactive Wizard
 
@@ -84,7 +84,7 @@ sequenceDiagram
     Note over ProxyMgr,Admin: Phase 6: Success Response
 
     ProxyMgr->>CLI: Success:<br/>- Proxy ID: proxy-us-east<br/>- Connectivity: ✓ Tested<br/>- Status: Enabled
-    CLI->>Admin: ✓ External proxy added successfully<br/><br/>Proxy ID: proxy-us-east<br/>Type: socks5s<br/>Address: proxy-us.example.com:1080<br/>Status: ✓ Enabled<br/><br/>Use this proxy ID to assign to users:<br/> sudo vless set-proxy <username> proxy-us-east
+    CLI->>Admin: ✓ External proxy added successfully<br/><br/>Proxy ID: proxy-us-east<br/>Type: socks5s<br/>Address: proxy-us.example.com:1080<br/>Status: ✓ Enabled<br/><br/>Use this proxy ID to assign to users:<br/> sudo familytraffic set-proxy <username> proxy-us-east
 ```
 
 ---
@@ -105,7 +105,7 @@ sequenceDiagram
     participant XrayConfig as xray_config.json
     participant Xray as Xray Container
 
-    Admin->>CLI: sudo vless set-proxy alice proxy-us-east
+    Admin->>CLI: sudo familytraffic set-proxy alice proxy-us-east
 
     Note over CLI,UserMgmt: Phase 1: Validation
 
@@ -122,7 +122,7 @@ sequenceDiagram
 
     Note over UserMgmt,UsersDB: Phase 2: Acquire Lock
 
-    UserMgmt->>Lock: flock -w 10 /var/lock/vless_users.lock
+    UserMgmt->>Lock: flock -w 10 /var/lock/familytraffic_users.lock
     Lock-->>UserMgmt: ✓ Lock acquired
 
     Note over UserMgmt,UsersDB: Phase 3: Update User Database
@@ -155,7 +155,7 @@ sequenceDiagram
 
     Note over XrayRouting,Xray: Phase 5: Reload Xray
 
-    XrayRouting->>Xray: docker exec vless_xray kill -HUP $(pgrep xray)
+    XrayRouting->>Xray: docker exec familytraffic kill -HUP $(pgrep xray)
     Xray->>Xray: Reload configuration<br/>(graceful, no downtime)
     Xray-->>XrayRouting: ✓ Config reloaded
 
@@ -183,7 +183,7 @@ sequenceDiagram
     participant XrayConfig as xray_config.json
     participant Xray as Xray Container
 
-    Admin->>CLI: sudo vless set-proxy alice none
+    Admin->>CLI: sudo familytraffic set-proxy alice none
 
     Note over CLI,UserMgmt: Phase 1: Validation
 
@@ -194,7 +194,7 @@ sequenceDiagram
 
     Note over UserMgmt,UsersDB: Phase 2: Acquire Lock
 
-    UserMgmt->>Lock: flock -w 10 /var/lock/vless_users.lock
+    UserMgmt->>Lock: flock -w 10 /var/lock/familytraffic_users.lock
     Lock-->>UserMgmt: ✓ Lock acquired
 
     Note over UserMgmt,UsersDB: Phase 3: Update User Database
@@ -224,7 +224,7 @@ sequenceDiagram
 
     Note over XrayRouting,Xray: Phase 5: Reload Xray
 
-    XrayRouting->>Xray: docker exec vless_xray kill -HUP $(pgrep xray)
+    XrayRouting->>Xray: docker exec familytraffic kill -HUP $(pgrep xray)
     Xray->>Xray: Reload configuration
     Xray-->>XrayRouting: ✓ Config reloaded
 
@@ -249,7 +249,7 @@ sequenceDiagram
     participant UsersDB as users.json
     participant ProxyDB as external_proxy.json
 
-    Admin->>CLI: sudo vless show-proxy alice
+    Admin->>CLI: sudo familytraffic show-proxy alice
 
     CLI->>UserMgmt: cmd_show_user_proxy("alice")
 
@@ -278,7 +278,7 @@ sequenceDiagram
     participant UsersDB as users.json
     participant ProxyDB as external_proxy.json
 
-    Admin->>CLI: sudo vless list-proxy-assignments
+    Admin->>CLI: sudo familytraffic list-proxy-assignments
 
     CLI->>UserMgmt: cmd_list_proxy_assignments()
 
@@ -308,14 +308,14 @@ sequenceDiagram
     participant UserMgmt
     participant ProxyDB
 
-    Admin->>CLI: sudo vless set-proxy alice proxy-invalid
+    Admin->>CLI: sudo familytraffic set-proxy alice proxy-invalid
     CLI->>UserMgmt: cmd_set_user_proxy("alice", "proxy-invalid")
 
     UserMgmt->>ProxyDB: Check proxy exists (proxy-invalid)
     ProxyDB-->>UserMgmt: ✗ Not found in external_proxy.json
 
     UserMgmt->>CLI: Error: Proxy ID proxy-invalid not found
-    CLI->>Admin: ✗ ERROR: Proxy ID proxy-invalid does not exist<br/><br/>Available proxies:<br/> - proxy-us-east (US East Proxy)<br/> - proxy-eu-west (EU West Proxy)<br/><br/>List all proxies with:<br/> sudo vless-external-proxy list
+    CLI->>Admin: ✗ ERROR: Proxy ID proxy-invalid does not exist<br/><br/>Available proxies:<br/> - proxy-us-east (US East Proxy)<br/> - proxy-eu-west (EU West Proxy)<br/><br/>List all proxies with:<br/> sudo familytraffic-external-proxy list
 ```
 
 ### Scenario 2: Proxy Disabled
@@ -327,14 +327,14 @@ sequenceDiagram
     participant UserMgmt
     participant ProxyDB
 
-    Admin->>CLI: sudo vless set-proxy alice proxy-disabled
+    Admin->>CLI: sudo familytraffic set-proxy alice proxy-disabled
     CLI->>UserMgmt: cmd_set_user_proxy("alice", "proxy-disabled")
 
     UserMgmt->>ProxyDB: Check proxy enabled
     ProxyDB-->>UserMgmt: ✗ Proxy disabled (enabled: false)
 
     UserMgmt->>CLI: Error: Proxy proxy-disabled is disabled
-    CLI->>Admin: ✗ ERROR: Proxy proxy-disabled is disabled<br/><br/>Enable proxy first with:<br/> sudo vless-external-proxy enable proxy-disabled<br/><br/>Or assign different proxy
+    CLI->>Admin: ✗ ERROR: Proxy proxy-disabled is disabled<br/><br/>Enable proxy first with:<br/> sudo familytraffic-external-proxy enable proxy-disabled<br/><br/>Or assign different proxy
 ```
 
 ### Scenario 3: Connectivity Test Failed
@@ -346,7 +346,7 @@ sequenceDiagram
     participant ProxyMgr
     participant TestProxy
 
-    Admin->>CLI: sudo vless-external-proxy add
+    Admin->>CLI: sudo familytraffic-external-proxy add
     CLI->>Admin: (Interactive wizard collects details)
     Admin->>CLI: Test connectivity: Y
 
@@ -435,7 +435,7 @@ stateDiagram-v2
 
 - [dependencies.yaml](../../yaml/dependencies.yaml) - Runtime dependencies for proxy assignment
 - [lib-modules.yaml](../../yaml/lib-modules.yaml) - external_proxy_manager.sh and xray_routing_manager.sh functions
-- [cli.yaml](../../yaml/cli.yaml) - CLI command specifications (vless set-proxy, vless-external-proxy add)
+- [cli.yaml](../../yaml/cli.yaml) - CLI command specifications (vless set-proxy, familytraffic-external-proxy add)
 - [config.yaml](../../yaml/config.yaml) - users.json and external_proxy.json relationships
 - [data-flows.yaml](../../yaml/data-flows.yaml) - External proxy routing flow
 - [External Proxy Flow](../data-flows/external-proxy-flow.md) - Visual traffic flow diagram

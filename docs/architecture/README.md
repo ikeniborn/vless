@@ -1,4 +1,4 @@
-# VLESS + Reality VPN - Architecture Documentation
+# familyTraffic VPN - Architecture Documentation
 
 **Version:** v5.26
 **Last Updated:** 2026-01-07
@@ -8,7 +8,7 @@
 
 ## Overview
 
-This directory contains **comprehensive, machine-readable architecture documentation** for the VLESS + Reality VPN project. The documentation is structured in modular YAML files and visualized with Mermaid diagrams.
+This directory contains **comprehensive, machine-readable architecture documentation** for the familyTraffic VPN project. The documentation is structured in modular YAML files and visualized with Mermaid diagrams.
 
 **Target Audience:**
 - Developers (understanding code structure)
@@ -113,7 +113,7 @@ Visualize infrastructure and deployment:
 |---------|-------------|------|--------|
 | **Docker Topology** | Container network, volumes, ports | docker-topology.md | 📝 Planned |
 | **Port Mapping** | Public/internal port allocation | port-mapping.md | 📝 Planned |
-| **Filesystem Layout** | /opt/vless/ directory structure | filesystem-layout.md | 📝 Planned |
+| **Filesystem Layout** | /opt/familytraffic/ directory structure | filesystem-layout.md | 📝 Planned |
 
 #### Dependency Diagrams (3 diagrams)
 
@@ -146,13 +146,13 @@ Schemas for automated validation of YAML files:
 
 ### Docker Architecture (yaml/docker.yaml)
 - **6 Containers:**
-  - `vless_haproxy` - Unified TLS termination & SNI router
-  - `vless_xray` - VLESS Reality + SOCKS5/HTTP handler
-  - `vless_nginx_reverseproxy` - Subdomain reverse proxy
-  - `vless_certbot_nginx` - Certificate validation (on-demand)
-  - `vless_fake_site` - Camouflage layer (anti-detection)
-  - `vless_mtproxy` - Telegram MTProxy (v6.0+ planned)
-- **Network:** vless_reality_net (bridge, 172.20.0.0/16)
+  - `familytraffic-haproxy` - Unified TLS termination & SNI router
+  - `familytraffic` - VLESS Reality + SOCKS5/HTTP handler
+  - `familytraffic-nginx` - Subdomain reverse proxy
+  - `familytraffic-certbot` - Certificate validation (on-demand)
+  - `familytraffic-fake-site` - Camouflage layer (anti-detection)
+  - `familytraffic-mtproxy` - Telegram MTProxy (v6.0+ planned)
+- **Network:** familytraffic_net (bridge, 172.20.0.0/16)
 - **Port Allocation:**
   - `443` - HTTPS/TLS (VLESS + Reverse Proxy)
   - `1080` - SOCKS5 over TLS
@@ -174,9 +174,9 @@ Schemas for automated validation of YAML files:
 - **External Proxy:** Per-user upstream routing (v5.24+)
 
 ### CLI Interface (yaml/cli.yaml)
-- **vless** - Main CLI (user management, system status)
-- **vless-external-proxy** - Upstream proxy management (v5.24+)
-- **vless-proxy** - Reverse proxy domain management
+- **familytraffic** - Main CLI (user management, system status)
+- **familytraffic-external-proxy** - Upstream proxy management (v5.24+)
+- **familytraffic-proxy** - Reverse proxy domain management
 - **mtproxy** - MTProxy management (v6.0+ planned)
 
 ### Library Modules (yaml/lib-modules.yaml)
@@ -222,7 +222,7 @@ This architecture documentation **COMPLEMENTS** existing project docs:
 npm install -g ajv-cli
 
 # Navigate to architecture directory
-cd /home/ikeniborn/Documents/Project/vless/docs/architecture
+cd /home/ikeniborn/Documents/Project/familyTraffic/docs/architecture
 
 # Validate all YAML files (when schemas are available)
 ajv validate -s schemas/docker-schema.json -d yaml/docker.yaml
@@ -291,7 +291,7 @@ Mermaid diagrams can be validated by:
 
 ## Skills System Integration
 
-**Location:** `../../.claude/skills/` (in VLESS project root)
+**Location:** `../../.claude/skills/` (in familyTraffic project root)
 **Purpose:** Automated workflows leveraging this architecture documentation
 
 ### How Skills Use YAML Documentation
@@ -452,7 +452,7 @@ If you find inaccuracies or missing information:
 
 ---
 
-**Maintained By:** VLESS + Reality VPN Project Team
+**Maintained By:** familyTraffic VPN Project Team
 **Documentation Status:** ✅ COMPREHENSIVE (Core complete, diagrams in progress)
 **Last Updated:** 2026-01-07
 

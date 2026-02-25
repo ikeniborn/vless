@@ -1,4 +1,4 @@
-# VLESS + Reality VPN — Руководство
+# familyTraffic VPN — Руководство
 
 **v5.33** · [← README](../README.md)
 
@@ -57,14 +57,14 @@ sudo ./install.sh
 
 По окончании установщик выведет URI и QR код для первого пользователя.
 
-**Файлы устанавливаются в `/opt/vless/`:**
+**Файлы устанавливаются в `/opt/familytraffic/`:**
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/
 │   ├── xray_config.json         # Конфигурация Xray
-│   ├── nginx/nginx.conf         # Конфигурация vless_nginx (stream + http)
-│   ├── reverse-proxy/           # Конфиги vless_nginx_reverseproxy (если включён)
+│   ├── nginx/nginx.conf         # Конфигурация familytraffic-nginx (stream + http)
+│   ├── reverse-proxy/           # Конфиги familytraffic-nginx (если включён)
 │   └── keys/                    # Reality ключи (private.key, public.key)
 ├── data/
 │   ├── users.json               # База пользователей
@@ -79,10 +79,10 @@ sudo ./install.sh
 
 | Контейнер | Назначение | Всегда |
 |---|---|---|
-| `vless_nginx` | SNI routing (443), TLS termination (1080/8118), Tier 2 http block (8448) | ✅ |
-| `vless_xray` | VLESS Reality + SOCKS5 + HTTP + Tier 2 inbounds | ✅ |
-| `vless_fake_site` | Fallback сайт для Reality handshake | ✅ |
-| `vless_nginx_reverseproxy` | Reverse proxy к внешним сайтам (поддомены) | Опционально |
+| `familytraffic-nginx` | SNI routing (443), TLS termination (1080/8118), Tier 2 http block (8448) | ✅ |
+| `familytraffic` | VLESS Reality + SOCKS5 + HTTP + Tier 2 inbounds | ✅ |
+| `familytraffic-fake-site` | Fallback сайт для Reality handshake | ✅ |
+| `familytraffic-nginx` | Reverse proxy к внешним сайтам (поддомены) | Опционально |
 
 **CLI-инструменты** после установки:
 ```
@@ -99,19 +99,19 @@ sudo ./install.sh
 ### Добавить пользователя
 
 ```bash
-sudo vless add-user <name>
+sudo familytraffic add-user <name>
 ```
 
 Команда:
 - Генерирует UUID и fingerprint
 - Добавляет пользователя в `xray_config.json` с `flow: xtls-rprx-vision`
 - Выводит VLESS URI и QR код
-- Создаёт конфиги в `/opt/vless/data/clients/<name>/`
+- Создаёт конфиги в `/opt/familytraffic/data/clients/<name>/`
 
 ### Показать пользователя
 
 ```bash
-sudo vless show-user <name>
+sudo familytraffic show-user <name>
 ```
 
 Выводит URI, QR код, SOCKS5/HTTP прокси URI (если прокси включён).
@@ -119,13 +119,13 @@ sudo vless show-user <name>
 ### Список пользователей
 
 ```bash
-sudo vless list-users
+sudo familytraffic list-users
 ```
 
 ### Удалить пользователя
 
 ```bash
-sudo vless remove-user <name>
+sudo familytraffic remove-user <name>
 ```
 
 ### Миграция на XTLS Vision
@@ -133,7 +133,7 @@ sudo vless remove-user <name>
 Если на сервере есть пользователи без поля `flow` (созданные до v5.25):
 
 ```bash
-sudo vless migrate-vision
+sudo familytraffic migrate-vision
 ```
 
 ---
@@ -143,7 +143,7 @@ sudo vless migrate-vision
 ### Получить URI
 
 ```bash
-sudo vless show-user <name>
+sudo familytraffic show-user <name>
 ```
 
 URI имеет формат:
@@ -183,7 +183,7 @@ vless://UUID@SERVER:443?encryption=none&flow=xtls-rprx-vision&security=reality&s
 
 ## 5. SOCKS5 и HTTP прокси
 
-Прокси использует TLS-терминацию через `vless_nginx`. Нужен домен с сертификатом.
+Прокси использует TLS-терминацию через `familytraffic-nginx`. Нужен домен с сертификатом.
 
 ### Схемы подключения
 
@@ -222,7 +222,7 @@ npm config set proxy https://username:password@DOMAIN:8118
 }
 ```
 
-Готовые файлы конфигурации для каждого пользователя — в `/opt/vless/data/clients/<name>/`.
+Готовые файлы конфигурации для каждого пользователя — в `/opt/familytraffic/data/clients/<name>/`.
 
 ---
 
@@ -234,34 +234,34 @@ Tier 2 транспорты используют TLS-терминацию чер
 ### Архитектура Tier 2
 
 ```
-Client → TCP:443 → vless_nginx (ssl_preread)
+Client → TCP:443 → familytraffic-nginx (ssl_preread)
   └─ SNI ws.domain → 127.0.0.1:8448 (http block)
-       └─ proxy_pass → vless_xray:8444 (WS plaintext)
+       └─ proxy_pass → familytraffic:8444 (WS plaintext)
 ```
 
 ### Включить транспорт
 
 ```bash
-sudo vless add-transport ws   ws.yourdomain.com
-sudo vless add-transport xhttp xhttp.yourdomain.com
-sudo vless add-transport grpc  grpc.yourdomain.com
+sudo familytraffic add-transport ws   ws.yourdomain.com
+sudo familytraffic add-transport xhttp xhttp.yourdomain.com
+sudo familytraffic add-transport grpc  grpc.yourdomain.com
 ```
 
 Команда:
 - Добавляет inbound в `xray_config.json` (не затрагивает существующих пользователей)
 - Обновляет `nginx.conf`: SNI map + http server block
-- Перезагружает `vless_nginx` (zero-downtime) и перезапускает `vless_xray`
+- Перезагружает `familytraffic-nginx` (zero-downtime) и перезапускает `familytraffic`
 
 ### Список активных транспортов
 
 ```bash
-sudo vless list-transports
+sudo familytraffic list-transports
 ```
 
 ### Отключить транспорт
 
 ```bash
-sudo vless remove-transport ws
+sudo familytraffic remove-transport ws
 ```
 
 ### URI для Tier 2
@@ -288,7 +288,7 @@ Reverse proxy открывает внешний сайт через ваш по�
 ### Добавить
 
 ```bash
-sudo vless-proxy add
+sudo familytraffic-proxy add
 ```
 
 Интерактивный wizard запросит:
@@ -301,9 +301,9 @@ sudo vless-proxy add
 ### Управление
 
 ```bash
-sudo vless-proxy list              # Список всех routes
-sudo vless-proxy show <domain>     # Детали конкретного route
-sudo vless-proxy remove <domain>   # Удалить route
+sudo familytraffic-proxy list              # Список всех routes
+sudo familytraffic-proxy show <domain>     # Детали конкретного route
+sudo familytraffic-proxy remove <domain>   # Удалить route
 ```
 
 ---
@@ -316,31 +316,31 @@ External proxy — upstream proxy, через который Xray пробрас
 
 ```bash
 # Добавить proxy
-sudo vless-external-proxy add
+sudo familytraffic-external-proxy add
 # Wizard запросит: тип (socks5/http), адрес, порт, credentials
 
 # Активировать
-sudo vless-external-proxy switch <proxy-id>
-sudo vless-external-proxy enable
+sudo familytraffic-external-proxy switch <proxy-id>
+sudo familytraffic-external-proxy enable
 
 # Статус
-sudo vless-external-proxy status
+sudo familytraffic-external-proxy status
 ```
 
 ### Per-user: у каждого пользователя свой proxy
 
 ```bash
 # Назначить proxy пользователю
-sudo vless set-proxy alice proxy-id
+sudo familytraffic set-proxy alice proxy-id
 
 # Вернуть на direct routing
-sudo vless set-proxy alice none
+sudo familytraffic set-proxy alice none
 
 # Показать назначение
-sudo vless show-proxy alice
+sudo familytraffic show-proxy alice
 
 # Список всех назначений
-sudo vless list-proxy-assignments
+sudo familytraffic list-proxy-assignments
 ```
 
 Per-user proxy работает только для VLESS (email-based routing). SOCKS5/HTTP прокси не поддерживают user-based routing.
@@ -352,9 +352,9 @@ Per-user proxy работает только для VLESS (email-based routing).
 Certbot обновляет сертификаты автоматически через `--deploy-hook`. После обновления хук:
 
 1. Валидирует новые файлы сертификата
-2. Проверяет здоровье контейнеров `vless_nginx` и `vless_xray`
+2. Проверяет здоровье контейнеров `familytraffic-nginx` и `familytraffic`
 3. Выполняет `nginx -s reload` (zero-downtime)
-4. Перезапускает `vless_xray`
+4. Перезапускает `familytraffic`
 
 **Принудительное обновление:**
 ```bash
@@ -368,8 +368,8 @@ RENEWED_DOMAINS="yourdomain.com" sudo /usr/local/bin/familytraffic-cert-renew
 
 **Логи:**
 ```
-/opt/vless/logs/certbot-renew.log
-/opt/vless/logs/certbot-renew-metrics.json
+/opt/familytraffic/logs/certbot-renew.log
+/opt/familytraffic/logs/certbot-renew-metrics.json
 ```
 
 ---
@@ -379,35 +379,35 @@ RENEWED_DOMAINS="yourdomain.com" sudo /usr/local/bin/familytraffic-cert-renew
 ### Статус
 
 ```bash
-sudo vless status           # Контейнеры, пользователи, прокси, транспорты
+sudo familytraffic status           # Контейнеры, пользователи, прокси, транспорты
 docker ps                   # Детальный статус контейнеров
 ```
 
 ### Логи
 
 ```bash
-sudo vless logs xray        # Xray логи
-sudo vless logs nginx       # Nginx логи
-sudo vless logs all         # Все логи
-docker logs vless_xray --tail 50
-docker logs vless_nginx --tail 50
+sudo familytraffic logs xray        # Xray логи
+sudo familytraffic logs nginx       # Nginx логи
+sudo familytraffic logs all         # Все логи
+docker logs familytraffic --tail 50
+docker logs familytraffic-nginx --tail 50
 ```
 
 ### Тесты безопасности
 
 ```bash
-sudo vless test-security            # Полный набор тестов
-sudo vless test-security --quick    # Без packet capture
+sudo familytraffic test-security            # Полный набор тестов
+sudo familytraffic test-security --quick    # Без packet capture
 ```
 
 ### Проверка конфигурации
 
 ```bash
 # Nginx
-docker exec vless_nginx nginx -t
+docker exec familytraffic-nginx nginx -t
 
 # Xray JSON
-jq empty /opt/vless/config/xray_config.json && echo "OK"
+jq empty /opt/familytraffic/config/xray_config.json && echo "OK"
 
 # Порты
 sudo ss -tulnp | grep -E '443|1080|8118'
@@ -419,32 +419,32 @@ sudo ss -tulnp | grep -E '443|1080|8118'
 
 Xray должен слушать на `8443`, не `443`. Проверить:
 ```bash
-jq '.inbounds[0].port' /opt/vless/config/xray_config.json  # должно быть 8443
+jq '.inbounds[0].port' /opt/familytraffic/config/xray_config.json  # должно быть 8443
 ```
 
 **Nginx не запускается**
 
 ```bash
-docker exec vless_nginx nginx -t  # покажет ошибку в конфиге
-docker logs vless_nginx --tail 30
+docker exec familytraffic-nginx nginx -t  # покажет ошибку в конфиге
+docker logs familytraffic-nginx --tail 30
 ```
 
 **Нет интернета в контейнерах (UFW блокирует Docker)**
 
 ```bash
 # Проверить
-docker exec vless_xray ping -c 1 8.8.8.8
+docker exec familytraffic ping -c 1 8.8.8.8
 
 # Исправить — добавить в /etc/ufw/after.rules Docker-цепочки, затем:
 sudo ufw reload
 ```
 
-**Cert renewal падает — vless_nginx не запущен**
+**Cert renewal падает — familytraffic-nginx не запущен**
 
 ```bash
-docker start vless_nginx
+docker start familytraffic-nginx
 # Затем повторить:
-RENEWED_DOMAINS="domain" sudo vless-cert-renew
+RENEWED_DOMAINS="domain" sudo familytraffic-cert-renew
 ```
 
 ---
@@ -452,11 +452,11 @@ RENEWED_DOMAINS="domain" sudo vless-cert-renew
 ## 11. Удаление
 
 ```bash
-sudo /opt/vless/scripts/vless-uninstall
+sudo /opt/familytraffic/scripts/vless-uninstall
 ```
 
-Создаёт резервную копию в `/tmp/vless_backup_YYYYMMDD/`, затем удаляет:
-- `/opt/vless/`
+Создаёт резервную копию в `/tmp/familytraffic_backup_YYYYMMDD/`, затем удаляет:
+- `/opt/familytraffic/`
 - Docker-контейнеры и volumes
 - UFW-правила
 - Симлинки в `/usr/local/bin/`

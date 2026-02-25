@@ -275,15 +275,15 @@ verify_docker_network() {
     log_info "Verification 3/8: Checking Docker network..."
 
     # Check if network exists
-    if ! docker network inspect vless_reality_net &>/dev/null; then
-        log_error "Docker network 'vless_reality_net' does not exist"
+    if ! docker network inspect familytraffic_reality_net &>/dev/null; then
+        log_error "Docker network 'familytraffic_reality_net' does not exist"
         echo ""
         return 1
     fi
 
     # Verify network configuration
-    local subnet=$(docker network inspect vless_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || echo "")
-    local driver=$(docker network inspect vless_reality_net -f '{{.Driver}}' 2>/dev/null || echo "")
+    local subnet=$(docker network inspect familytraffic_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || echo "")
+    local driver=$(docker network inspect familytraffic_reality_net -f '{{.Driver}}' 2>/dev/null || echo "")
 
     if [[ -z "$subnet" ]]; then
         log_error "Could not determine network subnet"
@@ -298,7 +298,7 @@ verify_docker_network() {
     fi
 
     # Verify network is isolated
-    local network_id=$(docker network inspect vless_reality_net -f '{{.Id}}' 2>/dev/null | cut -c1-12)
+    local network_id=$(docker network inspect familytraffic_reality_net -f '{{.Id}}' 2>/dev/null | cut -c1-12)
     if [[ -n "$network_id" ]]; then
         log_success "Network ID: $network_id"
     fi
@@ -371,17 +371,17 @@ verify_containers() {
 
     # Check if containers are on the correct network
     local xray_networks=$(docker inspect familytraffic -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
-    if [[ "$xray_networks" =~ vless_reality_net ]]; then
-        log_success "Container 'familytraffic' is connected to vless_reality_net"
+    if [[ "$xray_networks" =~ familytraffic_reality_net ]]; then
+        log_success "Container 'familytraffic' is connected to familytraffic_reality_net"
     else
-        log_error "Container 'familytraffic' is not connected to vless_reality_net (networks: $xray_networks)"
+        log_error "Container 'familytraffic' is not connected to familytraffic_reality_net (networks: $xray_networks)"
     fi
 
     local nginx_networks=$(docker inspect familytraffic -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
-    if [[ "$nginx_networks" =~ vless_reality_net ]]; then
-        log_success "Container 'familytraffic' is connected to vless_reality_net"
+    if [[ "$nginx_networks" =~ familytraffic_reality_net ]]; then
+        log_success "Container 'familytraffic' is connected to familytraffic_reality_net"
     else
-        log_error "Container 'familytraffic' is not connected to vless_reality_net (networks: $nginx_networks)"
+        log_error "Container 'familytraffic' is not connected to familytraffic_reality_net (networks: $nginx_networks)"
     fi
 
     # Check restart policy

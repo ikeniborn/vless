@@ -1,6 +1,6 @@
 # Architecture Documentation Validation Report
 
-**Project:** VLESS + Reality VPN
+**Project:** familyTraffic VPN
 **Version:** v5.26
 **Date:** 2026-01-07
 **Status:** ✅ **100% COMPLETE & VALIDATED**
@@ -51,7 +51,7 @@
 #### Deployment Diagrams (3/3)
 - ✅ `docker-topology.md` - 6-container architecture with network layout
 - ✅ `port-mapping.md` - Public/internal port allocation (MTProxy 8443 conflict resolution!)
-- ✅ `filesystem-layout.md` - Complete /opt/vless/ structure
+- ✅ `filesystem-layout.md` - Complete /opt/familytraffic/ structure
 
 #### Dependency Diagrams (3/3)
 - ✅ `module-dependencies.md` - 44 modules, 6-layer architecture, SLOC analysis
@@ -109,14 +109,14 @@ Architecture documentation is structurally correct!
 ### Docker Architecture (100% Coverage)
 
 **Containers Documented:**
-1. ✅ `vless_haproxy` - Unified TLS termination & SNI routing (HAProxy 2.8-alpine)
-2. ✅ `vless_xray` - VLESS Reality core (Xray 24.11.30)
-3. ✅ `vless_nginx_reverseproxy` - Subdomain reverse proxy (Nginx Alpine)
-4. ✅ `vless_certbot_nginx` - Certificate management (Nginx Alpine, on-demand)
-5. ✅ `vless_fake_site` - Fallback site (Nginx Alpine, internal only)
-6. ✅ `vless_mtproxy` - Telegram MTProxy (v6.0+ planned, custom build)
+1. ✅ `familytraffic-haproxy` - Unified TLS termination & SNI routing (HAProxy 2.8-alpine)
+2. ✅ `familytraffic` - VLESS Reality core (Xray 24.11.30)
+3. ✅ `familytraffic-nginx` - Subdomain reverse proxy (Nginx Alpine)
+4. ✅ `familytraffic-certbot` - Certificate management (Nginx Alpine, on-demand)
+5. ✅ `familytraffic-fake-site` - Fallback site (Nginx Alpine, internal only)
+6. ✅ `familytraffic-mtproxy` - Telegram MTProxy (v6.0+ planned, custom build)
 
-**Networks:** `vless_reality_net` (172.20.0.0/16 bridge)
+**Networks:** `familytraffic_net` (172.20.0.0/16 bridge)
 **Volumes:** All mounted configurations, certificates, logs documented
 **Port Allocation:** All ports documented with conflict resolution (MTProxy 8443!)
 
@@ -125,12 +125,12 @@ Architecture documentation is structurally correct!
 ### Configuration Architecture (100% Coverage)
 
 **Configuration Files:**
-1. ✅ `/opt/vless/config/xray_config.json` - Xray runtime config
-2. ✅ `/opt/vless/config/haproxy.cfg` - HAProxy unified routing
-3. ✅ `/opt/vless/config/external_proxy.json` - Upstream proxies (v5.24+)
-4. ✅ `/opt/vless/data/users.json` - User database
-5. ✅ `/opt/vless/config/reverse-proxy/*.conf` - Nginx reverse proxy configs
-6. ✅ `/opt/vless/config/mtproxy/*` - MTProxy configs (v6.0+ planned)
+1. ✅ `/opt/familytraffic/config/xray_config.json` - Xray runtime config
+2. ✅ `/opt/familytraffic/config/haproxy.cfg` - HAProxy unified routing
+3. ✅ `/opt/familytraffic/config/external_proxy.json` - Upstream proxies (v5.24+)
+4. ✅ `/opt/familytraffic/data/users.json` - User database
+5. ✅ `/opt/familytraffic/config/reverse-proxy/*.conf` - Nginx reverse proxy configs
+6. ✅ `/opt/familytraffic/config/mtproxy/*` - MTProxy configs (v6.0+ planned)
 
 **Relationships:** 6 configuration propagation paths documented
 **Reload Methods:** Graceful reload procedures for all services
@@ -141,9 +141,9 @@ Architecture documentation is structurally correct!
 ### CLI Architecture (100% Coverage)
 
 **CLI Tools:**
-1. ✅ **vless** - Main interface (13 commands)
-2. ✅ **vless-external-proxy** - Upstream proxy management (6 commands, v5.24+)
-3. ✅ **vless-proxy** - Reverse proxy domains (3 commands)
+1. ✅ **familytraffic** - Main interface (13 commands)
+2. ✅ **familytraffic-external-proxy** - Upstream proxy management (6 commands, v5.24+)
+3. ✅ **familytraffic-proxy** - Reverse proxy domains (3 commands)
 4. ✅ **mtproxy** - Telegram MTProxy management (14 commands, v6.0+ planned)
 
 **Total Commands:** 36 commands with syntax, workflows, validations
@@ -226,7 +226,7 @@ Architecture documentation is structurally correct!
 
 **Feature:** Reverse proxy domains without port numbers (https://domain.com, NOT https://domain.com:9443)
 **Routing:** HAProxy SNI inspection → Nginx backends on localhost:9443-9452
-**CLI:** `vless-proxy add` - Interactive wizard with DNS validation
+**CLI:** `familytraffic-proxy add` - Interactive wizard with DNS validation
 **Documentation:** Complete setup workflow in sequences/reverse-proxy-setup.md
 
 ---
@@ -314,7 +314,7 @@ Architecture documentation is structurally correct!
 
 ### Updating Documentation
 
-When making changes to the VLESS project:
+When making changes to the familyTraffic project:
 
 1. **Update YAML files** to reflect changes
 2. **Run validation** to ensure structural correctness:
@@ -358,7 +358,7 @@ If YAML structure needs to evolve:
 
 **User Requirement Met:** *"архитектура должна быть покрывта на 100 процентов и соответсовать текущей реализайции на 100%"*
 
-The VLESS + Reality VPN architecture is now **comprehensively documented, validated, and ready for use** by developers, DevOps engineers, and AI assistants.
+The familyTraffic VPN architecture is now **comprehensively documented, validated, and ready for use** by developers, DevOps engineers, and AI assistants.
 
 ---
 

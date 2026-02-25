@@ -155,7 +155,7 @@ graph TB
     style OAuth2Check fill:#fff9e1
 ```
 
-**Nginx Configuration Example** (`/opt/vless/config/reverse-proxy/app.example.com.conf`):
+**Nginx Configuration Example** (`/opt/familytraffic/config/reverse-proxy/app.example.com.conf`):
 ```nginx
 server {
     listen 9443 ssl http2;
@@ -296,20 +296,20 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant CLI as vless-proxy CLI
+    participant CLI as familytraffic-proxy CLI
     participant HAProxyMgr as haproxy_config_manager.sh
     participant NginxMgr as reverseproxy_db.sh
     participant HAProxy
     participant Nginx
 
-    Admin->>CLI: vless-proxy add
+    Admin->>CLI: familytraffic-proxy add
     CLI->>Admin: Interactive wizard:<br/>1. Domain name?<br/>2. Target URL?<br/>3. Advanced options?
 
     Admin->>CLI: Provide: app.example.com<br/>Target: https://backend:8443
 
     CLI->>NginxMgr: add_reverse_proxy_domain()
     NginxMgr->>NginxMgr: Allocate free port (9443)
-    NginxMgr->>NginxMgr: Generate Nginx config:<br/>/opt/vless/config/reverse-proxy/app.example.com.conf
+    NginxMgr->>NginxMgr: Generate Nginx config:<br/>/opt/familytraffic/config/reverse-proxy/app.example.com.conf
 
     NginxMgr->>HAProxyMgr: update_haproxy_dynamic_acl()
     HAProxyMgr->>HAProxyMgr: Add ACL to DYNAMIC section:<br/>acl is_app req_ssl_sni -i app.example.com<br/>use_backend nginx_app if is_app
@@ -586,13 +586,13 @@ sudo certbot certonly --standalone \
 - **Debug:**
   ```bash
   # Check Nginx backend status
-  docker logs vless_nginx_reverseproxy --tail 50
+  docker logs familytraffic-nginx --tail 50
 
   # Check HAProxy stats
   curl http://127.0.0.1:9000/stats | grep nginx_app
 
   # Test Nginx config
-  docker exec vless_nginx_reverseproxy nginx -t
+  docker exec familytraffic-nginx nginx -t
   ```
 
 **Issue 2: SNI routing not working**
@@ -600,10 +600,10 @@ sudo certbot certonly --standalone \
 - **Debug:**
   ```bash
   # Check HAProxy config for dynamic section
-  grep -A 10 "DYNAMIC_REVERSE_PROXY_ROUTES" /opt/vless/config/haproxy.cfg
+  grep -A 10 "DYNAMIC_REVERSE_PROXY_ROUTES" /opt/familytraffic/config/haproxy.cfg
 
   # Test HAProxy config
-  haproxy -c -f /opt/vless/config/haproxy.cfg
+  haproxy -c -f /opt/familytraffic/config/haproxy.cfg
   ```
 
 **Issue 3: Certificate errors (NET::ERR_CERT_COMMON_NAME_INVALID)**
@@ -614,7 +614,7 @@ sudo certbot certonly --standalone \
   openssl x509 -in /etc/letsencrypt/live/example.com/fullchain.pem -text | grep "Subject Alternative Name"
 
   # Verify Nginx SSL config
-  docker exec vless_nginx_reverseproxy nginx -T | grep ssl_certificate
+  docker exec familytraffic-nginx nginx -T | grep ssl_certificate
   ```
 
 **Issue 4: WebSocket connection fails**
@@ -628,7 +628,7 @@ sudo certbot certonly --standalone \
 - [data-flows.yaml](../../yaml/data-flows.yaml) - Complete reverse proxy flow specification
 - [docker.yaml](../../yaml/docker.yaml) - HAProxy and Nginx container configurations
 - [config.yaml](../../yaml/config.yaml) - HAProxy ACL and Nginx config relationships
-- [cli.yaml](../../yaml/cli.yaml) - vless-proxy CLI commands
+- [cli.yaml](../../yaml/cli.yaml) - familytraffic-proxy CLI commands
 - [VLESS Reality Flow](vless-reality-flow.md) - VPN protocol flow
 - [SOCKS5 Proxy Flow](socks5-proxy-flow.md) - SOCKS5 proxy flow
 - [HTTP Proxy Flow](http-proxy-flow.md) - HTTP proxy flow

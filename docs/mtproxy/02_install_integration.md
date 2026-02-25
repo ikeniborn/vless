@@ -65,7 +65,7 @@ Step 5:  Install missing dependencies
 Step 6:  Detect old installations
 Step 7:  Collect installation parameters
 Step 7.5: Acquire TLS certificate (if public proxy + TLS enabled)
-Step 8:  Orchestrate installation (create /opt/vless)
+Step 8:  Orchestrate installation (create /opt/familytraffic)
 Step 9:  Verify installation
 Step 9.5: Save version file
 Step 10: Display sudoers configuration
@@ -106,7 +106,7 @@ main() {
 
     if [[ "$mtproxy_choice" =~ ^[Yy]$ ]]; then
         print_message "${COLOR_BLUE}" "Starting MTProxy installation wizard..."
-        /opt/vless/scripts/mtproxy-setup || {
+        /opt/familytraffic/scripts/mtproxy-setup || {
             print_warning "MTProxy installation failed, but VLESS installation is complete"
         }
     else
@@ -138,7 +138,7 @@ Add as Step 11, increment TOTAL_STEPS to 11:
 ### 2.3 Directory Structure After Integration
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/
 │   ├── xray_config.json              # Existing
 │   ├── haproxy.cfg                   # Existing
@@ -218,7 +218,7 @@ generate_config() {
 generate_mtproxy_docker_compose() {
     local mtproxy_port="${1:-8443}"
     local mtproxy_secret="$2"
-    local compose_file="/opt/vless/docker-compose.yml"
+    local compose_file="/opt/familytraffic/docker-compose.yml"
 
     # Append MTProxy service to existing docker-compose.yml
     cat >> "$compose_file" <<EOF
@@ -226,15 +226,15 @@ generate_mtproxy_docker_compose() {
   # MTProxy Service (v6.0)
   mtproxy:
     image: alpine:latest
-    container_name: vless_mtproxy
+    container_name: familytraffic-mtproxy
     restart: unless-stopped
     networks:
-      - vless_reality_net
+      - familytraffic_net
     ports:
       - "${mtproxy_port}:8443"  # Public MTProxy port
     volumes:
-      - /opt/vless/config/mtproxy:/etc/mtproxy:ro
-      - /opt/vless/logs/mtproxy:/var/log/mtproxy
+      - /opt/familytraffic/config/mtproxy:/etc/mtproxy:ro
+      - /opt/familytraffic/logs/mtproxy:/var/log/mtproxy
     environment:
       - TZ=UTC
       - MTPROXY_SECRET=${mtproxy_secret}
@@ -264,7 +264,7 @@ EOF
 
 ```bash
 generate_mtproxy_config() {
-    local config_file="/opt/vless/config/mtproxy/mtproxy_config.json"
+    local config_file="/opt/familytraffic/config/mtproxy/mtproxy_config.json"
     local port="${1:-8443}"
     local workers="${2:-1}"
 
@@ -292,7 +292,7 @@ EOF
 
 ```bash
 generate_secrets_db_v60() {
-    local secrets_file="/opt/vless/config/mtproxy/secrets.json"
+    local secrets_file="/opt/familytraffic/config/mtproxy/secrets.json"
     local secret="$1"
 
     cat > "$secrets_file" <<EOF
@@ -319,7 +319,7 @@ EOF
 
 ```bash
 generate_secrets_db_v61() {
-    local secrets_file="/opt/vless/config/mtproxy/secrets.json"
+    local secrets_file="/opt/familytraffic/config/mtproxy/secrets.json"
 
     # Initialize empty multi-user database
     cat > "$secrets_file" <<'EOF'
@@ -339,7 +339,7 @@ add_user_secret_v61() {
     local username="$1"
     local secret="$2"
     local secret_type="${3:-dd}"
-    local secrets_file="/opt/vless/config/mtproxy/secrets.json"
+    local secrets_file="/opt/familytraffic/config/mtproxy/secrets.json"
 
     # Use jq to add user secret
     local temp_file
@@ -368,7 +368,7 @@ add_user_secret_v61() {
 
 ```bash
 generate_proxy_secret_file() {
-    local secret_file="/opt/vless/config/mtproxy/proxy-secret"
+    local secret_file="/opt/familytraffic/config/mtproxy/proxy-secret"
 
     # Generate AES secret (32 bytes hex)
     head -c 16 /dev/urandom | xxd -ps -c 16 > "$secret_file"
@@ -391,7 +391,7 @@ generate_proxy_secret_file() {
 
 ## 4. mtproxy-setup Script Structure
 
-**Location:** `/opt/vless/scripts/mtproxy-setup`
+**Location:** `/opt/familytraffic/scripts/mtproxy-setup`
 
 **Purpose:** Interactive wizard for MTProxy installation (v6.0 base functionality).
 
@@ -412,7 +412,7 @@ generate_proxy_secret_file() {
 #
 # Requirements:
 #   - Must be run as root
-#   - VLESS installation must be complete (/opt/vless exists)
+#   - VLESS installation must be complete (/opt/familytraffic exists)
 #   - Docker and Docker Compose installed
 #
 # Exit Codes:
@@ -432,7 +432,7 @@ readonly MTPROXY_VERSION="6.0.0"
 readonly REQUIRED_VLESS_VERSION="5.33"
 
 # Installation root (HARDCODED - cannot be changed)
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
 
 # Colors for output
 readonly COLOR_RED='\033[0;31m'
@@ -468,11 +468,11 @@ check_prerequisites() {
 
     # Check VLESS version
     if [[ -f "${INSTALL_ROOT}/.version" ]]; then
-        local vless_version
-        vless_version=$(cat "${INSTALL_ROOT}/.version")
-        print_message "${COLOR_CYAN}" "  VLESS version: v${vless_version}"
+        local app_version
+        app_version=$(cat "${INSTALL_ROOT}/.version")
+        print_message "${COLOR_CYAN}" "  familytraffic version: v${app_version}"
     else
-        print_warning "VLESS version file not found, assuming compatible"
+        print_warning "familytraffic version file not found, assuming compatible"
     fi
 
     # Check Docker
@@ -695,7 +695,7 @@ integrate_with_docker_compose() {
     local compose_file="${INSTALL_ROOT}/docker-compose.yml"
 
     # Check if MTProxy service already exists
-    if grep -q "container_name: vless_mtproxy" "$compose_file" 2>/dev/null; then
+    if grep -q "container_name: familytraffic-mtproxy" "$compose_file" 2>/dev/null; then
         print_warning "MTProxy service already exists in docker-compose.yml"
         read -rp "Replace existing service? (y/n) [default=n]: " replace
         if [[ "$replace" =~ ^[Yy]$ ]]; then
@@ -759,17 +759,17 @@ deploy_mtproxy_container() {
     }
 
     # Stop existing container if running
-    if docker ps -a --format '{{.Names}}' | grep -q "^vless_mtproxy$"; then
+    if docker ps -a --format '{{.Names}}' | grep -q "^familytraffic-mtproxy$"; then
         print_message "${COLOR_CYAN}" "  Stopping existing MTProxy container..."
-        docker stop vless_mtproxy >/dev/null 2>&1 || true
-        docker rm vless_mtproxy >/dev/null 2>&1 || true
+        docker stop familytraffic-mtproxy >/dev/null 2>&1 || true
+        docker rm familytraffic-mtproxy >/dev/null 2>&1 || true
     fi
 
     # Start MTProxy service
     print_message "${COLOR_CYAN}" "  Starting MTProxy service..."
     docker compose up -d mtproxy || {
         print_error "Failed to start MTProxy container"
-        print_error "Check logs: docker logs vless_mtproxy"
+        print_error "Check logs: docker logs familytraffic-mtproxy"
         exit 1
     }
 
@@ -777,7 +777,7 @@ deploy_mtproxy_container() {
     print_message "${COLOR_CYAN}" "  Waiting for container to be ready..."
     local retries=30
     while [ $retries -gt 0 ]; do
-        if docker ps --filter "name=vless_mtproxy" --filter "health=healthy" --format '{{.Names}}' | grep -q "vless_mtproxy"; then
+        if docker ps --filter "name=familytraffic-mtproxy" --filter "health=healthy" --format '{{.Names}}' | grep -q "familytraffic-mtproxy"; then
             print_success "MTProxy container is healthy"
             return 0
         fi
@@ -864,13 +864,13 @@ display_final_instructions() {
     print_message "${COLOR_CYAN}" "Next Steps:"
     print_message "${COLOR_YELLOW}" "  1. Connect Telegram: Tap deep link or scan QR code"
     print_message "${COLOR_YELLOW}" "  2. Check status: sudo mtproxy stats"
-    print_message "${COLOR_YELLOW}" "  3. View logs: docker logs vless_mtproxy"
+    print_message "${COLOR_YELLOW}" "  3. View logs: docker logs familytraffic-mtproxy"
     echo ""
 
     print_message "${COLOR_CYAN}" "Management Commands:"
     print_message "${COLOR_YELLOW}" "  sudo mtproxy stats       # View statistics"
     print_message "${COLOR_YELLOW}" "  sudo mtproxy show-config # Show configuration"
-    print_message "${COLOR_YELLOW}" "  sudo vless status              # Overall status (includes MTProxy)"
+    print_message "${COLOR_YELLOW}" "  sudo familytraffic status              # Overall status (includes MTProxy)"
     echo ""
 
     if [[ "$MTPROXY_ENABLE_PROMOTED_CHANNEL" == "true" ]]; then
@@ -932,10 +932,10 @@ main "$@"
     build:
       context: ./docker/mtproxy
       dockerfile: Dockerfile
-    container_name: vless_mtproxy
+    container_name: familytraffic-mtproxy
     restart: unless-stopped
     networks:
-      - vless_reality_net
+      - familytraffic_net
     ports:
       - "${MTPROXY_PORT:-8443}:8443"
     volumes:
@@ -1188,7 +1188,7 @@ tg://proxy?server=1.2.3.4&port=8443&secret=dd0123456789abcdef0123456789abcdef
 Next Steps:
   1. Connect Telegram: Tap deep link or scan QR code
   2. Check status: sudo mtproxy stats
-  3. View logs: docker logs vless_mtproxy
+  3. View logs: docker logs familytraffic-mtproxy
 
 [End of installation]
 ```
@@ -1228,9 +1228,9 @@ echo ""
 
 # 1. Check directories
 echo "[1/10] Checking directory structure..."
-if [[ -d "/opt/vless/config/mtproxy" ]] && \
-   [[ -d "/opt/vless/data/mtproxy" ]] && \
-   [[ -d "/opt/vless/logs/mtproxy" ]]; then
+if [[ -d "/opt/familytraffic/config/mtproxy" ]] && \
+   [[ -d "/opt/familytraffic/data/mtproxy" ]] && \
+   [[ -d "/opt/familytraffic/logs/mtproxy" ]]; then
     echo "  ✓ Directories exist"
 else
     echo "  ✗ Missing directories"
@@ -1240,9 +1240,9 @@ fi
 # 2. Check configuration files
 echo "[2/10] Checking configuration files..."
 required_files=(
-    "/opt/vless/config/mtproxy/mtproxy_config.json"
-    "/opt/vless/config/mtproxy/secrets.json"
-    "/opt/vless/config/mtproxy/proxy-secret"
+    "/opt/familytraffic/config/mtproxy/mtproxy_config.json"
+    "/opt/familytraffic/config/mtproxy/secrets.json"
+    "/opt/familytraffic/config/mtproxy/proxy-secret"
 )
 for file in "${required_files[@]}"; do
     if [[ -f "$file" ]]; then
@@ -1255,7 +1255,7 @@ done
 
 # 3. Check Docker container
 echo "[3/10] Checking Docker container..."
-if docker ps --format '{{.Names}}' | grep -q "^vless_mtproxy$"; then
+if docker ps --format '{{.Names}}' | grep -q "^familytraffic-mtproxy$"; then
     echo "  ✓ Container running"
 else
     echo "  ✗ Container not running"
@@ -1264,7 +1264,7 @@ fi
 
 # 4. Check container health
 echo "[4/10] Checking container health..."
-health=$(docker inspect --format='{{.State.Health.Status}}' vless_mtproxy 2>/dev/null)
+health=$(docker inspect --format='{{.State.Health.Status}}' familytraffic-mtproxy 2>/dev/null)
 if [[ "$health" == "healthy" ]]; then
     echo "  ✓ Container healthy"
 else
@@ -1295,7 +1295,7 @@ fi
 
 # 7. Check secrets
 echo "[7/10] Validating secrets..."
-if jq -e '.secrets | length > 0' /opt/vless/config/mtproxy/secrets.json >/dev/null 2>&1; then
+if jq -e '.secrets | length > 0' /opt/familytraffic/config/mtproxy/secrets.json >/dev/null 2>&1; then
     echo "  ✓ Secrets configured"
 else
     echo "  ✗ No secrets found"
@@ -1304,7 +1304,7 @@ fi
 
 # 8. Check stats endpoint
 echo "[8/10] Testing stats endpoint..."
-if docker exec vless_mtproxy nc -z 127.0.0.1 8888 2>/dev/null; then
+if docker exec familytraffic-mtproxy nc -z 127.0.0.1 8888 2>/dev/null; then
     echo "  ✓ Stats endpoint accessible"
 else
     echo "  ✗ Stats endpoint not accessible"
@@ -1313,7 +1313,7 @@ fi
 
 # 9. Check client config
 echo "[9/10] Checking client configuration..."
-if [[ -f "/opt/vless/data/mtproxy/client_config.txt" ]]; then
+if [[ -f "/opt/familytraffic/data/mtproxy/client_config.txt" ]]; then
     echo "  ✓ Client config generated"
 else
     echo "  ✗ Client config missing"
@@ -1322,7 +1322,7 @@ fi
 
 # 10. Check docker-compose.yml
 echo "[10/10] Validating docker-compose.yml..."
-if grep -q "container_name: vless_mtproxy" /opt/vless/docker-compose.yml; then
+if grep -q "container_name: familytraffic-mtproxy" /opt/familytraffic/docker-compose.yml; then
     echo "  ✓ MTProxy service in docker-compose.yml"
 else
     echo "  ✗ MTProxy service not found in docker-compose.yml"
@@ -1365,7 +1365,7 @@ test_generate_secret() {
 test_container_connectivity() {
     echo "Testing container connectivity..."
 
-    if docker exec vless_mtproxy nc -z 127.0.0.1 8443; then
+    if docker exec familytraffic-mtproxy nc -z 127.0.0.1 8443; then
         echo "  ✓ MTProxy port accessible inside container"
     else
         echo "  ✗ MTProxy port NOT accessible"
@@ -1378,7 +1378,7 @@ test_stats_endpoint() {
     echo "Testing stats endpoint..."
 
     # Note: Stats endpoint requires manual trigger or client connections
-    if docker exec vless_mtproxy nc -z 127.0.0.1 8888; then
+    if docker exec familytraffic-mtproxy nc -z 127.0.0.1 8888; then
         echo "  ✓ Stats endpoint listening"
     else
         echo "  ⚠ Stats endpoint not accessible (may require client connections)"
@@ -1399,12 +1399,12 @@ test_stats_endpoint
 
 ```bash
 #!/bin/bash
-# /opt/vless/scripts/mtproxy
+# /opt/familytraffic/scripts/mtproxy
 # MTProxy management CLI (placeholder - full implementation in Phase 2)
 
 set -euo pipefail
 
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
 readonly CONFIG_DIR="${INSTALL_ROOT}/config/mtproxy"
 readonly DATA_DIR="${INSTALL_ROOT}/data/mtproxy"
 
@@ -1432,11 +1432,11 @@ cmd_stats() {
     echo ""
 
     # Container status
-    if docker ps --filter "name=vless_mtproxy" --format '{{.Names}}' | grep -q "vless_mtproxy"; then
+    if docker ps --filter "name=familytraffic-mtproxy" --format '{{.Names}}' | grep -q "familytraffic-mtproxy"; then
         print_success "Container: Running"
 
         # Health status
-        health=$(docker inspect --format='{{.State.Health.Status}}' vless_mtproxy 2>/dev/null || echo "unknown")
+        health=$(docker inspect --format='{{.State.Health.Status}}' familytraffic-mtproxy 2>/dev/null || echo "unknown")
         echo "  Health: $health"
     else
         print_error "Container: Not running"
@@ -1511,12 +1511,12 @@ esac
 
 ```bash
 #!/bin/bash
-# /opt/vless/scripts/mtproxy-uninstall
+# /opt/familytraffic/scripts/mtproxy-uninstall
 # Complete MTProxy removal
 
 set -euo pipefail
 
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
 readonly COLOR_RED='\033[0;31m'
 readonly COLOR_GREEN='\033[0;32m'
 readonly COLOR_YELLOW='\033[0;33m'
@@ -1562,11 +1562,11 @@ fi
 
 echo ""
 print_message "[1/6] Stopping MTProxy container..."
-docker stop vless_mtproxy >/dev/null 2>&1 || print_warning "Container not running"
+docker stop familytraffic-mtproxy >/dev/null 2>&1 || print_warning "Container not running"
 print_success "Container stopped"
 
 print_message "[2/6] Removing MTProxy container..."
-docker rm vless_mtproxy >/dev/null 2>&1 || print_warning "Container not found"
+docker rm familytraffic-mtproxy >/dev/null 2>&1 || print_warning "Container not found"
 print_success "Container removed"
 
 print_message "[3/6] Removing MTProxy image..."

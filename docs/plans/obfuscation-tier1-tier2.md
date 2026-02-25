@@ -26,12 +26,12 @@
 
 ## СТАТУС ВЕРИФИКАЦИИ (SSH ikenibornvpn, 2026-02-23)
 
-**Live Server:** `ikenibornvpn` | Docker: `vless_haproxy`, `vless_fake_site`, `vless_xray (healthy)`, `watchtower`, `shadowbox`
+**Live Server:** `ikenibornvpn` | Docker: `familytraffic-haproxy`, `familytraffic-fake-site`, `familytraffic (healthy)`, `watchtower`, `shadowbox`
 
 | Проверка | Результат |
 |----------|-----------|
-| Контейнеры запущены | ✓ `vless_haproxy`, `vless_xray` (healthy), `vless_fake_site` — 3 недели uptime |
-| `vless_nginx_reverseproxy` | ✗ **НЕ ЗАПУЩЕН** — reverse proxy отключён при установке |
+| Контейнеры запущены | ✓ `familytraffic-haproxy`, `familytraffic` (healthy), `familytraffic-fake-site` — 3 недели uptime |
+| `familytraffic-nginx` | ✗ **НЕ ЗАПУЩЕН** — reverse proxy отключён при установке |
 | xray inbounds count | 3 (reality:8443, socks5:10800, http:18118) |
 | Users in xray_config | 7 клиентов |
 | **flow: xtls-rprx-vision** | **✅ ВСЕ 7 ПОЛЬЗОВАТЕЛЕЙ УЖЕ ИМЕЮТ flow** |
@@ -45,7 +45,7 @@
 | # | Уровень | Проблема | Влияние |
 |---|---------|----------|---------|
 | **P1** | 🔴 КРИТИЧЕСКАЯ | WS/XHTTP inbounds не имеют `tlsSettings` — HAProxy делает `mode tcp` passthrough, Xray не сможет декодировать TLS | WS/XHTTP клиенты не подключатся |
-| **P2** | 🔴 КРИТИЧЕСКАЯ | `vless_nginx_reverseproxy` не существует на сервере — нужен новый контейнер для TLS-терминации Tier 2 | gRPC не запустится |
+| **P2** | 🔴 КРИТИЧЕСКАЯ | `familytraffic-nginx` не существует на сервере — нужен новый контейнер для TLS-терминации Tier 2 | gRPC не запустится |
 | **P3** | 🔴 КРИТИЧЕСКАЯ | `generate_haproxy_config()` параметр $5 занят `enable_reverse_proxy` — план предлагает ws_subdomain как $5, что ломает существующий код | Коллизия параметров |
 | **P4** | 🟡 СРЕДНЯЯ | `generate_transport_uri()` в case `reality` обращается к `$username` — переменная не определена в scope функции | Runtime ошибка |
 | **P5** | 🟡 СРЕДНЯЯ | HAProxy backend для WS/XHTTP указывает на Xray (8444/8445) напрямую, но TLS терминируется в Nginx → бэкенд должен указывать на Nginx | Неправильная архитектура |
@@ -61,9 +61,9 @@
 
 | Phase | Версия | Изменения | Файлы | Примечание |
 |-------|--------|-----------|-------|------------|
-| **Phase 0** | v5.30 | **Миграция HAProxy → единый Nginx.** `vless_nginx` (stream+http) заменяет `vless_haproxy` + `vless_nginx_tier2`. Cert renewal hook упрощается. | 4 файла | Предпосылка для Phase 2 |
+| **Phase 0** | v5.30 | **Миграция HAProxy → единый Nginx.** `familytraffic-nginx` (stream+http) заменяет `familytraffic-haproxy` + `familytraffic-nginx_tier2`. Cert renewal hook упрощается. | 4 файла | Предпосылка для Phase 2 |
 | **Phase 1** | v5.25 | ~~XTLS Vision~~ уже реализован. Остаток: исправить `validate_vless_uri()` (flow conditional), добавить `test_xtls_vision_enabled()` (TC-01), safety-net `migrate_xtls_vision()` | 2 файла | 95% выполнено на сервере |
-| **Phase 2** | v5.30-v5.33 | WS/XHTTP/gRPC inbounds в Xray + extend `vless_nginx` (Phase 0) Tier 2 http-блоком + CLI управление. **`vless_nginx_tier2` НЕ нужен** — всё в одном контейнере | 5 новых/изменённых файлов | Строится на Phase 0 |
+| **Phase 2** | v5.30-v5.33 | WS/XHTTP/gRPC inbounds в Xray + extend `familytraffic-nginx` (Phase 0) Tier 2 http-блоком + CLI управление. **`familytraffic-nginx_tier2` НЕ нужен** — всё в одном контейнере | 5 новых/изменённых файлов | Строится на Phase 0 |
 
 ### Ключевое открытие верификации
 
@@ -129,10 +129,10 @@ local required_params=("encryption" "flow" "security" "sni" "fp" "pbk" "sid" "ty
 Client (VLESS Reality)
     │ TCP:443 (с flow=xtls-rprx-vision в новых версиях)
     ▼
-HAProxy vless_haproxy (SNI passthrough, mode tcp)
+HAProxy familytraffic-haproxy (SNI passthrough, mode tcp)
     │ default_backend → xray_vless (Reality не имеет server SNI)
     ▼
-Xray vless_xray:8443 (VLESS + Reality)
+Xray familytraffic:8443 (VLESS + Reality)
     │ flow: xtls-rprx-vision (новые пользователи)
     ▼
 Internet
@@ -140,39 +140,39 @@ Internet
 
 ### Целевая архитектура (Phase 0 + Tier 2) — Вариант A: единый Nginx
 
-> **Изменение vs. исходного плана:** Phase 0 вводит `vless_nginx` (nginx stream+http), который полностью заменяет `vless_haproxy`. Phase 2 расширяет его Tier 2 http-блоком. `vless_nginx_tier2` как отдельный контейнер НЕ нужен.
+> **Изменение vs. исходного плана:** Phase 0 вводит `familytraffic-nginx` (nginx stream+http), который полностью заменяет `familytraffic-haproxy`. Phase 2 расширяет его Tier 2 http-блоком. `familytraffic-nginx_tier2` как отдельный контейнер НЕ нужен.
 
 ```
 Client → TCP:443 / TCP:1080 / TCP:8118
     │
     ▼
-vless_nginx [Phase 0 — заменяет vless_haproxy]
+familytraffic-nginx [Phase 0 — заменяет familytraffic-haproxy]
     │
     ├─ stream: listen 443 (ssl_preread, NO TLS termination)
     │    ├─ SNI: ws.domain, xhttp.domain, grpc.domain → loopback 127.0.0.1:8448
-    │    └─ SNI: (default / Reality clients)          → vless_xray:8443 (passthrough)
+    │    └─ SNI: (default / Reality clients)          → familytraffic:8443 (passthrough)
     │
-    ├─ stream: listen 1080 ssl (TLS termination)      → vless_xray:10800 (SOCKS5 plaintext)
-    ├─ stream: listen 8118 ssl (TLS termination)      → vless_xray:18118 (HTTP proxy plaintext)
+    ├─ stream: listen 1080 ssl (TLS termination)      → familytraffic:10800 (SOCKS5 plaintext)
+    ├─ stream: listen 8118 ssl (TLS termination)      → familytraffic:18118 (HTTP proxy plaintext)
     │
     └─ http: listen 8448 ssl http2 (Phase 2 — Tier 2 TLS termination, loopback target)
-         ├─ server_name ws.domain    → proxy_pass http://vless_xray:8444 (WebSocket)
-         ├─ server_name xhttp.domain → proxy_pass http://vless_xray:8445 (XHTTP)
-         └─ server_name grpc.domain  → grpc_pass grpc://vless_xray:8446  (gRPC)
+         ├─ server_name ws.domain    → proxy_pass http://familytraffic:8444 (WebSocket)
+         ├─ server_name xhttp.domain → proxy_pass http://familytraffic:8445 (XHTTP)
+         └─ server_name grpc.domain  → grpc_pass grpc://familytraffic:8446  (gRPC)
     │
     ▼
-vless_xray (внутренние порты — только plaintext, без TLS)
+familytraffic (внутренние порты — только plaintext, без TLS)
     ├─ Port 8443: VLESS Reality (existing, TLS через Reality)
     ├─ Port 8444: VLESS WebSocket plaintext (Phase 2, new)
     ├─ Port 8445: VLESS XHTTP/SplitHTTP plaintext (Phase 2, new)
     └─ Port 8446: VLESS gRPC plaintext (Phase 2, new)
 
-vless_fake_site — ОСТАЁТСЯ отдельным (fallback для Reality, нельзя объединять)
+familytraffic-fake-site — ОСТАЁТСЯ отдельным (fallback для Reality, нельзя объединять)
 ```
 
 **Ключевые отличия от исходного плана:**
-- `vless_haproxy` **удалён**, `vless_nginx` его полностью заменяет
-- `vless_nginx_tier2` **не создаётся** — Tier 2 http-блок живёт в том же `vless_nginx`
+- `familytraffic-haproxy` **удалён**, `familytraffic-nginx` его полностью заменяет
+- `familytraffic-nginx_tier2` **не создаётся** — Tier 2 http-блок живёт в том же `familytraffic-nginx`
 - Loopback 127.0.0.1:8448 внутри контейнера маршрутизирует Tier 2 из stream в http
 - `combined.pem` (HAProxy-формат) **не нужен** — Nginx использует fullchain.pem + privkey.pem отдельно
 
@@ -205,11 +205,11 @@ lib/docker_compose_generator.sh (generate_docker_compose)
 | **R1** | `validate_vless_uri()` требует `flow` для всех транспортов — сломает WS/gRPC/XHTTP URI | Medium | Phase 1 Step 2 | Сделать `flow` условным: проверять только если `security=reality` в URI |
 | **R2** | Порты 8444/8445/8446 нужны в `expose` docker-compose для Xray — Nginx должен до них добраться | **High** | Phase 2 Step 7 | Добавить expose 8444/8445/8446 условно при `ENABLE_TIER2_TRANSPORTS=true` |
 | ~~**R3**~~ | ~~gRPC требует HAProxy `mode http` — конфликт с текущим `mode tcp` на порту 443~~ | ~~High~~ | — | ✅ **ЗАКРЫТ Phase 0** — HAProxy удалён. Nginx `grpc_pass` в http-блоке работает без конфликтов |
-| ~~**R4**~~ | ~~WebSocket SNI ACL может конфликтовать с Reality default_backend~~ | ~~Medium~~ | — | ✅ **ЗАКРЫТ Phase 0** — Nginx stream `map` не имеет проблемы порядка ACL; `default vless_xray:8443` срабатывает только если нет совпадений |
+| ~~**R4**~~ | ~~WebSocket SNI ACL может конфликтовать с Reality default_backend~~ | ~~Medium~~ | — | ✅ **ЗАКРЫТ Phase 0** — Nginx stream `map` не имеет проблемы порядка ACL; `default familytraffic:8443` срабатывает только если нет совпадений |
 | **R5** | Существующие пользователи без `flow` поля в `xray_config.json` | Low | Phase 1 Steps 3+5 | Функция `migrate_xtls_vision()` + команда `vless migrate-vision` (на текущем сервере — уже не нужна) |
 | **R6** | QR-код для Tier 2 генерирует неправильный URI формат | Medium | Phase 1 Step 4 | Функция `generate_transport_uri(transport_type)` — transport-aware URI |
-| ~~**R7**~~ | ~~WS/XHTTP inbounds без TLS — если HAProxy делает mode-tcp passthrough, Xray на 8444/8445 получит raw TLS~~ | ~~CRITICAL~~ | — | ✅ **ЗАКРЫТ Phase 0** — HAProxy удалён. Nginx stream `ssl_preread` пробрасывает Reality TLS на `vless_xray:8443` без разрыва; Tier 2 http-блок (порт 8448) терминирует TLS для WS/XHTTP/gRPC |
-| ~~**R8**~~ | ~~`vless_nginx_reverseproxy` не существует на живом сервере — reverse proxy был отключён при установке~~ | ~~CRITICAL~~ | — | ✅ **ЗАКРЫТ Phase 0** — Отдельный контейнер не нужен. Tier 2 http-блок встроен в основной `vless_nginx` (loopback route: stream port 443 → 127.0.0.1:8448 → http block) |
+| ~~**R7**~~ | ~~WS/XHTTP inbounds без TLS — если HAProxy делает mode-tcp passthrough, Xray на 8444/8445 получит raw TLS~~ | ~~CRITICAL~~ | — | ✅ **ЗАКРЫТ Phase 0** — HAProxy удалён. Nginx stream `ssl_preread` пробрасывает Reality TLS на `familytraffic:8443` без разрыва; Tier 2 http-блок (порт 8448) терминирует TLS для WS/XHTTP/gRPC |
+| ~~**R8**~~ | ~~`familytraffic-nginx` не существует на живом сервере — reverse proxy был отключён при установке~~ | ~~CRITICAL~~ | — | ✅ **ЗАКРЫТ Phase 0** — Отдельный контейнер не нужен. Tier 2 http-блок встроен в основной `familytraffic-nginx` (loopback route: stream port 443 → 127.0.0.1:8448 → http block) |
 | ~~**R9**~~ | ~~`generate_haproxy_config()` $5 = `enable_reverse_proxy` — добавление ws_subdomain как $5 сломает существующий функционал~~ | ~~HIGH~~ | — | ✅ **ЗАКРЫТ Phase 0** — `generate_haproxy_config()` больше не используется; `generate_nginx_config()` ($1=cert_domain, $2=enable_tier2, $3=ws_sub, $4=xhttp_sub, $5=grpc_sub) — чистая сигнатура без конфликтов |
 | **R10** | 🆕 **`generate_transport_uri()` — undefined `$username`** в case `reality`: вызов `generate_vless_uri "$username" "$uuid"` — $username не в scope функции | Medium | Phase 1 Step 4 | Добавить параметр `$6=username` в сигнатуру функции |
 | **R11** | 🆕 **XHTTP на iOS (v2rayTun)** — XHTTP подтверждён на Android v3.9.34 (август 2024), но на iOS не задокументирован явно (App Store changelog не упоминает явно) | Medium | Phase 2 Step 2 (v5.31) | Обязательное ручное тестирование XHTTP с реальным устройством iOS + v2rayTun перед release v5.31; при необходимости — WebSocket как fallback для iOS |
@@ -222,7 +222,7 @@ lib/docker_compose_generator.sh (generate_docker_compose)
 **Риск:** Medium (замена работающего компонента)
 **Файлы:**
 - `lib/nginx_stream_generator.sh` **[NEW]** — заменяет `lib/haproxy_config_manager.sh`
-- `lib/docker_compose_generator.sh` **[MODIFY]** — haproxy → vless_nginx сервис
+- `lib/docker_compose_generator.sh` **[MODIFY]** — haproxy → familytraffic-nginx сервис
 - `lib/orchestrator.sh` **[MODIFY]** — вызовы haproxy → nginx
 - `scripts/certbot-renewal-hook.sh` **[MODIFY]** — убрать combined.pem, nginx -s reload
 
@@ -233,7 +233,7 @@ lib/docker_compose_generator.sh (generate_docker_compose)
 ### Step 0.1: Создать lib/nginx_stream_generator.sh
 
 **Новый файл:** `lib/nginx_stream_generator.sh`
-**Назначение:** Генерирует `/opt/vless/config/nginx/nginx.conf` — полный конфиг с stream + http блоками.
+**Назначение:** Генерирует `/opt/familytraffic/config/nginx/nginx.conf` — полный конфиг с stream + http блоками.
 
 ```bash
 # ============================================================================
@@ -259,7 +259,7 @@ generate_nginx_config() {
     local cert_path="/etc/letsencrypt/live/${cert_domain}"
 
     cat <<EOF
-# nginx.conf — vless_nginx (v5.30, replaces haproxy.cfg)
+# nginx.conf — familytraffic-nginx (v5.30, replaces haproxy.cfg)
 # Generated by lib/nginx_stream_generator.sh
 
 user nginx;
@@ -289,7 +289,7 @@ fi)
 $(if [[ -n "$grpc_subdomain" ]]; then
     echo "        ${grpc_subdomain}  127.0.0.1:8448;"
 fi)
-        default                 vless_xray:8443;  # Reality passthrough (no TLS termination)
+        default                 familytraffic:8443;  # Reality passthrough (no TLS termination)
     }
 
     # -------------------------------------------------------------------------
@@ -312,7 +312,7 @@ fi)
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         ssl_ciphers         TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384;
-        proxy_pass          vless_xray:10800;   # plaintext SOCKS5 to Xray
+        proxy_pass          familytraffic:10800;   # plaintext SOCKS5 to Xray
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
     }
@@ -326,7 +326,7 @@ fi)
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         ssl_ciphers         TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384;
-        proxy_pass          vless_xray:18118;   # plaintext HTTP proxy to Xray
+        proxy_pass          familytraffic:18118;   # plaintext HTTP proxy to Xray
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
     }
@@ -361,7 +361,7 @@ cat <<WS_BLOCK
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         location /vless-ws {
-            proxy_pass http://vless_xray:8444;
+            proxy_pass http://familytraffic:8444;
             proxy_http_version 1.1;
             proxy_set_header Upgrade \$http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -382,7 +382,7 @@ cat <<XHTTP_BLOCK
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         location /api/v2 {
-            proxy_pass http://vless_xray:8445;
+            proxy_pass http://familytraffic:8445;
             proxy_http_version 1.1;
             proxy_set_header Host \$host;
             proxy_set_header Connection "";
@@ -404,7 +404,7 @@ cat <<GRPC_BLOCK
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
         location /GunService/ {
-            grpc_pass grpc://vless_xray:8446;
+            grpc_pass grpc://familytraffic:8446;
             grpc_read_timeout 300s;
             grpc_send_timeout 300s;
         }
@@ -424,29 +424,29 @@ EOF
 
 ---
 
-### Step 0.2: Обновить docker_compose_generator.sh — заменить haproxy на vless_nginx
+### Step 0.2: Обновить docker_compose_generator.sh — заменить haproxy на familytraffic-nginx
 
 **Файл:** `lib/docker_compose_generator.sh`
-**Изменение:** Заменить весь блок сервиса `haproxy:` на `vless_nginx:` в heredoc `generate_docker_compose()`
+**Изменение:** Заменить весь блок сервиса `haproxy:` на `familytraffic-nginx:` в heredoc `generate_docker_compose()`
 
 ```yaml
 # УДАЛИТЬ (haproxy сервис):
   haproxy:
     image: haproxy:2.8-alpine
-    container_name: vless_haproxy
+    container_name: familytraffic-haproxy
     ...
     volumes:
       - ${VLESS_DIR}/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ${VLESS_DIR}/logs/haproxy/:/var/log/haproxy/
 
-# ДОБАВИТЬ (vless_nginx сервис):
-  vless_nginx:
+# ДОБАВИТЬ (familytraffic-nginx сервис):
+  familytraffic-nginx:
     image: nginx:1.27-alpine       # contains ngx_stream_module by default
-    container_name: vless_nginx
+    container_name: familytraffic-nginx
     restart: unless-stopped
     networks:
-      - vless_reality_net
+      - familytraffic_net
     cap_add:
       - NET_BIND_SERVICE            # bind ports < 1024 (443, 1080, 8118)
     ports:
@@ -494,7 +494,7 @@ generate_haproxy_config "$VLESS_DOMAIN" "$BASE_DOMAIN" "$STATS_PASSWORD" \
 # СТАЛО:
 source "${LIB_DIR}/nginx_stream_generator.sh"
 generate_nginx_config "$CERT_DOMAIN" "false"
-# Записать в /opt/vless/config/nginx/nginx.conf
+# Записать в /opt/familytraffic/config/nginx/nginx.conf
 mkdir -p "${VLESS_DIR}/config/nginx"
 generate_nginx_config "$CERT_DOMAIN" > "${VLESS_DIR}/config/nginx/nginx.conf"
 ```
@@ -510,10 +510,10 @@ generate_nginx_config "$CERT_DOMAIN" > "${VLESS_DIR}/config/nginx/nginx.conf"
 cat /etc/letsencrypt/live/${DOMAIN}/fullchain.pem \
     /etc/letsencrypt/live/${DOMAIN}/privkey.pem \
     > /etc/letsencrypt/live/${DOMAIN}/combined.pem
-docker exec vless_haproxy haproxy -sf $(...)  # graceful reload
+docker exec familytraffic-haproxy haproxy -sf $(...)  # graceful reload
 
 # ЗАМЕНИТЬ на:
-docker exec vless_nginx nginx -s reload       # nginx graceful reload (0-downtime)
+docker exec familytraffic-nginx nginx -s reload       # nginx graceful reload (0-downtime)
 ```
 
 > Nginx поддерживает zero-downtime reload через `nginx -s reload` — рабочие процессы заменяются graceful образом.
@@ -524,7 +524,7 @@ docker exec vless_nginx nginx -s reload       # nginx graceful reload (0-downtim
 
 ```bash
 # 1. Синтаксис nginx конфига
-docker exec vless_nginx nginx -t
+docker exec familytraffic-nginx nginx -t
 
 # 2. Reality по-прежнему работает (SNI passthrough)
 # Подключиться клиентом через порт 443 — VLESS Reality должен работать
@@ -537,7 +537,7 @@ curl -x https://proxy:PASSWORD@SERVER:8118 https://ipinfo.io
 
 # 5. fake-site fallback
 curl -v --resolve "proxy.ikeniborn.ru:443:SERVER_IP" https://proxy.ikeniborn.ru
-# Должен вернуть yandex.ru контент (из vless_fake_site через Xray fallback)
+# Должен вернуть yandex.ru контент (из familytraffic-fake-site через Xray fallback)
 
 # 6. iOS-00: подключить v2rayTun с прежним URI — нулевой impact
 ```
@@ -551,10 +551,10 @@ feat(infra): replace HAProxy with unified Nginx (stream+http) — v5.30
 - Add lib/nginx_stream_generator.sh: generate nginx.conf with stream block
   (port 443 ssl_preread SNI routing, ports 1080/8118 TLS termination)
   and http block placeholder for Tier 2 transports (port 8448)
-- Update docker_compose_generator.sh: vless_nginx replaces vless_haproxy
+- Update docker_compose_generator.sh: familytraffic-nginx replaces familytraffic-haproxy
 - Update orchestrator.sh: generate_nginx_config() replaces generate_haproxy_config()
 - Update certbot-renewal-hook: nginx -s reload, remove combined.pem generation
-- Eliminates need for separate vless_nginx_tier2 container (Phase 2 reuses http block)
+- Eliminates need for separate familytraffic-nginx_tier2 container (Phase 2 reuses http block)
 ```
 
 ---
@@ -653,7 +653,7 @@ migrate_xtls_vision() {
     log_warning "Use 'vless list-users' to regenerate QR codes/URIs for affected users"
 
     # Reload Xray to apply changes
-    docker restart vless_xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
+    docker restart familytraffic 2>/dev/null && log_success "Xray restarted to apply Vision migration"
 
     return 0
 }
@@ -745,7 +745,7 @@ migrate-vision|migrate_vision)
 test_xtls_vision_enabled() {
     print_test_header "XTLS Vision — flow field verification (TC-01)"
 
-    local xray_config="/opt/vless/config/xray_config.json"
+    local xray_config="/opt/familytraffic/config/xray_config.json"
 
     if [[ ! -f "$xray_config" ]]; then
         print_skip "Xray config not found (installation may not be complete)"
@@ -799,7 +799,7 @@ bash -n lib/security_tests.sh
 
 ## 7. Phase 2: Tier 2 — Транспортная инфраструктура (v5.30-v5.32)
 
-> **Предусловие:** Phase 0 выполнена — `vless_nginx` (stream+http) уже работает вместо HAProxy.
+> **Предусловие:** Phase 0 выполнена — `familytraffic-nginx` (stream+http) уже работает вместо HAProxy.
 
 **Версия:** v5.30-v5.32
 **Риск:** Medium (Nginx уже запущен после Phase 0, добавляем только новые inbounds и http-блоки)
@@ -948,26 +948,26 @@ generate_nginx_config \
     "" \                    # $5=grpc_subdomain (пока пусто)
     > "${VLESS_DIR}/config/nginx/nginx.conf"
 
-docker exec vless_nginx nginx -s reload   # zero-downtime reload
+docker exec familytraffic-nginx nginx -s reload   # zero-downtime reload
 ```
 
 **Что происходит внутри generate_nginx_config() при добавлении ws_subdomain:**
 1. В stream-блок добавляется строка `ws.example.com  127.0.0.1:8448;` в map
-2. В http-блок добавляется `server { server_name ws.example.com; ... proxy_pass http://vless_xray:8444; }`
-3. Reality на порту 443 продолжает работать через `default vless_xray:8443` — без изменений
+2. В http-блок добавляется `server { server_name ws.example.com; ... proxy_pass http://familytraffic:8444; }`
+3. Reality на порту 443 продолжает работать через `default familytraffic:8443` — без изменений
 
-> **Сравнение с HAProxy подходом:** В исходном плане нужно было трогать `generate_haproxy_config()` (риски P3, R9 коллизии параметров) И создавать отдельный `vless_nginx_tier2`. Сейчас — один вызов одной функции.
+> **Сравнение с HAProxy подходом:** В исходном плане нужно было трогать `generate_haproxy_config()` (риски P3, R9 коллизии параметров) И создавать отдельный `familytraffic-nginx_tier2`. Сейчас — один вызов одной функции.
 
 ### ~~Step 2.6: Добавить generate_tier2_nginx_config() в nginx_config_generator.sh~~ — НЕ НУЖЕН (Phase 0 эффект)
 
-> **Отменён Phase 0:** Функция `generate_tier2_nginx_config()` в `lib/nginx_config_generator.sh` не создаётся — она была спроектирована для `vless_nginx_tier2` контейнера с HAProxy. После Phase 0 все Tier 2 server-блоки (WS/XHTTP/gRPC) генерируются внутри `generate_nginx_config()` в `lib/nginx_stream_generator.sh` (http-блок, порт 8448).
+> **Отменён Phase 0:** Функция `generate_tier2_nginx_config()` в `lib/nginx_config_generator.sh` не создаётся — она была спроектирована для `familytraffic-nginx_tier2` контейнера с HAProxy. После Phase 0 все Tier 2 server-блоки (WS/XHTTP/gRPC) генерируются внутри `generate_nginx_config()` в `lib/nginx_stream_generator.sh` (http-блок, порт 8448).
 >
-> **Что происходит вместо этого:** Step 2.5 вызывает `generate_nginx_config "$CERT_DOMAIN" "true" "$ws_sub" "$xhttp_sub" "$grpc_sub"` → перезаписывает `/opt/vless/config/nginx/nginx.conf` → `docker exec vless_nginx nginx -s reload`.
+> **Что происходит вместо этого:** Step 2.5 вызывает `generate_nginx_config "$CERT_DOMAIN" "true" "$ws_sub" "$xhttp_sub" "$grpc_sub"` → перезаписывает `/opt/familytraffic/config/nginx/nginx.conf` → `docker exec familytraffic-nginx nginx -s reload`.
 
-### Step 2.7: Расширить expose портов vless_xray в generate_docker_compose()
+### Step 2.7: Расширить expose портов familytraffic в generate_docker_compose()
 
 **Файл:** `lib/docker_compose_generator.sh`
-**Изменение:** В heredoc vless_xray expose секция (~строка 262)
+**Изменение:** В heredoc familytraffic expose секция (~строка 262)
 
 > **Подтверждено SSH:** Текущий expose — только `8443, 10800, 18118`. Нужно добавить 8444/8445/8446 для Tier 2.
 
@@ -992,17 +992,17 @@ TIER2_EXPOSE
 fi)
 ```
 
-### ~~Step 2.8: Добавить vless_nginx_tier2 контейнер~~ — НЕ НУЖЕН (Phase 0 эффект)
+### ~~Step 2.8: Добавить familytraffic-nginx_tier2 контейнер~~ — НЕ НУЖЕН (Phase 0 эффект)
 
-> **Отменён Phase 0:** После миграции на единый `vless_nginx` отдельный контейнер `vless_nginx_tier2` не создаётся. Tier 2 http-блок (порт 8448) является частью основного `vless_nginx`. Step 2.8 удалён из плана.
+> **Отменён Phase 0:** После миграции на единый `familytraffic-nginx` отдельный контейнер `familytraffic-nginx_tier2` не создаётся. Tier 2 http-блок (порт 8448) является частью основного `familytraffic-nginx`. Step 2.8 удалён из плана.
 >
-> **Что происходит вместо этого:** `add_transport()` (Step 3.1) вызывает `generate_nginx_config()` с новыми субдоменами → перезаписывает `/opt/vless/config/nginx/nginx.conf` → `docker exec vless_nginx nginx -s reload`.
+> **Что происходит вместо этого:** `add_transport()` (Step 3.1) вызывает `generate_nginx_config()` с новыми субдоменами → перезаписывает `/opt/familytraffic/config/nginx/nginx.conf` → `docker exec familytraffic-nginx nginx -s reload`.
 
 ---
 
 **Commit message для Phase 2:**
 ```
-feat(obfuscation): add Tier 2 transports — WS/XHTTP/gRPC Xray inbounds, extend vless_nginx with Tier 2 SNI routing and http block (v5.30)
+feat(obfuscation): add Tier 2 transports — WS/XHTTP/gRPC Xray inbounds, extend familytraffic-nginx with Tier 2 SNI routing and http block (v5.30)
 ```
 
 **Validation:**
@@ -1011,8 +1011,8 @@ bash -n lib/orchestrator.sh
 bash -n lib/nginx_stream_generator.sh
 bash -n lib/docker_compose_generator.sh
 # После регенерации конфигов:
-jq empty /opt/vless/config/xray_config.json
-docker exec vless_nginx nginx -t        # проверить nginx.conf с новыми server-блоками
+jq empty /opt/familytraffic/config/xray_config.json
+docker exec familytraffic-nginx nginx -t        # проверить nginx.conf с новыми server-блоками
 ```
 
 ---
@@ -1087,7 +1087,7 @@ add_transport() {
         '.transports += [{"type": $t, "subdomain": $s, "port": $p, "enabled": true}]' \
         "$TRANSPORTS_JSON" > "$temp" && mv "$temp" "$TRANSPORTS_JSON"
 
-    log_success "Transport '$transport_type' added: $subdomain:443 → vless_xray:$port"
+    log_success "Transport '$transport_type' added: $subdomain:443 → familytraffic:$port"
 
     # Regenerate configs
     ENABLE_TIER2_TRANSPORTS=true
@@ -1108,8 +1108,8 @@ add_transport() {
         > "${VLESS_DIR}/config/nginx/nginx.conf"
 
     log_info "Reloading containers..."
-    docker restart vless_xray
-    docker exec vless_nginx nginx -s reload
+    docker restart familytraffic
+    docker exec familytraffic-nginx nginx -s reload
 
     log_success "Transport '$transport_type' is now active on $subdomain"
     return 0
@@ -1131,7 +1131,7 @@ list_transports() {
 
     if [[ "$count" == "0" ]]; then
         echo "  No transports configured."
-        echo "  Use: sudo vless add-transport ws subdomain.example.com"
+        echo "  Use: sudo familytraffic add-transport ws subdomain.example.com"
     else
         printf "  %-8s %-30s %-6s %-8s\n" "TYPE" "SUBDOMAIN" "PORT" "STATUS"
         echo "  ──────────────────────────────────────────────────────"
@@ -1179,7 +1179,7 @@ remove_transport() {
     log_success "Transport '$transport_type' removed"
 
     # Reload Xray
-    docker restart vless_xray
+    docker restart familytraffic
     log_success "Xray restarted"
 
     return 0
@@ -1236,7 +1236,7 @@ bash -n scripts/vless
 
 | Тест-кейс | Описание | Phase | Команда проверки |
 |-----------|----------|-------|-----------------|
-| **TC-01** | Проверка flow поля в xray_config.json | Phase 1 | `sudo vless test-security` (добавить test_xtls_vision_enabled) |
+| **TC-01** | Проверка flow поля в xray_config.json | Phase 1 | `sudo familytraffic test-security` (добавить test_xtls_vision_enabled) |
 | **TC-02** | DPI bypass — entropia первых пакетов | Phase 1 | `tcpdump + tshark` (см. PRD 9.2) |
 | **TC-10** | WebSocket базовое подключение | Phase 2 | `curl -H "Upgrade: websocket" https://ws.domain/vless-ws` |
 | **TC-20** | XHTTP chunked upload/download | Phase 2 | `curl -X POST https://xhttp.domain/api/v2` |
@@ -1268,7 +1268,7 @@ bash -n scripts/vless
 **Проверка XHTTP на iOS (iOS-20) — критический тест перед v5.31:**
 ```bash
 # На сервере — логи Xray (смотреть входящие соединения на порту 8445):
-docker logs vless_xray --follow | grep "8445\|splithttp\|XHTTP"
+docker logs familytraffic --follow | grep "8445\|splithttp\|XHTTP"
 
 # Если v2rayTun успешно подключился → TC-20 iOS passed
 # Если "connection refused" / нет записей → XHTTP не поддерживается в v2rayTun iOS
@@ -1278,14 +1278,14 @@ docker logs vless_xray --follow | grep "8445\|splithttp\|XHTTP"
 ### Проверка fallback (Reality не нарушается)
 
 ```bash
-# Убедиться что Reality трафик по-прежнему идёт через default vless_xray:8443:
+# Убедиться что Reality трафик по-прежнему идёт через default familytraffic:8443:
 curl -v --resolve "www.google.com:443:${SERVER_IP}" \
     --cert-status \
     https://www.google.com:443  # должен вернуть fake-site контент
 
 # Проверить Nginx stream map (после Phase 0):
-grep -A 10 "map \$ssl_preread_server_name" /opt/vless/config/nginx/nginx.conf
-# Tier 2 subdomains → 127.0.0.1:8448; default → vless_xray:8443
+grep -A 10 "map \$ssl_preread_server_name" /opt/familytraffic/config/nginx/nginx.conf
+# Tier 2 subdomains → 127.0.0.1:8448; default → familytraffic:8443
 ```
 
 ---
@@ -1297,16 +1297,16 @@ grep -A 10 "map \$ssl_preread_server_name" /opt/vless/config/nginx/nginx.conf
 ```bash
 # Если миграция на Nginx прошла неуспешно — вернуть HAProxy:
 
-# 1. Остановить vless_nginx
-docker stop vless_nginx || true
+# 1. Остановить familytraffic-nginx
+docker stop familytraffic-nginx || true
 
 # 2. Восстановить docker-compose.yml из backup
-cp /opt/vless/docker-compose.yml.bak /opt/vless/docker-compose.yml
+cp /opt/familytraffic/docker-compose.yml.bak /opt/familytraffic/docker-compose.yml
 
 # 3. Восстановить haproxy.cfg (должен быть до миграции)
 #    Если backup не сохранён — регенерировать через старую версию orchestrator.sh из git
-git -C /opt/vless show HEAD:lib/haproxy_config_manager.sh > /tmp/haproxy_config_manager.sh
-VLESS_DIR=/opt/vless source /tmp/haproxy_config_manager.sh
+git -C /opt/familytraffic show HEAD:lib/haproxy_config_manager.sh > /tmp/haproxy_config_manager.sh
+VLESS_DIR=/opt/familytraffic source /tmp/haproxy_config_manager.sh
 generate_haproxy_config "$VLESS_DOMAIN" "$BASE_DOMAIN" "$PROXY_PASSWORD" "false"
 
 # 4. Восстановить combined.pem для HAProxy
@@ -1316,10 +1316,10 @@ cat /etc/letsencrypt/live/${VLESS_DOMAIN}/fullchain.pem \
 chmod 600 /etc/letsencrypt/live/${VLESS_DOMAIN}/combined.pem
 
 # 5. Запустить HAProxy
-docker compose -f /opt/vless/docker-compose.yml up -d haproxy
+docker compose -f /opt/familytraffic/docker-compose.yml up -d haproxy
 
 # Проверка:
-docker ps | grep -E "vless_haproxy|vless_nginx"
+docker ps | grep -E "familytraffic-haproxy|familytraffic-nginx"
 curl -sk https://localhost:443 -o /dev/null -w "%{http_code}"  # должен быть 400 (fake-site)
 ```
 
@@ -1329,24 +1329,24 @@ curl -sk https://localhost:443 -o /dev/null -w "%{http_code}"  # должен б
 
 ```bash
 # Восстановить xray_config.json из backup:
-cp /opt/vless/config/xray_config.json.bak.migrate.* /opt/vless/config/xray_config.json
-docker restart vless_xray
+cp /opt/familytraffic/config/xray_config.json.bak.migrate.* /opt/familytraffic/config/xray_config.json
+docker restart familytraffic
 ```
 
 ### Откат Tier 2 (транспорты)
 
 ```bash
 # Удалить транспорт через CLI:
-sudo vless remove-transport ws
-sudo vless remove-transport xhttp
-sudo vless remove-transport grpc
+sudo familytraffic remove-transport ws
+sudo familytraffic remove-transport xhttp
+sudo familytraffic remove-transport grpc
 
 # Или вручную — удалить inbound из xray_config.json:
 jq '.inbounds = [.inbounds[] | select(.tag | startswith("vless-") | not or . == "vless-reality")]' \
-    /opt/vless/config/xray_config.json > /tmp/xray_rollback.json \
-    && mv /tmp/xray_rollback.json /opt/vless/config/xray_config.json
+    /opt/familytraffic/config/xray_config.json > /tmp/xray_rollback.json \
+    && mv /tmp/xray_rollback.json /opt/familytraffic/config/xray_config.json
 
-docker restart vless_xray
+docker restart familytraffic
 
 # Восстановить docker-compose.yml без Tier 2 expose:
 # Установить ENABLE_TIER2_TRANSPORTS=false и регенерировать
@@ -1359,13 +1359,13 @@ docker restart vless_xray
 ### Phase 0 (v5.30) — Миграция HAProxy → Nginx — Definition of Done
 
 - [ ] `lib/nginx_stream_generator.sh` создан с `generate_nginx_config()` (stream + http блоки)
-- [ ] `docker_compose_generator.sh`: `vless_haproxy` заменён на `vless_nginx` (nginx:1.27-alpine)
+- [ ] `docker_compose_generator.sh`: `familytraffic-haproxy` заменён на `familytraffic-nginx` (nginx:1.27-alpine)
 - [ ] `orchestrator.sh`: вызовы `generate_haproxy_config()` → `generate_nginx_config()`
 - [ ] `certbot-renewal-hook.sh`: `combined.pem` удалён, `nginx -s reload` вместо haproxy reload
 - [ ] Reality на порту 443 работает после миграции (регрессионный тест iOS-00)
 - [ ] SOCKS5 :1080 и HTTP proxy :8118 работают через Nginx stream TLS
-- [ ] `docker exec vless_nginx nginx -t` без ошибок
-- [ ] `vless_haproxy` контейнер удалён, `vless_nginx` запущен и healthy
+- [ ] `docker exec familytraffic-nginx nginx -t` без ошибок
+- [ ] `familytraffic-haproxy` контейнер удалён, `familytraffic-nginx` запущен и healthy
 
 ### Phase 1 (v5.25) — Завершение XTLS Vision — Definition of Done
 
@@ -1381,14 +1381,14 @@ docker restart vless_xray
 
 - [ ] `generate_websocket_inbound_json()`, `generate_xhttp_inbound_json()`, `generate_grpc_inbound_json()` добавлены в orchestrator.sh (plaintext, без TLS — Nginx терминирует)
 - [ ] `create_xray_config()` принимает флаг `enable_tier2` и условно добавляет inbounds
-- [ ] Порты 8444/8445/8446 добавлены в docker-compose.yml expose для vless_xray (условно)
-- [ ] ~~`vless_nginx_tier2` контейнер~~ — **НЕ НУЖЕН** (Phase 0 заменил HAProxy единым vless_nginx)
+- [ ] Порты 8444/8445/8446 добавлены в docker-compose.yml expose для familytraffic (условно)
+- [ ] ~~`familytraffic-nginx_tier2` контейнер~~ — **НЕ НУЖЕН** (Phase 0 заменил HAProxy единым familytraffic-nginx)
 - [ ] `generate_nginx_config()` вызывается с ws/xhttp/grpc субдоменами → SNI map + http server блоки генерируются
 - [ ] ~~`generate_haproxy_config()` параметры $6/$7/$8~~ — **НЕ НУЖЕН** (Phase 0 устранил HAProxy)
 - [ ] `generate_transport_uri()` имеет параметр $6=username, без undefined $username в scope (P4 mitigation)
 - [ ] `lib/transport_manager.sh` создан с функциями add/list/remove
 - [ ] CLI команды `vless add-transport`, `vless list-transports`, `vless remove-transport` работают
-- [ ] `docker exec vless_nginx nginx -s reload` выполняется без ошибок после добавления транспорта
+- [ ] `docker exec familytraffic-nginx nginx -s reload` выполняется без ошибок после добавления транспорта
 - [ ] Тесты TC-10 (WS), TC-20 (XHTTP), TC-30 (gRPC) пройдены
 - [ ] **iOS v2rayTun тесты** iOS-10 (WS) и iOS-30 (gRPC) пройдены
 - [ ] **iOS v2rayTun тест iOS-20 (XHTTP)** пройден или задокументировано ограничение (R11)
@@ -1401,5 +1401,5 @@ docker restart vless_xray
 *Верифицирован по SSH ikenibornvpn: 2026-02-23. Исправлено 8 проблем (P1-P8).*
 *Обновлён: 2026-02-22 — Добавлен анализ совместимости iOS v2rayTun (R11, iOS тест-план, DoD). v2rayTun v2.4.4, Xray-core 25.10.15. Reality+Vision ✅ WS ✅ gRPC ✅ XHTTP ⚠️.*
 *Источник: Agent Orchestrator Pipeline (research.toon + plan.toon в .claude/workspace/2026-02-23T0032/) + SSH live-server verification.*
-*Обновлён: 2026-02-22 — Добавлена Phase 0: миграция HAProxy → единый Nginx (lib/nginx_stream_generator.sh, stream+http). Вариант A. Phase 2 упрощена: vless_nginx_tier2 не нужен, generate_haproxy_config изменений не требует.*
+*Обновлён: 2026-02-22 — Добавлена Phase 0: миграция HAProxy → единый Nginx (lib/nginx_stream_generator.sh, stream+http). Вариант A. Phase 2 упрощена: familytraffic-nginx_tier2 не нужен, generate_haproxy_config изменений не требует.*
 *Следующий шаг: Получить подтверждение → Phase 0 (HAProxy→Nginx) → Phase 1 (validate_vless_uri) → Phase 2 (Tier 2 транспорты) → Phase 3 (CLI).*

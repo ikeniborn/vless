@@ -137,10 +137,10 @@ main() {
     show_header
 
     # Check if running in dev mode
-    if [ ! -d "/opt/vless" ]; then
+    if [ ! -d "/opt/familytraffic" ]; then
         echo -e "${YELLOW}${BOLD}⚠️  DEVELOPMENT MODE DETECTED${NC}"
         echo ""
-        echo "VLESS is not installed at /opt/vless"
+        echo "VLESS is not installed at /opt/familytraffic"
         echo "Tests will run in DEV MODE with limited validation"
         echo ""
         read -p "Continue with dev mode tests? (y/n): " -n 1 -r

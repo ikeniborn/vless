@@ -171,7 +171,7 @@ graph TB
 
     subgraph "Service Interactions"
         XrayReload[Xray Container<br/>SIGHUP Reload]
-        FileLock[File Lock<br/>/var/lock/vless_users.lock]
+        FileLock[File Lock<br/>/var/lock/familytraffic_users.lock]
     end
 
     UserMgmt --> UUID

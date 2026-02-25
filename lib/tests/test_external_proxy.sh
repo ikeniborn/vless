@@ -17,7 +17,7 @@ set -euo pipefail
 # =============================================================================
 
 # Test directory (use temp location to avoid affecting production)
-readonly TEST_ROOT="/tmp/vless_test_$$"
+readonly TEST_ROOT="/tmp/familytraffic_test_$$"
 readonly TEST_CONFIG_DIR="${TEST_ROOT}/config"
 readonly TEST_LIB_DIR="${TEST_ROOT}/lib"
 

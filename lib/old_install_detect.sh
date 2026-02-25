@@ -42,7 +42,7 @@ declare -ga OLD_CONTAINERS OLD_NETWORKS OLD_VOLUMES OLD_UFW_RULES OLD_SERVICES O
 OLD_INSTALL_FOUND=false
 OLD_INSTALL_DIR="/opt/familytraffic"
 BACKUP_BASE_DIR="/opt/familytraffic_backup"
-UFW_BACKUP_DIR="/tmp/vless_ufw_backup"
+UFW_BACKUP_DIR="/tmp/familytraffic_ufw_backup"
 
 # Color codes (inherited from dependencies.sh but redefined for standalone use)
 [[ -z "${RED:-}" ]] && RED='\033[0;31m'

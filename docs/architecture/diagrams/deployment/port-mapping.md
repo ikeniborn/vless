@@ -89,12 +89,12 @@ graph TB
 
 | Port | Protocol | Service | Container | Purpose | Status |
 |------|----------|---------|-----------|---------|--------|
-| **443** | TCP | HTTPS/TLS | vless_haproxy | Unified TLS endpoint (VLESS + Reverse Proxy) | ✅ Active |
-| **1080** | TCP | SOCKS5s | vless_haproxy | SOCKS5 over TLS endpoint | ✅ Active |
-| **8118** | TCP | HTTPS | vless_haproxy | HTTP proxy over TLS endpoint | ✅ Active |
-| **80** | TCP | HTTP | vless_certbot_nginx | Certificate validation (on-demand) | ⏸️ On-demand |
-| **8443** | TCP | MTProxy | vless_mtproxy | Telegram MTProxy | 📝 v6.0+ |
-| **9000** | TCP | HTTP | vless_haproxy | HAProxy stats (localhost only) | ✅ Active |
+| **443** | TCP | HTTPS/TLS | familytraffic-haproxy | Unified TLS endpoint (VLESS + Reverse Proxy) | ✅ Active |
+| **1080** | TCP | SOCKS5s | familytraffic-haproxy | SOCKS5 over TLS endpoint | ✅ Active |
+| **8118** | TCP | HTTPS | familytraffic-haproxy | HTTP proxy over TLS endpoint | ✅ Active |
+| **80** | TCP | HTTP | familytraffic-certbot | Certificate validation (on-demand) | ⏸️ On-demand |
+| **8443** | TCP | MTProxy | familytraffic-mtproxy | Telegram MTProxy | 📝 v6.0+ |
+| **9000** | TCP | HTTP | familytraffic-haproxy | HAProxy stats (localhost only) | ✅ Active |
 
 ---
 
@@ -102,21 +102,21 @@ graph TB
 
 | Port | Protocol | Container | Binding | Purpose | Accessed By |
 |------|----------|-----------|---------|---------|-------------|
-| **8443** | TCP | vless_xray | 127.0.0.1:8443 | VLESS Reality inbound | HAProxy (TLS passthrough) |
-| **10800** | TCP | vless_xray | 127.0.0.1:10800 | SOCKS5 plaintext inbound | HAProxy (after TLS termination) |
-| **18118** | TCP | vless_xray | 127.0.0.1:18118 | HTTP plaintext inbound | HAProxy (after TLS termination) |
-| **9443** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9443 | Reverse proxy backend 1 | HAProxy (TLS passthrough) |
-| **9444** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9444 | Reverse proxy backend 2 | HAProxy (TLS passthrough) |
-| **9445** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9445 | Reverse proxy backend 3 | HAProxy (TLS passthrough) |
-| **9446** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9446 | Reverse proxy backend 4 | HAProxy (TLS passthrough) |
-| **9447** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9447 | Reverse proxy backend 5 | HAProxy (TLS passthrough) |
-| **9448** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9448 | Reverse proxy backend 6 | HAProxy (TLS passthrough) |
-| **9449** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9449 | Reverse proxy backend 7 | HAProxy (TLS passthrough) |
-| **9450** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9450 | Reverse proxy backend 8 | HAProxy (TLS passthrough) |
-| **9451** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9451 | Reverse proxy backend 9 | HAProxy (TLS passthrough) |
-| **9452** | TCP | vless_nginx_reverseproxy | 127.0.0.1:9452 | Reverse proxy backend 10 | HAProxy (TLS passthrough) |
-| **80** | TCP | vless_fake_site | 127.0.0.1:80 | Generic website fallback | HAProxy (invalid SNI/UUID) |
-| **8443** | TCP | vless_mtproxy | 0.0.0.0:8443 | MTProxy public binding | Internet (direct) |
+| **8443** | TCP | familytraffic | 127.0.0.1:8443 | VLESS Reality inbound | HAProxy (TLS passthrough) |
+| **10800** | TCP | familytraffic | 127.0.0.1:10800 | SOCKS5 plaintext inbound | HAProxy (after TLS termination) |
+| **18118** | TCP | familytraffic | 127.0.0.1:18118 | HTTP plaintext inbound | HAProxy (after TLS termination) |
+| **9443** | TCP | familytraffic-nginx | 127.0.0.1:9443 | Reverse proxy backend 1 | HAProxy (TLS passthrough) |
+| **9444** | TCP | familytraffic-nginx | 127.0.0.1:9444 | Reverse proxy backend 2 | HAProxy (TLS passthrough) |
+| **9445** | TCP | familytraffic-nginx | 127.0.0.1:9445 | Reverse proxy backend 3 | HAProxy (TLS passthrough) |
+| **9446** | TCP | familytraffic-nginx | 127.0.0.1:9446 | Reverse proxy backend 4 | HAProxy (TLS passthrough) |
+| **9447** | TCP | familytraffic-nginx | 127.0.0.1:9447 | Reverse proxy backend 5 | HAProxy (TLS passthrough) |
+| **9448** | TCP | familytraffic-nginx | 127.0.0.1:9448 | Reverse proxy backend 6 | HAProxy (TLS passthrough) |
+| **9449** | TCP | familytraffic-nginx | 127.0.0.1:9449 | Reverse proxy backend 7 | HAProxy (TLS passthrough) |
+| **9450** | TCP | familytraffic-nginx | 127.0.0.1:9450 | Reverse proxy backend 8 | HAProxy (TLS passthrough) |
+| **9451** | TCP | familytraffic-nginx | 127.0.0.1:9451 | Reverse proxy backend 9 | HAProxy (TLS passthrough) |
+| **9452** | TCP | familytraffic-nginx | 127.0.0.1:9452 | Reverse proxy backend 10 | HAProxy (TLS passthrough) |
+| **80** | TCP | familytraffic-fake-site | 127.0.0.1:80 | Generic website fallback | HAProxy (invalid SNI/UUID) |
+| **8443** | TCP | familytraffic-mtproxy | 0.0.0.0:8443 | MTProxy public binding | Internet (direct) |
 
 **Critical Note:** Port 8443 is used by BOTH Xray and MTProxy with different bindings:
 - **Xray:** `127.0.0.1:8443` (Docker network only, NOT exposed to host)
@@ -325,13 +325,13 @@ sudo ss -tulnp | grep :8443
 # tcp   LISTEN 0      128    0.0.0.0:8443   0.0.0.0:*    users:(("docker-proxy",pid=12345))
 
 # Inside Xray container:
-docker exec vless_xray ss -tulnp | grep :8443
+docker exec familytraffic ss -tulnp | grep :8443
 
 # Expected output:
 # tcp   LISTEN 0      128    127.0.0.1:8443   0.0.0.0:*    users:(("xray",pid=1))
 
 # Inside MTProxy container:
-docker exec vless_mtproxy ss -tulnp | grep :8443
+docker exec familytraffic-mtproxy ss -tulnp | grep :8443
 
 # Expected output:
 # tcp   LISTEN 0      128    0.0.0.0:8443   0.0.0.0:*    users:(("mtproxy",pid=1))

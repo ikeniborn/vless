@@ -288,7 +288,7 @@ sequenceDiagram
 - **HAPROXY_STATS_PASSWORD:** HAProxy stats authentication
 - **TIMEZONE:** Server timezone (default: UTC)
 
-**Saved to:** `/opt/vless/config/installation_params.conf`
+**Saved to:** `/opt/familytraffic/config/installation_params.conf`
 
 ---
 
@@ -400,9 +400,9 @@ graph TB
     Step9 --> HAProxy[haproxy_config_manager.sh]
     Step10 --> Xray[xray_config_generator.sh]
 
-    Docker --> DockerFile[/opt/vless/docker-compose.yml]
-    HAProxy --> HAProxyFile[/opt/vless/config/haproxy.cfg]
-    Xray --> XrayFile[/opt/vless/config/xray_config.json]
+    Docker --> DockerFile[/opt/familytraffic/docker-compose.yml]
+    HAProxy --> HAProxyFile[/opt/familytraffic/config/haproxy.cfg]
+    Xray --> XrayFile[/opt/familytraffic/config/xray_config.json]
 
     style Step8 fill:#e1f5ff
     style Step9 fill:#ffe1f5
@@ -506,13 +506,13 @@ sequenceDiagram
 
     Note over Docker: Start containers in dependency order
 
-    Docker->>HAProxy: Start vless_haproxy
-    Docker->>FakeSite: Start vless_fake_site
+    Docker->>HAProxy: Start familytraffic-haproxy
+    Docker->>FakeSite: Start familytraffic-fake-site
     HAProxy-->>Docker: ✓ Running
     FakeSite-->>Docker: ✓ Running
 
-    Docker->>Xray: Start vless_xray (depends on HAProxy)
-    Docker->>Nginx: Start vless_nginx_reverseproxy (depends on HAProxy)
+    Docker->>Xray: Start familytraffic (depends on HAProxy)
+    Docker->>Nginx: Start familytraffic-nginx (depends on HAProxy)
     Xray-->>Docker: ✓ Running
     Nginx-->>Docker: ✓ Running
 
@@ -604,10 +604,10 @@ sequenceDiagram
 
     Note over PostInstall: Create Symlinks
 
-    PostInstall->>System: ln -s /opt/vless/scripts/vless<br/>/usr/local/bin/vless
-    PostInstall->>System: ln -s /opt/vless/scripts/familytraffic-external-proxy<br/>/usr/local/bin/familytraffic-external-proxy
-    PostInstall->>System: ln -s /opt/vless/scripts/familytraffic-proxy<br/>/usr/local/bin/familytraffic-proxy
-    PostInstall->>System: ln -s /opt/vless/scripts/mtproxy<br/>/usr/local/bin/mtproxy
+    PostInstall->>System: ln -s /opt/familytraffic/scripts/vless<br/>/usr/local/bin/vless
+    PostInstall->>System: ln -s /opt/familytraffic/scripts/familytraffic-external-proxy<br/>/usr/local/bin/familytraffic-external-proxy
+    PostInstall->>System: ln -s /opt/familytraffic/scripts/familytraffic-proxy<br/>/usr/local/bin/familytraffic-proxy
+    PostInstall->>System: ln -s /opt/familytraffic/scripts/mtproxy<br/>/usr/local/bin/mtproxy
     System-->>PostInstall: ✓ Symlinks created
 
     Note over PostInstall: Setup Cron Jobs
@@ -622,9 +622,9 @@ sequenceDiagram
 
     Note over PostInstall: Set Permissions
 
-    PostInstall->>System: chmod 600 /opt/vless/data/users.json
-    PostInstall->>System: chmod 600 /opt/vless/config/*.json
-    PostInstall->>System: chmod 755 /opt/vless/scripts/*
+    PostInstall->>System: chmod 600 /opt/familytraffic/data/users.json
+    PostInstall->>System: chmod 600 /opt/familytraffic/config/*.json
+    PostInstall->>System: chmod 755 /opt/familytraffic/scripts/*
     System-->>PostInstall: ✓ Permissions set
 
     PostInstall-->>Installer: ✓ Post-install complete
@@ -637,7 +637,7 @@ sequenceDiagram
 2. Setup certbot renewal cron job (daily at 3 AM)
 3. Configure logrotate (7-day rotation)
 4. Set correct file permissions
-5. Create README in /opt/vless/
+5. Create README in /opt/familytraffic/
 6. Generate installation summary log
 
 ---
@@ -646,7 +646,7 @@ sequenceDiagram
 
 ```bash
 ================================================================================
-                    VLESS + Reality VPN Installation Complete!
+                    familyTraffic VPN Installation Complete!
 ================================================================================
 
 Installation Time: 6 minutes 23 seconds
@@ -654,7 +654,7 @@ Installation Time: 6 minutes 23 seconds
 Server Information:
   - Domain: vless.example.com
   - Public IP: 203.0.113.10
-  - Installation Path: /opt/vless/
+  - Installation Path: /opt/familytraffic/
 
 Services Status:
   ✓ HAProxy: Running (port 443, 1080, 8118)
@@ -664,15 +664,15 @@ Services Status:
 
 Next Steps:
   1. Add your first user:
-     sudo vless add-user alice
+     sudo familytraffic add-user alice
 
   2. View system status:
-     sudo vless status
+     sudo familytraffic status
 
   3. Check logs:
-     sudo vless logs xray
+     sudo familytraffic logs xray
 
-Documentation: /opt/vless/README.md
+Documentation: /opt/familytraffic/README.md
 Support: https://github.com/username/vless-reality-vpn
 
 ================================================================================
@@ -756,7 +756,7 @@ graph TB
 |---------------|----------------|-----------|----------|
 | Step 1-3 | None needed (no changes) | None | Re-run installer |
 | Step 4 | Uninstall packages | None | Re-run installer |
-| Step 5-6 | Remove /opt/vless/ | Parameters only | Re-run installer |
+| Step 5-6 | Remove /opt/familytraffic/ | Parameters only | Re-run installer |
 | Step 7 | Revoke certificate | Certificate | Re-run installer |
 | Step 8-11 | Remove configs | Configs only | Re-run installer |
 | Step 12-13 | Stop & remove containers | Container data | Re-run installer |

@@ -249,7 +249,7 @@ add_external_proxy() {
 
     if [[ "$existing_count" != "0" ]]; then
         echo -e "${YELLOW}  ⚠️  Proxy with address $address:$port already exists${NC}"
-        echo -e "${YELLOW}  Use 'vless-external-proxy update' to modify existing proxy${NC}"
+        echo -e "${YELLOW}  Use 'familytraffic-external-proxy update' to modify existing proxy${NC}"
         return 1
     fi
 
@@ -857,7 +857,7 @@ get_routing_status() {
     # Check if database exists
     if [[ ! -f "$ext_proxy_db" ]]; then
         echo "  Status: Not configured"
-        echo "  Hint: vless-external-proxy add"
+        echo "  Hint: familytraffic-external-proxy add"
         echo ""
         return 0
     fi
@@ -979,7 +979,7 @@ get_routing_status() {
         fi
 
         echo ""
-        echo "    Hint: vless list-proxy-assignments (detailed view)"
+        echo "    Hint: familytraffic list-proxy-assignments (detailed view)"
     fi
 
     echo ""

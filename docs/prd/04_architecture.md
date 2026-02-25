@@ -197,7 +197,7 @@ FAILURE HANDLING:
 ### 4.4 File Structure (v4.1)
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/
 │   ├── xray_config.json        # 3 inbounds: VLESS + plaintext SOCKS5/HTTP ←MODIFIED v4.0
 │   │                           # SOCKS5/HTTP: NO streamSettings (plaintext inbounds)
@@ -223,7 +223,7 @@ FAILURE HANDLING:
 │   └── certbot-renew.log       # Renewal logs ←NEW v3.3
 │
 └── scripts/
-    └── vless-cert-renew        # Deploy hook script ←NEW v3.3
+    └── familytraffic-cert-renew        # Deploy hook script ←NEW v3.3
 
 /etc/letsencrypt/               ←NEW
 ├── live/${DOMAIN}/
@@ -236,15 +236,15 @@ FAILURE HANDLING:
 
 /etc/fail2ban/
 ├── jail.d/
-│   └── vless-proxy.conf        # Proxy jails (unchanged)
+│   └── familytraffic-proxy.conf        # Proxy jails (unchanged)
 └── filter.d/
-    └── vless-proxy.conf        # Xray log filters (unchanged)
+    └── familytraffic-proxy.conf        # Xray log filters (unchanged)
 
 /etc/cron.d/
 └── certbot-vless-renew         # Auto-renewal cron ←NEW
 
 /usr/local/bin/
-└── vless-cert-renew            # Deploy hook script ←NEW
+└── familytraffic-cert-renew            # Deploy hook script ←NEW
 ```
 
 ---
@@ -260,30 +260,30 @@ version: '3.8'
 services:
   stunnel:
     image: dweomer/stunnel:latest
-    container_name: vless_stunnel
+    container_name: familytraffic-stunnel
     restart: unless-stopped
     ports:
       - "1080:1080"   # SOCKS5 with TLS
       - "8118:8118"   # HTTP with TLS
     volumes:
-      - /opt/vless/config/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+      - /opt/familytraffic/config/stunnel.conf:/etc/stunnel/stunnel.conf:ro
       - /etc/letsencrypt:/certs:ro  # Let's Encrypt certificates
-      - /opt/vless/logs/stunnel:/var/log/stunnel
+      - /opt/familytraffic/logs/stunnel:/var/log/stunnel
     networks:
-      - vless_reality_net
+      - familytraffic_net
     depends_on:
       - xray
 
   xray:
     image: teddysun/xray:24.11.30
-    container_name: vless_xray
+    container_name: familytraffic
     restart: unless-stopped
     networks:
-      - vless_reality_net
+      - familytraffic_net
     ports:
       - "${VLESS_PORT}:${VLESS_PORT}"  # VLESS Reality port (default: 443)
     volumes:
-      - /opt/vless/config:/etc/xray:ro
+      - /opt/familytraffic/config:/etc/xray:ro
       # NOTE: Certificates mounted to stunnel, NOT Xray (v4.0 architecture change)
     environment:
       - TZ=UTC
@@ -296,17 +296,17 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: vless_fake_site
+    container_name: familytraffic-fake-site
     restart: unless-stopped
     networks:
-      - vless_reality_net
+      - familytraffic_net
     ports:
       - "127.0.0.1:8080:80"
     volumes:
-      - /opt/vless/fake-site:/etc/nginx/conf.d:ro
+      - /opt/familytraffic/fake-site:/etc/nginx/conf.d:ro
 
 networks:
-  vless_reality_net:
+  familytraffic_net:
     driver: bridge
 ```
 
@@ -347,7 +347,7 @@ networks:
                       │ 2. TLS ClientHello
                       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│        NGINX CONTAINER (vless_nginx_reverseproxy)           │
+│        NGINX CONTAINER (familytraffic-nginx)           │
 │  Multiple server blocks (one per domain):                  │
 │                                                             │
 │  Server 1: listen 8443 ssl; server_name proxy1.example.com│
@@ -396,7 +396,7 @@ SECURITY LAYERS:
 **Nginx Reverse Proxy Server Block (with VULN-001/002 fixes):**
 
 ```nginx
-# /opt/vless/config/reverse-proxy/myproxy.example.com.conf
+# /opt/familytraffic/config/reverse-proxy/myproxy.example.com.conf
 # v5.2+: Direct proxy to target site (NO Xray inbound)
 
 # Primary server block (with Host header validation)
@@ -541,7 +541,7 @@ https://domain    →    Port 443         →    localhost:9443   →    https:/
 ```yaml
 services:
   nginx:
-    container_name: vless_nginx_reverseproxy
+    container_name: familytraffic-nginx
     image: nginx:alpine
     restart: unless-stopped
     ports:
@@ -562,7 +562,7 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./logs/nginx/:/var/log/nginx/
     networks:
-      - vless_reality_net
+      - familytraffic_net
     depends_on:
       - xray
     healthcheck:
@@ -602,7 +602,7 @@ Ports 1080/8118 (stunnel TLS termination for proxies)
 
 **v4.3+ Architecture (HAProxy unified with parallel routing):**
 ```
-5 Docker Containers (vless_reality_net bridge network):
+5 Docker Containers (familytraffic_net bridge network):
 
                                     ┌─ Static ACL: SNI = vless.example.com
 Client → HAProxy (SNI Router 443) ──┤   → backend xray_vless (Xray:8443, Reality TLS) → Internet
@@ -617,11 +617,11 @@ Client → HAProxy (TLS Term 1080) ───→ backend xray_socks5_plaintext (X
 Client → HAProxy (TLS Term 8118) ───→ backend xray_http_plaintext (Xray:18118) → Internet
 
 Containers:
-  - vless_haproxy (HAProxy 2.8-alpine) - TLS termination + SNI routing
-  - vless_xray (Xray 24.11.30) - VPN core + SOCKS5/HTTP proxy
-  - vless_nginx_reverseproxy (Nginx Alpine) - Reverse proxy backends
-  - vless_certbot_nginx (profile: certbot) - ACME HTTP-01 challenges
-  - vless_fake_site (Nginx) - VLESS Reality fallback
+  - familytraffic-haproxy (HAProxy 2.8-alpine) - TLS termination + SNI routing
+  - familytraffic (Xray 24.11.30) - VPN core + SOCKS5/HTTP proxy
+  - familytraffic-nginx (Nginx Alpine) - Reverse proxy backends
+  - familytraffic-certbot (profile: certbot) - ACME HTTP-01 challenges
+  - familytraffic-fake-site (Nginx) - VLESS Reality fallback
 ```
 
 **Key Changes:**
@@ -636,7 +636,7 @@ Containers:
 
 #### 4.7.2 HAProxy Configuration Structure
 
-**File:** `/opt/vless/config/haproxy.cfg`
+**File:** `/opt/familytraffic/config/haproxy.cfg`
 
 **3 Frontends:**
 
@@ -680,17 +680,17 @@ frontend http_proxy_tls
 # Backend for VLESS Reality (TCP passthrough, NO TLS termination)
 backend xray_vless
     mode tcp
-    server xray vless_xray:8443 check inter 10s fall 3 rise 2
+    server xray familytraffic:8443 check inter 10s fall 3 rise 2
 
 # Backend for SOCKS5 (plaintext to Xray)
 backend xray_socks5_plaintext
     mode tcp
-    server xray vless_xray:10800 check inter 10s fall 3 rise 2
+    server xray familytraffic:10800 check inter 10s fall 3 rise 2
 
 # Backend for HTTP Proxy (plaintext to Xray)
 backend xray_http_plaintext
     mode tcp
-    server xray vless_xray:18118 check inter 10s fall 3 rise 2
+    server xray familytraffic:18118 check inter 10s fall 3 rise 2
 
 # Blackhole backend for unknown/invalid SNI (security hardening)
 backend blackhole
@@ -700,11 +700,11 @@ backend blackhole
 # Dynamic Nginx backends (added via add_reverse_proxy_route())
 backend nginx_claude
     mode tcp
-    server nginx vless_nginx_reverseproxy:9443 check inter 10s fall 3 rise 2
+    server nginx familytraffic-nginx:9443 check inter 10s fall 3 rise 2
 
 backend nginx_proxy2
     mode tcp
-    server nginx vless_nginx_reverseproxy:9444 check inter 10s fall 3 rise 2
+    server nginx familytraffic-nginx:9444 check inter 10s fall 3 rise 2
 ```
 
 **Stats Page:**
@@ -766,7 +766,7 @@ list_haproxy_routes() {
 # Graceful reload (zero downtime)
 reload_haproxy() {
     local old_pid=$(cat /var/run/haproxy.pid)
-    docker exec vless-haproxy haproxy -f /etc/haproxy/haproxy.cfg -sf $old_pid
+    docker exec familytraffic-haproxy haproxy -f /etc/haproxy/haproxy.cfg -sf $old_pid
 }
 ```
 
@@ -790,8 +790,8 @@ reload_haproxy() {
    ```bash
    cat /etc/letsencrypt/live/domain.com/fullchain.pem \
        /etc/letsencrypt/live/domain.com/privkey.pem \
-       > /opt/vless/certs/combined.pem
-   chmod 600 /opt/vless/certs/combined.pem
+       > /opt/familytraffic/certs/combined.pem
+   chmod 600 /opt/familytraffic/certs/combined.pem
    ```
 3. **HAProxy reload:** `reload_haproxy()`
 
@@ -803,7 +803,7 @@ reload_haproxy() {
 - `reload_haproxy_after_cert_update()` - Graceful HAProxy reload
 
 **Renewal:**
-- **Cron job:** `/etc/cron.d/vless-cert-renew`
+- **Cron job:** `/etc/cron.d/familytraffic-cert-renew`
 - **Script:** `scripts/familytraffic-cert-renew`
 - **Frequency:** Daily check (certbot renew --quiet)
 - **Post-hook:** Regenerate combined.pem + reload HAProxy
@@ -874,7 +874,7 @@ reload_haproxy() {
 **fail2ban:**
 - ✅ Protects all 3 HAProxy frontends (443, 1080, 8118)
 - ✅ Filter: `/etc/fail2ban/filter.d/haproxy-sni.conf`
-- ✅ Jail: `/etc/fail2ban/jail.d/vless-haproxy.conf`
+- ✅ Jail: `/etc/fail2ban/jail.d/familytraffic-haproxy.conf`
 
 #### 4.7.8 Comparison: v4.2 vs v4.3
 
@@ -901,9 +901,9 @@ reload_haproxy() {
 
 #### 4.7.9 Container Infrastructure (v4.3+)
 
-**Total Containers:** 5 (vless_reality_net bridge network)
+**Total Containers:** 5 (familytraffic_net bridge network)
 
-**1. vless_haproxy (HAProxy 2.8-alpine)**
+**1. familytraffic-haproxy (HAProxy 2.8-alpine)**
 - **Purpose:** Unified TLS termination and SNI-based routing
 - **Ports:**
   - 443 (SNI Router): VLESS Reality + Reverse Proxy subdomains
@@ -917,7 +917,7 @@ reload_haproxy() {
   - Graceful reload (zero downtime)
 - **Lifecycle:** Always running
 
-**2. vless_xray (Xray 24.11.30)**
+**2. familytraffic (Xray 24.11.30)**
 - **Purpose:** VPN core + SOCKS5/HTTP proxy engine
 - **Ports (Docker network only, NOT on host):**
   - 8443: VLESS Reality inbound
@@ -925,11 +925,11 @@ reload_haproxy() {
   - 18118: HTTP proxy (plaintext, HAProxy terminates TLS)
 - **Key Features:**
   - Reality protocol (TLS 1.3 masquerading)
-  - Fallback to vless_fake_site for invalid connections
+  - Fallback to familytraffic-fake-site for invalid connections
   - Security: runs as user nobody, cap_drop: ALL
 - **Lifecycle:** Always running
 
-**3. vless_nginx_reverseproxy (Nginx Alpine)**
+**3. familytraffic-nginx (Nginx Alpine)**
 - **Purpose:** Site-specific reverse proxy backends for blocked websites
 - **Ports (localhost only):**
   - 127.0.0.1:9443-9452 (max 10 domains)
@@ -943,7 +943,7 @@ reload_haproxy() {
 - **Tmpfs mounts:** `/var/cache/nginx`, `/var/run` (uid=101, gid=101)
 - **Lifecycle:** Always running
 
-**4. vless_certbot_nginx (Nginx Alpine)**
+**4. familytraffic-certbot (Nginx Alpine)**
 - **Purpose:** Temporary web server for ACME HTTP-01 challenges
 - **Port:** 80 (network_mode: host)
 - **Docker Compose Profile:** `certbot` (NOT started by default)
@@ -961,7 +961,7 @@ reload_haproxy() {
   - Network mode: host (direct access to port 80 without HAProxy)
 - **Lifecycle:** On-demand only (during cert acquisition/renewal)
 
-**5. vless_fake_site (Nginx Alpine)**
+**5. familytraffic-fake-site (Nginx Alpine)**
 - **Purpose:** VLESS Reality fallback - shows legitimate website for invalid VPN connections
 - **Access:** Only via Xray fallback (internal, NOT public)
 - **Key Features:**
@@ -975,11 +975,11 @@ reload_haproxy() {
 
 | Container | Exposed on Host | Docker Network Only | Access Method |
 |-----------|-----------------|---------------------|---------------|
-| vless_haproxy | 443, 1080, 8118, 9000 | - | Direct (public) |
-| vless_xray | - | 8443, 10800, 18118 | Via HAProxy |
-| vless_nginx_reverseproxy | 127.0.0.1:9443-9452 | - | Via HAProxy SNI |
-| vless_certbot_nginx | 80 (on-demand) | - | Direct (temp) |
-| vless_fake_site | - | Internal | Via Xray fallback |
+| familytraffic-haproxy | 443, 1080, 8118, 9000 | - | Direct (public) |
+| familytraffic | - | 8443, 10800, 18118 | Via HAProxy |
+| familytraffic-nginx | 127.0.0.1:9443-9452 | - | Via HAProxy SNI |
+| familytraffic-certbot | 80 (on-demand) | - | Direct (temp) |
+| familytraffic-fake-site | - | Internal | Via Xray fallback |
 
 **IMPORTANT:** Xray ports (8443, 10800, 18118) use `expose:` NOT `ports:` in docker-compose.yml, preventing direct host access. All traffic MUST go through HAProxy for TLS termination and routing.
 
@@ -1002,7 +1002,7 @@ Client → HAProxy (TLS) → Xray (VPN Core) → External SOCKS5s/HTTPS Proxy �
 1. **External Proxy Manager** (lib/external_proxy_manager.sh)
 2. **Xray Routing Manager** (lib/xray_routing_manager.sh)
 3. **CLI Tool** (scripts/familytraffic-external-proxy)
-4. **Proxy Database** (/opt/vless/config/external_proxy.json)
+4. **Proxy Database** (/opt/familytraffic/config/external_proxy.json)
 
 #### 4.8.2 Detailed Architecture Diagram
 
@@ -1031,7 +1031,7 @@ Client → HAProxy (TLS) → Xray (VPN Core) → External SOCKS5s/HTTPS Proxy �
                      │ (Xray outbound: external-proxy)
                      ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    Xray Container (vless_xray)                       │
+│                    Xray Container (familytraffic)                       │
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────┐    │
 │  │  Outbounds (3 configured):                                  │    │
@@ -1079,7 +1079,7 @@ Client → HAProxy (TLS) → Xray (VPN Core) → External SOCKS5s/HTTPS Proxy �
                      │ (HAProxy routes to Xray)
                      ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                  HAProxy Container (vless_haproxy)                   │
+│                  HAProxy Container (familytraffic-haproxy)                   │
 │                                                                      │
 │  Port 443:  VLESS Reality (SNI passthrough) → Xray:8443            │
 │  Port 1080: SOCKS5 TLS termination → Xray:10800 (plaintext)        │
@@ -1145,7 +1145,7 @@ Client → HAProxy (TLS) → Xray (VPN Core) → External SOCKS5s/HTTPS Proxy �
 
 #### 4.8.4 Configuration Files
 
-**1. External Proxy Database (/opt/vless/config/external_proxy.json)**
+**1. External Proxy Database (/opt/familytraffic/config/external_proxy.json)**
 
 ```json
 {
@@ -1305,13 +1305,13 @@ Attempt 3: FAIL (connection refused) → Wait 4s
 
 #### 4.8.7 CLI Management Interface
 
-**Command:** `vless-external-proxy`
-**Symlink:** `/usr/local/bin/familytraffic-external-proxy` → `/opt/vless/scripts/familytraffic-external-proxy`
+**Command:** `familytraffic-external-proxy`
+**Symlink:** `/usr/local/bin/familytraffic-external-proxy` → `/opt/familytraffic/scripts/familytraffic-external-proxy`
 
 **Workflow Example:**
 ```bash
 # Step 1: Add new proxy
-$ sudo vless-external-proxy add
+$ sudo familytraffic-external-proxy add
 
 Select proxy type:
   1) socks5 (plaintext - localhost only)
@@ -1336,23 +1336,23 @@ Proxy added successfully!
   Address: proxy.example.com:1080
 
 Next steps:
-  1. Activate: vless-external-proxy switch proxy-abc123
-  2. Enable routing: vless-external-proxy enable
+  1. Activate: familytraffic-external-proxy switch proxy-abc123
+  2. Enable routing: familytraffic-external-proxy enable
 
 # Step 2: Activate proxy
-$ sudo vless-external-proxy switch proxy-abc123
+$ sudo familytraffic-external-proxy switch proxy-abc123
 ✓ Proxy proxy-abc123 set as active
 ✓ Xray outbound updated
 
 # Step 3: Enable routing
-$ sudo vless-external-proxy enable
+$ sudo familytraffic-external-proxy enable
 ✓ Routing rules updated (mode: all-traffic)
 ✓ Restarting Xray container...
 ✓ Xray container restarted successfully
 ✓ External proxy routing is now active
 
 # Step 4: Verify status
-$ sudo vless status
+$ sudo familytraffic status
 
 External Proxy Status (v5.33):
   ✓ External Proxy ENABLED
@@ -1428,7 +1428,7 @@ cmd_enable() {
 
     # AUTO-RESTART XRAY CONTAINER
     echo -e "${CYAN}Restarting Xray container...${NC}"
-    if docker restart vless_xray >/dev/null 2>&1; then
+    if docker restart familytraffic >/dev/null 2>&1; then
         sleep 3  # Wait for container health check
         echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
     fi
@@ -1479,12 +1479,12 @@ cmd_enable() {
 **Issue 1: Proxy Connection Fails**
 ```bash
 # Test manually
-$ sudo vless-external-proxy test proxy-abc123
+$ sudo familytraffic-external-proxy test proxy-abc123
 ❌ Connection failed
   Error: Connection refused
 
 # Check logs
-$ docker logs vless_xray | tail -20
+$ docker logs familytraffic | tail -20
 [Error] [proxy/socks] connection refused from proxy.example.com:1080
 
 # Solution: Verify proxy credentials, network reachability
@@ -1495,27 +1495,27 @@ $ telnet proxy.example.com 1080
 **Issue 2: Xray Not Routing Through Proxy**
 ```bash
 # Check status
-$ sudo vless-external-proxy status
+$ sudo familytraffic-external-proxy status
 Routing: enabled
 Active Proxy: proxy-abc123
 
 # Verify Xray config
-$ jq '.routing.rules[0].outboundTag' /opt/vless/config/xray_config.json
+$ jq '.routing.rules[0].outboundTag' /opt/familytraffic/config/xray_config.json
 "external-proxy"  # ← should match
 
 # Solution: Restart Xray
-$ sudo vless-external-proxy enable  # auto-restarts
+$ sudo familytraffic-external-proxy enable  # auto-restarts
 ```
 
 **Issue 3: Database Corruption**
 ```bash
 # Validate JSON
-$ jq . /opt/vless/config/external_proxy.json
+$ jq . /opt/familytraffic/config/external_proxy.json
 parse error: Invalid numeric literal at line 5, column 12
 
 # Solution: Restore from backup
-$ sudo cp /opt/vless/config/external_proxy.json.bak \
-          /opt/vless/config/external_proxy.json
+$ sudo cp /opt/familytraffic/config/external_proxy.json.bak \
+          /opt/familytraffic/config/external_proxy.json
 ```
 
 ---

@@ -1,20 +1,20 @@
 # Filesystem Layout Diagram
 
-**Purpose:** Visualize the complete directory structure at `/opt/vless/`
+**Purpose:** Visualize the complete directory structure at `/opt/familytraffic/`
 
 **Scope:** All configuration files, data files, scripts, libraries, logs
 
-**Important:** `/opt/vless/` is HARDCODED and cannot be changed
+**Important:** `/opt/familytraffic/` is HARDCODED and cannot be changed
 
 ---
 
 ## Complete Filesystem Tree
 
-### /opt/vless/ Directory Structure
+### /opt/familytraffic/ Directory Structure
 
 ```mermaid
 graph TB
-    Root["/opt/vless/<br/>(Installation Root)"]
+    Root["/opt/familytraffic/<br/>(Installation Root)"]
 
     Config["config/<br/>(Configuration Files)"]
     Data["data/<br/>(User Data & Client Configs)"]
@@ -49,7 +49,7 @@ graph TB
 
 ```mermaid
 graph TB
-    ConfigDir["/opt/vless/config/"]
+    ConfigDir["/opt/familytraffic/config/"]
 
     HAPr human["haproxy.cfg<br/>(HAProxy Main Config)"]
     XrayConf["xray_config.json<br/>(Xray Main Config)"]
@@ -94,7 +94,7 @@ graph TB
 
 ```mermaid
 graph TB
-    DataDir["/opt/vless/data/"]
+    DataDir["/opt/familytraffic/data/"]
 
     UsersJSON["users.json<br/>(User Database)"]
     ClientsDir["clients/<br/>(Per-User Client Configs)"]
@@ -152,11 +152,11 @@ graph TB
 
 ```mermaid
 graph TB
-    ScriptsDir["/opt/vless/scripts/"]
+    ScriptsDir["/opt/familytraffic/scripts/"]
 
     VLESSmain["vless<br/>(Main CLI)"]
-    VLESSExtProxy["vless-external-proxy<br/>(External Proxy Management)"]
-    VLESSProxy["vless-proxy<br/>(Reverse Proxy Management)"]
+    VLESSExtProxy["familytraffic-external-proxy<br/>(External Proxy Management)"]
+    VLESSProxy["familytraffic-proxy<br/>(Reverse Proxy Management)"]
     MTProxyCLI["mtproxy<br/>(MTProxy Management - v6.0+)"]
     RenewHook["renew-hook.sh<br/>(Certbot Deploy Hook)"]
     InitScript["init-vless.sh<br/>(Installation Script)"]
@@ -173,10 +173,10 @@ graph TB
 
 **Symlinks to /usr/local/bin/:**
 ```bash
-/usr/local/bin/vless → /opt/vless/scripts/vless
-/usr/local/bin/familytraffic-external-proxy → /opt/vless/scripts/familytraffic-external-proxy
-/usr/local/bin/familytraffic-proxy → /opt/vless/scripts/familytraffic-proxy
-/usr/local/bin/mtproxy → /opt/vless/scripts/mtproxy
+/usr/local/bin/vless → /opt/familytraffic/scripts/vless
+/usr/local/bin/familytraffic-external-proxy → /opt/familytraffic/scripts/familytraffic-external-proxy
+/usr/local/bin/familytraffic-proxy → /opt/familytraffic/scripts/familytraffic-proxy
+/usr/local/bin/mtproxy → /opt/familytraffic/scripts/mtproxy
 ```
 
 ---
@@ -185,7 +185,7 @@ graph TB
 
 ```mermaid
 graph TB
-    LibDir["/opt/vless/lib/"]
+    LibDir["/opt/familytraffic/lib/"]
 
     Core["Core Modules:<br/>- orchestrator.sh (1881 lines)<br/>- user_management.sh (3000 lines)<br/>- external_proxy_manager.sh (1100 lines)"]
 
@@ -220,7 +220,7 @@ graph TB
 
 ```mermaid
 graph TB
-    LogsDir["/opt/vless/logs/"]
+    LogsDir["/opt/familytraffic/logs/"]
 
     HAProxyLogs["haproxy/<br/>(HAProxy Logs)"]
     XrayLogs["xray/<br/>(Xray Logs)"]
@@ -253,7 +253,7 @@ graph TB
 **Log Rotation:**
 ```bash
 # /etc/logrotate.d/vless
-/opt/vless/logs/*/*.log {
+/opt/familytraffic/logs/*/*.log {
     daily
     rotate 7
     compress
@@ -263,10 +263,10 @@ graph TB
     create 0640 root root
     sharedscripts
     postrotate
-        docker exec vless_haproxy kill -HUP $(cat /var/run/haproxy.pid) >/dev/null 2>&1 || true
-        docker exec vless_xray kill -HUP $(pgrep xray) >/dev/null 2>&1 || true
-        docker exec vless_nginx_reverseproxy nginx -s reopen >/dev/null 2>&1 || true
-        docker exec vless_mtproxy kill -HUP $(pgrep mtproxy) >/dev/null 2>&1 || true
+        docker exec familytraffic-haproxy kill -HUP $(cat /var/run/haproxy.pid) >/dev/null 2>&1 || true
+        docker exec familytraffic kill -HUP $(pgrep xray) >/dev/null 2>&1 || true
+        docker exec familytraffic-nginx nginx -s reopen >/dev/null 2>&1 || true
+        docker exec familytraffic-mtproxy kill -HUP $(pgrep mtproxy) >/dev/null 2>&1 || true
     endscript
 }
 ```
@@ -277,7 +277,7 @@ graph TB
 
 ```mermaid
 graph TB
-    CertbotDir["/opt/vless/certbot-webroot/"]
+    CertbotDir["/opt/familytraffic/certbot-webroot/"]
 
     WellKnown[".well-known/"]
 
@@ -299,7 +299,7 @@ graph TB
 
 ```mermaid
 graph TB
-    FakeSiteDir["/opt/vless/fake-site/"]
+    FakeSiteDir["/opt/familytraffic/fake-site/"]
 
     IndexHTML["index.html<br/>(Generic Homepage)"]
     Style["style.css<br/>(Basic Styling)"]
@@ -333,7 +333,7 @@ graph TB
 
 ```mermaid
 graph TB
-    DockerDir["/opt/vless/docker/"]
+    DockerDir["/opt/familytraffic/docker/"]
 
     MTProxyContext["mtproxy/<br/>(MTProxy Build Context - v6.0+)"]
 
@@ -418,20 +418,20 @@ cat /etc/letsencrypt/live/example.com/fullchain.pem \
 
 | File/Directory | Owner | Group | Permissions | Reason |
 |----------------|-------|-------|-------------|--------|
-| `/opt/vless/` | root | root | 755 | Root-owned installation |
-| `/opt/vless/config/` | root | root | 755 | Config directory |
-| `/opt/vless/config/*.json` | root | root | 600 | Contains sensitive data |
-| `/opt/vless/config/*.cfg` | root | root | 644 | HAProxy config (read-only) |
-| `/opt/vless/data/` | root | root | 755 | Data directory |
-| `/opt/vless/data/users.json` | root | root | 600 | Contains UUIDs, passwords |
-| `/opt/vless/data/clients/` | root | root | 755 | Client configs directory |
-| `/opt/vless/data/clients/*/*.txt` | root | root | 644 | Client config files (shareable) |
-| `/opt/vless/scripts/` | root | root | 755 | Scripts directory |
-| `/opt/vless/scripts/*` | root | root | 755 | Executable scripts |
-| `/opt/vless/lib/` | root | root | 755 | Library directory |
-| `/opt/vless/lib/*.sh` | root | root | 644 | Library modules (sourced, not executed) |
-| `/opt/vless/logs/` | root | root | 755 | Logs directory |
-| `/opt/vless/logs/*/*.log` | root | root | 640 | Log files |
+| `/opt/familytraffic/` | root | root | 755 | Root-owned installation |
+| `/opt/familytraffic/config/` | root | root | 755 | Config directory |
+| `/opt/familytraffic/config/*.json` | root | root | 600 | Contains sensitive data |
+| `/opt/familytraffic/config/*.cfg` | root | root | 644 | HAProxy config (read-only) |
+| `/opt/familytraffic/data/` | root | root | 755 | Data directory |
+| `/opt/familytraffic/data/users.json` | root | root | 600 | Contains UUIDs, passwords |
+| `/opt/familytraffic/data/clients/` | root | root | 755 | Client configs directory |
+| `/opt/familytraffic/data/clients/*/*.txt` | root | root | 644 | Client config files (shareable) |
+| `/opt/familytraffic/scripts/` | root | root | 755 | Scripts directory |
+| `/opt/familytraffic/scripts/*` | root | root | 755 | Executable scripts |
+| `/opt/familytraffic/lib/` | root | root | 755 | Library directory |
+| `/opt/familytraffic/lib/*.sh` | root | root | 644 | Library modules (sourced, not executed) |
+| `/opt/familytraffic/logs/` | root | root | 755 | Logs directory |
+| `/opt/familytraffic/logs/*/*.log` | root | root | 640 | Log files |
 | `/etc/letsencrypt/` | root | root | 755 | Certificate directory |
 | `/etc/letsencrypt/live/` | root | root | 755 | Live certificates |
 | `/etc/letsencrypt/live/*/privkey.pem` | root | root | 600 | Private keys (sensitive) |
@@ -442,15 +442,15 @@ cat /etc/letsencrypt/live/example.com/fullchain.pem \
 
 | Directory | Typical Size | Maximum Size | Notes |
 |-----------|-------------|--------------|-------|
-| `/opt/vless/config/` | ~100 KB | ~1 MB | Grows with reverse proxy domains |
-| `/opt/vless/data/` | ~10 MB | ~100 MB | Grows with number of users |
-| `/opt/vless/scripts/` | ~500 KB | ~1 MB | Static (CLI tools) |
-| `/opt/vless/lib/` | ~1 MB | ~2 MB | Static (44 modules, ~26,500 lines) |
-| `/opt/vless/logs/` | ~100 MB | ~1 GB | With log rotation (7 days) |
-| `/opt/vless/certbot-webroot/` | ~1 KB | ~10 KB | Temporary challenge files |
-| `/opt/vless/fake-site/` | ~10 KB | ~100 KB | Static HTML |
-| `/opt/vless/docker/` | ~100 KB | ~1 MB | Build contexts |
-| **Total /opt/vless/** | **~111 MB** | **~1.2 GB** | With active logs |
+| `/opt/familytraffic/config/` | ~100 KB | ~1 MB | Grows with reverse proxy domains |
+| `/opt/familytraffic/data/` | ~10 MB | ~100 MB | Grows with number of users |
+| `/opt/familytraffic/scripts/` | ~500 KB | ~1 MB | Static (CLI tools) |
+| `/opt/familytraffic/lib/` | ~1 MB | ~2 MB | Static (44 modules, ~26,500 lines) |
+| `/opt/familytraffic/logs/` | ~100 MB | ~1 GB | With log rotation (7 days) |
+| `/opt/familytraffic/certbot-webroot/` | ~1 KB | ~10 KB | Temporary challenge files |
+| `/opt/familytraffic/fake-site/` | ~10 KB | ~100 KB | Static HTML |
+| `/opt/familytraffic/docker/` | ~100 KB | ~1 MB | Build contexts |
+| **Total /opt/familytraffic/** | **~111 MB** | **~1.2 GB** | With active logs |
 | `/etc/letsencrypt/` | ~10 KB | ~100 KB | Per domain |
 
 ---
@@ -460,22 +460,22 @@ cat /etc/letsencrypt/live/example.com/fullchain.pem \
 ### Critical Files to Backup
 
 **Priority 1 (Daily):**
-- `/opt/vless/data/users.json` - User database
-- `/opt/vless/config/external_proxy.json` - External proxies
+- `/opt/familytraffic/data/users.json` - User database
+- `/opt/familytraffic/config/external_proxy.json` - External proxies
 - `/etc/letsencrypt/` - TLS certificates
 
 **Priority 2 (Weekly):**
-- `/opt/vless/config/` - All configuration files
-- `/opt/vless/data/clients/` - Client configurations
+- `/opt/familytraffic/config/` - All configuration files
+- `/opt/familytraffic/data/clients/` - Client configurations
 
 **Priority 3 (Monthly):**
-- `/opt/vless/scripts/` - CLI tools (rarely change)
-- `/opt/vless/lib/` - Library modules (rarely change)
+- `/opt/familytraffic/scripts/` - CLI tools (rarely change)
+- `/opt/familytraffic/lib/` - Library modules (rarely change)
 
 **Do NOT Backup:**
-- `/opt/vless/logs/` - Can be regenerated
-- `/opt/vless/certbot-webroot/` - Temporary files
-- `/opt/vless/fake-site/` - Static HTML (can be recreated)
+- `/opt/familytraffic/logs/` - Can be regenerated
+- `/opt/familytraffic/certbot-webroot/` - Temporary files
+- `/opt/familytraffic/fake-site/` - Static HTML (can be recreated)
 
 **Backup Script Example:**
 ```bash
@@ -484,11 +484,11 @@ BACKUP_DIR="/backup/vless/$(date +%Y%m%d)"
 mkdir -p "$BACKUP_DIR"
 
 # Priority 1: Critical data
-tar -czf "$BACKUP_DIR/vless-data.tar.gz" /opt/vless/data/
+tar -czf "$BACKUP_DIR/vless-data.tar.gz" /opt/familytraffic/data/
 tar -czf "$BACKUP_DIR/letsencrypt.tar.gz" /etc/letsencrypt/
 
 # Priority 2: Configuration
-tar -czf "$BACKUP_DIR/vless-config.tar.gz" /opt/vless/config/
+tar -czf "$BACKUP_DIR/vless-config.tar.gz" /opt/familytraffic/config/
 
 # Keep 30 days of backups
 find /backup/vless/ -type d -mtime +30 -exec rm -rf {} +

@@ -3,14 +3,14 @@ documentation_version: "v5.26"
 last_updated: "2026-01-07"
 
 project:
-  name: "VLESS + Reality VPN - CLI Architecture"
+  name: "familyTraffic VPN - CLI Architecture"
   version: "v5.26"
   description: "Comprehensive documentation of all CLI tools, commands, parameters, and usage patterns"
 
 cli_tools:
   - name: "vless"
     path: "/usr/local/bin/vless"
-    symlink_target: "/opt/vless/scripts/vless"
+    symlink_target: "/opt/familytraffic/scripts/vless"
     purpose: "Main CLI interface for VPN user management and system operations"
     installation_method: "Symlink created during install.sh"
     permission_required: "sudo (root access)"
@@ -44,12 +44,12 @@ cli_tools:
 
           - step: "Add user to users.json"
             function: "add_user_to_json()"
-            locking: "flock /var/lock/vless_users.lock"
+            locking: "flock /var/lock/familytraffic_users.lock"
             atomic_write: true
 
           - step: "Regenerate Xray configuration"
             function: "generate_xray_config()"
-            output: "/opt/vless/config/xray_config.json"
+            output: "/opt/familytraffic/config/xray_config.json"
 
           - step: "Reload Xray service"
             function: "reload_xray()"
@@ -70,7 +70,7 @@ cli_tools:
             output: "Terminal display with QR codes and URIs"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "append user object"
             fields_added:
               - "username"
@@ -80,20 +80,20 @@ cli_tools:
               - "created_at"
               - "external_proxy_id (null)"
 
-          - path: "/opt/vless/config/xray_config.json"
+          - path: "/opt/familytraffic/config/xray_config.json"
             operation: "regenerate from users.json"
             sections_updated:
               - "inbounds[vless].settings.clients[]"
               - "inbounds[socks].settings.accounts[]"
               - "inbounds[http].settings.accounts[]"
 
-          - path: "/opt/vless/data/clients/<username>/"
+          - path: "/opt/familytraffic/data/clients/<username>/"
             operation: "create directory with configs"
             files_created: 6
 
         side_effects:
           - action: "reload_xray()"
-            method: "docker exec vless_xray kill -HUP <pid>"
+            method: "docker exec familytraffic kill -HUP <pid>"
             impact: "User immediately has VPN access"
             downtime: "~0s"
 
@@ -114,7 +114,7 @@ cli_tools:
               error: "Configuration validation failed"
 
             - check: "Xray reload successful"
-              method: "docker ps | grep vless_xray | grep healthy"
+              method: "docker ps | grep familytraffic | grep healthy"
               error: "Xray container unhealthy after reload"
 
         output_format: |
@@ -129,14 +129,14 @@ cli_tools:
           HTTP Proxy Configuration:
           https://alice:<uuid>@<domain>:8118
 
-          Client configs saved to: /opt/vless/data/clients/alice/
+          Client configs saved to: /opt/familytraffic/data/clients/alice/
 
         duration: "~3-5 seconds"
 
         example_usage: |
-          sudo vless add-user alice
-          sudo vless add-user bob_smith
-          sudo vless add-user user123
+          sudo familytraffic add-user alice
+          sudo familytraffic add-user bob_smith
+          sudo familytraffic add-user user123
 
       - name: "remove-user"
         syntax: "vless remove-user <username>"
@@ -160,7 +160,7 @@ cli_tools:
 
           - step: "Remove user from users.json"
             function: "remove_user_from_json()"
-            locking: "flock /var/lock/vless_users.lock"
+            locking: "flock /var/lock/familytraffic_users.lock"
 
           - step: "Regenerate Xray configuration"
             function: "generate_xray_config()"
@@ -170,16 +170,16 @@ cli_tools:
             effect: "User access revoked immediately"
 
           - step: "Delete client configuration directory"
-            command: "rm -rf /opt/vless/data/clients/<username>"
+            command: "rm -rf /opt/familytraffic/data/clients/<username>"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "remove user object by username"
 
-          - path: "/opt/vless/config/xray_config.json"
+          - path: "/opt/familytraffic/config/xray_config.json"
             operation: "regenerate without deleted user"
 
-          - path: "/opt/vless/data/clients/<username>/"
+          - path: "/opt/familytraffic/data/clients/<username>/"
             operation: "delete directory"
 
         side_effects:
@@ -199,13 +199,13 @@ cli_tools:
         output_format: |
           ✓ User 'alice' removed successfully
           Access revoked immediately
-          Client configs deleted from: /opt/vless/data/clients/alice/
+          Client configs deleted from: /opt/familytraffic/data/clients/alice/
 
         duration: "~2-3 seconds"
 
         example_usage: |
-          sudo vless remove-user alice
-          sudo vless remove-user bob_smith
+          sudo familytraffic remove-user alice
+          sudo familytraffic remove-user bob_smith
 
       - name: "list-users"
         syntax: "vless list-users [--format=table|json]"
@@ -225,7 +225,7 @@ cli_tools:
 
         workflow:
           - step: "Read users.json"
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
 
           - step: "Format output"
             formats:
@@ -233,7 +233,7 @@ cli_tools:
               json: "Raw JSON array of user objects"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "read-only"
 
         output_format_table: |
@@ -256,9 +256,9 @@ cli_tools:
         duration: "< 1 second"
 
         example_usage: |
-          sudo vless list-users
-          sudo vless list-users --format=json
-          sudo vless list-users | grep alice
+          sudo familytraffic list-users
+          sudo familytraffic list-users --format=json
+          sudo familytraffic list-users | grep alice
 
       - name: "show-user"
         syntax: "vless show-user <username>"
@@ -280,19 +280,19 @@ cli_tools:
             validation: "check_user_exists()"
 
           - step: "Read user data from users.json"
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
 
           - step: "Read client configs"
-            source: "/opt/vless/data/clients/<username>/"
+            source: "/opt/familytraffic/data/clients/<username>/"
 
           - step: "Display all information and QR codes"
             output: "Terminal with formatted data and QR codes"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "read-only"
 
-          - path: "/opt/vless/data/clients/<username>/"
+          - path: "/opt/familytraffic/data/clients/<username>/"
             operation: "read configs"
 
         output_format: |
@@ -315,11 +315,11 @@ cli_tools:
           https://alice:<uuid>@<domain>:8118
           [QR CODE]
 
-          Config files: /opt/vless/data/clients/alice/
+          Config files: /opt/familytraffic/data/clients/alice/
 
         example_usage: |
-          sudo vless show-user alice
-          sudo vless show-user bob
+          sudo familytraffic show-user alice
+          sudo familytraffic show-user bob
 
       - name: "set-proxy"
         syntax: "vless set-proxy <username> <proxy-id|none>"
@@ -352,7 +352,7 @@ cli_tools:
 
           - step: "Update users.json external_proxy_id field"
             function: "update_user_proxy_id()"
-            locking: "flock /var/lock/vless_users.lock"
+            locking: "flock /var/lock/familytraffic_users.lock"
 
           - step: "Update Xray routing rules"
             function: "update_xray_routing_for_user()"
@@ -367,12 +367,12 @@ cli_tools:
             method: "SIGHUP"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "update external_proxy_id field"
             before: "external_proxy_id: null"
             after: "external_proxy_id: 'proxy-1'"
 
-          - path: "/opt/vless/config/xray_config.json"
+          - path: "/opt/familytraffic/config/xray_config.json"
             operation: "update routing.rules[].user[] array"
             section: "routing.rules[0] (external-proxy rule)"
 
@@ -404,9 +404,9 @@ cli_tools:
         duration: "~2-4 seconds"
 
         example_usage: |
-          sudo vless set-proxy alice proxy-1
-          sudo vless set-proxy bob proxy-2
-          sudo vless set-proxy alice none  # Remove proxy
+          sudo familytraffic set-proxy alice proxy-1
+          sudo familytraffic set-proxy bob proxy-2
+          sudo familytraffic set-proxy alice none  # Remove proxy
 
       - name: "show-proxy"
         syntax: "vless show-proxy <username>"
@@ -434,10 +434,10 @@ cli_tools:
           - step: "Display proxy information"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "read-only"
 
-          - path: "/opt/vless/config/external_proxy.json"
+          - path: "/opt/familytraffic/config/external_proxy.json"
             operation: "read-only (conditional)"
 
         output_format: |
@@ -455,8 +455,8 @@ cli_tools:
           Traffic flow: alice → VPN Server → Internet (direct)
 
         example_usage: |
-          sudo vless show-proxy alice
-          sudo vless show-proxy bob
+          sudo familytraffic show-proxy alice
+          sudo familytraffic show-proxy bob
 
       - name: "list-proxy-assignments"
         syntax: "vless list-proxy-assignments [--proxy-id=<id>]"
@@ -497,8 +497,8 @@ cli_tools:
           alice       proxy-1     US Proxy 1    socks5s   proxy.example.com:1080
 
         example_usage: |
-          sudo vless list-proxy-assignments
-          sudo vless list-proxy-assignments --proxy-id=proxy-1
+          sudo familytraffic list-proxy-assignments
+          sudo familytraffic list-proxy-assignments --proxy-id=proxy-1
 
       - name: "status"
         syntax: "vless status [--detailed]"
@@ -517,7 +517,7 @@ cli_tools:
 
         workflow:
           - step: "Check Docker containers status"
-            command: "docker ps -a --filter name=vless_"
+            command: "docker ps -a --filter name=familytraffic_"
 
           - step: "Check certificate expiration"
             source: "/etc/letsencrypt/live/${DOMAIN}/"
@@ -527,7 +527,7 @@ cli_tools:
             source: "http://127.0.0.1:9000/stats"
 
           - step: "Check Xray health"
-            command: "docker exec vless_xray xray version"
+            command: "docker exec familytraffic xray version"
 
           - step: "Display formatted status"
 
@@ -535,15 +535,15 @@ cli_tools:
           - operation: "read-only system checks"
 
         output_format: |
-          VLESS + Reality VPN Status
+          familyTraffic VPN Status
           ==========================
 
           Containers:
-          ✓ vless_haproxy       (healthy)
-          ✓ vless_xray          (healthy)
-          ✓ vless_nginx_reverseproxy (healthy)
-          ✓ vless_fake_site     (healthy)
-          ⏸ vless_certbot_nginx (stopped, normal)
+          ✓ familytraffic-haproxy       (healthy)
+          ✓ familytraffic          (healthy)
+          ✓ familytraffic-nginx (healthy)
+          ✓ familytraffic-fake-site     (healthy)
+          ⏸ familytraffic-certbot (stopped, normal)
 
           Certificates:
           ✓ example.com         (expires: 2026-03-15, 68 days remaining)
@@ -559,8 +559,8 @@ cli_tools:
           ✓ claude.example.com  → https://claude.ai
 
         example_usage: |
-          sudo vless status
-          sudo vless status --detailed
+          sudo familytraffic status
+          sudo familytraffic status --detailed
 
       - name: "logs"
         syntax: "vless logs <service> [--tail=N] [--follow]"
@@ -591,20 +591,20 @@ cli_tools:
         workflow:
           - step: "Map service name to container"
             mapping:
-              xray: "vless_xray"
-              haproxy: "vless_haproxy"
-              nginx: "vless_nginx_reverseproxy"
-              fake-site: "vless_fake_site"
-              certbot: "vless_certbot_nginx"
+              xray: "familytraffic"
+              haproxy: "familytraffic-haproxy"
+              nginx: "familytraffic-nginx"
+              fake-site: "familytraffic-fake-site"
+              certbot: "familytraffic-certbot"
 
           - step: "Execute docker logs command"
             command: "docker logs <container> --tail <N> [--follow]"
 
         example_usage: |
-          sudo vless logs xray
-          sudo vless logs haproxy --tail=100
-          sudo vless logs xray --follow
-          sudo vless logs all --tail=20
+          sudo familytraffic logs xray
+          sudo familytraffic logs haproxy --tail=100
+          sudo familytraffic logs xray --follow
+          sudo familytraffic logs all --tail=20
 
       - name: "test-security"
         syntax: "vless test-security [--quick]"
@@ -668,19 +668,19 @@ cli_tools:
         duration: "~5-10 seconds (--quick) or ~30-60 seconds (full)"
 
         example_usage: |
-          sudo vless test-security
-          sudo vless test-security --quick
+          sudo familytraffic test-security
+          sudo familytraffic test-security --quick
 
-  - name: "vless-external-proxy"
+  - name: "familytraffic-external-proxy"
     path: "/usr/local/bin/familytraffic-external-proxy"
-    symlink_target: "/opt/vless/scripts/familytraffic-external-proxy"
+    symlink_target: "/opt/familytraffic/scripts/familytraffic-external-proxy"
     purpose: "External upstream proxy management (v5.24+ feature)"
     feature_version: "v5.24+"
     permission_required: "sudo (root access)"
 
     commands:
       - name: "add"
-        syntax: "vless-external-proxy add"
+        syntax: "familytraffic-external-proxy add"
         description: "Interactive wizard to add new external upstream proxy"
         category: "Proxy Management"
 
@@ -723,18 +723,18 @@ cli_tools:
 
           - step: "Add to external_proxy.json"
             function: "add_proxy_to_json()"
-            locking: "flock /var/lock/vless_external_proxy.lock"
+            locking: "flock /var/lock/familytraffic_external_proxy.lock"
 
           - step: "Regenerate Xray config"
             function: "generate_xray_config()"
 
           - step: "Restart Xray container"
             reason: "Outbound changes require full restart"
-            command: "docker restart vless_xray"
+            command: "docker restart familytraffic"
             downtime: "~2-5s"
 
         affected_files:
-          - path: "/opt/vless/config/external_proxy.json"
+          - path: "/opt/familytraffic/config/external_proxy.json"
             operation: "append proxy object"
             fields_added:
               - "id (proxy-N)"
@@ -747,11 +747,11 @@ cli_tools:
               - "enabled (true)"
               - "created_at"
 
-          - path: "/opt/vless/config/xray_config.json"
+          - path: "/opt/familytraffic/config/xray_config.json"
             operation: "update outbounds[external-proxy]"
 
         side_effects:
-          - action: "docker restart vless_xray"
+          - action: "docker restart familytraffic"
             impact: "Brief VPN interruption (~2-5s)"
             note: "Existing connections dropped, users reconnect automatically"
 
@@ -776,15 +776,15 @@ cli_tools:
           Xray container restarted
 
           You can now assign this proxy to users with:
-          sudo vless set-proxy <username> proxy-1
+          sudo familytraffic set-proxy <username> proxy-1
 
         duration: "~10-20 seconds (with connectivity test)"
 
         example_usage: |
-          sudo vless-external-proxy add
+          sudo familytraffic-external-proxy add
 
       - name: "list"
-        syntax: "vless-external-proxy list [--format=table|json]"
+        syntax: "familytraffic-external-proxy list [--format=table|json]"
         description: "List all configured external proxies"
         category: "Proxy Management"
 
@@ -800,10 +800,10 @@ cli_tools:
 
         workflow:
           - step: "Read external_proxy.json"
-            source: "/opt/vless/config/external_proxy.json"
+            source: "/opt/familytraffic/config/external_proxy.json"
 
           - step: "Count users assigned to each proxy"
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
             field: "users[].external_proxy_id"
 
           - step: "Format output"
@@ -815,11 +815,11 @@ cli_tools:
           proxy-3  Test Proxy    socks5    test.proxy.com:1080       disabled 0
 
         example_usage: |
-          sudo vless-external-proxy list
-          sudo vless-external-proxy list --format=json
+          sudo familytraffic-external-proxy list
+          sudo familytraffic-external-proxy list --format=json
 
       - name: "remove"
-        syntax: "vless-external-proxy remove <proxy-id>"
+        syntax: "familytraffic-external-proxy remove <proxy-id>"
         description: "Remove external proxy (only if no users assigned)"
         category: "Proxy Management"
 
@@ -859,10 +859,10 @@ cli_tools:
           Xray container restarted
 
         example_usage: |
-          sudo vless-external-proxy remove proxy-1
+          sudo familytraffic-external-proxy remove proxy-1
 
       - name: "enable"
-        syntax: "vless-external-proxy enable <proxy-id>"
+        syntax: "familytraffic-external-proxy enable <proxy-id>"
         description: "Enable previously disabled proxy"
         category: "Proxy Management"
 
@@ -888,10 +888,10 @@ cli_tools:
           Users assigned to this proxy can now route traffic through it
 
         example_usage: |
-          sudo vless-external-proxy enable proxy-1
+          sudo familytraffic-external-proxy enable proxy-1
 
       - name: "disable"
-        syntax: "vless-external-proxy disable <proxy-id>"
+        syntax: "familytraffic-external-proxy disable <proxy-id>"
         description: "Disable proxy (users will use direct connection)"
         category: "Proxy Management"
 
@@ -917,13 +917,13 @@ cli_tools:
           ✓ Proxy 'proxy-1' disabled
           Users assigned to this proxy will now use direct connection
 
-          To re-enable: sudo vless-external-proxy enable proxy-1
+          To re-enable: sudo familytraffic-external-proxy enable proxy-1
 
         example_usage: |
-          sudo vless-external-proxy disable proxy-1
+          sudo familytraffic-external-proxy disable proxy-1
 
       - name: "test"
-        syntax: "vless-external-proxy test <proxy-id>"
+        syntax: "familytraffic-external-proxy test <proxy-id>"
         description: "Test connectivity to external proxy"
         category: "Proxy Management"
 
@@ -964,10 +964,10 @@ cli_tools:
           Proxy is working correctly
 
         example_usage: |
-          sudo vless-external-proxy test proxy-1
+          sudo familytraffic-external-proxy test proxy-1
 
       - name: "status"
-        syntax: "vless-external-proxy status"
+        syntax: "familytraffic-external-proxy status"
         description: "Show overview of all proxies and their usage"
         category: "Proxy Management"
 
@@ -1003,18 +1003,18 @@ cli_tools:
           ⏸ proxy-3 (Test Proxy)    - Disabled
 
         example_usage: |
-          sudo vless-external-proxy status
+          sudo familytraffic-external-proxy status
 
-  - name: "vless-proxy"
+  - name: "familytraffic-proxy"
     path: "/usr/local/bin/familytraffic-proxy"
-    symlink_target: "/opt/vless/scripts/familytraffic-proxy"
+    symlink_target: "/opt/familytraffic/scripts/familytraffic-proxy"
     purpose: "Reverse proxy domain management (subdomain-based, no port)"
     feature_version: "v4.3+"
     permission_required: "sudo (root access)"
 
     commands:
       - name: "add"
-        syntax: "vless-proxy add"
+        syntax: "familytraffic-proxy add"
         description: "Interactive wizard to add reverse proxy domain"
         category: "Reverse Proxy"
 
@@ -1057,11 +1057,11 @@ cli_tools:
 
           - step: "Obtain Let's Encrypt certificate"
             method: "certbot certonly --webroot"
-            challenge: "HTTP-01 via vless_nginx_reverseproxy:80"
+            challenge: "HTTP-01 via familytraffic-nginx:80"
             duration: "~30-60 seconds"
 
           - step: "Generate Nginx config"
-            output: "/opt/vless/config/reverse-proxy/<domain>.conf"
+            output: "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
             template: "Standard reverse proxy template"
 
           - step: "Add rate limit zone to http_context.conf"
@@ -1069,23 +1069,23 @@ cli_tools:
             critical: "Missing zone causes Nginx crash"
 
           - step: "Reload Nginx"
-            command: "docker exec vless_nginx_reverseproxy nginx -s reload"
+            command: "docker exec familytraffic-nginx nginx -s reload"
 
           - step: "Generate HAProxy ACL"
             function: "add_haproxy_acl_for_domain()"
             output: "Dynamic section in haproxy.cfg"
 
           - step: "Reload HAProxy"
-            command: "docker exec vless_haproxy haproxy -sf <old_pid>"
+            command: "docker exec familytraffic-haproxy haproxy -sf <old_pid>"
 
         affected_files:
-          - path: "/opt/vless/config/reverse-proxy/<domain>.conf"
+          - path: "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
             operation: "create Nginx server block"
 
-          - path: "/opt/vless/config/reverse-proxy/http_context.conf"
+          - path: "/opt/familytraffic/config/reverse-proxy/http_context.conf"
             operation: "append rate limit zone"
 
-          - path: "/opt/vless/config/haproxy.cfg"
+          - path: "/opt/familytraffic/config/haproxy.cfg"
             operation: "insert ACL + backend in dynamic section"
 
           - path: "/etc/letsencrypt/live/<domain>/"
@@ -1147,10 +1147,10 @@ cli_tools:
         duration: "~60-90 seconds (with cert acquisition)"
 
         example_usage: |
-          sudo vless-proxy add
+          sudo familytraffic-proxy add
 
       - name: "remove"
-        syntax: "vless-proxy remove <domain>"
+        syntax: "familytraffic-proxy remove <domain>"
         description: "Remove reverse proxy domain configuration"
         category: "Reverse Proxy"
 
@@ -1168,7 +1168,7 @@ cli_tools:
           - step: "Validate domain exists"
 
           - step: "Delete Nginx config"
-            file: "/opt/vless/config/reverse-proxy/<domain>.conf"
+            file: "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
 
           - step: "Remove rate limit zone from http_context.conf"
 
@@ -1183,13 +1183,13 @@ cli_tools:
             action: "Port becomes available for new domains"
 
         affected_files:
-          - path: "/opt/vless/config/reverse-proxy/<domain>.conf"
+          - path: "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
             operation: "delete"
 
-          - path: "/opt/vless/config/reverse-proxy/http_context.conf"
+          - path: "/opt/familytraffic/config/reverse-proxy/http_context.conf"
             operation: "remove rate limit zone line"
 
-          - path: "/opt/vless/config/haproxy.cfg"
+          - path: "/opt/familytraffic/config/haproxy.cfg"
             operation: "remove ACL + backend from dynamic section"
 
         output_format: |
@@ -1199,10 +1199,10 @@ cli_tools:
           Note: SSL certificate remains in /etc/letsencrypt/ (manual cleanup if needed)
 
         example_usage: |
-          sudo vless-proxy remove claude.example.com
+          sudo familytraffic-proxy remove claude.example.com
 
       - name: "list"
-        syntax: "vless-proxy list"
+        syntax: "familytraffic-proxy list"
         description: "List all configured reverse proxy domains"
         category: "Reverse Proxy"
 
@@ -1225,10 +1225,10 @@ cli_tools:
           Total: 2/10 slots used
 
         example_usage: |
-          sudo vless-proxy list
+          sudo familytraffic-proxy list
 
       - name: "test"
-        syntax: "vless-proxy test <domain>"
+        syntax: "familytraffic-proxy test <domain>"
         description: "Test reverse proxy domain connectivity"
         category: "Reverse Proxy"
 
@@ -1266,11 +1266,11 @@ cli_tools:
           Reverse proxy is working correctly
 
         example_usage: |
-          sudo vless-proxy test claude.example.com
+          sudo familytraffic-proxy test claude.example.com
 
   - name: "mtproxy"
     path: "/usr/local/bin/mtproxy"
-    symlink_target: "/opt/vless/scripts/mtproxy"
+    symlink_target: "/opt/familytraffic/scripts/mtproxy"
     purpose: "MTProxy Telegram server management (v6.0+ planned)"
     feature_version: "v6.0+ (planned implementation)"
     implementation_status: "PLANNED (not yet implemented)"
@@ -1298,11 +1298,11 @@ cli_tools:
             prefix: "dd (standard secret)"
 
           - step: "Append to proxy-secret file"
-            file: "/opt/vless/config/mtproxy/proxy-secret"
+            file: "/opt/familytraffic/config/mtproxy/proxy-secret"
             format: "One secret per line"
 
           - step: "Restart MTProxy container"
-            command: "docker restart vless_mtproxy"
+            command: "docker restart familytraffic-mtproxy"
             downtime: "~2-5s"
             reason: "MTProxy requires restart to load new secrets"
 
@@ -1310,7 +1310,7 @@ cli_tools:
             output: "Deep link + QR code"
 
         affected_files:
-          - path: "/opt/vless/config/mtproxy/proxy-secret"
+          - path: "/opt/familytraffic/config/mtproxy/proxy-secret"
             operation: "append secret"
 
         output_format: |
@@ -1477,18 +1477,18 @@ cli_tools:
           - step: "Append to proxy-secret file"
 
           - step: "Generate client config"
-            output: "/opt/vless/data/clients/<username>/mtproxy_config.txt"
+            output: "/opt/familytraffic/data/clients/<username>/mtproxy_config.txt"
 
           - step: "Restart MTProxy container"
 
         affected_files:
-          - path: "/opt/vless/data/users.json"
+          - path: "/opt/familytraffic/data/users.json"
             operation: "update mtproxy_secret field"
 
-          - path: "/opt/vless/config/mtproxy/proxy-secret"
+          - path: "/opt/familytraffic/config/mtproxy/proxy-secret"
             operation: "append secret"
 
-          - path: "/opt/vless/data/clients/<username>/mtproxy_config.txt"
+          - path: "/opt/familytraffic/data/clients/<username>/mtproxy_config.txt"
             operation: "create config file"
 
         output_format: |
@@ -1497,7 +1497,7 @@ cli_tools:
           Secret: ee1234567890abcdef1234567890abcdef12345678 (fake-TLS enabled)
 
           Client config saved to:
-          /opt/vless/data/clients/alice/mtproxy_config.txt
+          /opt/familytraffic/data/clients/alice/mtproxy_config.txt
 
           Deep Link:
           tg://proxy?server=<ip>&port=8443&secret=ee1234567890abcdef1234567890abcdef12345678
@@ -1646,22 +1646,22 @@ command_groups:
     description: "Upstream proxy server configuration"
     feature_version: "v5.24+"
     commands:
-      - "vless-external-proxy add"
-      - "vless-external-proxy list"
-      - "vless-external-proxy remove"
-      - "vless-external-proxy enable"
-      - "vless-external-proxy disable"
-      - "vless-external-proxy test"
-      - "vless-external-proxy status"
+      - "familytraffic-external-proxy add"
+      - "familytraffic-external-proxy list"
+      - "familytraffic-external-proxy remove"
+      - "familytraffic-external-proxy enable"
+      - "familytraffic-external-proxy disable"
+      - "familytraffic-external-proxy test"
+      - "familytraffic-external-proxy status"
 
   reverse_proxy_management:
     description: "Subdomain-based reverse proxy (no port)"
     feature_version: "v4.3+"
     commands:
-      - "vless-proxy add"
-      - "vless-proxy remove"
-      - "vless-proxy list"
-      - "vless-proxy test"
+      - "familytraffic-proxy add"
+      - "familytraffic-proxy remove"
+      - "familytraffic-proxy list"
+      - "familytraffic-proxy test"
 
   system_management:
     description: "System status, logs, and monitoring"

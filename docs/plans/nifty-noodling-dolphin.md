@@ -67,7 +67,7 @@ create_docker_compose() {
 
 ### 2b. Изменения в `lib/orchestrator.sh`
 
-1. **Строка 68** — удалить константу `NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"`
+1. **Строка 68** — удалить константу `NGINX_CONTAINER_NAME="familytraffic-nginx"`
 2. **Строки 208–219** (Step 6.3) — удалить блок `ENABLE_REVERSE_PROXY → nginx_config_generator → generate_reverseproxy_http_context`
 3. **Строка 354** — удалить `directories+=("${CONFIG_DIR}/reverse-proxy")`
 4. **Строка 1212** — удалить `ENABLE_REVERSE_PROXY=${ENABLE_REVERSE_PROXY:-false}`

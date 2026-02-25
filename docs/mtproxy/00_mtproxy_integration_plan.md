@@ -36,7 +36,7 @@
 | Аспект | Решение | Обоснование |
 |--------|---------|-------------|
 | **Назначение** | Специализированный Telegram-прокси | Фокус на Telegram клиентах, не замена VLESS |
-| **Архитектура** | Отдельный Docker контейнер (vless_mtproxy) | Изоляция, независимое управление, opt-in установка |
+| **Архитектура** | Отдельный Docker контейнер (familytraffic-mtproxy) | Изоляция, независимое управление, opt-in установка |
 | **Функциональность** | Базовая + официальные best practices | Минимальная viable implementation, расширение в будущем |
 | **Интеграция** | fail2ban + клиентские конфиги | Совместимость с существующей инфраструктурой |
 | **Приоритет** | HIGH | Ценная фича для пользователей Telegram, популярный протокол |
@@ -99,13 +99,13 @@
 
 ```
 Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → Internet
-         5 контейнеров: vless_haproxy, vless_xray, vless_nginx_reverseproxy,
-                        vless_certbot_nginx, vless_fake_site
+         5 контейнеров: familytraffic-haproxy, familytraffic, familytraffic-nginx,
+                        familytraffic-certbot, familytraffic-fake-site
 ```
 
 **Проблема:** нет поддержки MTProto протокола
 
-**Решение:** добавить 6-й контейнер **vless_mtproxy**
+**Решение:** добавить 6-й контейнер **familytraffic-mtproxy**
 
 ---
 
@@ -136,7 +136,7 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
 - **Детали:**
   - Генерация: `head -c 16 /dev/urandom | xxd -ps`
   - Префикс `dd` для random padding (опционально)
-  - Формат хранения: `/opt/vless/config/mtproxy_secrets.json`
+  - Формат хранения: `/opt/familytraffic/config/mtproxy_secrets.json`
   - CLI команды:
     - `mtproxy add-secret [--with-padding]`
     - `mtproxy list-secrets`
@@ -158,7 +158,7 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
 - **Детали:**
   - Jail: `/etc/fail2ban/jail.d/mtproxy.conf`
   - Filter: `/etc/fail2ban/filter.d/mtproxy.conf`
-  - Log source: `/opt/vless/logs/mtproxy/error.log`
+  - Log source: `/opt/familytraffic/logs/mtproxy/error.log`
   - Ban threshold: 5 failures → 1 hour ban
   - Pattern matching: MTProxy authentication errors
 
@@ -233,15 +233,15 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
                  │                     │
        ┌─────────▼─────────────────┐   │
        │   EXISTING CONTAINERS     │   │
-       │  - vless_haproxy          │   │
-       │  - vless_xray             │   │
-       │  - vless_nginx_reverse    │   │
-       │  - vless_certbot_nginx    │   │
-       │  - vless_fake_site        │   │
+       │  - familytraffic-haproxy          │   │
+       │  - familytraffic             │   │
+       │  - familytraffic-nginx_reverse    │   │
+       │  - familytraffic-certbot    │   │
+       │  - familytraffic-fake-site        │   │
        └───────────────────────────┘   │
                                         │
                               ┌─────────▼──────────────────────────┐
-                              │   vless_mtproxy (NEW)              │
+                              │   familytraffic-mtproxy (NEW)              │
                               │  - Port 8443 (public)              │
                               │  - Port 8888 (stats, localhost)    │
                               │  - MTProto protocol                │
@@ -252,16 +252,16 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
 
 ### 4.2 Container Networking
 
-**Docker Network:** `vless_reality_net` (existing)
+**Docker Network:** `familytraffic_net` (existing)
 
 **Port Mapping:**
 - `8443:8443` - MTProxy публичный порт
 - `127.0.0.1:8888:8888` - Stats endpoint (localhost only)
 
 **Volume Mounts:**
-- `/opt/vless/config/mtproxy/` → `/etc/mtproxy/` (ro) - Конфигурация
-- `/opt/vless/logs/mtproxy/` → `/var/log/mtproxy/` (rw) - Логи
-- `/opt/vless/data/mtproxy-stats/` → `/var/lib/mtproxy/` (rw) - Статистика
+- `/opt/familytraffic/config/mtproxy/` → `/etc/mtproxy/` (ro) - Конфигурация
+- `/opt/familytraffic/logs/mtproxy/` → `/var/log/mtproxy/` (rw) - Логи
+- `/opt/familytraffic/data/mtproxy-stats/` → `/var/lib/mtproxy/` (rw) - Статистика
 
 ### 4.3 Traffic Flow
 
@@ -274,7 +274,7 @@ UFW Firewall (port 8443 allowed)
     ↓
     │ 2. TCP connection to MTProxy container
     ↓
-vless_mtproxy Container
+familytraffic-mtproxy Container
     ↓
     │ 3. Transport obfuscation decryption (AES-256-CTR)
     │ 4. MTProto protocol processing
@@ -333,7 +333,7 @@ CMD ["/usr/local/bin/mtproto-proxy", "-u", "nobody", "-p", "8888", "-H", "8443",
 Отдельный wizard для установки MTProxy (не включен в основной `vless-install`).
 
 **Acceptance Criteria:**
-- ✅ Скрипт: `/opt/vless/scripts/mtproxy-setup`
+- ✅ Скрипт: `/opt/familytraffic/scripts/mtproxy-setup`
 - ✅ Symlink: `/usr/local/bin/mtproxy-setup`
 - ✅ Interactive prompts:
   1. "Install MTProxy? [y/N]"
@@ -364,17 +364,17 @@ Generating secret...
 ✓ Secret generated: dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
 ✓ UFW rule added: 8443/tcp LIMIT
 ✓ fail2ban jail created: mtproxy
-✓ Docker container started: vless_mtproxy
+✓ Docker container started: familytraffic-mtproxy
 ✓ MTProxy running on port 8443
 
 Client configuration:
   Deep link: tg://proxy?server=1.2.3.4&port=8443&secret=dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
-  QR code: /opt/vless/data/mtproxy/mtproxy_qr.png
+  QR code: /opt/familytraffic/data/mtproxy/mtproxy_qr.png
 
 Next steps:
   1. Share the deep link or QR code with users
   2. Users tap link in Telegram to connect
-  3. Monitor: sudo vless status
+  3. Monitor: sudo familytraffic status
 ```
 
 ---
@@ -391,7 +391,7 @@ CLI команды для управления MTProxy секретами.
 - ✅ Команда: `mtproxy add-secret [--with-padding]`
   - Генерирует 16-byte секрет: `head -c 16 /dev/urandom | xxd -ps`
   - Опционально добавляет префикс `dd` для padding
-  - Сохраняет в `/opt/vless/config/mtproxy_secrets.json`
+  - Сохраняет в `/opt/familytraffic/config/mtproxy_secrets.json`
   - Обновляет Docker контейнер с новым секретом
   - Output: новый secret в hex формате
 
@@ -443,12 +443,12 @@ CLI команды для управления MTProxy секретами.
 - ✅ Deep link генерация:
   - Format: `tg://proxy?server={IP}&port={PORT}&secret={SECRET}`
   - Alternative: `https://t.me/proxy?server={IP}&port={PORT}&secret={SECRET}`
-  - Сохранение в `/opt/vless/data/mtproxy/mtproxy_link.txt`
+  - Сохранение в `/opt/familytraffic/data/mtproxy/mtproxy_link.txt`
 
 - ✅ QR code генерация:
   - Library: `qrencode` (system package)
   - Output: PNG изображение 300x300px
-  - Path: `/opt/vless/data/mtproxy/mtproxy_qr.png`
+  - Path: `/opt/familytraffic/data/mtproxy/mtproxy_qr.png`
   - Кодирует deep link
 
 - ✅ Команда: `mtproxy show-config [<secret>]`
@@ -463,8 +463,8 @@ $ sudo mtproxy add-secret --with-padding
 ✓ Secret generated: dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
 
 Client configuration saved:
-  Deep link: /opt/vless/data/mtproxy/mtproxy_link.txt
-  QR code: /opt/vless/data/mtproxy/mtproxy_qr.png
+  Deep link: /opt/familytraffic/data/mtproxy/mtproxy_link.txt
+  QR code: /opt/familytraffic/data/mtproxy/mtproxy_qr.png
 
 To view configuration:
   sudo mtproxy show-config
@@ -488,7 +488,7 @@ To view configuration:
   port = 8443
   protocol = tcp
   filter = mtproxy
-  logpath = /opt/vless/logs/mtproxy/error.log
+  logpath = /opt/familytraffic/logs/mtproxy/error.log
   maxretry = 5
   bantime = 3600
   findtime = 600
@@ -503,7 +503,7 @@ To view configuration:
 
 - ✅ Log rotation: `/etc/logrotate.d/mtproxy`
 - ✅ Автоматическое создание при `mtproxy-setup`
-- ✅ Тестирование: `fail2ban-regex /opt/vless/logs/mtproxy/error.log /etc/fail2ban/filter.d/mtproxy.conf`
+- ✅ Тестирование: `fail2ban-regex /opt/familytraffic/logs/mtproxy/error.log /etc/fail2ban/filter.d/mtproxy.conf`
 
 ---
 
@@ -549,10 +549,10 @@ To view configuration:
   - Bytes sent/received
 - ✅ Интеграция с `vless status`:
   ```bash
-  $ sudo vless status
+  $ sudo familytraffic status
 
   MTProxy Status (v6.0):
-    ✓ Container: vless_mtproxy (running)
+    ✓ Container: familytraffic-mtproxy (running)
     Active connections: 5
     Total connections: 142
     Uptime: 2d 5h 32m
@@ -615,7 +615,7 @@ wait
 - ✅ Docker healthcheck: TCP check на порту 8443 каждые 30 секунд
 - ✅ Auto-restart при crash
 - ✅ Graceful shutdown при `docker stop`
-- ✅ Логирование всех crashes в `/opt/vless/logs/mtproxy/error.log`
+- ✅ Логирование всех crashes в `/opt/familytraffic/logs/mtproxy/error.log`
 
 **Healthcheck Configuration:**
 ```yaml
@@ -715,7 +715,7 @@ sudo tcpdump -i any port 8443 -w mtproxy_traffic.pcap
 
 ### 7.1 Container Architecture
 
-**Container Name:** `vless_mtproxy`
+**Container Name:** `familytraffic-mtproxy`
 
 **Base Image:** Custom Dockerfile (alpine:latest + compiled MTProxy)
 
@@ -787,17 +787,17 @@ services:
     build:
       context: ./docker/mtproxy
       dockerfile: Dockerfile
-    container_name: vless_mtproxy
+    container_name: familytraffic-mtproxy
     restart: unless-stopped
     networks:
-      - vless_reality_net
+      - familytraffic_net
     ports:
       - "8443:8443"                     # Public MTProxy port
       - "127.0.0.1:8888:8888"           # Stats endpoint (localhost only)
     volumes:
-      - /opt/vless/config/mtproxy:/etc/mtproxy:ro
-      - /opt/vless/logs/mtproxy:/var/log/mtproxy
-      - /opt/vless/data/mtproxy-stats:/var/lib/mtproxy
+      - /opt/familytraffic/config/mtproxy:/etc/mtproxy:ro
+      - /opt/familytraffic/logs/mtproxy:/var/log/mtproxy
+      - /opt/familytraffic/data/mtproxy-stats:/var/lib/mtproxy
     environment:
       - MTPROXY_SECRET=${MTPROXY_SECRET}
       - MTPROXY_WORKERS=${MTPROXY_WORKERS:-1}
@@ -812,7 +812,7 @@ services:
 ### 7.2 File Structure
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/
 │   └── mtproxy/
 │       ├── mtproxy_secrets.json    # Secrets database
@@ -882,7 +882,7 @@ sudo ufw limit 8443/tcp comment 'MTProxy (Telegram)'
 **Secret Management:**
 
 ```json
-// /opt/vless/config/mtproxy/mtproxy_secrets.json
+// /opt/familytraffic/config/mtproxy/mtproxy_secrets.json
 {
   "secrets": [
     {
@@ -917,7 +917,7 @@ enabled = true
 port = 8443
 protocol = tcp
 filter = mtproxy
-logpath = /opt/vless/logs/mtproxy/error.log
+logpath = /opt/familytraffic/logs/mtproxy/error.log
 maxretry = 5
 bantime = 3600
 findtime = 600
@@ -955,9 +955,9 @@ ignoreregex =
    - Environment variables
 
 3. ✅ Создать структуру файлов
-   - `/opt/vless/config/mtproxy/`
-   - `/opt/vless/logs/mtproxy/`
-   - `/opt/vless/data/mtproxy/`
+   - `/opt/familytraffic/config/mtproxy/`
+   - `/opt/familytraffic/logs/mtproxy/`
+   - `/opt/familytraffic/data/mtproxy/`
 
 4. ✅ Создать базовую библиотеку
    - `lib/mtproxy_manager.sh`
@@ -1017,7 +1017,7 @@ sudo mtproxy list-secrets
 sudo mtproxy remove-secret <secret>
 
 # Verify container restart
-docker logs vless_mtproxy | grep "secret"
+docker logs familytraffic-mtproxy | grep "secret"
 ```
 
 ---
@@ -1053,7 +1053,7 @@ docker logs vless_mtproxy | grep "secret"
 sudo mtproxy add-secret --with-padding
 
 # Verify files created
-ls -la /opt/vless/data/mtproxy/
+ls -la /opt/familytraffic/data/mtproxy/
 # Should see: mtproxy_link.txt, mtproxy_qr.png
 
 # Test show-config
@@ -1140,7 +1140,7 @@ sudo mtproxy-uninstall
 **Testing:**
 ```bash
 # Test fail2ban filter
-fail2ban-regex /opt/vless/logs/mtproxy/error.log \
+fail2ban-regex /opt/familytraffic/logs/mtproxy/error.log \
   /etc/fail2ban/filter.d/mtproxy.conf
 
 # Simulate attack (5 failed connections)
@@ -1186,7 +1186,7 @@ sudo ufw status | grep 8443
 **Testing:**
 ```bash
 # Test status display
-sudo vless status
+sudo familytraffic status
 # Should show MTProxy section with metrics
 
 # Test stats command
@@ -1261,7 +1261,7 @@ sudo bash tests/test_mtproxy.sh
 
 ```bash
 #!/bin/bash
-source /opt/vless/lib/mtproxy_secret_manager.sh
+source /opt/familytraffic/lib/mtproxy_secret_manager.sh
 
 # UT-001: Generate secret without padding
 test_generate_secret_no_padding() {
@@ -1309,7 +1309,7 @@ test_generate_secret_with_padding
 test_docker_start() {
     docker-compose up -d mtproxy
     sleep 5
-    local status=$(docker inspect -f '{{.State.Status}}' vless_mtproxy)
+    local status=$(docker inspect -f '{{.State.Status}}' familytraffic-mtproxy)
     [[ $status == "running" ]] || { echo "FAIL: IT-001"; return 1; }
     echo "PASS: IT-001"
 }
@@ -1317,7 +1317,7 @@ test_docker_start() {
 # IT-002: Healthcheck passes
 test_docker_healthcheck() {
     sleep 15  # Wait for healthcheck
-    local health=$(docker inspect -f '{{.State.Health.Status}}' vless_mtproxy)
+    local health=$(docker inspect -f '{{.State.Health.Status}}' familytraffic-mtproxy)
     [[ $health == "healthy" ]] || { echo "FAIL: IT-002"; return 1; }
     echo "PASS: IT-002"
 }
@@ -1374,10 +1374,10 @@ test_fresh_install() {
     sudo mtproxy-setup --non-interactive
 
     # Verify container running
-    docker ps | grep -q vless_mtproxy || { echo "FAIL: Container not running"; return 1; }
+    docker ps | grep -q familytraffic-mtproxy || { echo "FAIL: Container not running"; return 1; }
 
     # Verify secret generated
-    [[ -f /opt/vless/config/mtproxy/mtproxy_secrets.json ]] || { echo "FAIL: Secrets file missing"; return 1; }
+    [[ -f /opt/familytraffic/config/mtproxy/mtproxy_secrets.json ]] || { echo "FAIL: Secrets file missing"; return 1; }
 
     echo "PASS: E2E-001"
 }
@@ -1386,7 +1386,7 @@ test_fresh_install() {
 test_client_connection() {
     echo "=== E2E-002: Client Connection (MANUAL) ==="
     echo "Steps:"
-    echo "1. Copy deep link: $(cat /opt/vless/data/mtproxy/mtproxy_link.txt)"
+    echo "1. Copy deep link: $(cat /opt/familytraffic/data/mtproxy/mtproxy_link.txt)"
     echo "2. Open Telegram app on Android/iOS"
     echo "3. Tap the deep link"
     echo "4. Tap 'Connect' button"
@@ -1490,13 +1490,13 @@ test_throughput() {
     echo "=== PERF-002: Throughput Test ==="
 
     # Run iperf3 server inside MTProxy container
-    docker exec vless_mtproxy iperf3 -s -D
+    docker exec familytraffic-mtproxy iperf3 -s -D
 
     # Run iperf3 client from host
     iperf3 -c localhost -p 8443 -t 30
 
     # Cleanup
-    docker exec vless_mtproxy pkill iperf3
+    docker exec familytraffic-mtproxy pkill iperf3
 }
 
 # PERF-003: CPU usage
@@ -1504,7 +1504,7 @@ test_cpu_usage() {
     echo "=== PERF-003: CPU Usage ==="
 
     # Monitor for 5 minutes
-    docker stats vless_mtproxy --no-stream --format "table {{.Name}}\t{{.CPUPerc}}" &
+    docker stats familytraffic-mtproxy --no-stream --format "table {{.Name}}\t{{.CPUPerc}}" &
     sleep 300
 
     # Get average
@@ -1515,7 +1515,7 @@ test_cpu_usage() {
 test_memory_usage() {
     echo "=== PERF-004: Memory Usage ==="
 
-    docker stats vless_mtproxy --no-stream --format "table {{.Name}}\t{{.MemUsage}}"
+    docker stats familytraffic-mtproxy --no-stream --format "table {{.Name}}\t{{.MemUsage}}"
 }
 
 # Run performance tests
@@ -1690,14 +1690,14 @@ test_ufw_rate_limit
 
 2. **Backup Current Configuration**
    ```bash
-   sudo tar -czf /tmp/vless_backup_$(date +%Y%m%d_%H%M%S).tar.gz \
-     /opt/vless/config/ \
-     /opt/vless/data/
+   sudo tar -czf /tmp/familytraffic_backup_$(date +%Y%m%d_%H%M%S).tar.gz \
+     /opt/familytraffic/config/ \
+     /opt/familytraffic/data/
    ```
 
 3. **Update Codebase**
    ```bash
-   cd /opt/vless
+   cd /opt/familytraffic
    git fetch origin
    git checkout feature/mtproxy-integration
    git pull
@@ -1725,7 +1725,7 @@ test_ufw_rate_limit
    ```bash
    # Test client connection
    # 1. Copy deep link
-   cat /opt/vless/data/mtproxy/mtproxy_link.txt
+   cat /opt/familytraffic/data/mtproxy/mtproxy_link.txt
 
    # 2. Open in Telegram app, verify connection
    ```
@@ -1743,7 +1743,7 @@ sudo rm /etc/fail2ban/jail.d/mtproxy.conf
 sudo fail2ban-client reload
 
 # Restore backup
-sudo tar -xzf /tmp/vless_backup_*.tar.gz -C /
+sudo tar -xzf /tmp/familytraffic_backup_*.tar.gz -C /
 
 # Restart existing services
 docker-compose restart
@@ -1761,7 +1761,7 @@ docker-compose restart
    docker-compose stop mtproxy
 
    # Remove from docker-compose.yml
-   sudo sed -i '/mtproxy:/,/^$/d' /opt/vless/docker-compose.yml
+   sudo sed -i '/mtproxy:/,/^$/d' /opt/familytraffic/docker-compose.yml
    ```
 
 2. **Remove MTProxy Configurations**
@@ -1775,14 +1775,14 @@ docker-compose restart
    sudo fail2ban-client reload
 
    # Remove MTProxy files (optional - keep for future)
-   # sudo rm -rf /opt/vless/config/mtproxy/
-   # sudo rm -rf /opt/vless/logs/mtproxy/
-   # sudo rm -rf /opt/vless/data/mtproxy/
+   # sudo rm -rf /opt/familytraffic/config/mtproxy/
+   # sudo rm -rf /opt/familytraffic/logs/mtproxy/
+   # sudo rm -rf /opt/familytraffic/data/mtproxy/
    ```
 
 3. **Revert Codebase**
    ```bash
-   cd /opt/vless
+   cd /opt/familytraffic
    git checkout master
    git pull
    ```
@@ -1795,7 +1795,7 @@ docker-compose restart
 5. **Verification**
    ```bash
    # Check VLESS still works
-   sudo vless status
+   sudo familytraffic status
 
    # Verify no MTProxy references
    docker ps | grep mtproxy
@@ -1803,8 +1803,8 @@ docker-compose restart
    ```
 
 **Data Preservation:**
-- MTProxy secrets preserved in `/opt/vless/config/mtproxy/mtproxy_secrets.json`
-- Client configs preserved in `/opt/vless/data/mtproxy/`
+- MTProxy secrets preserved in `/opt/familytraffic/config/mtproxy/mtproxy_secrets.json`
+- Client configs preserved in `/opt/familytraffic/data/mtproxy/`
 - Can re-enable MTProxy later without re-generating secrets
 
 ### 11.3 Uninstallation (Complete MTProxy Removal)
@@ -1834,7 +1834,7 @@ docker-compose rm -f mtproxy
 
 # 2. Remove image
 echo "Removing Docker image..."
-docker rmi vless_mtproxy
+docker rmi familytraffic-mtproxy
 
 # 3. Remove UFW rule
 echo "Removing UFW rule..."
@@ -1850,9 +1850,9 @@ sudo fail2ban-client reload
 read -p "Delete configuration files? (secrets will be lost) [y/N]: " delete_config
 if [[ $delete_config == "y" ]]; then
     echo "Deleting configuration files..."
-    sudo rm -rf /opt/vless/config/mtproxy/
-    sudo rm -rf /opt/vless/logs/mtproxy/
-    sudo rm -rf /opt/vless/data/mtproxy/
+    sudo rm -rf /opt/familytraffic/config/mtproxy/
+    sudo rm -rf /opt/familytraffic/logs/mtproxy/
+    sudo rm -rf /opt/familytraffic/data/mtproxy/
 fi
 
 echo "MTProxy uninstalled successfully!"
@@ -1963,7 +1963,7 @@ vless status  # Shows MTProxy section
 docker-compose up -d mtproxy
 docker-compose stop mtproxy
 docker-compose restart mtproxy
-docker logs vless_mtproxy
+docker logs familytraffic-mtproxy
 
 # fail2ban
 sudo fail2ban-client status mtproxy
@@ -1977,7 +1977,7 @@ sudo ufw delete limit 8443/tcp
 ### Appendix C: File Locations
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/mtproxy/
 │   ├── mtproxy_secrets.json
 │   ├── proxy-secret
@@ -2000,8 +2000,8 @@ sudo ufw delete limit 8443/tcp
 └── filter.d/mtproxy.conf
 
 /usr/local/bin/
-├── mtproxy-setup -> /opt/vless/scripts/mtproxy-setup
-└── mtproxy -> /opt/vless/scripts/mtproxy
+├── mtproxy-setup -> /opt/familytraffic/scripts/mtproxy-setup
+└── mtproxy -> /opt/familytraffic/scripts/mtproxy
 ```
 
 ---

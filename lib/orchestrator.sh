@@ -60,7 +60,7 @@ readonly DOCS_DIR="${INSTALL_ROOT}/docs"
 readonly TESTS_DIR="${INSTALL_ROOT}/tests"
 
 # Docker configuration
-readonly DOCKER_NETWORK_NAME="vless_reality_net"
+readonly DOCKER_NETWORK_NAME="familytraffic_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="familytraffic"
@@ -143,7 +143,7 @@ orchestrate_installation() {
     fi
 
     # Set permissions on Let's Encrypt live directory for container access
-    # vless_nginx (nginx:1.27-alpine) needs rx to traverse path
+    # familytraffic_nginx (nginx:1.27-alpine) needs rx to traverse path
     if [[ -d "/etc/letsencrypt/live" ]]; then
         chmod 755 /etc/letsencrypt/live || {
             echo -e "${YELLOW}Warning: Failed to set permissions on /etc/letsencrypt/live${NC}" >&2
@@ -438,7 +438,7 @@ generate_routing_json() {
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
     local docker_subnet=""
 
-    # v5.30: vless_nginx (stream block) connects to Xray via Docker network (not localhost)
+    # v5.30: familytraffic_nginx (stream block) connects to Xray via Docker network (not localhost)
     # Ports 10800/18118 NOT exposed to host — Docker network provides isolation
 
     # Check if proxy_allowed_ips.json exists (user-defined overrides)
@@ -459,7 +459,7 @@ generate_routing_json() {
     # v5.30+ Nginx Architecture: Blocking rule removed because:
     #   - Ports 10800/18118 NOT exposed publicly (Nginx terminates TLS on 1080/8118)
     #   - Docker network provides isolation
-    #   - vless_nginx connects from Docker network IP (not whitelisted 127.0.0.1)
+    #   - familytraffic_nginx connects from Docker network IP (not whitelisted 127.0.0.1)
     #   - Blocking rule would break Nginx → Xray proxy connections
     # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
     # v5.31: Changed to AsIs for mobile network compatibility
@@ -560,7 +560,7 @@ EOF
 # FUNCTION: generate_websocket_inbound_json (v5.30)
 # =============================================================================
 # Description: Returns JSON for VLESS WebSocket inbound (no TLS — Nginx terminates)
-# Port: 8444 (internal Docker network only — vless_nginx proxies from 443 SNI)
+# Port: 8444 (internal Docker network only — familytraffic_nginx proxies from 443 SNI)
 # =============================================================================
 generate_websocket_inbound_json() {
     cat <<'EOF'
@@ -939,7 +939,7 @@ init_proxy_allowed_ips() {
     local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
     local default_ips='["127.0.0.1"]'
 
-    # v5.30: vless_nginx connects via Docker network; default "localhost only"
+    # v5.30: familytraffic_nginx connects via Docker network; default "localhost only"
     # is a conservative starting point — override via proxy_allowed_ips.json
 
     # Create proxy_allowed_ips.json with appropriate defaults
@@ -1661,7 +1661,7 @@ set_permissions() {
         echo "  → Setting permissions on ${XRAY_CONFIG}..."
         chmod 644 "${XRAY_CONFIG}" 2>/dev/null || {
             echo -e "  ${RED}✗ CRITICAL: Failed to chmod 644 ${XRAY_CONFIG}${NC}" >&2
-            echo -e "  ${RED}  This will cause vless_xray container to fail!${NC}" >&2
+            echo -e "  ${RED}  This will cause familytraffic_xray container to fail!${NC}" >&2
             return 1
         }
         # Verify permissions were set correctly
@@ -1670,7 +1670,7 @@ set_permissions() {
             echo -e "  ${GREEN}✓ xray_config.json: 644 (readable by container)${NC}"
         else
             echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}" >&2
-            echo -e "  ${RED}  vless_xray container will fail to start!${NC}" >&2
+            echo -e "  ${RED}  familytraffic_xray container will fail to start!${NC}" >&2
             return 1
         fi
     else
@@ -1755,7 +1755,7 @@ verify_file_permissions() {
             echo -e "  ${GREEN}✓ xray_config.json: 644 (OK)${NC}"
         else
             echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}"
-            echo -e "  ${RED}  → vless_xray container will fail to start!${NC}"
+            echo -e "  ${RED}  → familytraffic_xray container will fail to start!${NC}"
             echo -e "  ${YELLOW}  → Manual fix: sudo chmod 644 ${XRAY_CONFIG}${NC}"
             ((ISSUES++))
         fi
@@ -1772,7 +1772,7 @@ verify_file_permissions() {
             echo -e "  ${GREEN}✓ nginx/nginx.conf: 644 (OK)${NC}"
         else
             echo -e "  ${YELLOW}⚠ WARNING: nginx/nginx.conf: $nginx_perms (EXPECTED 644)${NC}"
-            echo -e "  ${YELLOW}  → vless_nginx container may fail to load config${NC}"
+            echo -e "  ${YELLOW}  → familytraffic_nginx container may fail to load config${NC}"
             ((WARNINGS++))
         fi
     else

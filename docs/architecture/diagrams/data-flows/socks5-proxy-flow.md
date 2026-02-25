@@ -326,7 +326,7 @@ graph TB
 
 ## Key Configuration Files
 
-**HAProxy Configuration** (`/opt/vless/config/haproxy.cfg`):
+**HAProxy Configuration** (`/opt/familytraffic/config/haproxy.cfg`):
 ```haproxy
 frontend socks5_tls_frontend
     bind *:1080 ssl crt /etc/letsencrypt/live/${DOMAIN}/combined.pem alpn h2,http/1.1
@@ -338,7 +338,7 @@ backend xray_socks5_plaintext
     server xray 127.0.0.1:10800 check
 ```
 
-**Xray Configuration** (`/opt/vless/config/xray_config.json`):
+**Xray Configuration** (`/opt/familytraffic/config/xray_config.json`):
 ```json
 {
   "inbounds": [
@@ -377,7 +377,7 @@ backend xray_socks5_plaintext
 }
 ```
 
-**Users Database** (`/opt/vless/data/users.json`):
+**Users Database** (`/opt/familytraffic/data/users.json`):
 ```json
 {
   "users": [

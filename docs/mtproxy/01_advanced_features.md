@@ -96,13 +96,13 @@ VLESS User (alice) → MTProxy Secret (секрет_alice)
 VLESS User (bob)   → MTProxy Secret (секрет_bob)
 ```
 
-Хранение: `/opt/vless/data/users.json` (расширение)
+Хранение: `/opt/familytraffic/data/users.json` (расширение)
 ```json
 {
   "users": [
     {
       "username": "alice",
-      "vless_uuid": "...",
+      "uuid": "...",
       "proxy_password": "...",
       "mtproxy_secret": "dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c",
       "mtproxy_enabled": true
@@ -137,8 +137,8 @@ vless-user show alice  # включает MTProxy deep link
    - Контейнер перезапускается
 
 3. Генерация клиентских конфигов:
-   - `/opt/vless/data/clients/alice/mtproxy_link.txt`
-   - `/opt/vless/data/clients/alice/mtproxy_qr.png`
+   - `/opt/familytraffic/data/clients/alice/mtproxy_link.txt`
+   - `/opt/familytraffic/data/clients/alice/mtproxy_qr.png`
 
 **Проблемы:**
 - ⚠️ Перезапуск контейнера при каждом add/remove (downtime ~2-3 секунды)
@@ -156,8 +156,8 @@ vless-user show alice  # включает MTProxy deep link
 
 Архитектура:
 ```
-VLESS User (alice) → vless_mtproxy_alice (отдельный контейнер, порт 8444)
-VLESS User (bob)   → vless_mtproxy_bob (отдельный контейнер, порт 8445)
+VLESS User (alice) → familytraffic-mtproxy_alice (отдельный контейнер, порт 8444)
+VLESS User (bob)   → familytraffic-mtproxy_bob (отдельный контейнер, порт 8445)
 ```
 
 **Проблемы:**
@@ -202,7 +202,7 @@ add_user_with_mtproxy() {
     local username="$1"
 
     # 1. Создать VLESS пользователя (existing logic)
-    create_vless_user "$username"
+    create_user "$username"
 
     # 2. Генерировать MTProxy секрет
     local mtproxy_secret=$(generate_mtproxy_secret true)  # with dd prefix
@@ -210,7 +210,7 @@ add_user_with_mtproxy() {
     # 3. Сохранить в users.json
     jq --arg user "$username" --arg secret "$mtproxy_secret" \
        '.users[] | select(.username == $user) | .mtproxy_secret = $secret | .mtproxy_enabled = true' \
-       /opt/vless/data/users.json > /tmp/users.json && mv /tmp/users.json /opt/vless/data/users.json
+       /opt/familytraffic/data/users.json > /tmp/users.json && mv /tmp/users.json /opt/familytraffic/data/users.json
 
     # 4. Обновить MTProxy контейнер
     add_mtproxy_secret "$mtproxy_secret"
@@ -271,7 +271,7 @@ Total: 2 enabled, 1 disabled
     Status: Enabled
     Secret: dd1a2b...4b5c (masked)
     Deep Link: tg://proxy?server=1.2.3.4&port=8443&secret=...
-    QR Code: /opt/vless/data/clients/alice/mtproxy_qr.png
+    QR Code: /opt/familytraffic/data/clients/alice/mtproxy_qr.png
   ```
 
 - ✅ `vless-user remove alice` удаляет MTProxy секрет автоматически
@@ -316,12 +316,12 @@ services:
 ```bash
 # lib/mtproxy_manager.sh
 generate_mtproxy_secrets_env() {
-    local secrets=$(jq -r '.users[] | select(.mtproxy_enabled == true) | .mtproxy_secret' /opt/vless/data/users.json | tr '\n' ',')
+    local secrets=$(jq -r '.users[] | select(.mtproxy_enabled == true) | .mtproxy_secret' /opt/familytraffic/data/users.json | tr '\n' ',')
     # Remove trailing comma
     secrets="${secrets%,}"
 
     # Update .env file
-    sed -i "s/^MTPROXY_SECRETS=.*/MTPROXY_SECRETS=$secrets/" /opt/vless/.env
+    sed -i "s/^MTPROXY_SECRETS=.*/MTPROXY_SECRETS=$secrets/" /opt/familytraffic/.env
 }
 ```
 
@@ -340,7 +340,7 @@ restart_mtproxy_container() {
     sleep 5
 
     # Verify
-    if docker ps | grep -q "vless_mtproxy.*healthy"; then
+    if docker ps | grep -q "familytraffic-mtproxy.*healthy"; then
         echo "✓ MTProxy container restarted successfully"
     else
         echo "✗ MTProxy container failed to start"
@@ -392,11 +392,11 @@ test_add_user_with_mtproxy() {
     add_user_with_mtproxy "alice"
 
     # Verify secret in users.json
-    local secret=$(jq -r '.users[] | select(.username == "alice") | .mtproxy_secret' /opt/vless/data/users.json)
+    local secret=$(jq -r '.users[] | select(.username == "alice") | .mtproxy_secret' /opt/familytraffic/data/users.json)
     [[ -n $secret ]] || fail "Secret not saved"
 
     # Verify MTProxy container has secret
-    docker exec vless_mtproxy cat /proc/$PID/cmdline | grep -q "$secret" || fail "Secret not in container"
+    docker exec familytraffic-mtproxy cat /proc/$PID/cmdline | grep -q "$secret" || fail "Secret not in container"
 }
 ```
 
@@ -409,9 +409,9 @@ test_multi_user_scalability() {
     done
 
     # Verify all secrets in container
-    local cmdline=$(docker exec vless_mtproxy cat /proc/1/cmdline)
+    local cmdline=$(docker exec familytraffic-mtproxy cat /proc/1/cmdline)
     for i in {1..10}; do
-        local secret=$(jq -r '.users[] | select(.username == "user'$i'") | .mtproxy_secret' /opt/vless/data/users.json)
+        local secret=$(jq -r '.users[] | select(.username == "user'$i'") | .mtproxy_secret' /opt/familytraffic/data/users.json)
         echo "$cmdline" | grep -q "$secret" || fail "Secret for user$i not found"
     done
 }
@@ -514,7 +514,7 @@ CLI для регистрации и управления promoted channel че�
   - Interactive wizard
   - Prompt для proxy tag (получен через @MTProxybot)
   - Prompt для channel username (опционально)
-  - Сохранение в `/opt/vless/config/mtproxy/promoted_channel.json`
+  - Сохранение в `/opt/familytraffic/config/mtproxy/promoted_channel.json`
 
 - ✅ CLI: `mtproxy show-promoted-channel`
   - Показывает текущий proxy tag
@@ -574,7 +574,7 @@ View statistics: https://t.me/MTProxybot
 
 **Configuration File:**
 ```json
-// /opt/vless/config/mtproxy/promoted_channel.json
+// /opt/familytraffic/config/mtproxy/promoted_channel.json
 {
   "enabled": true,
   "proxy_tag": "7F0000000000000000000000000000007F",
@@ -650,7 +650,7 @@ sudo mtproxy setup-promoted-channel
 # Enter proxy tag: <tag-from-bot>
 
 # 3. Verify MTProxy running with -P
-docker exec vless_mtproxy cat /proc/1/cmdline | grep -- "-P"
+docker exec familytraffic-mtproxy cat /proc/1/cmdline | grep -- "-P"
 # Should show: -P 7F0000...
 
 # 4. Connect with Telegram client
@@ -825,11 +825,11 @@ def get_stats():
     mtproxy_stats = subprocess.check_output(['curl', '-s', 'http://localhost:8888/stats']).decode()
 
     # 2. Parse users.json
-    with open('/opt/vless/data/users.json') as f:
+    with open('/opt/familytraffic/data/users.json') as f:
         users = json.load(f)['users']
 
     # 3. Get Docker stats
-    docker_stats = subprocess.check_output(['docker', 'stats', 'vless_mtproxy', '--no-stream', '--format', '{{json .}}']).decode()
+    docker_stats = subprocess.check_output(['docker', 'stats', 'familytraffic-mtproxy', '--no-stream', '--format', '{{json .}}']).decode()
 
     # 4. Aggregate
     return jsonify({
@@ -911,7 +911,7 @@ frontend mtproxy_frontend
 
 backend mtproxy_backend
     mode tcp
-    server mtproxy1 vless_mtproxy:8443 check
+    server mtproxy1 familytraffic-mtproxy:8443 check
 ```
 
 **Но это не даёт преимуществ:** просто добавляет HAProxy как proxy между клиентом и MTProxy.
@@ -1186,7 +1186,7 @@ validate_domain() {
 Управление списком разрешённых доменов для fake-TLS.
 
 **Acceptance Criteria:**
-- ✅ Whitelist file: `/opt/vless/config/mtproxy/fake_tls_domains.txt`
+- ✅ Whitelist file: `/opt/familytraffic/config/mtproxy/fake_tls_domains.txt`
   ```
   google.com
   cloudflare.com
@@ -1282,7 +1282,7 @@ test_fake_tls_connection() {
     add_user_with_mtproxy "alice" --fake-tls --domain "google.com"
 
     # 2. Get deep link
-    local link=$(cat /opt/vless/data/clients/alice/mtproxy_link.txt)
+    local link=$(cat /opt/familytraffic/data/clients/alice/mtproxy_link.txt)
 
     # 3. Manual: Open link in Telegram Desktop
     # 4. Verify connection works
@@ -1488,14 +1488,14 @@ mtproxy disable-haproxy-routing
 ### Appendix B: Configuration Files Structure
 
 ```
-/opt/vless/config/mtproxy/
+/opt/familytraffic/config/mtproxy/
 ├── mtproxy_secrets.json                  # Base secrets (global)
 ├── promoted_channel.json                 # Promoted channel config
 ├── fake_tls_domains.txt                  # Whitelist domains
 ├── proxy-secret                          # Telegram AES secret
 └── proxy-multi.conf                      # Telegram DC config
 
-/opt/vless/data/users.json                # Extended schema:
+/opt/familytraffic/data/users.json                # Extended schema:
 {
   "users": [
     {
@@ -1508,7 +1508,7 @@ mtproxy disable-haproxy-routing
   ]
 }
 
-/opt/vless/data/clients/alice/
+/opt/familytraffic/data/clients/alice/
 ├── mtproxy_link.txt                      # Deep link (ee secret if fake-TLS)
 └── mtproxy_qr.png                        # QR code
 ```

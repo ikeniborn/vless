@@ -59,7 +59,7 @@ set -euo pipefail
 [[ -z "${MTPROXY_MULTI_CONF:-}" ]] && readonly MTPROXY_MULTI_CONF="${MTPROXY_CONFIG_DIR}/proxy-multi.conf"
 
 # Container configuration
-[[ -z "${MTPROXY_CONTAINER:-}" ]] && readonly MTPROXY_CONTAINER="vless_mtproxy"
+[[ -z "${MTPROXY_CONTAINER:-}" ]] && readonly MTPROXY_CONTAINER="familytraffic_mtproxy"
 [[ -z "${MTPROXY_IMAGE:-}" ]] && readonly MTPROXY_IMAGE="vless/mtproxy:latest"
 
 # Default ports
@@ -296,7 +296,7 @@ generate_mtproxy_secret_file() {
     fi
 
     if [[ "$secrets_count" -eq 0 ]]; then
-        mtproxy_log_error "No secrets found in secrets.json (run 'vless-mtproxy add-secret' first)"
+        mtproxy_log_error "No secrets found in secrets.json (run 'familytraffic-mtproxy add-secret' first)"
         return 1
     fi
 
@@ -598,7 +598,7 @@ mtproxy_status() {
         echo -e "${YELLOW}Status:${NC} NOT INSTALLED"
         echo -e "${YELLOW}Container:${NC} ${MTPROXY_CONTAINER} not found"
         echo ""
-        echo -e "${BLUE}To install MTProxy:${NC} sudo vless-mtproxy-setup"
+        echo -e "${BLUE}To install MTProxy:${NC} sudo familytraffic-mtproxy-setup"
         return 1
     fi
 

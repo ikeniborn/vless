@@ -15,17 +15,17 @@
 ```mermaid
 graph TB
     subgraph "Host Server (Ubuntu/Debian)"
-        subgraph "Docker Network: vless_reality_net (172.20.0.0/16)"
-            HAProxy[vless_haproxy<br/>HAProxy 2.8-alpine<br/>IP: 172.20.0.2]
-            Xray[vless_xray<br/>Xray 24.11.30<br/>IP: 172.20.0.3]
-            NginxRP[vless_nginx_reverseproxy<br/>Nginx Alpine<br/>IP: 172.20.0.4]
-            Certbot[vless_certbot_nginx<br/>Nginx Alpine<br/>IP: 172.20.0.5<br/>On-demand only]
-            FakeSite[vless_fake_site<br/>Nginx Alpine<br/>IP: 172.20.0.6]
-            MTProxy[vless_mtproxy<br/>MTProxy Alpine<br/>IP: 172.20.0.7<br/>v6.0+ planned]
+        subgraph "Docker Network: familytraffic_net (172.20.0.0/16)"
+            HAProxy[familytraffic-haproxy<br/>HAProxy 2.8-alpine<br/>IP: 172.20.0.2]
+            Xray[familytraffic<br/>Xray 24.11.30<br/>IP: 172.20.0.3]
+            NginxRP[familytraffic-nginx<br/>Nginx Alpine<br/>IP: 172.20.0.4]
+            Certbot[familytraffic-certbot<br/>Nginx Alpine<br/>IP: 172.20.0.5<br/>On-demand only]
+            FakeSite[familytraffic-fake-site<br/>Nginx Alpine<br/>IP: 172.20.0.6]
+            MTProxy[familytraffic-mtproxy<br/>MTProxy Alpine<br/>IP: 172.20.0.7<br/>v6.0+ planned]
         end
 
         subgraph "Host Filesystem"
-            OptVless[/opt/vless/]
+            OptVless[/opt/familytraffic/]
             LetsEncrypt[/etc/letsencrypt/]
         end
 
@@ -82,21 +82,21 @@ graph TB
 
 ## Detailed Container Specifications
 
-### Container 1: vless_haproxy (Unified TLS Termination & SNI Router)
+### Container 1: familytraffic-haproxy (Unified TLS Termination & SNI Router)
 
 ```mermaid
 graph TB
-    HAProxyContainer[vless_haproxy Container]
+    HAProxyContainer[familytraffic-haproxy Container]
 
     subgraph "HAProxy Container Details"
         Image[Image: haproxy:2.8-alpine]
-        NetworkMode[Network: vless_reality_net]
+        NetworkMode[Network: familytraffic_net]
         IP[IP: 172.20.0.2]
 
         PublicPorts[Public Ports:<br/>443 → 443<br/>1080 → 1080<br/>8118 → 8118]
         LocalhostPort[Localhost Port:<br/>9000 → 9000<br/>HAProxy Stats]
 
-        Volumes[Volume Mounts:<br/>/opt/vless/config/haproxy.cfg → /etc/haproxy/haproxy.cfg<br/>/etc/letsencrypt/ → /etc/letsencrypt/<br/>/opt/vless/logs/haproxy/ → /var/log/haproxy/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/haproxy.cfg → /etc/haproxy/haproxy.cfg<br/>/etc/letsencrypt/ → /etc/letsencrypt/<br/>/opt/familytraffic/logs/haproxy/ → /var/log/haproxy/]
 
         HealthCheck[Health Check:<br/>haproxy -c -f /etc/haproxy/haproxy.cfg]
 
@@ -124,20 +124,20 @@ graph TB
 
 ---
 
-### Container 2: vless_xray (VLESS Reality + SOCKS5 + HTTP Handler)
+### Container 2: familytraffic (VLESS Reality + SOCKS5 + HTTP Handler)
 
 ```mermaid
 graph TB
-    XrayContainer[vless_xray Container]
+    XrayContainer[familytraffic Container]
 
     subgraph "Xray Container Details"
         Image[Image: teddysun/xray:24.11.30]
-        NetworkMode[Network: vless_reality_net]
+        NetworkMode[Network: familytraffic_net]
         IP[IP: 172.20.0.3]
 
         ExposedPorts[Exposed Ports<br/>Docker network only:<br/>8443 - VLESS Reality<br/>10800 - SOCKS5 plaintext<br/>18118 - HTTP plaintext]
 
-        Volumes[Volume Mounts:<br/>/opt/vless/config/xray_config.json → /etc/xray/config.json<br/>/opt/vless/logs/xray/ → /var/log/xray/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/xray_config.json → /etc/xray/config.json<br/>/opt/familytraffic/logs/xray/ → /var/log/xray/]
 
         Environment[Environment:<br/>XRAY_VMESS_AEAD_FORCED=false]
 
@@ -145,7 +145,7 @@ graph TB
 
         Restart[Restart: unless-stopped]
 
-        DependsOn[Depends On:<br/>vless_haproxy]
+        DependsOn[Depends On:<br/>familytraffic-haproxy]
     end
 
     XrayContainer --> Image
@@ -172,26 +172,26 @@ graph TB
 
 ---
 
-### Container 3: vless_nginx_reverseproxy (Subdomain Reverse Proxy)
+### Container 3: familytraffic-nginx (Subdomain Reverse Proxy)
 
 ```mermaid
 graph TB
-    NginxRPContainer[vless_nginx_reverseproxy Container]
+    NginxRPContainer[familytraffic-nginx Container]
 
     subgraph "Nginx Reverse Proxy Container Details"
         Image[Image: nginx:alpine]
-        NetworkMode[Network: vless_reality_net]
+        NetworkMode[Network: familytraffic_net]
         IP[IP: 172.20.0.4]
 
         ExposedPorts[Exposed Ports<br/>Localhost only:<br/>9443-9452 - Reverse proxy backends<br/>10 slots total]
 
-        Volumes[Volume Mounts:<br/>/opt/vless/config/reverse-proxy/ → /etc/nginx/conf.d/<br/>/etc/letsencrypt/ → /etc/letsencrypt/<br/>/opt/vless/logs/nginx-rp/ → /var/log/nginx/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/reverse-proxy/ → /etc/nginx/conf.d/<br/>/etc/letsencrypt/ → /etc/letsencrypt/<br/>/opt/familytraffic/logs/nginx-rp/ → /var/log/nginx/]
 
         HealthCheck[Health Check:<br/>nginx -t]
 
         Restart[Restart: unless-stopped]
 
-        DependsOn[Depends On:<br/>vless_haproxy]
+        DependsOn[Depends On:<br/>familytraffic-haproxy]
     end
 
     NginxRPContainer --> Image
@@ -214,20 +214,20 @@ graph TB
 
 ---
 
-### Container 4: vless_certbot_nginx (Certificate Validation - On-Demand)
+### Container 4: familytraffic-certbot (Certificate Validation - On-Demand)
 
 ```mermaid
 graph TB
-    CertbotContainer[vless_certbot_nginx Container]
+    CertbotContainer[familytraffic-certbot Container]
 
     subgraph "Certbot Nginx Container Details"
         Image[Image: nginx:alpine]
-        NetworkMode[Network: vless_reality_net]
+        NetworkMode[Network: familytraffic_net]
         IP[IP: 172.20.0.5]
 
         PublicPort[Public Port:<br/>80 → 80<br/>On-demand only]
 
-        Volumes[Volume Mounts:<br/>/opt/vless/certbot-webroot/ → /var/www/html/<br/>/etc/letsencrypt/ → /etc/letsencrypt/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/certbot-webroot/ → /var/www/html/<br/>/etc/letsencrypt/ → /etc/letsencrypt/]
 
         Purpose[Purpose:<br/>HTTP-01 challenge validation<br/>Serves /.well-known/acme-challenge/]
 
@@ -252,20 +252,20 @@ graph TB
 
 ---
 
-### Container 5: vless_fake_site (Camouflage/Anti-Detection)
+### Container 5: familytraffic-fake-site (Camouflage/Anti-Detection)
 
 ```mermaid
 graph TB
-    FakeSiteContainer[vless_fake_site Container]
+    FakeSiteContainer[familytraffic-fake-site Container]
 
     subgraph "Fake Site Container Details"
         Image[Image: nginx:alpine]
-        NetworkMode[Network: vless_reality_net]
+        NetworkMode[Network: familytraffic_net]
         IP[IP: 172.20.0.6]
 
         ExposedPort[Exposed Port<br/>Internal only:<br/>80]
 
-        Volumes[Volume Mounts:<br/>/opt/vless/fake-site/ → /usr/share/nginx/html/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/fake-site/ → /usr/share/nginx/html/]
 
         Purpose[Purpose:<br/>Fallback for invalid traffic<br/>SNI mismatch → serve generic site<br/>Invalid UUID → serve generic site]
 
@@ -290,22 +290,22 @@ graph TB
 
 ---
 
-### Container 6: vless_mtproxy (Telegram MTProxy - v6.0+ Planned)
+### Container 6: familytraffic-mtproxy (Telegram MTProxy - v6.0+ Planned)
 
 ```mermaid
 graph TB
-    MTProxyContainer[vless_mtproxy Container]
+    MTProxyContainer[familytraffic-mtproxy Container]
 
     subgraph "MTProxy Container Details"
         Image[Image: Custom Build<br/>docker/mtproxy/Dockerfile]
-        NetworkMode[Network: vless_reality_net]
+        NetworkMode[Network: familytraffic_net]
         IP[IP: 172.20.0.7]
 
         PublicPort[Public Port:<br/>8443 → 8443<br/>Binds to 0.0.0.0:8443]
 
         PortNote[Port Binding Note:<br/>MTProxy: 0.0.0.0:8443 public<br/>Xray: 127.0.0.1:8443 Docker network<br/>NO conflict different interfaces]
 
-        Volumes[Volume Mounts:<br/>/opt/vless/config/mtproxy/ → /etc/mtproxy/<br/>/opt/vless/logs/mtproxy/ → /var/log/mtproxy/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/mtproxy/ → /etc/mtproxy/<br/>/opt/familytraffic/logs/mtproxy/ → /var/log/mtproxy/]
 
         Environment[Environment:<br/>MTPROXY_PORT=8443<br/>MTPROXY_WORKERS=2]
 
@@ -344,18 +344,18 @@ graph TB
 
 ## Docker Network Configuration
 
-### vless_reality_net Bridge Network
+### familytraffic_net Bridge Network
 
 ```mermaid
 graph LR
-    subgraph "vless_reality_net (172.20.0.0/16)"
+    subgraph "familytraffic_net (172.20.0.0/16)"
         Gateway[Gateway<br/>172.20.0.1]
-        HAProxy[vless_haproxy<br/>172.20.0.2]
-        Xray[vless_xray<br/>172.20.0.3]
-        NginxRP[vless_nginx_reverseproxy<br/>172.20.0.4]
-        Certbot[vless_certbot_nginx<br/>172.20.0.5]
-        FakeSite[vless_fake_site<br/>172.20.0.6]
-        MTProxy[vless_mtproxy<br/>172.20.0.7]
+        HAProxy[familytraffic-haproxy<br/>172.20.0.2]
+        Xray[familytraffic<br/>172.20.0.3]
+        NginxRP[familytraffic-nginx<br/>172.20.0.4]
+        Certbot[familytraffic-certbot<br/>172.20.0.5]
+        FakeSite[familytraffic-fake-site<br/>172.20.0.6]
+        MTProxy[familytraffic-mtproxy<br/>172.20.0.7]
     end
 
     Gateway --> HAProxy
@@ -371,7 +371,7 @@ graph LR
 **Network Configuration:**
 ```yaml
 networks:
-  vless_reality_net:
+  familytraffic_net:
     driver: bridge
     ipam:
       driver: default
@@ -384,12 +384,12 @@ networks:
 | Container | IP Address | Purpose |
 |-----------|------------|---------|
 | Gateway | 172.20.0.1 | Docker bridge gateway |
-| vless_haproxy | 172.20.0.2 | HAProxy SNI router |
-| vless_xray | 172.20.0.3 | Xray VLESS/SOCKS5/HTTP |
-| vless_nginx_reverseproxy | 172.20.0.4 | Nginx reverse proxy |
-| vless_certbot_nginx | 172.20.0.5 | Certbot validation |
-| vless_fake_site | 172.20.0.6 | Fake site fallback |
-| vless_mtproxy | 172.20.0.7 | MTProxy (v6.0+) |
+| familytraffic-haproxy | 172.20.0.2 | HAProxy SNI router |
+| familytraffic | 172.20.0.3 | Xray VLESS/SOCKS5/HTTP |
+| familytraffic-nginx | 172.20.0.4 | Nginx reverse proxy |
+| familytraffic-certbot | 172.20.0.5 | Certbot validation |
+| familytraffic-fake-site | 172.20.0.6 | Fake site fallback |
+| familytraffic-mtproxy | 172.20.0.7 | MTProxy (v6.0+) |
 
 ---
 
@@ -401,7 +401,7 @@ networks:
 graph TB
     HostFS[Host Filesystem]
 
-    subgraph "/opt/vless/"
+    subgraph "/opt/familytraffic/"
         Config[config/]
         Data[data/]
         Logs[logs/]
@@ -438,17 +438,17 @@ graph TB
 
 | Host Path | Container Mount | Container(s) | Purpose |
 |-----------|-----------------|--------------|---------|
-| `/opt/vless/config/haproxy.cfg` | `/etc/haproxy/haproxy.cfg` | HAProxy | HAProxy configuration |
-| `/opt/vless/config/xray_config.json` | `/etc/xray/config.json` | Xray | Xray configuration |
-| `/opt/vless/config/reverse-proxy/` | `/etc/nginx/conf.d/` | Nginx RP | Nginx reverse proxy configs |
-| `/opt/vless/config/mtproxy/` | `/etc/mtproxy/` | MTProxy | MTProxy configuration (v6.0+) |
-| `/opt/vless/data/` | (not mounted) | None | User database, client configs |
-| `/opt/vless/logs/haproxy/` | `/var/log/haproxy/` | HAProxy | HAProxy logs |
-| `/opt/vless/logs/xray/` | `/var/log/xray/` | Xray | Xray logs |
-| `/opt/vless/logs/nginx-rp/` | `/var/log/nginx/` | Nginx RP | Nginx reverse proxy logs |
-| `/opt/vless/logs/mtproxy/` | `/var/log/mtproxy/` | MTProxy | MTProxy logs (v6.0+) |
-| `/opt/vless/certbot-webroot/` | `/var/www/html/` | Certbot | ACME challenge files |
-| `/opt/vless/fake-site/` | `/usr/share/nginx/html/` | Fake Site | Generic website HTML |
+| `/opt/familytraffic/config/haproxy.cfg` | `/etc/haproxy/haproxy.cfg` | HAProxy | HAProxy configuration |
+| `/opt/familytraffic/config/xray_config.json` | `/etc/xray/config.json` | Xray | Xray configuration |
+| `/opt/familytraffic/config/reverse-proxy/` | `/etc/nginx/conf.d/` | Nginx RP | Nginx reverse proxy configs |
+| `/opt/familytraffic/config/mtproxy/` | `/etc/mtproxy/` | MTProxy | MTProxy configuration (v6.0+) |
+| `/opt/familytraffic/data/` | (not mounted) | None | User database, client configs |
+| `/opt/familytraffic/logs/haproxy/` | `/var/log/haproxy/` | HAProxy | HAProxy logs |
+| `/opt/familytraffic/logs/xray/` | `/var/log/xray/` | Xray | Xray logs |
+| `/opt/familytraffic/logs/nginx-rp/` | `/var/log/nginx/` | Nginx RP | Nginx reverse proxy logs |
+| `/opt/familytraffic/logs/mtproxy/` | `/var/log/mtproxy/` | MTProxy | MTProxy logs (v6.0+) |
+| `/opt/familytraffic/certbot-webroot/` | `/var/www/html/` | Certbot | ACME challenge files |
+| `/opt/familytraffic/fake-site/` | `/usr/share/nginx/html/` | Fake Site | Generic website HTML |
 | `/etc/letsencrypt/` | `/etc/letsencrypt/` | HAProxy, Nginx RP | TLS certificates |
 
 ---
@@ -461,12 +461,12 @@ graph TB
 graph TB
     Start[Docker Compose Start]
 
-    HAProxyStart[Start vless_haproxy]
-    XrayStart[Start vless_xray]
-    NginxRPStart[Start vless_nginx_reverseproxy]
-    CertbotStart[Start vless_certbot_nginx<br/>On-demand only]
-    FakeSiteStart[Start vless_fake_site]
-    MTProxyStart[Start vless_mtproxy<br/>v6.0+]
+    HAProxyStart[Start familytraffic-haproxy]
+    XrayStart[Start familytraffic]
+    NginxRPStart[Start familytraffic-nginx]
+    CertbotStart[Start familytraffic-certbot<br/>On-demand only]
+    FakeSiteStart[Start familytraffic-fake-site]
+    MTProxyStart[Start familytraffic-mtproxy<br/>v6.0+]
 
     Start --> HAProxyStart
     Start --> FakeSiteStart
@@ -494,11 +494,11 @@ graph TB
 
 | Container | Health Check Command | Interval | Timeout | Retries |
 |-----------|---------------------|----------|---------|---------|
-| vless_haproxy | `haproxy -c -f /etc/haproxy/haproxy.cfg` | 30s | 10s | 3 |
-| vless_xray | `xray -test -config /etc/xray/config.json` | 30s | 10s | 3 |
-| vless_nginx_reverseproxy | `nginx -t` | 30s | 10s | 3 |
-| vless_fake_site | `curl -f http://localhost` | 30s | 5s | 3 |
-| vless_mtproxy | `curl http://localhost:8443/stats` | 30s | 10s | 3 |
+| familytraffic-haproxy | `haproxy -c -f /etc/haproxy/haproxy.cfg` | 30s | 10s | 3 |
+| familytraffic | `xray -test -config /etc/xray/config.json` | 30s | 10s | 3 |
+| familytraffic-nginx | `nginx -t` | 30s | 10s | 3 |
+| familytraffic-fake-site | `curl -f http://localhost` | 30s | 5s | 3 |
+| familytraffic-mtproxy | `curl http://localhost:8443/stats` | 30s | 10s | 3 |
 
 ---
 
@@ -506,12 +506,12 @@ graph TB
 
 | Container | CPU Limit | Memory Limit | Notes |
 |-----------|-----------|--------------|-------|
-| vless_haproxy | 1.0 | 512MB | High traffic handling |
-| vless_xray | 2.0 | 1GB | Encryption/decryption intensive |
-| vless_nginx_reverseproxy | 1.0 | 512MB | Moderate traffic |
-| vless_certbot_nginx | 0.5 | 256MB | On-demand only |
-| vless_fake_site | 0.5 | 256MB | Low traffic |
-| vless_mtproxy | 1.0 | 512MB | MTProto protocol handling (v6.0+) |
+| familytraffic-haproxy | 1.0 | 512MB | High traffic handling |
+| familytraffic | 2.0 | 1GB | Encryption/decryption intensive |
+| familytraffic-nginx | 1.0 | 512MB | Moderate traffic |
+| familytraffic-certbot | 0.5 | 256MB | On-demand only |
+| familytraffic-fake-site | 0.5 | 256MB | Low traffic |
+| familytraffic-mtproxy | 1.0 | 512MB | MTProto protocol handling (v6.0+) |
 
 ---
 
@@ -519,7 +519,7 @@ graph TB
 
 - [docker.yaml](../../yaml/docker.yaml) - Complete Docker specifications
 - [Port Mapping Diagram](port-mapping.md) - Detailed port allocation
-- [Filesystem Layout](filesystem-layout.md) - /opt/vless/ structure
+- [Filesystem Layout](filesystem-layout.md) - /opt/familytraffic/ structure
 - [data-flows diagrams](../data-flows/) - Traffic flow through containers
 
 ---

@@ -3,7 +3,7 @@ documentation_version: "v5.26"
 last_updated: "2026-01-07"
 
 project:
-  name: "VLESS + Reality VPN - Dependencies Architecture"
+  name: "familyTraffic VPN - Dependencies Architecture"
   version: "v5.26"
   description: "Comprehensive documentation of module dependencies, initialization order, runtime dependencies, and critical execution paths"
 
@@ -86,10 +86,10 @@ initialization_order:
         purpose: "Obtain Let's Encrypt certificate via ACME HTTP-01"
         duration: "~30-60s"
         workflow:
-          - "Start vless_certbot_nginx container (port 80)"
+          - "Start familytraffic-certbot container (port 80)"
           - "Run certbot certonly --webroot"
           - "Wait for ACME challenge"
-          - "Stop vless_certbot_nginx"
+          - "Stop familytraffic-certbot"
           - "Combine fullchain + privkey → combined.pem"
         outputs:
           - "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
@@ -106,7 +106,7 @@ initialization_order:
         function: "generate_docker_compose()"
         purpose: "Generate docker-compose.yml from installation parameters"
         duration: "< 1s"
-        writes: "/opt/vless/docker-compose.yml"
+        writes: "/opt/familytraffic/docker-compose.yml"
         validation:
           - check: "docker-compose config (syntax validation)"
         on_failure: "EXIT with error (template corruption)"
@@ -117,7 +117,7 @@ initialization_order:
         function: "generate_haproxy_config()"
         purpose: "Generate HAProxy configuration"
         duration: "< 1s"
-        writes: "/opt/vless/config/haproxy.cfg"
+        writes: "/opt/familytraffic/config/haproxy.cfg"
         sections:
           - "global"
           - "defaults"
@@ -133,8 +133,8 @@ initialization_order:
         function: "generate_xray_config()"
         purpose: "Generate initial Xray configuration (no users yet)"
         duration: "< 1s"
-        writes: "/opt/vless/config/xray_config.json"
-        reads: "/opt/vless/data/users.json (empty initially)"
+        writes: "/opt/familytraffic/config/xray_config.json"
+        reads: "/opt/familytraffic/data/users.json (empty initially)"
         validation:
           - check: "xray test -c config.json"
         on_failure: "EXIT with error"
@@ -179,10 +179,10 @@ initialization_order:
         purpose: "Set secure file permissions on config files"
         duration: "< 1s"
         operations:
-          - "chmod 600 /opt/vless/data/users.json"
-          - "chmod 600 /opt/vless/config/external_proxy.json"
-          - "chmod 644 /opt/vless/config/*.json *.cfg"
-          - "chown root:root /opt/vless/config/*"
+          - "chmod 600 /opt/familytraffic/data/users.json"
+          - "chmod 600 /opt/familytraffic/config/external_proxy.json"
+          - "chmod 644 /opt/familytraffic/config/*.json *.cfg"
+          - "chown root:root /opt/familytraffic/config/*"
         validation:
           - check: "Permissions set correctly"
         on_failure: "WARN (continue)"
@@ -193,13 +193,13 @@ initialization_order:
         function: "start_docker_containers()"
         purpose: "Start all Docker containers via docker-compose up -d"
         duration: "~10-30s (image pull + container start)"
-        command: "docker-compose -f /opt/vless/docker-compose.yml up -d"
+        command: "docker-compose -f /opt/familytraffic/docker-compose.yml up -d"
         containers_started:
-          - "vless_haproxy"
-          - "vless_xray"
-          - "vless_nginx_reverseproxy"
-          - "vless_fake_site"
-          - "vless_mtproxy (v6.0+, conditional)"
+          - "familytraffic-haproxy"
+          - "familytraffic"
+          - "familytraffic-nginx"
+          - "familytraffic-fake-site"
+          - "familytraffic-mtproxy (v6.0+, conditional)"
         validation:
           - check: "All containers running"
           - check: "Health checks passing (wait up to 30s)"
@@ -230,8 +230,8 @@ initialization_order:
           - "reload_xray()"
           - "generate_client_configs()"
         outputs:
-          - "/opt/vless/data/users.json (first user)"
-          - "/opt/vless/data/clients/<username>/ (configs)"
+          - "/opt/familytraffic/data/users.json (first user)"
+          - "/opt/familytraffic/data/clients/<username>/ (configs)"
         validation:
           - check: "User added successfully"
           - check: "Xray reloaded"
@@ -266,10 +266,10 @@ runtime_dependencies:
       entry_point: "vless add-user <username>"
       depends_on:
         files_exist:
-          - "/opt/vless/data/users.json"
-          - "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/data/users.json"
+          - "/opt/familytraffic/config/xray_config.json"
         services_running:
-          - "vless_xray (healthy)"
+          - "familytraffic (healthy)"
         modules:
           - "lib/user_management.sh"
           - "lib/orchestrator.sh (generate_xray_config)"
@@ -286,10 +286,10 @@ runtime_dependencies:
       entry_point: "vless remove-user <username>"
       depends_on:
         files_exist:
-          - "/opt/vless/data/users.json"
-          - "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/data/users.json"
+          - "/opt/familytraffic/config/xray_config.json"
         services_running:
-          - "vless_xray (healthy)"
+          - "familytraffic (healthy)"
         modules:
           - "lib/user_management.sh"
           - "lib/orchestrator.sh"
@@ -305,11 +305,11 @@ runtime_dependencies:
       feature_version: "v5.24+"
       depends_on:
         files_exist:
-          - "/opt/vless/data/users.json"
-          - "/opt/vless/config/external_proxy.json"
-          - "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/data/users.json"
+          - "/opt/familytraffic/config/external_proxy.json"
+          - "/opt/familytraffic/config/xray_config.json"
         services_running:
-          - "vless_xray (healthy)"
+          - "familytraffic (healthy)"
         modules:
           - "lib/user_management.sh"
           - "lib/xray_routing_manager.sh"
@@ -324,19 +324,19 @@ runtime_dependencies:
 
   external_proxy_operations:
     add_external_proxy:
-      entry_point: "vless-external-proxy add"
+      entry_point: "familytraffic-external-proxy add"
       feature_version: "v5.24+"
       depends_on:
         files_exist:
-          - "/opt/vless/config/external_proxy.json (create if not exists)"
-          - "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/config/external_proxy.json (create if not exists)"
+          - "/opt/familytraffic/config/xray_config.json"
         services_running:
-          - "vless_xray (healthy)"
+          - "familytraffic (healthy)"
         modules:
           - "lib/external_proxy_manager.sh"
           - "lib/orchestrator.sh"
       calls:
-        - "add_proxy_to_json() → generate_xray_config() → docker restart vless_xray"
+        - "add_proxy_to_json() → generate_xray_config() → docker restart familytraffic"
       validation:
         - check: "Proxy connectivity (curl via proxy)"
         - check: "xray_config.json valid"
@@ -345,16 +345,16 @@ runtime_dependencies:
 
   reverse_proxy_operations:
     add_reverse_proxy_domain:
-      entry_point: "vless-proxy add"
+      entry_point: "familytraffic-proxy add"
       feature_version: "v4.3+"
       depends_on:
         files_exist:
-          - "/opt/vless/config/reverse-proxy/ (directory)"
-          - "/opt/vless/config/reverse-proxy/http_context.conf"
-          - "/opt/vless/config/haproxy.cfg"
+          - "/opt/familytraffic/config/reverse-proxy/ (directory)"
+          - "/opt/familytraffic/config/reverse-proxy/http_context.conf"
+          - "/opt/familytraffic/config/haproxy.cfg"
         services_running:
-          - "vless_haproxy (healthy)"
-          - "vless_nginx_reverseproxy (healthy)"
+          - "familytraffic-haproxy (healthy)"
+          - "familytraffic-nginx (healthy)"
         modules:
           - "lib/reverseproxy_db.sh"
           - "lib/haproxy_config_manager.sh"
@@ -549,13 +549,13 @@ critical_paths:
 
   add_external_proxy:
     path:
-      - "collect_proxy_details → test_connectivity → add_proxy_to_json → generate_xray_config → docker restart vless_xray"
+      - "collect_proxy_details → test_connectivity → add_proxy_to_json → generate_xray_config → docker restart familytraffic"
     duration: "~10-20 seconds"
     bottlenecks:
       - step: "test_connectivity"
         duration: "~5-10s"
         proxy_dependent: true
-      - step: "docker restart vless_xray"
+      - step: "docker restart familytraffic"
         duration: "~2-5s"
         downtime: true
 
@@ -633,7 +633,7 @@ failure_recovery:
       - "Preserve partial state (configs, logs)"
       - "Provide manual cleanup instructions"
       - "Allow re-run from failed step (if possible)"
-    rollback: "Manual (delete /opt/vless/, containers, configs)"
+    rollback: "Manual (delete /opt/familytraffic/, containers, configs)"
 
   xray_reload_failure:
     scenario: "Xray reload fails after config change"
@@ -674,7 +674,7 @@ failure_recovery:
 concurrency_control:
   file_locks:
     users_json:
-      lock_file: "/var/lock/vless_users.lock"
+      lock_file: "/var/lock/familytraffic_users.lock"
       operations:
         - "add_user_to_json()"
         - "remove_user_from_json()"
@@ -683,7 +683,7 @@ concurrency_control:
       on_timeout: "ABORT with error (try again later)"
 
     external_proxy_json:
-      lock_file: "/var/lock/vless_external_proxy.lock"
+      lock_file: "/var/lock/familytraffic_external_proxy.lock"
       operations:
         - "add_proxy_to_json()"
         - "remove_proxy_from_json()"
@@ -691,7 +691,7 @@ concurrency_control:
       timeout: "10s"
 
     config_generation:
-      lock_file: "/var/lock/vless_config_generation.lock"
+      lock_file: "/var/lock/familytraffic_config_generation.lock"
       operations:
         - "generate_xray_config()"
         - "generate_haproxy_config()"
@@ -708,32 +708,32 @@ concurrency_control:
 
 service_dependencies:
   docker_containers:
-    vless_haproxy:
+    familytraffic-haproxy:
       depends_on:
-        - "vless_xray (must be healthy for backend routing)"
-        - "vless_nginx_reverseproxy (optional, for reverse proxy)"
-        - "vless_fake_site (for fallback)"
+        - "familytraffic (must be healthy for backend routing)"
+        - "familytraffic-nginx (optional, for reverse proxy)"
+        - "familytraffic-fake-site (for fallback)"
       health_check: "haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg"
       restart_policy: "unless-stopped"
 
-    vless_xray:
+    familytraffic:
       depends_on: []
       health_check: "xray version"
       restart_policy: "unless-stopped"
       critical: true
 
-    vless_nginx_reverseproxy:
+    familytraffic-nginx:
       depends_on:
         - "/etc/letsencrypt/ (for SSL certificates)"
       health_check: "nginx -t"
       restart_policy: "unless-stopped"
 
-    vless_fake_site:
+    familytraffic-fake-site:
       depends_on: []
       health_check: "wget --spider http://localhost/"
       restart_policy: "unless-stopped"
 
-    vless_mtproxy:
+    familytraffic-mtproxy:
       depends_on: []
       health_check: "curl http://localhost:8443/stats"
       restart_policy: "unless-stopped"
@@ -741,19 +741,19 @@ service_dependencies:
 
   service_start_order:
     - order: 1
-      services: ["vless_xray", "vless_fake_site"]
+      services: ["familytraffic", "familytraffic-fake-site"]
       reason: "No dependencies, can start first"
 
     - order: 2
-      services: ["vless_nginx_reverseproxy"]
+      services: ["familytraffic-nginx"]
       reason: "Depends on certificates (already available)"
 
     - order: 3
-      services: ["vless_haproxy"]
+      services: ["familytraffic-haproxy"]
       reason: "Depends on all backends being ready"
 
     - order: 4
-      services: ["vless_mtproxy"]
+      services: ["familytraffic-mtproxy"]
       reason: "Independent, can start anytime"
 
 performance_impact:

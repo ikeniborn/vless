@@ -57,7 +57,7 @@
      - HAProxy dynamic ACL section
      - HAProxy route management functions
      - Nginx config generator (port 9443-9452)
-     - CLI tools integration (vless-setup-proxy, vless-proxy)
+     - CLI tools integration (vless-setup-proxy, familytraffic-proxy)
      - Subdomain access format (https://domain, NO port)
      - Certificate requirement and DNS validation
    - DEV_MODE: Full (code validation, no runtime)
@@ -90,7 +90,7 @@ DEV_MODE=true ./run_all_tests.sh
 # Individual test
 ./test_01_vless_reality_haproxy.sh
 
-# Production testing (requires /opt/vless/ installation)
+# Production testing (requires /opt/familytraffic/ installation)
 sudo ./run_all_tests.sh
 ```
 
@@ -136,7 +136,7 @@ curl -I --proxy https://user:pass@server:8118 https://google.com
 **Test Case 3: Certificate Validation (combined.pem format)**
 ```bash
 # Check combined.pem format for HAProxy
-openssl x509 -in /opt/vless/certs/combined.pem -noout -text
+openssl x509 -in /opt/familytraffic/certs/combined.pem -noout -text
 
 # Expected:
 # - Issuer: Let's Encrypt
@@ -144,7 +144,7 @@ openssl x509 -in /opt/vless/certs/combined.pem -noout -text
 # - Subject Alt Name: DNS:vpn.example.com
 
 # Verify private key included
-grep -q "BEGIN PRIVATE KEY" /opt/vless/certs/combined.pem
+grep -q "BEGIN PRIVATE KEY" /opt/familytraffic/certs/combined.pem
 echo $?  # Expected: 0 (found)
 ```
 
@@ -243,19 +243,19 @@ nmap -sV -p 443,1080,8118 server
 **Test Case 10: Config Validation - HAProxy TLS**
 ```bash
 # Verify HAProxy TLS configuration
-docker exec vless_haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend socks5-tls"
+docker exec familytraffic-haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend socks5-tls"
 
 # Expected:
 # frontend socks5-tls
-#     bind *:1080 ssl crt /opt/vless/certs/combined.pem
+#     bind *:1080 ssl crt /opt/familytraffic/certs/combined.pem
 #     mode tcp
 #     default_backend xray_socks5
 
-docker exec vless_haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend http-tls"
+docker exec familytraffic-haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend http-tls"
 
 # Expected:
 # frontend http-tls
-#     bind *:8118 ssl crt /opt/vless/certs/combined.pem
+#     bind *:8118 ssl crt /opt/familytraffic/certs/combined.pem
 #     mode tcp
 #     default_backend xray_http
 ```
@@ -430,7 +430,7 @@ curl -H "Host: 1.2.3.4" -u user:pass https://1.2.3.4:443
 **Test Case 22: Host Header Validation in Nginx Config**
 ```bash
 # Verify config has VULN-001 fix
-grep -A 2 'if ($host !=' /opt/vless/config/reverse-proxy/myproxy.example.com.conf
+grep -A 2 'if ($host !=' /opt/familytraffic/config/reverse-proxy/myproxy.example.com.conf
 
 # Expected Output:
 # if ($host != "myproxy.example.com") {
@@ -483,7 +483,7 @@ wait
 **Test Case 26: Rate Limit Configuration Validation**
 ```bash
 # Verify rate limiting config in HTTP context file
-cat /opt/vless/config/reverse-proxy-http-context.conf
+cat /opt/familytraffic/config/reverse-proxy-http-context.conf
 
 # Expected:
 # limit_req_zone $binary_remote_addr zone=reverseproxy:10m rate=10r/s;
@@ -517,7 +517,7 @@ curl -v -u user:pass https://myproxy.example.com 2>&1 | grep -i "host:"
 # NOTE: Reverse proxy is site-specific, no arbitrary browsing allowed
 
 # Verify Xray config only routes to target site
-docker exec vless_xray cat /etc/xray/config.json | jq '.inbounds[] | select(.port==10800)'
+docker exec familytraffic cat /etc/xray/config.json | jq '.inbounds[] | select(.port==10800)'
 
 # Expected:
 # - Xray inbound configured for specific domain only
@@ -550,14 +550,14 @@ curl -u user2:pass2 https://domain2.example.com  # Target: site2.com
 **Test Case 30: No Access Logs (Privacy Requirement)**
 ```bash
 # Verify access logging DISABLED
-ls -la /opt/vless/logs/nginx/reverse-proxy-access.log
+ls -la /opt/familytraffic/logs/nginx/reverse-proxy-access.log
 
 # Expected:
 # - File DOES NOT EXIST
 # - nginx config: access_log off;
 
 # Check nginx config for access_log directive
-grep -r "access_log" /opt/vless/config/reverse-proxy/*.conf
+grep -r "access_log" /opt/familytraffic/config/reverse-proxy/*.conf
 
 # Expected:
 # access_log off;  # (NOT access_log /path/to/log)
@@ -567,7 +567,7 @@ grep -r "access_log" /opt/vless/config/reverse-proxy/*.conf
 ```bash
 # Check error log after failed auth attempt
 curl -u user:wrongpass https://myproxy.example.com
-cat /opt/vless/logs/nginx/reverse-proxy-error.log | tail -5
+cat /opt/familytraffic/logs/nginx/reverse-proxy-error.log | tail -5
 
 # Expected Log Entries:
 # - Authentication failures (401)
@@ -584,13 +584,13 @@ cat /opt/vless/logs/nginx/reverse-proxy-error.log | tail -5
 **Test Case 32: Nginx Health Check**
 ```bash
 # Check container health status
-docker ps --format "{{.Names}}: {{.Status}}" | grep vless_reverse_proxy_nginx
+docker ps --format "{{.Names}}: {{.Status}}" | grep familytraffic-nginx
 
 # Expected:
-# vless_reverse_proxy_nginx: Up X minutes (healthy)
+# familytraffic-nginx: Up X minutes (healthy)
 
 # Manually trigger health check
-docker exec vless_reverse_proxy_nginx nginx -t
+docker exec familytraffic-nginx nginx -t
 
 # Expected:
 # nginx: configuration file /etc/nginx/nginx.conf test is successful
@@ -599,13 +599,13 @@ docker exec vless_reverse_proxy_nginx nginx -t
 **Test Case 33: Container Auto-Recovery**
 ```bash
 # Simulate nginx crash
-docker exec vless_reverse_proxy_nginx killall nginx
+docker exec familytraffic-nginx killall nginx
 
 # Wait 10 seconds
 sleep 10
 
 # Check status
-docker ps | grep vless_reverse_proxy_nginx
+docker ps | grep familytraffic-nginx
 
 # Expected:
 # - Container auto-restarted (Docker restart policy)
@@ -628,14 +628,14 @@ sudo vless-setup-proxy
 # - Port: 9444 (auto-suggested, localhost-only)
 
 # Verify HAProxy ACL added
-grep "is_proxy2" /opt/vless/config/haproxy.cfg
+grep "is_proxy2" /opt/familytraffic/config/haproxy.cfg
 
 # Expected:
 # - acl is_proxy2 req.ssl_sni -i proxy2.example.com
 # - use_backend nginx_proxy2 if is_proxy2
 
 # Verify nginx config created (localhost binding)
-cat /opt/vless/config/reverse-proxy/proxy2.example.com.conf | grep "listen"
+cat /opt/familytraffic/config/reverse-proxy/proxy2.example.com.conf | grep "listen"
 
 # Expected:
 # - listen 9444 ssl http2;  # (NOT 8444, port range changed in v4.3)
@@ -662,7 +662,7 @@ sudo vless-setup-proxy
 **Test Case 36: Maximum Domain Limit**
 ```bash
 # Check current reverse proxy count
-jq '.reverse_proxies | length' /opt/vless/config/reverse_proxies.json
+jq '.reverse_proxies | length' /opt/familytraffic/config/reverse_proxies.json
 
 # If count == 10, attempt to add 11th
 sudo vless-setup-proxy
@@ -687,7 +687,7 @@ sudo vless-setup-proxy
 2. Wait for Let's Encrypt certificate (up to 60 seconds)
 
 3. Test subdomain access (NO port number)
-   curl -u $(jq -r '.reverse_proxies[0].username' /opt/vless/config/reverse_proxies.json):PASSWORD https://test.example.com
+   curl -u $(jq -r '.reverse_proxies[0].username' /opt/familytraffic/config/reverse_proxies.json):PASSWORD https://test.example.com
 
 # Expected:
 # - DNS validated (dig test.example.com)
@@ -704,7 +704,7 @@ sudo vless-setup-proxy
 **Test Case 38: Reverse Proxy Removal (v4.3)**
 ```bash
 # Remove reverse proxy
-sudo vless-proxy remove test.example.com
+sudo familytraffic-proxy remove test.example.com
 
 # Expected:
 # - HAProxy ACL removed
@@ -870,10 +870,10 @@ curl http://localhost:9000/stats
 **Test Case 49: HAProxy Graceful Reload (Zero Downtime)**
 ```bash
 # Add new reverse proxy (triggers reload)
-sudo vless-proxy add
+sudo familytraffic-proxy add
 
 # Monitor active connections during reload
-watch -n 1 'docker exec vless_haproxy netstat -an | grep ESTABLISHED | wc -l'
+watch -n 1 'docker exec familytraffic-haproxy netstat -an | grep ESTABLISHED | wc -l'
 
 # Expected:
 # - Established connections maintained during reload
@@ -904,7 +904,7 @@ for i in {1..5}; do
 done
 
 # Check fail2ban HAProxy jail
-sudo fail2ban-client status vless-haproxy
+sudo fail2ban-client status familytraffic-haproxy
 
 # Expected:
 # - IP banned after 5 failures

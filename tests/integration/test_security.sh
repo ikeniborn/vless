@@ -38,7 +38,7 @@ readonly CYAN='\033[0;36m'
 readonly NC='\033[0m'
 
 # Test configuration
-readonly VLESS_BASE_DIR="/opt/vless"
+readonly VLESS_BASE_DIR="/opt/familytraffic"
 readonly REQUIRED_COMMANDS=("nmap" "jq" "curl" "ufw")
 
 # Test results tracking

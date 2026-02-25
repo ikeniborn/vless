@@ -402,10 +402,10 @@ main() {
                 elif [[ "$proxy_count" -gt 0 ]]; then
                     echo -e "  ${YELLOW}✗ External Proxy DISABLED${NC}"
                     echo "  Total Proxies: $proxy_count (configured but not active)"
-                    echo "  Hint: vless-external-proxy enable"
+                    echo "  Hint: familytraffic-external-proxy enable"
                 else
                     echo "  ${YELLOW}Not configured${NC} (no external proxies added)"
-                    echo "  Hint: vless-external-proxy add"
+                    echo "  Hint: familytraffic-external-proxy add"
                 fi
             else
                 echo "  ${YELLOW}Not available${NC} (database not found)"

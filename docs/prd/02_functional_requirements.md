@@ -78,15 +78,15 @@ frontend http_proxy_tls
 # Backends
 backend xray_vless
     mode tcp
-    server xray vless_xray:8443
+    server xray familytraffic:8443
 
 backend xray_socks5_plaintext
     mode tcp
-    server xray vless_xray:10800
+    server xray familytraffic:10800
 
 backend xray_http_plaintext
     mode tcp
-    server xray vless_xray:18118
+    server xray familytraffic:18118
 
 # Blackhole backend for unknown/invalid SNI
 backend blackhole
@@ -97,7 +97,7 @@ backend blackhole
 # Example:
 # backend nginx_claude
 #     mode tcp
-#     server nginx vless_nginx_reverseproxy:9443
+#     server nginx familytraffic-nginx:9443
 
 # Stats page (localhost only for security)
 listen stats
@@ -134,7 +134,7 @@ listen stats
 ```yaml
 haproxy:
   image: haproxy:latest
-  container_name: vless_haproxy
+  container_name: familytraffic-haproxy
   ports:
     - "443:443"   # VLESS Reality + Reverse Proxy (SNI routing)
     - "1080:1080" # SOCKS5 with TLS
@@ -142,10 +142,10 @@ haproxy:
     - "127.0.0.1:9000:9000"  # Stats page (localhost only)
   volumes:
     - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    - ./certs:/opt/vless/certs:ro  # combined.pem certificates
+    - ./certs:/opt/familytraffic/certs:ro  # combined.pem certificates
     - ./logs/haproxy:/var/log/haproxy
   networks:
-    - vless_reality_net
+    - familytraffic_net
   restart: unless-stopped
   depends_on:
     - xray
@@ -223,13 +223,13 @@ haproxy:
 **HAProxy Configuration (v4.3):**
 ```haproxy
 frontend http-tls
-    bind *:8118 ssl crt /opt/vless/certs/combined.pem
+    bind *:8118 ssl crt /opt/familytraffic/certs/combined.pem
     mode tcp
     default_backend xray_http
 
 backend xray_http
     mode tcp
-    server xray vless_xray:18118
+    server xray familytraffic:18118
 ```
 
 **User Story:** As a developer, I want to configure VSCode with HTTPS proxy so that extensions and updates are downloaded securely without SSL warnings.
@@ -246,10 +246,10 @@ backend xray_http
 - [ ] UFW temporarily opens port 80 for ACME HTTP-01 challenge
 - [ ] Certbot runs: `certbot certonly --standalone --non-interactive --agree-tos --email ${EMAIL} --domain ${DOMAIN}`
 - [ ] Certificates saved to `/etc/letsencrypt/live/${DOMAIN}/`
-- [ ] **NEW v4.3:** combined.pem generated: `cat fullchain.pem privkey.pem > /opt/vless/certs/combined.pem`
+- [ ] **NEW v4.3:** combined.pem generated: `cat fullchain.pem privkey.pem > /opt/familytraffic/certs/combined.pem`
 - [ ] **NEW v4.3:** combined.pem permissions: 600 (HAProxy requires this)
 - [ ] UFW closes port 80 after certbot completes
-- [ ] Docker volume mount added: `/opt/vless/certs:/opt/vless/certs:ro` (HAProxy container)
+- [ ] Docker volume mount added: `/opt/familytraffic/certs:/opt/familytraffic/certs:ro` (HAProxy container)
 - [ ] HAProxy container can read combined.pem (verified on startup)
 - [ ] Clear error messages on failure (DNS, port 80 occupied, rate limit)
 
@@ -268,7 +268,7 @@ backend xray_http
      - ACME HTTP-01 challenge successful
      - Certificate saved: /etc/letsencrypt/live/vpn.example.com/fullchain.pem
   ✓ Generating combined.pem for HAProxy...
-     - combined.pem: /opt/vless/certs/combined.pem (600 perms)
+     - combined.pem: /opt/familytraffic/certs/combined.pem (600 perms)
   ✓ Closing UFW port 80/tcp...
   ✓ Mounting certificates to HAProxy container...
   ✓ TLS certificates ready
@@ -285,7 +285,7 @@ backend xray_http
 > **Breaking Change from v3.5:** Migrated from per-user to server-level due to protocol limitation - HTTP/SOCKS5 protocols don't provide user identifiers in Xray routing context. The `user` field only works for VLESS protocol.
 
 **Acceptance Criteria:**
-- [ ] `proxy_allowed_ips.json` created in `/opt/vless/config/` (default: `["127.0.0.1"]`)
+- [ ] `proxy_allowed_ips.json` created in `/opt/familytraffic/config/` (default: `["127.0.0.1"]`)
 - [ ] New installations default to localhost-only access
 - [ ] IP validation supports IPv4, IPv6, and CIDR notation
 - [ ] Xray routing rules generated dynamically (server-level)
@@ -375,7 +375,7 @@ vless reset-proxy-ips                   # Reset to 127.0.0.1
 
 **Automatic Migration Script:**
 ```bash
-sudo /opt/vless/scripts/migrate_proxy_ips.sh
+sudo /opt/familytraffic/scripts/migrate_proxy_ips.sh
 ```
 
 Script performs:
@@ -389,7 +389,7 @@ Script performs:
 - ❌ Per-user commands removed: `show-allowed-ips`, `set-allowed-ips`, etc.
 - ✅ Server-level commands added: `show-proxy-ips`, `set-proxy-ips`, etc.
 - ❌ `allowed_ips` field in `users.json` deprecated
-- ✅ New file: `/opt/vless/config/proxy_allowed_ips.json`
+- ✅ New file: `/opt/familytraffic/config/proxy_allowed_ips.json`
 
 **User Story:** As a network administrator, I want to restrict proxy access to authorized IP ranges so that only connections from approved networks can use the proxy service, applying the same restrictions to all users.
 
@@ -418,7 +418,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Renew Let's Encrypt certificates twice daily
-0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/familytraffic-cert-renew" >> /opt/vless/logs/certbot-renew.log 2>&1
+0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/familytraffic-cert-renew" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
 ```
 
 **Deploy Hook Script (v4.3 UPDATED):**
@@ -429,14 +429,14 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 echo "$(date): Certificate renewed, regenerating combined.pem..."
 
 # Regenerate combined.pem for HAProxy
-DOMAIN=$(cat /opt/vless/config/.env | grep DOMAIN | cut -d= -f2)
+DOMAIN=$(cat /opt/familytraffic/config/.env | grep DOMAIN | cut -d= -f2)
 cat /etc/letsencrypt/live/${DOMAIN}/fullchain.pem \
     /etc/letsencrypt/live/${DOMAIN}/privkey.pem \
-    > /opt/vless/certs/combined.pem
-chmod 600 /opt/vless/certs/combined.pem
+    > /opt/familytraffic/certs/combined.pem
+chmod 600 /opt/familytraffic/certs/combined.pem
 
 # Graceful HAProxy reload (zero downtime)
-docker exec vless_haproxy haproxy -sf $(cat /var/run/haproxy.pid)
+docker exec familytraffic-haproxy haproxy -sf $(cat /var/run/haproxy.pid)
 
 echo "$(date): HAProxy reloaded successfully"
 ```
@@ -599,7 +599,7 @@ git config --get http.proxy
 git clone https://github.com/torvalds/linux.git
 
 # Verify proxy usage in HAProxy logs (v4.3)
-sudo docker logs vless_haproxy | grep "socks5-tls"
+sudo docker logs familytraffic-haproxy | grep "socks5-tls"
 ```
 
 **User Story:** As a developer, I want to use Git with socks5s:// proxy so that my code and credentials are encrypted during clone/push operations.
@@ -644,13 +644,13 @@ sudo docker logs vless_haproxy | grep "socks5-tls"
 **Acceptance Criteria:**
 - [ ] Fail2ban installed when `ENABLE_PROXY=true` (regardless of public/localhost mode)
 - [ ] **NEW v4.3:** HAProxy filter created (`/etc/fail2ban/filter.d/haproxy-sni.conf`)
-- [ ] **NEW v4.3:** HAProxy jail created (`/etc/fail2ban/jail.d/vless-haproxy.conf`)
+- [ ] **NEW v4.3:** HAProxy jail created (`/etc/fail2ban/jail.d/familytraffic-haproxy.conf`)
 - [ ] Jail created for SOCKS5 (port 1080)
 - [ ] Jail created for HTTP (port 8118)
 - [ ] Ban after 5 failed auth attempts
 - [ ] Ban duration: 1 hour (3600 seconds)
 - [ ] Find time: 10 minutes (600 seconds)
-- [ ] Logs monitored: `/opt/vless/logs/haproxy/haproxy.log` (v4.3)
+- [ ] Logs monitored: `/opt/familytraffic/logs/haproxy/haproxy.log` (v4.3)
 - [ ] Works for both localhost (via VPN) and public (from internet) attacks
 
 **HAProxy Filter (NEW v4.3):**
@@ -664,12 +664,12 @@ ignoreregex =
 
 **HAProxy Jail (NEW v4.3):**
 ```ini
-# /etc/fail2ban/jail.d/vless-haproxy.conf
-[vless-haproxy]
+# /etc/fail2ban/jail.d/familytraffic-haproxy.conf
+[familytraffic-haproxy]
 enabled = true
 port = 443,1080,8118
 filter = haproxy-sni
-logpath = /opt/vless/logs/haproxy/haproxy.log
+logpath = /opt/familytraffic/logs/haproxy/haproxy.log
 maxretry = 5
 bantime = 3600
 findtime = 600
@@ -778,7 +778,7 @@ Continue with update? [y/N]:
 
 ## Rollback
 If migration fails:
-1. Restore backup: `sudo vless-restore /tmp/vless_backup_<timestamp>`
+1. Restore backup: `sudo vless-restore /tmp/familytraffic_backup_<timestamp>`
 2. Old v4.0-v4.2 configs will work again
 ```
 
@@ -825,7 +825,7 @@ If migration fails:
 
 **Example Workflow (v4.3):**
 ```
-1. Запускает: sudo vless-proxy add
+1. Запускает: sudo familytraffic-proxy add
 2. Вводит subdomain: claude.ikeniborn.ru
 3. Вводит target site: claude.ai
 4. Получает credentials: username / password
@@ -859,7 +859,7 @@ If migration fails:
 - [ ] Username: `openssl rand -hex 4` (8 characters)
 - [ ] Password: `openssl rand -hex 16` (32 characters)
 - [ ] .htpasswd file: `htpasswd -bc .htpasswd-${DOMAIN} username password`
-- [ ] Credentials saved to `/opt/vless/config/reverse_proxies.json`
+- [ ] Credentials saved to `/opt/familytraffic/config/reverse_proxies.json`
 
 **AC-4: Configuration Updates (v4.3 UPDATED, v5.2+ SIMPLIFIED)**
 - [ ] **NEW v4.3:** HAProxy ACL added dynamically (sed-based)
@@ -879,7 +879,7 @@ If migration fails:
 - [ ] **NEW v4.3:** HAProxy graceful reload: `haproxy -sf $(cat /var/run/haproxy.pid)`
 - [ ] Healthcheck: haproxy, nginx, xray containers running
 - [ ] Port listening: `ss -tulnp | grep :443` (HAProxy)
-- [ ] fail2ban jail active: `fail2ban-client status vless-haproxy`
+- [ ] fail2ban jail active: `fail2ban-client status familytraffic-haproxy`
 
 **AC-6: Access Without Auth → 401 Unauthorized (v4.3 UPDATED)**
 ```bash
@@ -902,33 +902,33 @@ curl -I -u wrong:credentials https://claude.ikeniborn.ru  # NO :9443!
 **AC-9: Domain Restriction (v5.2+ UPDATED)**
 - User cannot access other sites via reverse proxy (Nginx proxy_pass hardcoded to specific target IP)
 
-**AC-10: CLI - vless-proxy add (v4.3 UPDATED)**
+**AC-10: CLI - familytraffic-proxy add (v4.3 UPDATED)**
 ```bash
 # Interactive setup (subdomain-based, NO port!)
-sudo vless-proxy add
+sudo familytraffic-proxy add
 # Prompts for subdomain and target site
 # Output: Domain: https://subdomain.example.com (NO :9443!)
 
 # Non-interactive (for automation)
-sudo vless-proxy add subdomain.example.com target.com
+sudo familytraffic-proxy add subdomain.example.com target.com
 # Output: Domain: https://subdomain.example.com
 ```
 
-**AC-11: CLI - vless-proxy list (UNCHANGED)**
+**AC-11: CLI - familytraffic-proxy list (UNCHANGED)**
 ```bash
-sudo vless-proxy list
+sudo familytraffic-proxy list
 # Output: Lists all reverse proxies with subdomains and target sites
 ```
 
-**AC-12: CLI - vless-proxy show <domain> (UNCHANGED)**
+**AC-12: CLI - familytraffic-proxy show <domain> (UNCHANGED)**
 ```bash
-sudo vless-proxy show subdomain.example.com
+sudo familytraffic-proxy show subdomain.example.com
 # Output: Shows credentials, certificate expiry, fail2ban status
 ```
 
-**AC-13: CLI - vless-proxy remove <domain> (v4.3 UPDATED, v5.2+ SIMPLIFIED)**
+**AC-13: CLI - familytraffic-proxy remove <domain> (v4.3 UPDATED, v5.2+ SIMPLIFIED)**
 ```bash
-sudo vless-proxy remove subdomain.example.com
+sudo familytraffic-proxy remove subdomain.example.com
 # Output: Removes HAProxy ACL, Nginx config, database entry, docker-compose.yml port
 # REMOVED: Xray inbound removal (no inbound since v5.2+)
 # NO UFW rule removal (все через HAProxy port 443)
@@ -1010,23 +1010,23 @@ sudo vless-proxy remove subdomain.example.com
 
 **SEC-9: fail2ban Integration (v4.3 UPDATED - MANDATORY)**
 ```ini
-# /etc/fail2ban/jail.d/vless-haproxy.conf (v4.3)
-[vless-haproxy]
+# /etc/fail2ban/jail.d/familytraffic-haproxy.conf (v4.3)
+[familytraffic-haproxy]
 enabled = true
 port = 443,1080,8118
 filter = haproxy-sni
-logpath = /opt/vless/logs/haproxy/haproxy.log
+logpath = /opt/familytraffic/logs/haproxy/haproxy.log
 maxretry = 5
 bantime = 3600
 findtime = 600
 action = ufw
 
-# /etc/fail2ban/jail.d/vless-reverseproxy.conf (v4.3)
-[vless-reverseproxy]
+# /etc/fail2ban/jail.d/familytraffic-reverseproxy.conf (v4.3)
+[familytraffic-reverseproxy]
 enabled = true
 port = 9443,9444,9445,9446,9447,9448,9449,9450,9451,9452
-filter = vless-reverseproxy
-logpath = /opt/vless/logs/nginx/reverse-proxy-error.log
+filter = familytraffic-reverseproxy
+logpath = /opt/familytraffic/logs/nginx/reverse-proxy-error.log
 maxretry = 5
 bantime = 3600
 findtime = 600
@@ -1038,7 +1038,7 @@ action = ufw
 #### 5. File Structure
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/
 │   ├── haproxy.cfg                     # v4.3: HAProxy config with dynamic ACLs
 │   ├── xray_config.json                # Updated: +multiple reverse-proxy inbounds
@@ -1064,14 +1064,14 @@ action = ufw
 
 /etc/fail2ban/                          # v4.3: fail2ban configs
 ├── jail.d/
-│   ├── vless-haproxy.conf              # Multi-port jail (HAProxy)
-│   └── vless-reverseproxy.conf         # Multi-port jail (Nginx)
+│   ├── familytraffic-haproxy.conf              # Multi-port jail (HAProxy)
+│   └── familytraffic-reverseproxy.conf         # Multi-port jail (Nginx)
 └── filter.d/
     ├── haproxy-sni.conf                # HAProxy filter
-    └── vless-reverseproxy.conf         # Nginx auth failure filter
+    └── familytraffic-reverseproxy.conf         # Nginx auth failure filter
 
 /usr/local/bin/
-└── vless-proxy → /opt/vless/scripts/familytraffic-proxy  # Unified CLI (add/list/show/remove)
+└── familytraffic-proxy → /opt/familytraffic/scripts/familytraffic-proxy  # Unified CLI (add/list/show/remove)
 ```
 
 ---
@@ -1118,7 +1118,7 @@ action = ufw
 #### 7. Implementation Scope
 
 **In Scope (v4.3, v5.2+ UPDATED):**
-- ✅ CLI tools: `vless-proxy` (add/list/show/remove) - subdomain-based
+- ✅ CLI tools: `familytraffic-proxy` (add/list/show/remove) - subdomain-based
 - ✅ HAProxy ACL management (lib/haproxy_config_manager.sh)
 - ✅ Nginx config generation via heredoc (lib/nginx_config_generator.sh)
 - ✅ **v5.2+:** IPv4 resolution at config time (lib/nginx_config_generator.sh)
@@ -1203,12 +1203,12 @@ action = ufw
 #### Validation After Add (`validate_reverse_proxy()`)
 
 **Check 1: HAProxy ACL Configuration**
-- Verify ACL exists in `/opt/vless/config/haproxy.cfg`
+- Verify ACL exists in `/opt/familytraffic/config/haproxy.cfg`
 - Pattern: `acl is_<domain> req.ssl_sni -i <domain>`
 - Failure: STOP operation, rollback changes
 
 **Check 2: Nginx Configuration File**
-- Verify file exists: `/opt/vless/config/reverse-proxy/<domain>.conf`
+- Verify file exists: `/opt/familytraffic/config/reverse-proxy/<domain>.conf`
 - Validate file size > 0 bytes
 - Failure: STOP operation, clean up orphaned HAProxy ACL
 
@@ -1235,12 +1235,12 @@ action = ufw
 #### Validation After Remove (`validate_reverse_proxy_removed()`)
 
 **Check 1: HAProxy ACL Removed**
-- Verify ACL NOT in `/opt/vless/config/haproxy.cfg`
+- Verify ACL NOT in `/opt/familytraffic/config/haproxy.cfg`
 - Pattern: `acl is_<domain>` should NOT exist
 - Failure: ERROR (manual cleanup required)
 
 **Check 2: Nginx Configuration Deleted**
-- Verify file NOT exists: `/opt/vless/config/reverse-proxy/<domain>.conf`
+- Verify file NOT exists: `/opt/familytraffic/config/reverse-proxy/<domain>.conf`
 - Failure: WARNING (orphaned config file)
 
 **Check 3: Port Unbound**
@@ -1310,7 +1310,7 @@ fi
 **Problem (Before v5.22):**
 - Operations failed when HAProxy/Nginx stopped
 - Error messages: "Connection refused", "No such container"
-- Required manual intervention: `docker start vless_haproxy`
+- Required manual intervention: `docker start familytraffic-haproxy`
 - User frustration: "Why do I need to start containers manually?"
 
 **Solution: 3-Layer Container Management**
@@ -1352,9 +1352,9 @@ fi
 **Function:** `ensure_all_containers_running()`
 
 **Required Containers:**
-1. `vless_haproxy` - TLS termination & SNI routing
-2. `vless_xray` - VPN core + proxy backends
-3. `vless_nginx_reverseproxy` - Reverse proxy backends (v5.2+)
+1. `familytraffic-haproxy` - TLS termination & SNI routing
+2. `familytraffic` - VPN core + proxy backends
+3. `familytraffic-nginx` - Reverse proxy backends (v5.2+)
 
 **Behavior:**
 - Call `ensure_container_running()` for each container
@@ -1387,11 +1387,11 @@ fi
 **Error Handling:**
 ```bash
 # Auto-recovery example
-ensure_container_running "vless_haproxy"
+ensure_container_running "familytraffic-haproxy"
 if [ $? -ne 0 ]; then
     print_error "Critical: HAProxy container failed to start"
     print_info "Troubleshooting:"
-    print_info "  1. Check logs: docker logs vless_haproxy"
+    print_info "  1. Check logs: docker logs familytraffic-haproxy"
     print_info "  2. Verify docker-compose.yml exists"
     print_info "  3. Check port conflicts: sudo ss -tulnp | grep 443"
     return 1
@@ -1402,18 +1402,18 @@ fi
 
 **Before v5.22:**
 ```
-User: sudo vless-proxy add
+User: sudo familytraffic-proxy add
 System: ❌ Connection refused (HAProxy not running)
-User: *manually runs: docker start vless_haproxy*
-User: sudo vless-proxy add  # retry
+User: *manually runs: docker start familytraffic-haproxy*
+User: sudo familytraffic-proxy add  # retry
 System: ✅ Success
 ```
 
 **After v5.22:**
 ```
-User: sudo vless-proxy add
-System: ⚠️  Container 'vless_haproxy' not running, attempting to start...
-        ✅ Container 'vless_haproxy' started successfully
+User: sudo familytraffic-proxy add
+System: ⚠️  Container 'familytraffic-haproxy' not running, attempting to start...
+        ✅ Container 'familytraffic-haproxy' started successfully
         [1/4] Checking HAProxy ACL configuration... ✅
         [2/4] Checking Nginx configuration file... ✅
         [3/4] Checking port binding... ✅
@@ -1456,7 +1456,7 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 - ✅ Username/password аутентификация
 - ✅ Retry механизм (3 попытки с exponential backoff) перед fallback
 - ✅ Database-driven configuration (external_proxy.json)
-- ✅ CLI management (vless-external-proxy: 10 команд)
+- ✅ CLI management (familytraffic-external-proxy: 10 команд)
 - ✅ Тестирование подключения к прокси
 - ✅ Автоматический перезапуск Xray при enable/disable
 - ✅ Интеграция в vless status
@@ -1469,7 +1469,7 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 
 **Example Workflow (v5.33 - Auto-Activation):**
 ```
-1. Запускает: sudo vless-external-proxy add
+1. Запускает: sudo familytraffic-external-proxy add
 2. Выбирает тип: socks5s (TLS encrypted)
 3. Вводит адрес: proxy.example.com
 4. Вводит порт: 1080
@@ -1482,14 +1482,14 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
     - Активирует прокси (switch)
     - Включает routing (enable)
     - Перезагружает Xray
-11. Проверяет статус: sudo vless status
+11. Проверяет статус: sudo familytraffic status
 ```
 
 **Старый процесс (v5.23 - 3 шага):**
 ```
-7. Активирует: sudo vless-external-proxy switch proxy-id
-8. Включает routing: sudo vless-external-proxy enable
-9. Проверяет статус: sudo vless status
+7. Активирует: sudo familytraffic-external-proxy switch proxy-id
+8. Включает routing: sudo familytraffic-external-proxy enable
+9. Проверяет статус: sudo familytraffic status
 ```
 
 #### 2. Acceptance Criteria
@@ -1501,7 +1501,7 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 - [ ] https: HTTP proxy с TLS 1.3
 
 **AC-2: Database Management**
-- [ ] JSON database: `/opt/vless/config/external_proxy.json` (600 permissions)
+- [ ] JSON database: `/opt/familytraffic/config/external_proxy.json` (600 permissions)
 - [ ] Поля: id, type, address, port, username, password, TLS settings, retry config
 - [ ] Metadata: enabled (global flag), active proxy ID, routing mode
 - [ ] Initialization при установке (lib/orchestrator.sh)
@@ -1528,10 +1528,10 @@ Client → HAProxy → Xray → External SOCKS5s/HTTPS Proxy → Internet
 - [ ] Function: `generate_routing_rules_json(mode, outbound_tag)` → JSON
 - [ ] Retry mechanism: 3 attempts, 2x backoff multiplier
 
-**AC-5: CLI Commands (vless-external-proxy)**
+**AC-5: CLI Commands (familytraffic-external-proxy)**
 ```bash
 # 1. add - Interactive wizard для добавления прокси (Enhanced v5.33)
-sudo vless-external-proxy add
+sudo familytraffic-external-proxy add
 # → Prompts: type, address, port, TLS settings (with validation), credentials
 # → TLS Server Name prompt: "Press ENTER to use the proxy address [proxy.example.com]"
 # → Validation: FQDN format (contains dot) or IP address, rejects "y", "yes", "n", "no"
@@ -1541,36 +1541,36 @@ sudo vless-external-proxy add
 # → Returns: proxy_id (proxy ready to use immediately if activated)
 
 # 2. list - Показать все прокси
-sudo vless-external-proxy list
+sudo familytraffic-external-proxy list
 
 # 3. show <proxy-id> - Детали конкретного прокси
-sudo vless-external-proxy show proxy-abc123
+sudo familytraffic-external-proxy show proxy-abc123
 
 # 4. switch <proxy-id> - Переключить активный прокси
-sudo vless-external-proxy switch proxy-abc123
+sudo familytraffic-external-proxy switch proxy-abc123
 
 # 5. update <proxy-id> - Обновить прокси
-sudo vless-external-proxy update proxy-abc123
+sudo familytraffic-external-proxy update proxy-abc123
 
 # 6. remove <proxy-id> - Удалить прокси
-sudo vless-external-proxy remove proxy-abc123
+sudo familytraffic-external-proxy remove proxy-abc123
 
 # 7. test <proxy-id> - Проверить подключение
-sudo vless-external-proxy test proxy-abc123
+sudo familytraffic-external-proxy test proxy-abc123
 
 # 8. enable - Включить routing через прокси + auto-restart Xray
-sudo vless-external-proxy enable
+sudo familytraffic-external-proxy enable
 
 # 9. disable - Выключить routing + auto-restart Xray
-sudo vless-external-proxy disable
+sudo familytraffic-external-proxy disable
 
 # 10. status - Показать статус external proxy
-sudo vless-external-proxy status
+sudo familytraffic-external-proxy status
 ```
 
 **AC-6: Auto-Restart Integration (v5.23)**
-- [ ] `cmd_enable()`: Auto-restart vless_xray after routing update
-- [ ] `cmd_disable()`: Auto-restart vless_xray after routing update
+- [ ] `cmd_enable()`: Auto-restart familytraffic after routing update
+- [ ] `cmd_disable()`: Auto-restart familytraffic after routing update
 - [ ] Health check: wait 3s, verify container status = "running"
 - [ ] Clear user feedback: "✓ Xray container restarted successfully"
 
@@ -1583,7 +1583,7 @@ sudo vless-external-proxy status
 #### 3. File Structure
 
 ```
-/opt/vless/
+/opt/familytraffic/
 ├── config/
 │   ├── external_proxy.json              # Proxy database (NEW v5.23)
 │   └── xray_config.json                 # Updated: +external-proxy outbound
@@ -1593,10 +1593,10 @@ sudo vless-external-proxy status
 │   └── xray_routing_manager.sh          # NEW: Routing rules (419 lines, 7 functions)
 │
 └── scripts/
-    └── vless-external-proxy             # NEW: CLI tool (673 lines, 10 commands)
+    └── familytraffic-external-proxy             # NEW: CLI tool (673 lines, 10 commands)
 
 /usr/local/bin/
-└── vless-external-proxy → /opt/vless/scripts/familytraffic-external-proxy
+└── familytraffic-external-proxy → /opt/familytraffic/scripts/familytraffic-external-proxy
 ```
 
 #### 4. Database Format (external_proxy.json)

@@ -31,19 +31,19 @@ set -euo pipefail
 
 # VLESS commands that will be installed
 readonly VLESS_COMMANDS=(
-    "vless"
-    "vless-user"
-    "vless-start"
-    "vless-stop"
-    "vless-restart"
-    "vless-status"
-    "vless-logs"
-    "vless-update"
-    "vless-uninstall"
+    "familytraffic"
+    "familytraffic-user"
+    "familytraffic-start"
+    "familytraffic-stop"
+    "familytraffic-restart"
+    "familytraffic-status"
+    "familytraffic-logs"
+    "familytraffic-update"
+    "familytraffic-uninstall"
 )
 
 # Sudoers file location
-readonly SUDOERS_FILE="/etc/sudoers.d/vless"
+readonly SUDOERS_FILE="/etc/sudoers.d/familytraffic"
 
 # =============================================================================
 # FUNCTION: display_sudoers_instructions
@@ -160,12 +160,12 @@ display_passwordless_option() {
     echo -e "${YELLOW}Configuration file content:${NC}"
     echo ""
     echo "┌────────────────────────────────────────────────────────────────┐"
-    echo "│ # /etc/sudoers.d/vless                                         │"
+    echo "│ # /etc/sudoers.d/familytraffic                                  │"
     echo "│ # Allow sudo group to run VLESS commands without password     │"
     echo "│ #                                                              │"
     echo "│ # Created: $(date +"%Y-%m-%d")                                             │"
     echo "│                                                                │"
-    echo "│ %sudo ALL=(ALL) NOPASSWD: /usr/local/bin/vless*               │"
+    echo "│ %sudo ALL=(ALL) NOPASSWD: /usr/local/bin/familytraffic*       │"
     echo "└────────────────────────────────────────────────────────────────┘"
     echo ""
     echo -e "${GREEN}Pros:${NC}"
@@ -195,12 +195,12 @@ display_regular_sudo_option() {
     echo -e "${YELLOW}Configuration file content:${NC}"
     echo ""
     echo "┌────────────────────────────────────────────────────────────────┐"
-    echo "│ # /etc/sudoers.d/vless                                         │"
+    echo "│ # /etc/sudoers.d/familytraffic                                  │"
     echo "│ # Allow sudo group to run VLESS commands with password        │"
     echo "│ #                                                              │"
     echo "│ # Created: $(date +"%Y-%m-%d")                                             │"
     echo "│                                                                │"
-    echo "│ %sudo ALL=(ALL) /usr/local/bin/vless*                         │"
+    echo "│ %sudo ALL=(ALL) /usr/local/bin/familytraffic*                 │"
     echo "└────────────────────────────────────────────────────────────────┘"
     echo ""
     echo -e "${GREEN}Pros:${NC}"
@@ -242,11 +242,11 @@ display_application_steps() {
     echo -e "${YELLOW}Method 2: Using echo and tee (Faster, but use with caution)${NC}"
     echo ""
     echo "For Option 1 (passwordless):"
-    echo -e "   ${MAGENTA}echo '%sudo ALL=(ALL) NOPASSWD: /usr/local/bin/vless*' | \\${NC}"
+    echo -e "   ${MAGENTA}echo '%sudo ALL=(ALL) NOPASSWD: /usr/local/bin/familytraffic*' | \\${NC}"
     echo -e "   ${MAGENTA}    sudo tee ${SUDOERS_FILE} > /dev/null${NC}"
     echo ""
     echo "For Option 2 (with password):"
-    echo -e "   ${MAGENTA}echo '%sudo ALL=(ALL) /usr/local/bin/vless*' | \\${NC}"
+    echo -e "   ${MAGENTA}echo '%sudo ALL=(ALL) /usr/local/bin/familytraffic*' | \\${NC}"
     echo -e "   ${MAGENTA}    sudo tee ${SUDOERS_FILE} > /dev/null${NC}"
     echo ""
     echo "Then set correct permissions:"
@@ -269,16 +269,16 @@ display_testing_instructions() {
     echo "   Expected output: 'parsed OK'"
     echo ""
     echo "2. Test sudo access without executing:"
-    echo -e "   ${MAGENTA}sudo -l | grep vless${NC}"
+    echo -e "   ${MAGENTA}sudo -l | grep familytraffic${NC}"
     echo "   Should show the VLESS commands you can execute"
     echo ""
     echo "3. Test a safe command:"
-    echo -e "   ${MAGENTA}sudo vless status${NC}"
+    echo -e "   ${MAGENTA}sudo familytraffic status${NC}"
     echo "   (Option 1: no password | Option 2: password required)"
     echo ""
     echo "4. Verify as non-root user:"
     echo -e "   ${MAGENTA}su - yourusername${NC}"
-    echo -e "   ${MAGENTA}sudo vless status${NC}"
+    echo -e "   ${MAGENTA}sudo familytraffic status${NC}"
     echo ""
 }
 
@@ -312,12 +312,12 @@ display_security_warnings() {
     echo "   • Prevents configuration errors that could lock you out"
     echo ""
     echo "5. Audit sudo usage"
-    echo "   • Check sudo logs: ${MAGENTA}sudo grep vless /var/log/auth.log${NC}"
+    echo "   • Check sudo logs: ${MAGENTA}sudo grep familytraffic /var/log/auth.log${NC}"
     echo "   • Monitor for unauthorized access attempts"
     echo ""
     echo "6. Wildcard usage"
-    echo "   • /usr/local/bin/vless* matches ALL commands starting with 'vless'"
-    echo "   • Be careful not to place other scripts with 'vless' prefix"
+    echo "   • /usr/local/bin/familytraffic* matches ALL commands starting with 'familytraffic'"
+    echo "   • Be careful not to place other scripts with 'familytraffic' prefix"
     echo ""
 }
 
@@ -331,18 +331,18 @@ display_troubleshooting() {
     echo -e "${CYAN}Troubleshooting${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "${YELLOW}Problem: 'command not found' when running vless commands${NC}"
+    echo -e "${YELLOW}Problem: 'command not found' when running familytraffic commands${NC}"
     echo "Solution:"
     echo "  • Check PATH: ${MAGENTA}echo \$PATH${NC}"
     echo "  • /usr/local/bin should be in PATH"
-    echo "  • Verify commands exist: ${MAGENTA}ls -la /usr/local/bin/vless*${NC}"
+    echo "  • Verify commands exist: ${MAGENTA}ls -la /usr/local/bin/familytraffic*${NC}"
     echo ""
     echo -e "${YELLOW}Problem: 'permission denied' even with sudo${NC}"
     echo "Solution:"
     echo "  • Verify you're in sudo group: ${MAGENTA}groups${NC}"
     echo "  • Check sudoers syntax: ${MAGENTA}sudo visudo -c -f ${SUDOERS_FILE}${NC}"
     echo "  • Check file permissions: ${MAGENTA}ls -la ${SUDOERS_FILE}${NC}"
-    echo "  • Try with full path: ${MAGENTA}sudo /usr/local/bin/vless status${NC}"
+    echo "  • Try with full path: ${MAGENTA}sudo /usr/local/bin/familytraffic status${NC}"
     echo ""
     echo -e "${YELLOW}Problem: Still prompted for password with NOPASSWD option${NC}"
     echo "Solution:"
@@ -384,7 +384,7 @@ offer_automatic_configuration() {
         echo "Creating sudoers configuration..."
 
         # Create sudoers file
-        cat > /tmp/vless_sudoers << 'EOF'
+        cat > /tmp/familytraffic_sudoers << 'EOF'
 # VLESS Management Commands - Sudoers Configuration
 # Allows members of sudo group to execute VLESS commands without password
 # Created by VLESS installer
@@ -393,8 +393,8 @@ offer_automatic_configuration() {
 EOF
 
         # Install with proper permissions
-        if sudo install -m 0440 -o root -g root /tmp/vless_sudoers "${SUDOERS_FILE}"; then
-            rm -f /tmp/vless_sudoers
+        if sudo install -m 0440 -o root -g root /tmp/familytraffic_sudoers "${SUDOERS_FILE}"; then
+            rm -f /tmp/familytraffic_sudoers
             echo -e "${GREEN}✓ Sudoers configuration created successfully${NC}"
             echo ""
 
@@ -409,7 +409,7 @@ EOF
             fi
         else
             echo -e "${RED}✗ Failed to create sudoers configuration${NC}"
-            rm -f /tmp/vless_sudoers
+            rm -f /tmp/familytraffic_sudoers
             return 1
         fi
     else

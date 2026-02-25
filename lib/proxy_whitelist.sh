@@ -41,7 +41,7 @@ set -euo pipefail
 
 readonly PROXY_IPS_FILE="/opt/familytraffic/config/proxy_allowed_ips.json"
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/familytraffic/config/xray_config.json"
-[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_proxy_ips.lock"
+[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/familytraffic_proxy_ips.lock"
 
 # Colors for output (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'

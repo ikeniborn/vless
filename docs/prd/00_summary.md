@@ -1,6 +1,6 @@
 # PRD v5.21 - Executive Summary & Navigation
 
-**VLESS + Reality VPN Server: Product Requirements Document**
+**familyTraffic VPN Server: Product Requirements Document**
 
 **Version:** 5.33 (External Proxy TLS Validation & UX Enhancement)
 **Status:** ✅ 100% Implemented + Production-Ready
@@ -42,7 +42,7 @@
 | **HAProxy Validation Race Fix** | v5.23 | ✅ Check host file instead of container |
 | **Container Management System** | v5.22 | ✅ Auto-start stopped containers (95% fewer failures) |
 | **Validation System** | v5.22 | ✅ 4-check add, 3-check remove (100% validation coverage) |
-| **Port Cleanup on Removal** | v5.21 | ✅ Ports freed correctly after vless-proxy remove |
+| **Port Cleanup on Removal** | v5.21 | ✅ Ports freed correctly after familytraffic-proxy remove |
 | **HAProxy Silent Mode** | v5.21 | ✅ No timeout warnings in wizards (better UX) |
 | **Advanced Reverse Proxy Features** | v5.8-v5.11 | ✅ OAuth2, CSRF, WebSocket, CSP, Security Headers |
 | **Cookie/URL Rewriting** | v5.8 | ✅ Complex auth support (OAuth2, sessions, cookies) |
@@ -386,20 +386,20 @@ sudo vless-user show alice          # Показать конфиги
 sudo vless-user show-proxy alice    # Показать proxy credentials
 
 # 3. Reverse Proxy (v4.3 - subdomain-based, NO port!)
-sudo vless-proxy add                # Interactive setup
+sudo familytraffic-proxy add                # Interactive setup
 # URL: https://subdomain.example.com (NO :9443!)
-sudo vless-proxy list               # Список reverse proxies
-sudo vless-proxy remove subdomain.example.com
+sudo familytraffic-proxy list               # Список reverse proxies
+sudo familytraffic-proxy remove subdomain.example.com
 
 # 4. IP whitelisting
-sudo vless show-proxy-ips           # Показать server-level whitelist
-sudo vless add-proxy-ip 203.0.113.45  # Добавить IP
-sudo vless add-ufw-ip 203.0.113.45    # Добавить UFW правило (опционально)
+sudo familytraffic show-proxy-ips           # Показать server-level whitelist
+sudo familytraffic add-proxy-ip 203.0.113.45  # Добавить IP
+sudo familytraffic add-ufw-ip 203.0.113.45    # Добавить UFW правило (опционально)
 
 # 5. Мониторинг
 sudo vless-status                   # Статус системы (включая HAProxy info)
 sudo vless-logs -f                  # Live логи
-sudo vless test-security            # Security test suite
+sudo familytraffic test-security            # Security test suite
 ```
 
 ### Для пользователей

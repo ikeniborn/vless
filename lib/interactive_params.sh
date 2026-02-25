@@ -830,7 +830,7 @@ prompt_enable_public_proxy() {
     echo -e "${CYAN}ℹ️  Additional features (configured after installation):${NC}"
     echo "  • Reverse Proxy (v4.3+): Access blocked sites via subdomain"
     echo "    Format: https://domain (NO port number!)"
-    echo "    Setup: sudo vless-proxy add"
+    echo "    Setup: sudo familytraffic-proxy add"
     echo ""
 
     local response

@@ -37,11 +37,11 @@ sudo lib/security_tests.sh
 ### Вариант 2: На production-сервере
 
 ```bash
-# Запустить модуль из /opt/vless
-sudo /opt/vless/lib/security_tests.sh
+# Запустить модуль из /opt/familytraffic
+sudo /opt/familytraffic/lib/security_tests.sh
 
 # Или с опциями
-sudo /opt/vless/lib/security_tests.sh --quick --verbose
+sudo /opt/familytraffic/lib/security_tests.sh --quick --verbose
 ```
 
 ---
@@ -135,7 +135,7 @@ sudo ./test_encryption_security.sh --skip-pcap
 
 ### "VLESS containers are not running"
 ```bash
-cd /opt/vless
+cd /opt/familytraffic
 sudo docker compose up -d
 ```
 
@@ -147,7 +147,7 @@ sudo vless-user add testuser
 ### "Certificate validation failed"
 ```bash
 sudo certbot renew
-cd /opt/vless && sudo docker compose restart
+cd /opt/familytraffic && sudo docker compose restart
 ```
 
 ---

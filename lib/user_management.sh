@@ -60,7 +60,7 @@ fi
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
 [[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${VLESS_HOME}/.env"
 [[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
-[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_users.lock"
+[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/familytraffic_users.lock"
 
 # Container name (only define if not already set)
 [[ -z "${XRAY_CONTAINER:-}" ]] && readonly XRAY_CONTAINER="familytraffic"
@@ -277,7 +277,7 @@ validate_external_proxy_assignment() {
     local external_proxy_db="/opt/familytraffic/config/external_proxy.json"
     if [[ ! -f "$external_proxy_db" ]]; then
         log_error "External proxy database not found: $external_proxy_db"
-        log_info "Run 'vless-external-proxy add' to configure external proxies first"
+        log_info "Run 'familytraffic-external-proxy add' to configure external proxies first"
         return 1
     fi
 
@@ -2214,14 +2214,14 @@ create_user() {
                 done
             else
                 echo "  No external proxies configured."
-                echo "  Run 'vless-external-proxy add' to configure an external proxy."
+                echo "  Run 'familytraffic-external-proxy add' to configure an external proxy."
                 echo ""
                 log_info "Using direct routing (no external proxy)"
                 external_proxy_id=""
             fi
         else
             echo "  No external proxies configured."
-            echo "  Run 'vless-external-proxy add' to configure an external proxy."
+            echo "  Run 'familytraffic-external-proxy add' to configure an external proxy."
             echo ""
             log_info "Using direct routing (no external proxy)"
             external_proxy_id=""
@@ -2628,7 +2628,7 @@ cmd_set_user_proxy() {
     # Validate username
     if [[ -z "$username" ]]; then
         log_error "Username required"
-        echo "Usage: vless set-proxy <username> <proxy-id|none>"
+        echo "Usage: familytraffic set-proxy <username> <proxy-id|none>"
         return 1
     fi
 
@@ -2758,7 +2758,7 @@ cmd_show_user_proxy() {
     # Validate username
     if [[ -z "$username" ]]; then
         log_error "Username required"
-        echo "Usage: vless show-proxy <username>"
+        echo "Usage: familytraffic show-proxy <username>"
         return 1
     fi
 

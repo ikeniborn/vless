@@ -74,15 +74,15 @@ install_fail2ban() {
 }
 
 # =============================================================================
-# FUNCTION: create_vless_proxy_filter
+# FUNCTION: create_familytraffic_proxy_filter
 # =============================================================================
 # Description: Create custom fail2ban filter for Xray proxy authentication
 # Returns: 0 on success, 1 on failure
 # =============================================================================
-create_vless_proxy_filter() {
+create_familytraffic_proxy_filter() {
     echo -e "${CYAN}Creating fail2ban filter for VLESS proxy...${NC}"
 
-    local filter_file="/etc/fail2ban/filter.d/vless-proxy.conf"
+    local filter_file="/etc/fail2ban/filter.d/familytraffic-proxy.conf"
 
     cat > "$filter_file" <<'EOF'
 # Fail2ban filter for VLESS Reality Proxy (SOCKS5 + HTTP)
@@ -116,15 +116,15 @@ EOF
 }
 
 # =============================================================================
-# FUNCTION: create_vless_proxy_jails
+# FUNCTION: create_familytraffic_proxy_jails
 # =============================================================================
 # Description: Create fail2ban jails for SOCKS5 and HTTP proxy
 # Returns: 0 on success, 1 on failure
 # =============================================================================
-create_vless_proxy_jails() {
+create_familytraffic_proxy_jails() {
     echo -e "${CYAN}Creating fail2ban jails for proxy ports...${NC}"
 
-    local jail_file="/etc/fail2ban/jail.d/vless-proxy.conf"
+    local jail_file="/etc/fail2ban/jail.d/familytraffic-proxy.conf"
 
     cat > "$jail_file" <<'EOF'
 # Fail2ban jails for VLESS Reality Proxy
@@ -139,27 +139,27 @@ create_vless_proxy_jails() {
 # Author: VLESS Reality VPN v3.2
 # Date: 2025-10-04
 
-[vless-socks5]
+[familytraffic-socks5]
 enabled  = true
 port     = 1080
 protocol = tcp
-filter   = vless-proxy
+filter   = familytraffic-proxy
 logpath  = /opt/familytraffic/logs/xray/error.log
 maxretry = 5
 bantime  = 3600
 findtime = 600
-action   = iptables-multiport[name=vless-socks5, port="1080", protocol=tcp]
+action   = iptables-multiport[name=familytraffic-socks5, port="1080", protocol=tcp]
 
-[vless-http]
+[familytraffic-http]
 enabled  = true
 port     = 8118
 protocol = tcp
-filter   = vless-proxy
+filter   = familytraffic-proxy
 logpath  = /opt/familytraffic/logs/xray/error.log
 maxretry = 5
 bantime  = 3600
 findtime = 600
-action   = iptables-multiport[name=vless-http, port="8118", protocol=tcp]
+action   = iptables-multiport[name=familytraffic-http, port="8118", protocol=tcp]
 EOF
 
     if [[ ! -f "$jail_file" ]]; then
@@ -318,8 +318,8 @@ verify_fail2ban_jails() {
     local socks5_status
     local http_status
 
-    socks5_status=$(fail2ban-client status vless-socks5 2>/dev/null || echo "FAIL")
-    http_status=$(fail2ban-client status vless-http 2>/dev/null || echo "FAIL")
+    socks5_status=$(fail2ban-client status familytraffic-socks5 2>/dev/null || echo "FAIL")
+    http_status=$(fail2ban-client status familytraffic-http 2>/dev/null || echo "FAIL")
 
     if [[ "$socks5_status" == "FAIL" ]]; then
         echo -e "${RED}✗ SOCKS5 jail not active${NC}"
@@ -331,7 +331,7 @@ verify_fail2ban_jails() {
         return 1
     fi
 
-    echo -e "${GREEN}✓ Both jails active (vless-socks5, vless-http)${NC}"
+    echo -e "${GREEN}✓ Both jails active (familytraffic-socks5, familytraffic-http)${NC}"
     return 0
 }
 
@@ -360,12 +360,12 @@ setup_fail2ban_for_proxy() {
     fi
 
     # Create filter
-    if ! create_vless_proxy_filter; then
+    if ! create_familytraffic_proxy_filter; then
         return 1
     fi
 
     # Create jails
-    if ! create_vless_proxy_jails; then
+    if ! create_familytraffic_proxy_jails; then
         return 1
     fi
 
@@ -403,8 +403,8 @@ setup_fail2ban_for_proxy() {
     echo "  - Reality port (VLESS): maxretry=10, bantime=1h [Higher threshold for probing]"
     echo ""
     echo "Monitor banned IPs:"
-    echo "  sudo fail2ban-client status vless-socks5"
-    echo "  sudo fail2ban-client status vless-http"
+    echo "  sudo fail2ban-client status familytraffic-socks5"
+    echo "  sudo fail2ban-client status familytraffic-http"
     echo "  sudo fail2ban-client status xray-reality  [NEW v5.32]"
     echo "═════════════════════════════════════════════════════"
     echo ""
@@ -415,8 +415,8 @@ setup_fail2ban_for_proxy() {
 # Export functions for use in other modules
 export -f check_fail2ban_installed
 export -f install_fail2ban
-export -f create_vless_proxy_filter
-export -f create_vless_proxy_jails
+export -f create_familytraffic_proxy_filter
+export -f create_familytraffic_proxy_jails
 export -f create_xray_reality_filter
 export -f create_xray_reality_jail
 export -f reload_fail2ban

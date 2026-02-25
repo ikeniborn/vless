@@ -20,14 +20,14 @@ sequenceDiagram
     participant Admin
     participant CLI as vless CLI
     participant UserMgmt as user_management.sh
-    participant Lock as File Lock<br/>/var/lock/vless_users.lock
+    participant Lock as File Lock<br/>/var/lock/familytraffic_users.lock
     participant UsersDB as users.json
     participant XrayConfig as xray_config.json
     participant Xray as Xray Container
     participant QRGen as qr_generator.sh
     participant ClientFiles as Client Config Files
 
-    Admin->>CLI: sudo vless add-user alice
+    Admin->>CLI: sudo familytraffic add-user alice
 
     Note over CLI,UserMgmt: Phase 1: Validation
 
@@ -36,7 +36,7 @@ sequenceDiagram
 
     Note over UserMgmt,UsersDB: Phase 2: Acquire Lock
 
-    UserMgmt->>Lock: flock -w 10 /var/lock/vless_users.lock
+    UserMgmt->>Lock: flock -w 10 /var/lock/familytraffic_users.lock
     Lock-->>UserMgmt: ✓ Lock acquired
 
     Note over UserMgmt,UsersDB: Phase 3: Check Uniqueness
@@ -72,13 +72,13 @@ sequenceDiagram
 
     Note over UserMgmt,Xray: Phase 7: Reload Xray
 
-    UserMgmt->>Xray: docker exec vless_xray kill -HUP $(pgrep xray)
+    UserMgmt->>Xray: docker exec familytraffic kill -HUP $(pgrep xray)
     Xray->>Xray: Reload configuration<br/>(graceful, no downtime)
     Xray-->>UserMgmt: ✓ Config reloaded
 
     Note over UserMgmt,ClientFiles: Phase 8: Generate Client Configs
 
-    UserMgmt->>UserMgmt: mkdir /opt/vless/data/clients/alice
+    UserMgmt->>UserMgmt: mkdir /opt/familytraffic/data/clients/alice
     UserMgmt->>QRGen: generate_qr_code("alice")
 
     QRGen->>QRGen: Generate VLESS URI:<br/>vless://a1b2...@vless.example.com:443
@@ -94,7 +94,7 @@ sequenceDiagram
 
     Note over UserMgmt,Admin: Phase 9: Success Response
 
-    UserMgmt->>CLI: Success:<br/>- User alice created<br/>- UUID: a1b2...<br/>- Config files: /opt/vless/data/clients/alice/
+    UserMgmt->>CLI: Success:<br/>- User alice created<br/>- UUID: a1b2...<br/>- Config files: /opt/familytraffic/data/clients/alice/
     CLI->>Admin: ✓ User alice created successfully<br/><br/>Config files generated:<br/> - vless_uri.txt<br/> - vless_qr.png<br/> - socks5_uri.txt<br/> - http_uri.txt<br/> - client_config.json<br/> - subscription.json
 ```
 
@@ -113,9 +113,9 @@ sequenceDiagram
     participant UsersDB as users.json
     participant XrayConfig as xray_config.json
     participant Xray as Xray Container
-    participant ClientFiles as Client Files<br/>/opt/vless/data/clients/alice/
+    participant ClientFiles as Client Files<br/>/opt/familytraffic/data/clients/alice/
 
-    Admin->>CLI: sudo vless remove-user alice
+    Admin->>CLI: sudo familytraffic remove-user alice
 
     Note over CLI,UserMgmt: Phase 1: Validation
 
@@ -123,7 +123,7 @@ sequenceDiagram
 
     Note over UserMgmt,UsersDB: Phase 2: Acquire Lock
 
-    UserMgmt->>Lock: flock -w 10 /var/lock/vless_users.lock
+    UserMgmt->>Lock: flock -w 10 /var/lock/familytraffic_users.lock
     Lock-->>UserMgmt: ✓ Lock acquired
 
     Note over UserMgmt,UsersDB: Phase 3: Check Existence
@@ -159,13 +159,13 @@ sequenceDiagram
 
     Note over UserMgmt,Xray: Phase 6: Reload Xray
 
-    UserMgmt->>Xray: docker exec vless_xray kill -HUP $(pgrep xray)
+    UserMgmt->>Xray: docker exec familytraffic kill -HUP $(pgrep xray)
     Xray->>Xray: Reload configuration<br/>(graceful, no downtime)
     Xray-->>UserMgmt: ✓ Config reloaded
 
     Note over UserMgmt,ClientFiles: Phase 7: Archive Client Files (Optional)
 
-    UserMgmt->>ClientFiles: mv /opt/vless/data/clients/alice<br/>/opt/vless/data/clients/archived/alice_<timestamp>
+    UserMgmt->>ClientFiles: mv /opt/familytraffic/data/clients/alice<br/>/opt/familytraffic/data/clients/archived/alice_<timestamp>
 
     alt Archive Failed (not critical)
         ClientFiles-->>UserMgmt: ✗ Archive failed (warn, continue)
@@ -176,7 +176,7 @@ sequenceDiagram
     Note over UserMgmt,Admin: Phase 8: Success Response
 
     UserMgmt->>CLI: Success:<br/>- User alice removed<br/>- Config files archived
-    CLI->>Admin: ✓ User alice removed successfully<br/><br/>Client files archived to:<br/> /opt/vless/data/clients/archived/alice_20260107_143022/
+    CLI->>Admin: ✓ User alice removed successfully<br/><br/>Client files archived to:<br/> /opt/familytraffic/data/clients/archived/alice_20260107_143022/
 ```
 
 ---
@@ -192,7 +192,7 @@ sequenceDiagram
     participant UserMgmt
     participant UsersDB
 
-    Admin->>CLI: sudo vless add-user alice
+    Admin->>CLI: sudo familytraffic add-user alice
     CLI->>UserMgmt: cmd_add_user("alice")
     UserMgmt->>UsersDB: Read users.json
     UsersDB-->>UserMgmt: users: [{username: "alice", ...}]
@@ -210,7 +210,7 @@ sequenceDiagram
     participant CLI
     participant UserMgmt
 
-    Admin->>CLI: sudo vless add-user Alice123!
+    Admin->>CLI: sudo familytraffic add-user Alice123!
     CLI->>UserMgmt: cmd_add_user("Alice123!")
     UserMgmt->>UserMgmt: validate_username("Alice123!")<br/>✗ Invalid format
 
@@ -227,14 +227,14 @@ sequenceDiagram
     participant UserMgmt
     participant UsersDB
 
-    Admin->>CLI: sudo vless remove-user bob
+    Admin->>CLI: sudo familytraffic remove-user bob
     CLI->>UserMgmt: cmd_remove_user("bob")
     UserMgmt->>UsersDB: Read users.json
     UsersDB-->>UserMgmt: users: [{username: "alice", ...}]
     UserMgmt->>UserMgmt: check_username_exists("bob")<br/>✗ Not found
 
     UserMgmt->>CLI: Error: User bob not found
-    CLI->>Admin: ✗ ERROR: User bob does not exist<br/><br/>Suggestion: Check username spelling or list users with:<br/> sudo vless list-users
+    CLI->>Admin: ✗ ERROR: User bob does not exist<br/><br/>Suggestion: Check username spelling or list users with:<br/> sudo familytraffic list-users
 ```
 
 ### Scenario 4: Xray Config Invalid After Update
@@ -249,7 +249,7 @@ sequenceDiagram
     XrayConfig-->>UserMgmt: ✓ Config written
 
     UserMgmt->>UserMgmt: validate_xray_config()
-    UserMgmt->>UserMgmt: jq . /opt/vless/config/xray_config.json
+    UserMgmt->>UserMgmt: jq . /opt/familytraffic/config/xray_config.json
     UserMgmt->>UserMgmt: ✗ JSON parse error
 
     Note over UserMgmt: Rollback triggered
@@ -355,22 +355,22 @@ stateDiagram-v2
 
 | File | Modification | Atomicity |
 |------|-------------|-----------|
-| `/opt/vless/data/users.json` | Append user object | ✓ Atomic write (temp → rename) |
-| `/opt/vless/config/xray_config.json` | Add to `inbounds[].clients[]` | ✓ Atomic write |
-| `/opt/vless/data/clients/<username>/vless_uri.txt` | Write VLESS URI | ✓ New file |
-| `/opt/vless/data/clients/<username>/vless_qr.png` | Write QR code | ✓ New file |
-| `/opt/vless/data/clients/<username>/socks5_uri.txt` | Write SOCKS5 URI | ✓ New file |
-| `/opt/vless/data/clients/<username>/http_uri.txt` | Write HTTP URI | ✓ New file |
-| `/opt/vless/data/clients/<username>/client_config.json` | Write Xray client config | ✓ New file |
-| `/opt/vless/data/clients/<username>/subscription.json` | Write subscription URL | ✓ New file |
+| `/opt/familytraffic/data/users.json` | Append user object | ✓ Atomic write (temp → rename) |
+| `/opt/familytraffic/config/xray_config.json` | Add to `inbounds[].clients[]` | ✓ Atomic write |
+| `/opt/familytraffic/data/clients/<username>/vless_uri.txt` | Write VLESS URI | ✓ New file |
+| `/opt/familytraffic/data/clients/<username>/vless_qr.png` | Write QR code | ✓ New file |
+| `/opt/familytraffic/data/clients/<username>/socks5_uri.txt` | Write SOCKS5 URI | ✓ New file |
+| `/opt/familytraffic/data/clients/<username>/http_uri.txt` | Write HTTP URI | ✓ New file |
+| `/opt/familytraffic/data/clients/<username>/client_config.json` | Write Xray client config | ✓ New file |
+| `/opt/familytraffic/data/clients/<username>/subscription.json` | Write subscription URL | ✓ New file |
 
 ### Remove User Operation
 
 | File | Modification | Atomicity |
 |------|-------------|-----------|
-| `/opt/vless/data/users.json` | Filter out user | ✓ Atomic write (temp → rename) |
-| `/opt/vless/config/xray_config.json` | Remove from `inbounds[].clients[]` | ✓ Atomic write |
-| `/opt/vless/data/clients/<username>/` | Move to archived/ | ⚠️ Non-atomic (not critical) |
+| `/opt/familytraffic/data/users.json` | Filter out user | ✓ Atomic write (temp → rename) |
+| `/opt/familytraffic/config/xray_config.json` | Remove from `inbounds[].clients[]` | ✓ Atomic write |
+| `/opt/familytraffic/data/clients/<username>/` | Move to archived/ | ⚠️ Non-atomic (not critical) |
 
 ---
 

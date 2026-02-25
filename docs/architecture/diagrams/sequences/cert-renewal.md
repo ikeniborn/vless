@@ -28,7 +28,7 @@ sequenceDiagram
 
     Note over Cron: Cron triggers renewal<br/>(daily at 03:00 UTC)
 
-    Cron->>Certbot: certbot renew --quiet<br/>--deploy-hook /opt/vless/scripts/renew-hook.sh
+    Cron->>Certbot: certbot renew --quiet<br/>--deploy-hook /opt/familytraffic/scripts/renew-hook.sh
 
     Note over Certbot: Phase 1: Check Certificate Expiry
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
             Note over Certbot,HAProxy: Phase 5: Deploy Hook (HAProxy Reload)
 
-            Certbot->>CombineScript: Run deploy hook:<br/>/opt/vless/scripts/renew-hook.sh
+            Certbot->>CombineScript: Run deploy hook:<br/>/opt/familytraffic/scripts/renew-hook.sh
 
             CombineScript->>CertStorage: Read fullchain.pem
             CombineScript->>CertStorage: Read privkey.pem
@@ -82,7 +82,7 @@ sequenceDiagram
             CombineScript->>HAProxyConfig: Write /etc/letsencrypt/live/example.com/combined.pem
             HAProxyConfig-->>CombineScript: ✓ Combined cert created
 
-            CombineScript->>HAProxy: docker exec vless_haproxy<br/>haproxy -sf $(cat /var/run/haproxy.pid)
+            CombineScript->>HAProxy: docker exec familytraffic-haproxy<br/>haproxy -sf $(cat /var/run/haproxy.pid)
 
             Note over HAProxy: Graceful reload:<br/>- Start new HAProxy process<br/>- Finish existing connections<br/>- Stop old HAProxy process
 
@@ -114,9 +114,9 @@ sequenceDiagram
     participant LetsEncrypt
     participant HAProxy
 
-    Admin->>CLI: sudo vless renew-cert<br/>(or: sudo certbot renew --force-renewal)
+    Admin->>CLI: sudo familytraffic renew-cert<br/>(or: sudo certbot renew --force-renewal)
 
-    CLI->>Certbot: certbot renew --force-renewal<br/>--deploy-hook /opt/vless/scripts/renew-hook.sh
+    CLI->>Certbot: certbot renew --force-renewal<br/>--deploy-hook /opt/familytraffic/scripts/renew-hook.sh
 
     Note over Certbot: Force renewal regardless of expiry date
 
@@ -282,13 +282,13 @@ graph TB
 **Crontab Entry:**
 ```bash
 # /etc/cron.d/certbot-renewal
-0 3 * * * root certbot renew --quiet --deploy-hook /opt/vless/scripts/renew-hook.sh
+0 3 * * * root certbot renew --quiet --deploy-hook /opt/familytraffic/scripts/renew-hook.sh
 ```
 
 **renew-hook.sh Script:**
 ```bash
 #!/bin/bash
-# /opt/vless/scripts/renew-hook.sh
+# /opt/familytraffic/scripts/renew-hook.sh
 
 DOMAIN="example.com"
 CERT_PATH="/etc/letsencrypt/live/$DOMAIN"
@@ -298,7 +298,7 @@ COMBINED_CERT="$CERT_PATH/combined.pem"
 cat "$CERT_PATH/fullchain.pem" "$CERT_PATH/privkey.pem" > "$COMBINED_CERT"
 
 # Reload HAProxy
-docker exec vless_haproxy haproxy -sf $(docker exec vless_haproxy cat /var/run/haproxy.pid)
+docker exec familytraffic-haproxy haproxy -sf $(docker exec familytraffic-haproxy cat /var/run/haproxy.pid)
 
 # Log success
 echo "[$(date)] Certificate renewed and HAProxy reloaded" >> /var/log/vless/cert-renewal.log
@@ -421,7 +421,7 @@ grep "Certificate not yet due for renewal" /var/log/letsencrypt/letsencrypt.log 
   openssl x509 -in /etc/letsencrypt/live/example.com/combined.pem -noout -text
 
   # Test HAProxy config
-  docker exec vless_haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+  docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
   ```
 
 **Issue 3: Certificate not renewed despite < 30 days**

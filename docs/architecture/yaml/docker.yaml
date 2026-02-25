@@ -3,7 +3,7 @@ documentation_version: "v5.26"
 last_updated: "2026-01-07"
 
 project:
-  name: "VLESS + Reality VPN"
+  name: "familyTraffic VPN"
   version: "v5.26"
   description: "Production-ready VPN with DPI-resistant Reality protocol, dual proxy support, and subdomain-based reverse proxy"
   target_scale: "10-50 concurrent users"
@@ -24,13 +24,13 @@ architecture_overview:
   container_count: 6
   network_mode: "bridge"
   orchestration: "docker-compose"
-  installation_path: "/opt/vless/"
-  config_path: "/opt/vless/config/"
-  data_path: "/opt/vless/data/"
-  logs_path: "/opt/vless/logs/"
+  installation_path: "/opt/familytraffic/"
+  config_path: "/opt/familytraffic/config/"
+  data_path: "/opt/familytraffic/data/"
+  logs_path: "/opt/familytraffic/logs/"
 
 containers:
-  - name: "vless_haproxy"
+  - name: "familytraffic-haproxy"
     image: "haproxy:2.8-alpine"
     purpose: "Unified TLS termination & SNI-based routing for all traffic types"
     architecture_role: "Frontend proxy and traffic router"
@@ -78,7 +78,7 @@ containers:
         authentication: "none (localhost only)"
 
     volumes:
-      - host: "/opt/vless/config/haproxy.cfg"
+      - host: "/opt/familytraffic/config/haproxy.cfg"
         container: "/usr/local/etc/haproxy/haproxy.cfg"
         mode: "ro"
         description: "HAProxy main configuration file"
@@ -93,7 +93,7 @@ containers:
         critical: true
         auto_renewal: "certbot cron job + HAProxy graceful reload"
 
-      - host: "/opt/vless/logs/haproxy/"
+      - host: "/opt/familytraffic/logs/haproxy/"
         container: "/var/log/haproxy/"
         mode: "rw"
         description: "HAProxy access and error logs"
@@ -101,9 +101,9 @@ containers:
         critical: false
 
     depends_on:
-      - "vless_xray"
-      - "vless_nginx_reverseproxy"
-      - "vless_fake_site"
+      - "familytraffic"
+      - "familytraffic-nginx"
+      - "familytraffic-fake-site"
 
     healthcheck:
       test: "haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg || exit 1"
@@ -119,9 +119,9 @@ containers:
         required: true
 
     configuration:
-      config_file: "/opt/vless/config/haproxy.cfg"
+      config_file: "/opt/familytraffic/config/haproxy.cfg"
       reload_method: "graceful"
-      reload_command: "docker exec vless_haproxy haproxy -sf $(docker exec vless_haproxy cat /var/run/haproxy.pid)"
+      reload_command: "docker exec familytraffic-haproxy haproxy -sf $(docker exec familytraffic-haproxy cat /var/run/haproxy.pid)"
       reload_downtime: "~0s (seamless)"
 
     frontends:
@@ -199,7 +199,7 @@ containers:
 
       - name: "fake_site_fallback"
         mode: "tcp"
-        target: "vless_fake_site:80"
+        target: "familytraffic-fake-site:80"
         purpose: "Fallback for unknown SNI"
         connection_type: "HTTP to fake nginx site"
 
@@ -218,7 +218,7 @@ containers:
       - "TLS passthrough for VLESS (no decryption, preserves Reality protocol)"
       - "TLS termination for SOCKS5/HTTP (decrypts, forwards plaintext to Xray)"
 
-  - name: "vless_xray"
+  - name: "familytraffic"
     image: "teddysun/xray:24.11.30"
     purpose: "VLESS Reality server + SOCKS5/HTTP proxy handler"
     architecture_role: "Core VPN and proxy engine"
@@ -255,30 +255,30 @@ containers:
         authentication: "username + password (from xray_config.json clients[])"
 
     volumes:
-      - host: "/opt/vless/config/xray_config.json"
+      - host: "/opt/familytraffic/config/xray_config.json"
         container: "/etc/xray/config.json"
         mode: "ro"
         description: "Xray-core runtime configuration"
         purpose: "Defines inbounds, outbounds, routing rules, user clients"
         critical: true
 
-      - host: "/opt/vless/data/users.json"
-        container: "/opt/vless/data/users.json"
+      - host: "/opt/familytraffic/data/users.json"
+        container: "/opt/familytraffic/data/users.json"
         mode: "ro"
         description: "User database (read by config generators)"
         purpose: "Source of truth for user UUIDs, credentials, proxy assignments"
         critical: true
         note: "Not directly used by Xray, but read during config generation"
 
-      - host: "/opt/vless/config/external_proxy.json"
-        container: "/opt/vless/config/external_proxy.json"
+      - host: "/opt/familytraffic/config/external_proxy.json"
+        container: "/opt/familytraffic/config/external_proxy.json"
         mode: "ro"
         description: "External proxy configuration (v5.24+ per-user proxy)"
         purpose: "Upstream proxy server definitions for routing"
         critical: false
         feature_version: "v5.24+"
 
-      - host: "/opt/vless/logs/xray/"
+      - host: "/opt/familytraffic/logs/xray/"
         container: "/var/log/xray/"
         mode: "rw"
         description: "Xray access and error logs"
@@ -295,9 +295,9 @@ containers:
       description: "Validates Xray binary availability"
 
     configuration:
-      config_file: "/opt/vless/config/xray_config.json"
+      config_file: "/opt/familytraffic/config/xray_config.json"
       reload_method: "SIGHUP signal"
-      reload_command: "docker exec vless_xray kill -HUP $(docker exec vless_xray pgrep xray)"
+      reload_command: "docker exec familytraffic kill -HUP $(docker exec familytraffic pgrep xray)"
       reload_downtime: "~0s (graceful reload)"
       generator_module: "lib/orchestrator.sh::generate_xray_config()"
 
@@ -308,12 +308,12 @@ containers:
         purpose: "VLESS Reality protocol handler"
         settings:
           clients:
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
             mapping: "users[].uuid → clients[].id"
             mapping_script: "lib/orchestrator.sh::generate_xray_config()"
           decryption: "none"
           fallbacks:
-            - dest: "vless_fake_site:80"
+            - dest: "familytraffic-fake-site:80"
               xver: 0
               description: "Fallback for invalid UUID or handshake failure"
         streamSettings:
@@ -341,7 +341,7 @@ containers:
         settings:
           auth: "password"
           accounts:
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
             mapping: "users[].username → accounts[].user, users[].uuid → accounts[].pass"
           udp: true
         sniffing:
@@ -357,7 +357,7 @@ containers:
         settings:
           auth: "password"
           accounts:
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
             mapping: "users[].username → accounts[].user, users[].uuid → accounts[].pass"
         sniffing:
           enabled: true
@@ -377,7 +377,7 @@ containers:
         purpose: "External upstream proxy (v5.24+ per-user routing)"
         settings:
           servers:
-            source: "/opt/vless/config/external_proxy.json"
+            source: "/opt/familytraffic/config/external_proxy.json"
             mapping: "proxies[] → servers[]"
             dynamic: true
         feature_version: "v5.24+"
@@ -429,7 +429,7 @@ containers:
       - "Configuration reload via SIGHUP preserves existing connections"
       - "User routing rules regenerated on every config change (add-user, set-proxy)"
 
-  - name: "vless_nginx_reverseproxy"
+  - name: "familytraffic-nginx"
     image: "nginx:alpine"
     purpose: "Reverse proxy for subdomains (https://domain without port)"
     architecture_role: "Backend reverse proxy handler"
@@ -456,14 +456,14 @@ containers:
         binding: "0.0.0.0:80"
 
     volumes:
-      - host: "/opt/vless/config/reverse-proxy/"
+      - host: "/opt/familytraffic/config/reverse-proxy/"
         container: "/etc/nginx/conf.d/"
         mode: "ro"
         description: "Nginx reverse proxy configurations (per-domain)"
         purpose: "Each subdomain has its own .conf file"
         critical: true
 
-      - host: "/opt/vless/config/reverse-proxy/http_context.conf"
+      - host: "/opt/familytraffic/config/reverse-proxy/http_context.conf"
         container: "/etc/nginx/http_context.conf"
         mode: "ro"
         description: "Nginx HTTP context includes (rate limiting zones)"
@@ -477,7 +477,7 @@ containers:
         purpose: "SSL certificates for reverse proxy domains"
         critical: true
 
-      - host: "/opt/vless/logs/nginx-reverseproxy/"
+      - host: "/opt/familytraffic/logs/nginx-reverseproxy/"
         container: "/var/log/nginx/"
         mode: "rw"
         description: "Nginx reverse proxy access and error logs"
@@ -494,10 +494,10 @@ containers:
       description: "Validates Nginx configuration syntax"
 
     configuration:
-      config_directory: "/opt/vless/config/reverse-proxy/"
+      config_directory: "/opt/familytraffic/config/reverse-proxy/"
       config_pattern: "<domain>.conf"
       reload_method: "SIGHUP signal"
-      reload_command: "docker exec vless_nginx_reverseproxy nginx -s reload"
+      reload_command: "docker exec familytraffic-nginx nginx -s reload"
       reload_downtime: "~0s (graceful reload)"
       generator_module: "lib/reverseproxy_db.sh::add_reverse_proxy_domain()"
 
@@ -551,7 +551,7 @@ containers:
       - "Missing rate limit zone causes Nginx crash loop"
       - "Port 80 only used for ACME HTTP-01 challenges (certbot)"
 
-  - name: "vless_certbot_nginx"
+  - name: "familytraffic-certbot"
     image: "nginx:alpine"
     purpose: "Temporary HTTP server for ACME HTTP-01 certificate challenges"
     architecture_role: "Certificate validation server"
@@ -570,7 +570,7 @@ containers:
         usage: "On-demand (started only during certbot run)"
 
     volumes:
-      - host: "/opt/vless/config/certbot_nginx.conf"
+      - host: "/opt/familytraffic/config/certbot_nginx.conf"
         container: "/etc/nginx/nginx.conf"
         mode: "ro"
         description: "Certbot Nginx configuration"
@@ -593,7 +593,7 @@ containers:
       duration: "~30-60 seconds per run"
 
     configuration:
-      config_file: "/opt/vless/config/certbot_nginx.conf"
+      config_file: "/opt/familytraffic/config/certbot_nginx.conf"
       purpose: "Simple HTTP server for ACME challenges"
       content: |
         server {
@@ -612,10 +612,10 @@ containers:
     critical_notes:
       - "Only runs during certbot certificate acquisition"
       - "Automatically stopped after successful challenge"
-      - "Does NOT conflict with vless_nginx_reverseproxy port 80"
+      - "Does NOT conflict with familytraffic-nginx port 80"
       - "Managed by lib/letsencrypt_integration.sh"
 
-  - name: "vless_fake_site"
+  - name: "familytraffic-fake-site"
     image: "nginx:alpine"
     purpose: "Fallback website for unknown SNI or failed authentication"
     architecture_role: "Camouflage layer (anti-detection)"
@@ -628,17 +628,17 @@ containers:
         protocol: "tcp"
         description: "HTTP fallback site (Docker network only)"
         access: "Docker network only (not exposed to host)"
-        traffic_flow: "HAProxy unknown SNI → vless_fake_site:80 OR Xray invalid UUID → vless_fake_site:80"
+        traffic_flow: "HAProxy unknown SNI → familytraffic-fake-site:80 OR Xray invalid UUID → familytraffic-fake-site:80"
 
     volumes:
-      - host: "/opt/vless/fake-site/"
+      - host: "/opt/familytraffic/fake-site/"
         container: "/usr/share/nginx/html/"
         mode: "ro"
         description: "Static HTML files for fake website"
         purpose: "Presents innocuous website to probing/scanning"
         critical: false
 
-      - host: "/opt/vless/config/fake_site_nginx.conf"
+      - host: "/opt/familytraffic/config/fake_site_nginx.conf"
         container: "/etc/nginx/nginx.conf"
         mode: "ro"
         description: "Nginx configuration for fake site"
@@ -661,15 +661,15 @@ containers:
 
     fallback_scenarios:
       - trigger: "HAProxy receives unknown SNI"
-        action: "Route to vless_fake_site:80"
+        action: "Route to familytraffic-fake-site:80"
         purpose: "Hide VPN infrastructure from probing"
 
       - trigger: "Xray receives invalid UUID or Reality handshake fails"
-        action: "Fallback to vless_fake_site:80"
+        action: "Fallback to familytraffic-fake-site:80"
         purpose: "Prevent authentication probing"
 
       - trigger: "Direct IP access without SNI"
-        action: "Route to vless_fake_site:80"
+        action: "Route to familytraffic-fake-site:80"
         purpose: "Present innocuous content to scanners"
 
     features:
@@ -684,7 +684,7 @@ containers:
       - "Content should be believable and non-suspicious"
       - "Only accessible via Docker network (not directly from internet)"
 
-  - name: "vless_mtproxy"
+  - name: "familytraffic-mtproxy"
     image: "custom-build"
     dockerfile_path: "./docker/mtproxy/Dockerfile"
     purpose: "Telegram MTProxy server (v6.0+ planned feature)"
@@ -723,7 +723,7 @@ containers:
         binding: "127.0.0.1:8443"
 
     volumes:
-      - host: "/opt/vless/config/mtproxy/"
+      - host: "/opt/familytraffic/config/mtproxy/"
         container: "/etc/mtproxy/"
         mode: "ro"
         description: "MTProxy configuration directory"
@@ -733,7 +733,7 @@ containers:
           - "proxy-multi.conf (Telegram DC addresses)"
         critical: true
 
-      - host: "/opt/vless/logs/mtproxy/"
+      - host: "/opt/familytraffic/logs/mtproxy/"
         container: "/var/log/mtproxy/"
         mode: "rw"
         description: "MTProxy access and error logs"
@@ -759,13 +759,13 @@ containers:
         description: "Number of worker processes"
 
       - name: "MTPROXY_SECRET"
-        value_source: "/opt/vless/config/mtproxy/proxy-secret"
+        value_source: "/opt/familytraffic/config/mtproxy/proxy-secret"
         description: "MTProxy secret(s) for client authentication"
 
     configuration:
-      config_file: "/opt/vless/config/mtproxy/mtproxy_config.json"
+      config_file: "/opt/familytraffic/config/mtproxy/mtproxy_config.json"
       reload_method: "docker restart"
-      reload_command: "docker restart vless_mtproxy"
+      reload_command: "docker restart familytraffic-mtproxy"
       reload_downtime: "~2-5 seconds (full restart required)"
       generator_module: "lib/mtproxy_manager.sh::generate_mtproxy_config()"
 
@@ -829,7 +829,7 @@ containers:
       type: "string (40 hex chars)"
       example: "ee1234567890abcdef1234567890abcdef1234567890ab"
       optional: true
-      mapping: "users[].mtproxy_secret → /opt/vless/config/mtproxy/proxy-secret"
+      mapping: "users[].mtproxy_secret → /opt/familytraffic/config/mtproxy/proxy-secret"
       trigger: "mtproxy add-user, mtproxy remove-user"
 
     critical_notes:
@@ -841,7 +841,7 @@ containers:
       - "Promoted channels require registration with @MTProxybot"
 
 networks:
-  vless_reality_net:
+  familytraffic_net:
     driver: "bridge"
     subnet: "172.20.0.0/16"
     gateway: "172.20.0.1"
@@ -857,11 +857,11 @@ networks:
     purpose: "Isolated Docker network for container communication"
 
     containers_attached:
-      - "vless_haproxy (host mode, but communicates with bridge containers)"
-      - "vless_xray (host mode, but communicates with bridge containers)"
-      - "vless_nginx_reverseproxy (host mode, but communicates with bridge containers)"
-      - "vless_fake_site (bridge mode)"
-      - "vless_mtproxy (host mode, planned)"
+      - "familytraffic-haproxy (host mode, but communicates with bridge containers)"
+      - "familytraffic (host mode, but communicates with bridge containers)"
+      - "familytraffic-nginx (host mode, but communicates with bridge containers)"
+      - "familytraffic-fake-site (bridge mode)"
+      - "familytraffic-mtproxy (host mode, planned)"
 
     note: "Most containers use 'host' network mode but can still communicate with bridge containers"
 
@@ -876,32 +876,32 @@ volumes:
     critical: true
     backup_required: true
 
-  vless_configs:
+  familytraffic_configs:
     driver: "local"
     driver_opts:
       type: "none"
       o: "bind"
-      device: "/opt/vless/config"
+      device: "/opt/familytraffic/config"
     purpose: "All service configuration files"
     critical: true
     backup_required: true
 
-  vless_data:
+  familytraffic_data:
     driver: "local"
     driver_opts:
       type: "none"
       o: "bind"
-      device: "/opt/vless/data"
+      device: "/opt/familytraffic/data"
     purpose: "User database and client configurations"
     critical: true
     backup_required: true
 
-  vless_logs:
+  familytraffic_logs:
     driver: "local"
     driver_opts:
       type: "none"
       o: "bind"
-      device: "/opt/vless/logs"
+      device: "/opt/familytraffic/logs"
     purpose: "Service logs (HAProxy, Xray, Nginx, MTProxy)"
     critical: false
     backup_required: false
@@ -917,7 +917,7 @@ deployment_topology:
 
   docker_setup:
     compose_version: "v2+"
-    compose_file: "/opt/vless/docker-compose.yml"
+    compose_file: "/opt/familytraffic/docker-compose.yml"
     install_command: "sudo ./install.sh"
 
   network_flow:
@@ -1042,7 +1042,7 @@ critical_relationships:
   users_json_mtproxy_secrets:
     description: "v6.1: users.json stores per-user MTProxy secrets"
     mapping:
-      - "users[].mtproxy_secret → /opt/vless/config/mtproxy/proxy-secret"
+      - "users[].mtproxy_secret → /opt/familytraffic/config/mtproxy/proxy-secret"
     trigger: "mtproxy add-user, mtproxy remove-user (v6.1+)"
     propagation: "MTProxy container restart"
     version: "v6.1+ (future enhancement)"
@@ -1064,30 +1064,30 @@ operational_notes:
       - "Display QR codes and client configs"
 
   configuration_management:
-    source_of_truth: "/opt/vless/data/users.json"
+    source_of_truth: "/opt/familytraffic/data/users.json"
     config_generators:
       - "lib/orchestrator.sh::generate_xray_config()"
       - "lib/haproxy_config_manager.sh::generate_haproxy_config()"
       - "lib/reverseproxy_db.sh::add_reverse_proxy_domain()"
       - "lib/mtproxy_manager.sh::generate_mtproxy_config() (v6.0+)"
-    atomic_operations: "flock /var/lock/vless_users.lock"
+    atomic_operations: "flock /var/lock/familytraffic_users.lock"
 
   zero_downtime_updates:
     haproxy_reload: "haproxy -sf <old_pid> (seamless)"
     xray_reload: "kill -HUP <xray_pid> (graceful)"
     nginx_reload: "nginx -s reload (graceful)"
-    mtproxy_reload: "docker restart vless_mtproxy (~2-5s downtime, v6.0+)"
+    mtproxy_reload: "docker restart familytraffic-mtproxy (~2-5s downtime, v6.0+)"
 
   monitoring:
     haproxy_stats: "http://127.0.0.1:9000/stats"
-    xray_logs: "docker logs vless_xray"
+    xray_logs: "docker logs familytraffic"
     container_health: "docker ps (health status)"
-    cli_status: "sudo vless status"
+    cli_status: "sudo familytraffic status"
 
   backup_requirements:
     critical_files:
-      - "/opt/vless/data/users.json"
-      - "/opt/vless/config/"
+      - "/opt/familytraffic/data/users.json"
+      - "/opt/familytraffic/config/"
       - "/etc/letsencrypt/"
     backup_frequency: "Daily (automated cron job recommended)"
     restore_procedure: "Documented in docs/prd/06_appendix.md"

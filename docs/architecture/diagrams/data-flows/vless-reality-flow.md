@@ -330,7 +330,7 @@ graph TB
         "decryption": "none",
         "fallbacks": [
           {
-            "dest": "vless_fake_site:80",
+            "dest": "familytraffic-fake-site:80",
             "xver": 0
           }
         ]

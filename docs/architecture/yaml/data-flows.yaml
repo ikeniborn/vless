@@ -3,7 +3,7 @@ documentation_version: "v5.26"
 last_updated: "2026-01-07"
 
 project:
-  name: "VLESS + Reality VPN - Data Flow Architecture"
+  name: "familyTraffic VPN - Data Flow Architecture"
   version: "v5.26"
   description: "Comprehensive documentation of all data flows, traffic routing patterns, and state transitions"
 
@@ -28,7 +28,7 @@ data_flows:
           - "Reality protocol handshake data"
 
       - stage: "HAProxy SNI Inspection"
-        component: "vless_haproxy"
+        component: "familytraffic-haproxy"
         port: 443
         action: "Inspects SNI (Server Name Indication) without decrypting TLS"
         inspection_method: "TCP request content inspection"
@@ -51,7 +51,7 @@ data_flows:
             condition: "SNI not recognized"
             backend: "fake_site_fallback"
             action: "Route to fake nginx site"
-            target: "vless_fake_site:80"
+            target: "familytraffic-fake-site:80"
             purpose: "Anti-detection camouflage"
 
         data_forwarded:
@@ -59,7 +59,7 @@ data_flows:
           - "No packet inspection or modification"
 
       - stage: "Xray VLESS Reality Processing"
-        component: "vless_xray"
+        component: "familytraffic"
         port: 8443
         listen: "127.0.0.1"
         action: "Reality protocol handshake and UUID authentication"
@@ -72,7 +72,7 @@ data_flows:
 
         authentication:
           method: "UUID-based"
-          validation_source: "/opt/vless/config/xray_config.json clients[]"
+          validation_source: "/opt/familytraffic/config/xray_config.json clients[]"
           checks:
             - "Validate UUID exists in clients[] list"
             - "Validate Reality TLS fingerprint matches"
@@ -83,7 +83,7 @@ data_flows:
           client_state: "Authenticated"
 
         on_failure:
-          action: "Fallback to vless_fake_site:80"
+          action: "Fallback to familytraffic-fake-site:80"
           client_state: "Unauthenticated"
           purpose: "Hide VPN infrastructure from probing attacks"
           response: "Returns fake nginx website (appears as HTTP site)"
@@ -94,7 +94,7 @@ data_flows:
           - "Application data (HTTP, HTTPS, etc.)"
 
       - stage: "Routing Decision"
-        component: "vless_xray"
+        component: "familytraffic"
         section: "routing.rules[]"
         action: "Determine outbound based on user configuration"
 
@@ -104,7 +104,7 @@ data_flows:
             feature_version: "v5.24+"
             condition: "users[uuid].external_proxy_id != null"
             check:
-              source: "/opt/vless/data/users.json"
+              source: "/opt/familytraffic/data/users.json"
               field: "users[].external_proxy_id"
               example: "users[].email == 'alice@vless.local' && external_proxy_id == 'proxy-1'"
             outbound: "external-proxy"
@@ -124,17 +124,17 @@ data_flows:
           - "Protocol type (from sniffing)"
 
       - stage: "External Proxy Chain (Optional)"
-        component: "vless_xray → External Proxy Server"
+        component: "familytraffic → External Proxy Server"
         condition: "external_proxy_id is set for user"
         feature_version: "v5.24+"
 
         proxy_connection:
           protocol: "SOCKS5 or SOCKS5s or HTTP or HTTPS"
           target:
-            source: "/opt/vless/config/external_proxy.json"
+            source: "/opt/familytraffic/config/external_proxy.json"
             fields: "proxies[].address, proxies[].port"
           authentication:
-            source: "/opt/vless/config/external_proxy.json"
+            source: "/opt/familytraffic/config/external_proxy.json"
             fields: "proxies[].username, proxies[].password"
           tls:
             enabled: "If protocol == socks5s or https"
@@ -150,7 +150,7 @@ data_flows:
           - "Destination address via SOCKS5/HTTP CONNECT"
 
       - stage: "Direct Internet Access"
-        component: "vless_xray → Internet"
+        component: "familytraffic → Internet"
         condition: "No external proxy configured OR external proxy failed"
         outbound: "direct (freedom protocol)"
 
@@ -179,7 +179,7 @@ data_flows:
           - "Source IP: VPN server or external proxy"
 
       - stage: "Return Path"
-        component: "Internet → vless_xray → HAProxy → Client"
+        component: "Internet → familytraffic → HAProxy → Client"
         action: "Response data follows reverse path"
 
         flow:
@@ -223,7 +223,7 @@ data_flows:
           - "SOCKS5 request (encrypted within TLS)"
 
       - stage: "HAProxy TLS Termination"
-        component: "vless_haproxy"
+        component: "familytraffic-haproxy"
         port: 1080
         action: "Decrypt TLS 1.3 with Let's Encrypt certificate"
 
@@ -244,19 +244,19 @@ data_flows:
           - "No encryption between HAProxy and Xray (localhost only)"
 
       - stage: "Xray SOCKS5 Authentication"
-        component: "vless_xray"
+        component: "familytraffic"
         port: 10800
         listen: "127.0.0.1"
         protocol: "SOCKS5 (plaintext inbound)"
 
         authentication:
           method: "Username + password"
-          source: "/opt/vless/config/xray_config.json"
+          source: "/opt/familytraffic/config/xray_config.json"
           validation:
             - "accounts[].user == provided username"
             - "accounts[].pass == provided password (UUID from users.json)"
           accounts_mapping:
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
             transformation: "users[].username → accounts[].user, users[].uuid → accounts[].pass"
 
         on_success:
@@ -269,7 +269,7 @@ data_flows:
           client_state: "Rejected"
 
       - stage: "SOCKS5 Protocol Handling"
-        component: "vless_xray"
+        component: "familytraffic"
         action: "Parse SOCKS5 request and establish connection"
 
         socks5_handshake:
@@ -286,7 +286,7 @@ data_flows:
           - "Command type (CONNECT, BIND, UDP ASSOCIATE)"
 
       - stage: "Routing & External Proxy (Optional)"
-        component: "vless_xray routing"
+        component: "familytraffic routing"
         action: "Route based on user configuration (same as VLESS flow)"
 
         routing_logic:
@@ -359,7 +359,7 @@ data_flows:
           - "HTTP CONNECT request (encrypted within TLS)"
 
       - stage: "HAProxy TLS Termination"
-        component: "vless_haproxy"
+        component: "familytraffic-haproxy"
         port: 8118
         action: "Decrypt TLS 1.3 with Let's Encrypt certificate"
 
@@ -379,19 +379,19 @@ data_flows:
           - "No encryption between HAProxy and Xray (localhost only)"
 
       - stage: "Xray HTTP Proxy Authentication"
-        component: "vless_xray"
+        component: "familytraffic"
         port: 18118
         listen: "127.0.0.1"
         protocol: "HTTP proxy (plaintext inbound)"
 
         authentication:
           method: "HTTP Basic Authentication (Proxy-Authorization header)"
-          source: "/opt/vless/config/xray_config.json"
+          source: "/opt/familytraffic/config/xray_config.json"
           validation:
             - "accounts[].user == decoded username"
             - "accounts[].pass == decoded password (UUID)"
           accounts_mapping:
-            source: "/opt/vless/data/users.json"
+            source: "/opt/familytraffic/data/users.json"
             transformation: "users[].username → accounts[].user, users[].uuid → accounts[].pass"
 
         on_success:
@@ -403,7 +403,7 @@ data_flows:
           response: "HTTP/1.1 407 Proxy Authentication Required"
 
       - stage: "HTTP CONNECT Tunnel"
-        component: "vless_xray"
+        component: "familytraffic"
         action: "Establish TCP tunnel to destination"
 
         connect_method:
@@ -418,7 +418,7 @@ data_flows:
           - "No inspection or modification by Xray"
 
       - stage: "Routing & External Proxy (Optional)"
-        component: "vless_xray routing"
+        component: "familytraffic routing"
         action: "Route based on user configuration (same as VLESS/SOCKS5)"
 
         routing_logic:
@@ -484,7 +484,7 @@ data_flows:
           - "HTTP request (encrypted)"
 
       - stage: "HAProxy SNI Routing"
-        component: "vless_haproxy"
+        component: "familytraffic-haproxy"
         port: 443
         action: "Route based on SNI without decrypting TLS"
 
@@ -506,7 +506,7 @@ data_flows:
           - "SNI-based routing only"
 
       - stage: "Nginx TLS Termination"
-        component: "vless_nginx_reverseproxy"
+        component: "familytraffic-nginx"
         port_range: "9443-9452"
         action: "Decrypt TLS with per-domain Let's Encrypt certificate"
 
@@ -522,7 +522,7 @@ data_flows:
           - "Request body"
 
       - stage: "Nginx Reverse Proxy Processing"
-        component: "vless_nginx_reverseproxy"
+        component: "familytraffic-nginx"
         action: "Process request and proxy to upstream target"
 
         request_processing:
@@ -555,7 +555,7 @@ data_flows:
 
         proxy_pass:
           target:
-            source: "/opt/vless/config/reverse-proxy/<domain>.conf"
+            source: "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
             directive: "proxy_pass <target_url>;"
             example: "proxy_pass https://claude.ai;"
 
@@ -631,7 +631,7 @@ data_flows:
           - "HTTP proxy over TLS (port 8118)"
 
         user_configuration:
-          source: "/opt/vless/data/users.json"
+          source: "/opt/familytraffic/data/users.json"
           field: "users[].external_proxy_id"
           example: "alice has external_proxy_id = 'proxy-1'"
 
@@ -640,7 +640,7 @@ data_flows:
           - "Via selected VPN protocol"
 
       - stage: "HAProxy & Xray Processing"
-        component: "vless_haproxy → vless_xray"
+        component: "familytraffic-haproxy → familytraffic"
         action: "Standard VPN processing (same as previous flows)"
 
         processing:
@@ -653,7 +653,7 @@ data_flows:
           socks5_http: "users[].username"
 
       - stage: "Xray Routing Decision with External Proxy"
-        component: "vless_xray routing engine"
+        component: "familytraffic routing engine"
         action: "Check user's external_proxy_id and route accordingly"
 
         routing_rule_evaluation:
@@ -662,7 +662,7 @@ data_flows:
             type: "field"
             condition: "user in routing.rules[].user[] array"
             source:
-              users_json: "/opt/vless/data/users.json"
+              users_json: "/opt/familytraffic/data/users.json"
               field: "users[].external_proxy_id != null"
             generator: "lib/xray_routing_manager.sh::update_xray_routing_for_user()"
 
@@ -685,11 +685,11 @@ data_flows:
           - "Protocol type"
 
       - stage: "External Proxy Connection"
-        component: "vless_xray → External Proxy Server"
+        component: "familytraffic → External Proxy Server"
         action: "Establish connection to upstream proxy"
 
         proxy_configuration:
-          source: "/opt/vless/config/external_proxy.json"
+          source: "/opt/familytraffic/config/external_proxy.json"
           lookup: "proxies[].id == users[].external_proxy_id"
           fields_used:
             - "proxies[].address (proxy server IP/domain)"
@@ -794,25 +794,25 @@ data_flows:
 
     configuration_management:
       add_external_proxy:
-        command: "sudo vless-external-proxy add"
+        command: "sudo familytraffic-external-proxy add"
         affected_files:
-          - "/opt/vless/config/external_proxy.json (add proxy record)"
-          - "/opt/vless/config/xray_config.json (update outbounds)"
-        service_restart: "vless_xray (full restart)"
+          - "/opt/familytraffic/config/external_proxy.json (add proxy record)"
+          - "/opt/familytraffic/config/xray_config.json (update outbounds)"
+        service_restart: "familytraffic (full restart)"
 
       assign_proxy_to_user:
-        command: "sudo vless set-proxy <username> <proxy-id>"
+        command: "sudo familytraffic set-proxy <username> <proxy-id>"
         affected_files:
-          - "/opt/vless/data/users.json (set external_proxy_id)"
-          - "/opt/vless/config/xray_config.json (update routing.rules)"
-        service_reload: "vless_xray (SIGHUP - graceful)"
+          - "/opt/familytraffic/data/users.json (set external_proxy_id)"
+          - "/opt/familytraffic/config/xray_config.json (update routing.rules)"
+        service_reload: "familytraffic (SIGHUP - graceful)"
 
       remove_proxy_from_user:
-        command: "sudo vless set-proxy <username> none"
+        command: "sudo familytraffic set-proxy <username> none"
         affected_files:
-          - "/opt/vless/data/users.json (set external_proxy_id = null)"
-          - "/opt/vless/config/xray_config.json (update routing.rules)"
-        service_reload: "vless_xray (SIGHUP - graceful)"
+          - "/opt/familytraffic/data/users.json (set external_proxy_id = null)"
+          - "/opt/familytraffic/config/xray_config.json (update routing.rules)"
+        service_reload: "familytraffic (SIGHUP - graceful)"
 
     performance:
       latency_overhead: "50-200ms (depends on external proxy location)"
@@ -832,20 +832,20 @@ data_flows:
 state_transition_flows:
   user_management_add_user:
     name: "Add User State Transition Flow"
-    trigger: "sudo vless add-user <username>"
+    trigger: "sudo familytraffic add-user <username>"
     purpose: "Create new VPN user with client configurations"
 
     state_changes:
-      - file: "/opt/vless/data/users.json"
+      - file: "/opt/familytraffic/data/users.json"
         before:
           users: "['existing_user1', 'existing_user2']"
         after:
           users: "['existing_user1', 'existing_user2', 'new_user']"
         operation: "append user object"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
         atomic_write: true
 
-      - file: "/opt/vless/config/xray_config.json"
+      - file: "/opt/familytraffic/config/xray_config.json"
         before:
           inbounds_vless_clients: "[{id: 'uuid1', email: 'user1@vless.local'}, ...]"
           inbounds_socks_accounts: "[{user: 'user1', pass: 'uuid1'}, ...]"
@@ -855,7 +855,7 @@ state_transition_flows:
         operation: "regenerate config from users.json"
         generator: "lib/orchestrator.sh::generate_xray_config()"
 
-      - file: "/opt/vless/data/clients/<username>/"
+      - file: "/opt/familytraffic/data/clients/<username>/"
         before: "Directory does not exist"
         after: "Directory created with 6 files"
         files_created:
@@ -869,7 +869,7 @@ state_transition_flows:
 
     side_effects:
       - action: "reload_xray()"
-        method: "docker exec vless_xray kill -HUP <pid>"
+        method: "docker exec familytraffic kill -HUP <pid>"
         downtime: "~0s (graceful reload)"
         purpose: "Apply new user to Xray inbounds"
 
@@ -884,30 +884,30 @@ state_transition_flows:
 
   user_management_remove_user:
     name: "Remove User State Transition Flow"
-    trigger: "sudo vless remove-user <username>"
+    trigger: "sudo familytraffic remove-user <username>"
     purpose: "Delete VPN user and revoke access"
 
     state_changes:
-      - file: "/opt/vless/data/users.json"
+      - file: "/opt/familytraffic/data/users.json"
         before:
           users: "['user1', 'user_to_delete', 'user2']"
         after:
           users: "['user1', 'user2']"
         operation: "remove user object by username"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
         atomic_write: true
 
-      - file: "/opt/vless/config/xray_config.json"
+      - file: "/opt/familytraffic/config/xray_config.json"
         before:
           inbounds_clients: "[..., {id: 'deleted_uuid', email: 'deleted@vless.local'}, ...]"
         after:
           inbounds_clients: "[clients without deleted user]"
         operation: "regenerate config from users.json"
 
-      - file: "/opt/vless/data/clients/<username>/"
+      - file: "/opt/familytraffic/data/clients/<username>/"
         before: "Directory exists with client configs"
         after: "Directory deleted"
-        operation: "rm -rf /opt/vless/data/clients/<username>"
+        operation: "rm -rf /opt/familytraffic/data/clients/<username>"
 
     side_effects:
       - action: "reload_xray()"
@@ -920,20 +920,20 @@ state_transition_flows:
 
   proxy_assignment_set_proxy:
     name: "Set User External Proxy State Transition"
-    trigger: "sudo vless set-proxy <username> <proxy-id>"
+    trigger: "sudo familytraffic set-proxy <username> <proxy-id>"
     feature_version: "v5.24+"
     purpose: "Assign upstream proxy to specific user"
 
     state_changes:
-      - file: "/opt/vless/data/users.json"
+      - file: "/opt/familytraffic/data/users.json"
         before:
           user_object: "{username: 'alice', external_proxy_id: null, ...}"
         after:
           user_object: "{username: 'alice', external_proxy_id: 'proxy-1', ...}"
         operation: "update user object"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
 
-      - file: "/opt/vless/config/xray_config.json"
+      - file: "/opt/familytraffic/config/xray_config.json"
         before:
           routing_rules: "[{type: 'field', user: [], outboundTag: 'external-proxy'}, ...]"
         after:
@@ -972,15 +972,15 @@ state_transition_flows:
           - "/etc/letsencrypt/live/<subdomainN>/"
 
       - stage: "ACME HTTP-01 Challenge"
-        component: "certbot + vless_certbot_nginx"
+        component: "certbot + familytraffic-certbot"
         action: "Perform HTTP-01 challenge for each certificate"
 
         challenge_flow:
           - "Certbot generates challenge file"
           - "Certbot places file in /var/www/certbot/.well-known/acme-challenge/"
-          - "Certbot starts vless_certbot_nginx container (port 80)"
+          - "Certbot starts familytraffic-certbot container (port 80)"
           - "Let's Encrypt fetches http://domain/.well-known/acme-challenge/<token>"
-          - "vless_certbot_nginx serves challenge file"
+          - "familytraffic-certbot serves challenge file"
           - "Let's Encrypt validates ownership"
 
       - stage: "Certificate Issuance"
@@ -1006,12 +1006,12 @@ state_transition_flows:
 
         reloads:
           haproxy:
-            command: "docker exec vless_haproxy haproxy -sf <old_pid>"
+            command: "docker exec familytraffic-haproxy haproxy -sf <old_pid>"
             downtime: "~0s (graceful reload)"
             purpose: "Apply new certificate for SOCKS5/HTTP TLS termination"
 
           nginx:
-            command: "docker exec vless_nginx_reverseproxy nginx -s reload"
+            command: "docker exec familytraffic-nginx nginx -s reload"
             downtime: "~0s (graceful reload)"
             purpose: "Apply new certificates for reverse proxy domains"
 
@@ -1039,7 +1039,7 @@ state_transition_flows:
     propagation_chain:
       - step: 1
         action: "Update source of truth"
-        file: "/opt/vless/data/users.json"
+        file: "/opt/familytraffic/data/users.json"
         operation: "Atomic write with flock"
         duration: "< 100ms"
 
@@ -1048,16 +1048,16 @@ state_transition_flows:
         trigger: "users.json modified"
         generator: "lib/orchestrator.sh::generate_xray_config()"
         inputs:
-          - "/opt/vless/data/users.json"
-          - "/opt/vless/config/external_proxy.json (if exists)"
-        output: "/opt/vless/config/xray_config.json"
+          - "/opt/familytraffic/data/users.json"
+          - "/opt/familytraffic/config/external_proxy.json (if exists)"
+        output: "/opt/familytraffic/config/xray_config.json"
         validation: "xray test -c config.json"
         duration: "~500ms"
 
       - step: 3
         action: "Reload Xray service"
         method: "SIGHUP signal"
-        command: "docker exec vless_xray kill -HUP <pid>"
+        command: "docker exec familytraffic kill -HUP <pid>"
         effect: "Xray reloads config without dropping connections"
         downtime: "~0s"
         duration: "~1s"
@@ -1067,9 +1067,9 @@ state_transition_flows:
         condition: "add-user command only"
         generator: "lib/qr_generator.sh::generate_client_configs()"
         outputs:
-          - "/opt/vless/data/clients/<username>/vless_config.json"
-          - "/opt/vless/data/clients/<username>/vless_qr.png"
-          - "/opt/vless/data/clients/<username>/socks5_config.txt"
+          - "/opt/familytraffic/data/clients/<username>/vless_config.json"
+          - "/opt/familytraffic/data/clients/<username>/vless_qr.png"
+          - "/opt/familytraffic/data/clients/<username>/socks5_config.txt"
         duration: "~2s"
 
     total_duration: "~3-5 seconds (with client config generation)"
@@ -1099,14 +1099,14 @@ mtproxy_data_flow:
         - "Client secret (40 hex chars)"
 
     - stage: "MTProxy Authentication"
-      component: "vless_mtproxy"
+      component: "familytraffic-mtproxy"
       port: 8443
       binding: "0.0.0.0:8443 (public, NO conflict with Xray 127.0.0.1:8443)"
       action: "Validate client secret and establish connection"
 
       authentication:
         method: "Secret-based (no username/password)"
-        secrets_source: "/opt/vless/config/mtproxy/proxy-secret"
+        secrets_source: "/opt/familytraffic/config/mtproxy/proxy-secret"
         validation:
           v6_0: "Single secret (all users share)"
           v6_1: "Per-user unique secrets (users[].mtproxy_secret)"
@@ -1119,7 +1119,7 @@ mtproxy_data_flow:
         response: "Invalid secret"
 
     - stage: "Transport Obfuscation"
-      component: "vless_mtproxy"
+      component: "familytraffic-mtproxy"
       action: "Apply MTProto transport obfuscation"
 
       obfuscation:
@@ -1134,11 +1134,11 @@ mtproxy_data_flow:
         purpose: "Appear as HTTPS traffic to DPI systems"
 
     - stage: "Telegram DC Connection"
-      component: "vless_mtproxy → Telegram Data Centers"
+      component: "familytraffic-mtproxy → Telegram Data Centers"
       action: "Proxy traffic to Telegram servers"
 
       dc_addresses:
-        source: "/opt/vless/config/mtproxy/proxy-multi.conf"
+        source: "/opt/familytraffic/config/mtproxy/proxy-multi.conf"
         purpose: "List of Telegram DC IP addresses"
         update_frequency: "Rarely (only when Telegram adds DCs)"
 
@@ -1168,16 +1168,16 @@ mtproxy_data_flow:
     add_secret_v6_0:
       command: "sudo mtproxy add-secret [--with-padding]"
       affected_files:
-        - "/opt/vless/config/mtproxy/proxy-secret (append secret)"
-      service_restart: "docker restart vless_mtproxy (~2-5s downtime)"
+        - "/opt/familytraffic/config/mtproxy/proxy-secret (append secret)"
+      service_restart: "docker restart familytraffic-mtproxy (~2-5s downtime)"
 
     add_user_v6_1:
       command: "sudo mtproxy add-user <username> [--fake-tls <domain>]"
       affected_files:
-        - "/opt/vless/data/users.json (add mtproxy_secret field)"
-        - "/opt/vless/config/mtproxy/proxy-secret (append user secret)"
-        - "/opt/vless/data/clients/<username>/mtproxy_config.txt (generate config)"
-      service_restart: "docker restart vless_mtproxy (~2-5s downtime)"
+        - "/opt/familytraffic/data/users.json (add mtproxy_secret field)"
+        - "/opt/familytraffic/config/mtproxy/proxy-secret (append user secret)"
+        - "/opt/familytraffic/data/clients/<username>/mtproxy_config.txt (generate config)"
+      service_restart: "docker restart familytraffic-mtproxy (~2-5s downtime)"
 
   performance:
     latency_overhead: "< 5ms (obfuscation)"

@@ -191,7 +191,7 @@ Days until expiry: $days_left days
 Status: $status
 
 Manual intervention required. Run:
-  sudo vless-proxy renew-cert $domain
+  sudo familytraffic-proxy renew-cert $domain
 
 Check logs:
   sudo tail -f $LOG_FILE"
@@ -209,7 +209,7 @@ Check logs:
 Days until expiry: $days_left days
 
 Action required:
-  sudo vless-proxy renew-cert $domain
+  sudo familytraffic-proxy renew-cert $domain
 
 This is an automated alert from cert_renewal_monitor.sh"
     fi
@@ -361,7 +361,7 @@ generate_report() {
             echo ""
             echo "Recommended actions:"
             echo "  1. Run: sudo /opt/familytraffic/lib/cert_renewal_monitor.sh --auto-renew"
-            echo "  2. Or manually: sudo vless-proxy renew-cert <domain>"
+            echo "  2. Or manually: sudo familytraffic-proxy renew-cert <domain>"
             echo ""
         fi
 

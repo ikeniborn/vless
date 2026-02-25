@@ -27,7 +27,7 @@ sudo apt-get update
 sudo apt-get install -y openssl curl jq iproute2 iptables nmap tcpdump
 
 # Запуск модуля / Run module directly
-sudo /opt/vless/lib/security_tests.sh
+sudo /opt/familytraffic/lib/security_tests.sh
 
 # Или из development-репозитория:
 cd ~/Documents/Project/vless
@@ -76,7 +76,7 @@ sudo apt-get install tcpdump
 
 **Containers not running:**
 ```bash
-cd /opt/vless && sudo docker compose up -d
+cd /opt/familytraffic && sudo docker compose up -d
 ```
 
 **No users configured:**
@@ -87,7 +87,7 @@ sudo vless-user add testuser
 **Certificate expired:**
 ```bash
 sudo certbot renew
-cd /opt/vless && sudo docker compose restart
+cd /opt/familytraffic && sudo docker compose restart
 ```
 
 ---

@@ -40,7 +40,7 @@
 ### Scope v6.0 (Base Implementation)
 
 **В scope:**
-- ✅ Отдельный Docker контейнер `vless_mtproxy`
+- ✅ Отдельный Docker контейнер `familytraffic-mtproxy`
 - ✅ Opt-in установка через install.sh wizard
 - ✅ Генерация клиентских конфигураций (deep links, QR codes)
 - ✅ fail2ban интеграция
@@ -173,7 +173,7 @@ sudo mtproxy set-workers <count>
 **Monitoring:**
 ```bash
 sudo mtproxy stats [--live]
-sudo vless status                     # Shows MTProxy section
+sudo familytraffic status                     # Shows MTProxy section
 ```
 
 ---

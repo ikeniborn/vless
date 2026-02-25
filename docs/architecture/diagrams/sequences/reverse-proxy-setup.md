@@ -21,7 +21,7 @@
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant CLI as vless-proxy CLI
+    participant CLI as familytraffic-proxy CLI
     participant Wizard as Interactive Wizard
     participant DNS as DNS Validator
     participant CertManager as Certificate Manager
@@ -30,7 +30,7 @@ sequenceDiagram
     participant Nginx as Nginx Container
     participant HAProxy as HAProxy Container
 
-    Admin->>CLI: sudo vless-proxy add
+    Admin->>CLI: sudo familytraffic-proxy add
 
     Note over CLI,Wizard: Phase 1: Interactive Input Collection
 
@@ -102,7 +102,7 @@ sequenceDiagram
 
     NginxGen->>NginxGen: Generate server block:<br/>server {<br/> listen 9443 ssl http2;<br/> server_name app.example.com;<br/> ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;<br/> ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;<br/> <br/> # WebSocket support<br/> proxy_http_version 1.1;<br/> proxy_set_header Upgrade $http_upgrade;<br/> proxy_set_header Connection $connection_upgrade;<br/> <br/> location / {<br/>   proxy_pass https://backend.internal:8443;<br/>   ...<br/> }<br/>}
 
-    NginxGen->>NginxGen: Write /opt/vless/config/reverse-proxy/app.example.com.conf
+    NginxGen->>NginxGen: Write /opt/familytraffic/config/reverse-proxy/app.example.com.conf
 
     NginxGen->>NginxGen: Update http_context.conf:<br/>Add rate limit zone:<br/>limit_req_zone $binary_remote_addr<br/> zone=reverseproxy_app_example_com:10m<br/> rate=100r/s;
 
@@ -110,12 +110,12 @@ sequenceDiagram
 
     Note over Wizard,Nginx: Phase 5: Nginx Configuration Test & Reload
 
-    Wizard->>Nginx: docker exec vless_nginx_reverseproxy nginx -t
+    Wizard->>Nginx: docker exec familytraffic-nginx nginx -t
 
     alt Nginx config valid
         Nginx-->>Wizard: ✓ Syntax OK
 
-        Wizard->>Nginx: docker exec vless_nginx_reverseproxy nginx -s reload
+        Wizard->>Nginx: docker exec familytraffic-nginx nginx -s reload
         Nginx->>Nginx: Graceful reload<br/>(load new server block)
         Nginx-->>Wizard: ✓ Reloaded
     else Nginx config invalid
@@ -144,12 +144,12 @@ sequenceDiagram
 
     Note over Wizard,HAProxy: Phase 7: HAProxy Configuration Test & Reload
 
-    Wizard->>HAProxy: docker exec vless_haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+    Wizard->>HAProxy: docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
 
     alt HAProxy config valid
         HAProxy-->>Wizard: ✓ Configuration valid
 
-        Wizard->>HAProxy: docker exec vless_haproxy<br/>haproxy -sf $(cat /var/run/haproxy.pid)
+        Wizard->>HAProxy: docker exec familytraffic-haproxy<br/>haproxy -sf $(cat /var/run/haproxy.pid)
         HAProxy->>HAProxy: Graceful reload<br/>(start new process, stop old)
         HAProxy-->>Wizard: ✓ Reloaded
     else HAProxy config invalid
@@ -177,7 +177,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Admin
-    participant CLI as vless-proxy CLI
+    participant CLI as familytraffic-proxy CLI
     participant ReverseProxyDB as Reverse Proxy DB
     participant NginxConfig as Nginx Config Files
     participant HTTPContext as http_context.conf
@@ -185,7 +185,7 @@ sequenceDiagram
     participant Nginx as Nginx Container
     participant HAProxy as HAProxy Container
 
-    Admin->>CLI: sudo vless-proxy remove app.example.com
+    Admin->>CLI: sudo familytraffic-proxy remove app.example.com
 
     Note over CLI,ReverseProxyDB: Phase 1: Validation
 
@@ -197,16 +197,16 @@ sequenceDiagram
 
     Note over CLI,NginxConfig: Phase 2: Remove Nginx Configuration
 
-    CLI->>NginxConfig: Remove /opt/vless/config/reverse-proxy/app.example.com.conf
+    CLI->>NginxConfig: Remove /opt/familytraffic/config/reverse-proxy/app.example.com.conf
     NginxConfig-->>CLI: ✓ File removed
 
     CLI->>HTTPContext: Remove rate limit zone:<br/>Remove line: limit_req_zone ... zone=reverseproxy_app_example_com
     HTTPContext-->>CLI: ✓ Zone removed
 
-    CLI->>Nginx: docker exec vless_nginx_reverseproxy nginx -t
+    CLI->>Nginx: docker exec familytraffic-nginx nginx -t
     Nginx-->>CLI: ✓ Config valid
 
-    CLI->>Nginx: docker exec vless_nginx_reverseproxy nginx -s reload
+    CLI->>Nginx: docker exec familytraffic-nginx nginx -s reload
     Nginx->>Nginx: Graceful reload
     Nginx-->>CLI: ✓ Reloaded
 
@@ -216,7 +216,7 @@ sequenceDiagram
 
     HAProxyConfig-->>CLI: ✓ ACL and backend removed
 
-    CLI->>HAProxy: docker exec vless_haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+    CLI->>HAProxy: docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
     HAProxy-->>CLI: ✓ Config valid
 
     CLI->>HAProxy: Graceful reload
@@ -390,7 +390,7 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PendingSetup : vless-proxy add
+    [*] --> PendingSetup : familytraffic-proxy add
 
     PendingSetup --> DNSValidation : Validate DNS
     DNSValidation --> CertValidation : DNS OK
@@ -400,7 +400,7 @@ stateDiagram-v2
     HAProxyUpdate --> HAProxyReload : ACL added
     HAProxyReload --> Active : HAProxy reloaded
 
-    Active --> PendingRemoval : vless-proxy remove
+    Active --> PendingRemoval : familytraffic-proxy remove
     PendingRemoval --> NginxConfigRemove : Confirm removal
     NginxConfigRemove --> NginxReload2[Nginx Reload] : Config removed
     NginxReload2 --> HAProxyUpdate2[HAProxy Update] : Reloaded
@@ -452,13 +452,13 @@ stateDiagram-v2
 - **Debug:**
   ```bash
   # Check Nginx logs
-  docker logs vless_nginx_reverseproxy --tail 50 | grep "app.example.com"
+  docker logs familytraffic-nginx --tail 50 | grep "app.example.com"
 
   # Test backend connectivity from Nginx container
-  docker exec vless_nginx_reverseproxy curl -k https://backend.internal:8443
+  docker exec familytraffic-nginx curl -k https://backend.internal:8443
 
   # Check Nginx upstream status
-  docker exec vless_nginx_reverseproxy nginx -T | grep "proxy_pass"
+  docker exec familytraffic-nginx nginx -T | grep "proxy_pass"
   ```
 
 **Issue 2: Certificate errors (NET::ERR_CERT_COMMON_NAME_INVALID)**
@@ -477,13 +477,13 @@ stateDiagram-v2
 - **Debug:**
   ```bash
   # Check HAProxy ACL section
-  grep -A 20 "DYNAMIC_REVERSE_PROXY_ROUTES" /opt/vless/config/haproxy.cfg
+  grep -A 20 "DYNAMIC_REVERSE_PROXY_ROUTES" /opt/familytraffic/config/haproxy.cfg
 
   # Check HAProxy backend
   curl http://127.0.0.1:9000/stats | grep nginx_app
 
   # Test HAProxy config
-  docker exec vless_haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+  docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
   ```
 
 ---
@@ -492,7 +492,7 @@ stateDiagram-v2
 
 - [reverse-proxy-flow.md](../data-flows/reverse-proxy-flow.md) - Visual traffic flow diagram
 - [config-update.md](config-update.md) - Configuration propagation flow
-- [cli.yaml](../../yaml/cli.yaml) - vless-proxy CLI commands
+- [cli.yaml](../../yaml/cli.yaml) - familytraffic-proxy CLI commands
 - [config.yaml](../../yaml/config.yaml) - HAProxy and Nginx configuration relationships
 - [docker.yaml](../../yaml/docker.yaml) - Nginx and HAProxy container specifications
 

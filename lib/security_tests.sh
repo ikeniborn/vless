@@ -97,7 +97,7 @@ fi
 # readonly STUNNEL_CONFIG="${CONFIG_DIR}/stunnel.conf"  # DEPRECATED v4.3 - replaced by HAProxy
 readonly HAPROXY_CONFIG="${CONFIG_DIR}/haproxy.cfg"  # v4.3: Unified TLS termination
 readonly REALITY_KEYS="${CONFIG_DIR}/reality_keys.json"
-readonly PCAP_DIR="/tmp/vless_security_test_$$"
+readonly PCAP_DIR="/tmp/familytraffic_security_test_$$"
 
 # Test results
 declare -i TESTS_PASSED=0
@@ -193,7 +193,7 @@ cleanup() {
     print_info "Cleaning up..."
 
     # Stop any packet captures
-    pkill -f "tcpdump.*vless_security" 2>/dev/null || true
+    pkill -f "tcpdump.*familytraffic_security" 2>/dev/null || true
 
     # Remove temporary files
     if [[ -d "$PCAP_DIR" ]]; then
@@ -277,7 +277,7 @@ check_prerequisites() {
         print_info "✓ Docker available"
 
         # Check Docker containers (only in production mode)
-        if ! docker ps --format '{{.Names}}' | grep -q "vless" 2>/dev/null; then
+        if ! docker ps --format '{{.Names}}' | grep -q "familytraffic" 2>/dev/null; then
             echo -e "${RED}ERROR: VLESS containers are not running${NC}" >&2
             echo ""
             echo "Start containers:"
@@ -354,7 +354,7 @@ check_prerequisites() {
             echo "   sudo bash install.sh"
             echo ""
             echo "2. If VLESS IS installed but has no users:"
-            echo "   sudo vless add-user testuser"
+            echo "   sudo familytraffic add-user testuser"
             echo ""
             echo "3. To run tests without installation (limited):"
             echo "   $0 --dev-mode"
@@ -368,7 +368,7 @@ check_prerequisites() {
             echo -e "${RED}ERROR: No users configured in users.json${NC}" >&2
             echo ""
             echo "Create a user first:"
-            echo "  sudo vless add-user testuser"
+            echo "  sudo familytraffic add-user testuser"
             echo ""
             exit 2
         fi
@@ -1158,7 +1158,7 @@ test_08_data_leak_detection() {
     local sensitive_patterns=("password" "secret" "key" "uuid")
     local leaks_found=0
 
-    for container in $(docker ps --format '{{.Names}}' | grep "vless"); do
+    for container in $(docker ps --format '{{.Names}}' | grep "familytraffic"); do
         local logs
         logs=$(docker logs "$container" --tail 100 2>&1 || echo "")
 

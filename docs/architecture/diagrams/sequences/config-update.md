@@ -25,7 +25,7 @@ sequenceDiagram
     participant Xray as Xray Container
     participant HAProxy as HAProxy Container
 
-    Note over UserAction: Trigger: sudo vless add-user alice
+    Note over UserAction: Trigger: sudo familytraffic add-user alice
 
     UserAction->>UsersDB: Append user:<br/>{username: "alice", uuid: "...", external_proxy_id: null}
 
@@ -39,7 +39,7 @@ sequenceDiagram
     Note over XrayConfig,Xray: Propagation Step 2: Xray Reload
 
     XrayConfig->>XrayConfig: Validate JSON syntax<br/>(jq . xray_config.json)
-    XrayConfig->>Xray: docker exec vless_xray kill -HUP $(pgrep xray)
+    XrayConfig->>Xray: docker exec familytraffic kill -HUP $(pgrep xray)
     Xray->>Xray: Graceful reload<br/>(read new config, no downtime)
     Xray-->>XrayConfig: ✓ Config reloaded
 
@@ -64,7 +64,7 @@ sequenceDiagram
     participant XrayConfig as xray_config.json
     participant Xray as Xray Container
 
-    Note over UserAction: Trigger: sudo vless set-proxy alice proxy-us
+    Note over UserAction: Trigger: sudo familytraffic set-proxy alice proxy-us
 
     UserAction->>UsersDB: Update users[alice].external_proxy_id = "proxy-us"
 
@@ -98,7 +98,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant UserAction as Admin Action<br/>(vless-proxy add)
+    participant UserAction as Admin Action<br/>(familytraffic-proxy add)
     participant ReverseProxyDB as Reverse Proxy Database<br/>(in-memory)
     participant NginxConfig as Nginx Config<br/>app.example.com.conf
     participant HTTPContext as http_context.conf
@@ -106,7 +106,7 @@ sequenceDiagram
     participant Nginx as Nginx Container
     participant HAProxy as HAProxy Container
 
-    Note over UserAction: Trigger: sudo vless-proxy add
+    Note over UserAction: Trigger: sudo familytraffic-proxy add
 
     UserAction->>UserAction: Interactive wizard:<br/>- Domain: app.example.com<br/>- Target: https://backend:8443<br/>- OAuth2: No<br/>- WebSocket: No
 
@@ -119,11 +119,11 @@ sequenceDiagram
 
     Note over NginxConfig,Nginx: Propagation Step 2: Nginx Reload
 
-    NginxConfig->>Nginx: docker exec vless_nginx_reverseproxy nginx -t
+    NginxConfig->>Nginx: docker exec familytraffic-nginx nginx -t
     Nginx->>Nginx: Test configuration syntax
     Nginx-->>NginxConfig: ✓ Syntax OK
 
-    NginxConfig->>Nginx: docker exec vless_nginx_reverseproxy nginx -s reload
+    NginxConfig->>Nginx: docker exec familytraffic-nginx nginx -s reload
     Nginx->>Nginx: Graceful reload<br/>(load new server block)
     Nginx-->>NginxConfig: ✓ Config reloaded
 
@@ -156,16 +156,16 @@ sequenceDiagram
     participant ValidationScript as Validation Script
     participant Service as Service Container
 
-    Admin->>ConfigFile: Edit file directly:<br/>vi /opt/vless/config/xray_config.json
+    Admin->>ConfigFile: Edit file directly:<br/>vi /opt/familytraffic/config/xray_config.json
 
     Note over ConfigFile: Changes made:<br/>- Modified inbound port<br/>- Added new outbound
 
-    Admin->>ValidationScript: Validate changes:<br/>jq . /opt/vless/config/xray_config.json
+    Admin->>ValidationScript: Validate changes:<br/>jq . /opt/familytraffic/config/xray_config.json
 
     alt Validation Success
         ValidationScript-->>Admin: ✓ Valid JSON
 
-        Admin->>Service: Reload service:<br/>docker exec vless_xray kill -HUP $(pgrep xray)
+        Admin->>Service: Reload service:<br/>docker exec familytraffic kill -HUP $(pgrep xray)
         Service->>Service: Read configuration file
         Service->>Service: Apply changes
 
@@ -248,7 +248,7 @@ graph TB
 sequenceDiagram
     participant Admin1 as Admin #1<br/>(add-user alice)
     participant Admin2 as Admin #2<br/>(set-proxy bob proxy-us)
-    participant Lock as /var/lock/vless_users.lock
+    participant Lock as /var/lock/familytraffic_users.lock
     participant UsersJSON as users.json
     participant XrayConfig as xray_config.json
 
@@ -425,13 +425,13 @@ graph TB
 - **Fix:**
   ```bash
   # Check if lock file exists
-  ls -l /var/lock/vless_users.lock
+  ls -l /var/lock/familytraffic_users.lock
 
   # Check which process holds lock (if any)
-  lsof /var/lock/vless_users.lock
+  lsof /var/lock/familytraffic_users.lock
 
   # Force remove lock (use with caution!)
-  rm -f /var/lock/vless_users.lock
+  rm -f /var/lock/familytraffic_users.lock
   ```
 
 **Issue 2: Service fails to reload after config update**
@@ -439,13 +439,13 @@ graph TB
 - **Debug:**
   ```bash
   # Xray
-  docker exec vless_xray xray -test -config /etc/xray/config.json
+  docker exec familytraffic xray -test -config /etc/xray/config.json
 
   # HAProxy
-  docker exec vless_haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+  docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
 
   # Nginx
-  docker exec vless_nginx_reverseproxy nginx -t
+  docker exec familytraffic-nginx nginx -t
   ```
 
 **Issue 3: Changes not taking effect after reload**
@@ -453,13 +453,13 @@ graph TB
 - **Debug:**
   ```bash
   # Verify config file timestamp
-  ls -l /opt/vless/config/xray_config.json
+  ls -l /opt/familytraffic/config/xray_config.json
 
   # Check if service read new config
-  docker logs vless_xray --tail 20 | grep "config"
+  docker logs familytraffic --tail 20 | grep "config"
 
   # Force restart instead of reload
-  docker restart vless_xray
+  docker restart familytraffic
   ```
 
 ---

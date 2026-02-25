@@ -1,6 +1,6 @@
 # CLAUDE.md - Project Memory
 
-**Project:** VLESS + Reality VPN Server
+**Project:** familyTraffic VPN Server
 **Version:** 5.24 (Per-User External Proxy Support)
 **Last Updated:** 2025-10-26
 **Purpose:** Unified project memory combining workflow execution rules and project-specific quick reference
@@ -374,7 +374,7 @@ sudo familytraffic logs nginx
 
 **Detection:**
 ```bash
-docker exec vless_xray ping -c 1 8.8.8.8  # Fails
+docker exec familytraffic ping -c 1 8.8.8.8  # Fails
 grep "DOCKER-USER" /etc/ufw/after.rules  # Check chains
 ```
 
@@ -399,44 +399,44 @@ sudo ss -tulnp | grep :443
 
 **Detection:**
 ```bash
-docker exec vless_nginx nginx -t      # Check nginx config
-docker logs vless_nginx --tail 50
+docker exec familytraffic-nginx nginx -t      # Check nginx config
+docker logs familytraffic-nginx --tail 50
 ```
 
 **Solution:**
 ```bash
 # Verify SNI map includes the subdomain
-grep "your.subdomain.com" /opt/vless/config/nginx/nginx.conf
+grep "your.subdomain.com" /opt/familytraffic/config/nginx/nginx.conf
 
 # Manual Nginx reload (zero-downtime)
-docker exec vless_nginx nginx -s reload
+docker exec familytraffic-nginx nginx -s reload
 ```
 
 ---
 
 #### Issue 4: Xray Container Unhealthy - Wrong Port Configuration
-**Symptoms:** vless_xray shows (unhealthy), vless_nginx logs "Connection refused"
+**Symptoms:** familytraffic shows (unhealthy), familytraffic-nginx logs "Connection refused"
 
 **Root Cause:** Xray configured to listen on port 443 instead of 8443 (requires Xray on internal port 8443)
 
 **Solution:**
 ```bash
 # Fix Xray port configuration
-sudo sed -i 's/"port": 443,/"port": 8443,/' /opt/vless/config/xray_config.json
+sudo sed -i 's/"port": 443,/"port": 8443,/' /opt/familytraffic/config/xray_config.json
 
 # Fix fallback container name
-sudo sed -i 's/"dest": "vless_nginx:80"/"dest": "vless_fake_site:80"/' /opt/vless/config/xray_config.json
+sudo sed -i 's/"dest": "familytraffic-nginx:80"/"dest": "familytraffic-fake-site:80"/' /opt/familytraffic/config/xray_config.json
 
 # Restart Xray container
-docker restart vless_xray
+docker restart familytraffic
 ```
 
 ---
 
 #### Issue 5: Nginx Reverse Proxy Container Crash Loop
-**Symptoms:** vless_nginx_reverseproxy shows "Restarting"
+**Symptoms:** familytraffic-nginx shows "Restarting"
 
-**Root Cause:** Missing `limit_req_zone` directive in `/opt/vless/config/reverse-proxy/http_context.conf`
+**Root Cause:** Missing `limit_req_zone` directive in `/opt/familytraffic/config/reverse-proxy/http_context.conf`
 
 **Solution:**
 ```bash
@@ -444,14 +444,14 @@ DOMAIN="your-domain.com"
 ZONE_NAME="reverseproxy_${DOMAIN//[.-]/_}"
 
 # Add to http_context.conf
-sudo bash -c "cat >> /opt/vless/config/reverse-proxy/http_context.conf << EOF
+sudo bash -c "cat >> /opt/familytraffic/config/reverse-proxy/http_context.conf << EOF
 
 # Rate limit zone for: ${DOMAIN}
 limit_req_zone \\\$binary_remote_addr zone=${ZONE_NAME}:10m rate=100r/s;
 EOF"
 
 # Restart nginx container
-docker restart vless_nginx_reverseproxy
+docker restart familytraffic-nginx
 ```
 
 🔗 **Полный список:** docs/prd/06_appendix.md (Common Failure Points)
@@ -536,7 +536,7 @@ sudo familytraffic test-security --quick
 
 **Natural language invocation:**
 ```
-"Diagnose why vless_xray container is unhealthy"
+"Diagnose why familytraffic container is unhealthy"
 → Uses diagnose-issue skill with container-unhealthy playbook
 
 "Add user quota feature to user management"
@@ -550,7 +550,7 @@ sudo familytraffic test-security --quick
 - ✅ **YAML-aware:** Skills auto-load `docs/architecture/yaml/` для контекста
 - ✅ **Hybrid automation:** Read-only операции автоматически, write operations с approval gates
 - ✅ **Safety enforced:** Обязательное логирование, YAML updates, validation перед changes
-- ✅ **Integrated:** Используют существующие CLI tools (`vless`, `mtproxy`, etc.)
+- ✅ **Integrated:** Используют существующие CLI tools (`familytraffic`, `mtproxy`, etc.)
 
 #### Skill Structure
 

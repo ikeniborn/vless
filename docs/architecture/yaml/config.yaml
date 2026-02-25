@@ -3,21 +3,21 @@ documentation_version: "v5.26"
 last_updated: "2026-01-07"
 
 project:
-  name: "VLESS + Reality VPN - Configuration Architecture"
+  name: "familyTraffic VPN - Configuration Architecture"
   version: "v5.26"
   description: "Comprehensive documentation of all configuration files, their structure, relationships, and propagation paths"
 
 configurations:
   xray_config:
-    path: "/opt/vless/config/xray_config.json"
+    path: "/opt/familytraffic/config/xray_config.json"
     format: "JSON"
     purpose: "Xray-core runtime configuration - defines inbounds, outbounds, and routing rules"
     critical: true
     reload_method: "SIGHUP signal (graceful, zero downtime)"
-    reload_command: "docker exec vless_xray kill -HUP $(docker exec vless_xray pgrep xray)"
+    reload_command: "docker exec familytraffic kill -HUP $(docker exec familytraffic pgrep xray)"
     generator_module: "lib/orchestrator.sh"
     generator_function: "generate_xray_config()"
-    validation_method: "xray test -c /opt/vless/config/xray_config.json"
+    validation_method: "xray test -c /opt/familytraffic/config/xray_config.json"
 
     sections:
       log:
@@ -34,7 +34,7 @@ configurations:
 
           settings:
             clients:
-              source: "/opt/vless/data/users.json"
+              source: "/opt/familytraffic/data/users.json"
               mapping: "users[] → clients[]"
               transformation:
                 - "users[].uuid → clients[].id"
@@ -48,7 +48,7 @@ configurations:
             decryption: "none"
 
             fallbacks:
-              - dest: "vless_fake_site:80"
+              - dest: "familytraffic-fake-site:80"
                 xver: 0
                 description: "Fallback for invalid UUID or Reality handshake failure"
 
@@ -82,7 +82,7 @@ configurations:
           settings:
             auth: "password"
             accounts:
-              source: "/opt/vless/data/users.json"
+              source: "/opt/familytraffic/data/users.json"
               mapping: "users[] → accounts[]"
               transformation:
                 - "users[].username → accounts[].user"
@@ -109,7 +109,7 @@ configurations:
           settings:
             auth: "password"
             accounts:
-              source: "/opt/vless/data/users.json"
+              source: "/opt/familytraffic/data/users.json"
               mapping: "users[] → accounts[]"
               transformation:
                 - "users[].username → accounts[].user"
@@ -139,7 +139,7 @@ configurations:
           feature_version: "v5.24+"
           settings:
             servers:
-              source: "/opt/vless/config/external_proxy.json"
+              source: "/opt/familytraffic/config/external_proxy.json"
               mapping: "proxies[] → servers[]"
               dynamic: true
               transformation:
@@ -172,7 +172,7 @@ configurations:
               - "http-in"
 
             user:
-              source: "/opt/vless/data/users.json"
+              source: "/opt/familytraffic/data/users.json"
               field: "users[].email (for VLESS) or users[].username (for SOCKS5/HTTP)"
               transformation: "users[].external_proxy_id != null → add to rule.user[]"
               generator: "lib/xray_routing_manager.sh::update_xray_routing_for_user()"
@@ -189,7 +189,7 @@ configurations:
             outboundTag: "direct"
 
     data_sources:
-      - file: "/opt/vless/data/users.json"
+      - file: "/opt/familytraffic/data/users.json"
         fields_used:
           - "users[].uuid → inbounds clients[].id, accounts[].pass"
           - "users[].email → inbounds clients[].email"
@@ -198,38 +198,38 @@ configurations:
           - "users[].external_proxy_id → routing.rules[].user[]"
         trigger: "add-user, remove-user, set-proxy commands"
 
-      - file: "/opt/vless/config/external_proxy.json"
+      - file: "/opt/familytraffic/config/external_proxy.json"
         fields_used:
           - "proxies[].address → outbounds servers[].address"
           - "proxies[].port → outbounds servers[].port"
           - "proxies[].protocol → outbounds protocol"
           - "proxies[].username → outbounds servers[].users[].user"
           - "proxies[].password → outbounds servers[].users[].pass"
-        trigger: "vless-external-proxy add, enable, disable commands"
+        trigger: "familytraffic-external-proxy add, enable, disable commands"
 
     generation_flow:
       entry_point: "lib/orchestrator.sh::generate_xray_config()"
       steps:
-        - "Read /opt/vless/data/users.json"
-        - "Read /opt/vless/config/external_proxy.json (if exists)"
+        - "Read /opt/familytraffic/data/users.json"
+        - "Read /opt/familytraffic/config/external_proxy.json (if exists)"
         - "Generate inbounds.clients[] from users[].uuid"
         - "Generate inbounds.accounts[] from users[].username + uuid"
         - "Generate routing.rules[] for users with external_proxy_id"
         - "Generate outbounds.servers[] from proxies[]"
         - "Validate JSON syntax"
-        - "Write to /opt/vless/config/xray_config.json (atomic)"
+        - "Write to /opt/familytraffic/config/xray_config.json (atomic)"
         - "Reload Xray (SIGHUP)"
 
   haproxy_config:
-    path: "/opt/vless/config/haproxy.cfg"
+    path: "/opt/familytraffic/config/haproxy.cfg"
     format: "HAProxy configuration format"
     purpose: "HAProxy unified TLS termination & SNI-based routing"
     critical: true
     reload_method: "Graceful reload (seamless, zero downtime)"
-    reload_command: "docker exec vless_haproxy haproxy -sf $(docker exec vless_haproxy cat /var/run/haproxy.pid)"
+    reload_command: "docker exec familytraffic-haproxy haproxy -sf $(docker exec familytraffic-haproxy cat /var/run/haproxy.pid)"
     generator_module: "lib/haproxy_config_manager.sh"
     generator_function: "generate_haproxy_config()"
-    validation_method: "haproxy -c -f /opt/vless/config/haproxy.cfg"
+    validation_method: "haproxy -c -f /opt/familytraffic/config/haproxy.cfg"
 
     sections:
       global:
@@ -347,7 +347,7 @@ configurations:
         fake_site_fallback:
           mode: "tcp"
           balance: "roundrobin"
-          server: "fake_site vless_fake_site:80 check inter 10s fall 3 rise 2"
+          server: "fake_site familytraffic-fake-site:80 check inter 10s fall 3 rise 2"
           purpose: "Fallback for unknown SNI"
 
     dynamic_sections:
@@ -368,30 +368,30 @@ configurations:
           list_routes: "lib/haproxy_config_manager.sh::list_reverse_proxy_domains()"
 
     data_sources:
-      - file: "/opt/vless/config/reverse-proxy/domains.list"
+      - file: "/opt/familytraffic/config/reverse-proxy/domains.list"
         purpose: "List of configured reverse proxy domains"
         format: "One domain per line"
-        trigger: "vless-proxy add, vless-proxy remove commands"
+        trigger: "familytraffic-proxy add, familytraffic-proxy remove commands"
 
     generation_flow:
       entry_point: "lib/haproxy_config_manager.sh::generate_haproxy_config()"
       steps:
         - "Generate static frontends and backends"
-        - "Read /opt/vless/config/reverse-proxy/ directory"
+        - "Read /opt/familytraffic/config/reverse-proxy/ directory"
         - "For each *.conf file, extract domain name"
         - "Generate dynamic ACL + use_backend for each domain"
         - "Insert dynamic section between markers"
         - "Validate HAProxy syntax"
-        - "Write to /opt/vless/config/haproxy.cfg (atomic)"
+        - "Write to /opt/familytraffic/config/haproxy.cfg (atomic)"
         - "Graceful reload HAProxy"
 
   users_json:
-    path: "/opt/vless/data/users.json"
+    path: "/opt/familytraffic/data/users.json"
     format: "JSON"
     purpose: "User database - single source of truth for all user information"
     critical: true
     backup_required: true
-    concurrency_control: "flock /var/lock/vless_users.lock"
+    concurrency_control: "flock /var/lock/familytraffic_users.lock"
 
     schema:
       root:
@@ -465,7 +465,7 @@ configurations:
     operations:
       add_user:
         function: "lib/user_management.sh::add_user_to_json()"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
         atomic_write: true
         validation:
           - "Username uniqueness"
@@ -478,7 +478,7 @@ configurations:
 
       remove_user:
         function: "lib/user_management.sh::remove_user_from_json()"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
         atomic_write: true
         side_effects:
           - "Regenerate xray_config.json"
@@ -487,7 +487,7 @@ configurations:
 
       set_user_proxy:
         function: "lib/user_management.sh::update_user_proxy_id()"
-        locking: "flock /var/lock/vless_users.lock"
+        locking: "flock /var/lock/familytraffic_users.lock"
         atomic_write: true
         feature_version: "v5.24+"
         validation:
@@ -512,7 +512,7 @@ configurations:
         generator: "lib/qr_generator.sh::generate_client_configs()"
 
   external_proxy_json:
-    path: "/opt/vless/config/external_proxy.json"
+    path: "/opt/familytraffic/config/external_proxy.json"
     format: "JSON"
     purpose: "External upstream proxy configuration (v5.24+)"
     critical: false
@@ -622,12 +622,12 @@ configurations:
         generator: "lib/orchestrator.sh::generate_xray_config()"
 
   nginx_reverse_proxy_configs:
-    path_pattern: "/opt/vless/config/reverse-proxy/<domain>.conf"
+    path_pattern: "/opt/familytraffic/config/reverse-proxy/<domain>.conf"
     format: "Nginx configuration format"
     purpose: "Per-domain reverse proxy configuration"
     critical: true
     reload_method: "SIGHUP signal"
-    reload_command: "docker exec vless_nginx_reverseproxy nginx -s reload"
+    reload_command: "docker exec familytraffic-nginx nginx -s reload"
     generator_module: "lib/reverseproxy_db.sh"
     generator_function: "add_reverse_proxy_domain()"
 
@@ -731,7 +731,7 @@ configurations:
           - "Reload HAProxy"
 
   http_context_conf:
-    path: "/opt/vless/config/reverse-proxy/http_context.conf"
+    path: "/opt/familytraffic/config/reverse-proxy/http_context.conf"
     format: "Nginx HTTP context includes"
     purpose: "Shared rate limit zone definitions for all reverse proxy domains"
     critical: true
@@ -754,14 +754,14 @@ configurations:
     critical_note: "Missing rate limit zone definition causes Nginx crash loop"
 
   mtproxy_config:
-    path: "/opt/vless/config/mtproxy/mtproxy_config.json"
+    path: "/opt/familytraffic/config/mtproxy/mtproxy_config.json"
     format: "JSON"
     purpose: "MTProxy server configuration (v6.0+)"
     critical: true
     feature_version: "v6.0+ (planned)"
     implementation_status: "PLANNED (not yet implemented)"
     reload_method: "Docker restart (full restart required)"
-    reload_command: "docker restart vless_mtproxy"
+    reload_command: "docker restart familytraffic-mtproxy"
     generator_module: "lib/mtproxy_manager.sh"
     generator_function: "generate_mtproxy_config()"
 
@@ -805,7 +805,7 @@ configurations:
       multi_conf_file: "/etc/mtproxy/proxy-multi.conf"
 
   mtproxy_secrets:
-    path: "/opt/vless/config/mtproxy/proxy-secret"
+    path: "/opt/familytraffic/config/mtproxy/proxy-secret"
     format: "Plain text (one secret per line)"
     purpose: "MTProxy authentication secrets"
     critical: true
@@ -864,13 +864,13 @@ configurations:
           - "Restart MTProxy container"
 
     data_sources:
-      - file: "/opt/vless/data/users.json"
+      - file: "/opt/familytraffic/data/users.json"
         field: "users[].mtproxy_secret"
         feature_version: "v6.1+"
         mapping: "users[].mtproxy_secret → proxy-secret (append)"
 
   mtproxy_multi_conf:
-    path: "/opt/vless/config/mtproxy/proxy-multi.conf"
+    path: "/opt/familytraffic/config/mtproxy/proxy-multi.conf"
     format: "MTProxy multi.conf format"
     purpose: "Telegram Data Center addresses"
     critical: true
@@ -886,7 +886,7 @@ configurations:
       update_trigger: "Manual or on Telegram DC changes (rare)"
 
   certbot_nginx_conf:
-    path: "/opt/vless/config/certbot_nginx.conf"
+    path: "/opt/familytraffic/config/certbot_nginx.conf"
     format: "Nginx configuration format"
     purpose: "Temporary HTTP server for ACME HTTP-01 challenges"
     critical: true
@@ -905,7 +905,7 @@ configurations:
       }
 
   fake_site_nginx_conf:
-    path: "/opt/vless/config/fake_site_nginx.conf"
+    path: "/opt/familytraffic/config/fake_site_nginx.conf"
     format: "Nginx configuration format"
     purpose: "Fallback website configuration"
     critical: false
@@ -926,8 +926,8 @@ configurations:
 
 configuration_relationships:
   users_json_to_xray_config:
-    source: "/opt/vless/data/users.json"
-    target: "/opt/vless/config/xray_config.json"
+    source: "/opt/familytraffic/data/users.json"
+    target: "/opt/familytraffic/config/xray_config.json"
     mapping:
       - "users[].uuid → inbounds[vless].settings.clients[].id"
       - "users[].email → inbounds[vless].settings.clients[].email"
@@ -939,40 +939,40 @@ configuration_relationships:
     downtime: "~0s (graceful reload)"
 
   external_proxy_json_to_xray_config:
-    source: "/opt/vless/config/external_proxy.json"
-    target: "/opt/vless/config/xray_config.json"
+    source: "/opt/familytraffic/config/external_proxy.json"
+    target: "/opt/familytraffic/config/xray_config.json"
     mapping:
       - "proxies[].address → outbounds[external-proxy].settings.servers[].address"
       - "proxies[].port → outbounds[external-proxy].settings.servers[].port"
       - "proxies[].username → outbounds[external-proxy].settings.servers[].users[].user"
       - "proxies[].password → outbounds[external-proxy].settings.servers[].users[].pass"
-    trigger: "vless-external-proxy add, enable, disable commands"
+    trigger: "familytraffic-external-proxy add, enable, disable commands"
     propagation: "Regenerate xray_config.json → Restart Xray container"
     downtime: "~2-5s (full restart required for outbound changes)"
 
   reverse_proxy_conf_to_haproxy_cfg:
-    source: "/opt/vless/config/reverse-proxy/*.conf"
-    target: "/opt/vless/config/haproxy.cfg"
+    source: "/opt/familytraffic/config/reverse-proxy/*.conf"
+    target: "/opt/familytraffic/config/haproxy.cfg"
     mapping:
       - "*.conf filename → HAProxy ACL domain"
       - "listen port → HAProxy backend port"
-    trigger: "vless-proxy add, vless-proxy remove commands"
+    trigger: "familytraffic-proxy add, familytraffic-proxy remove commands"
     propagation: "Regenerate haproxy.cfg → Graceful reload HAProxy"
     downtime: "~0s (seamless reload)"
 
   reverse_proxy_conf_to_http_context_conf:
-    source: "/opt/vless/config/reverse-proxy/*.conf"
-    target: "/opt/vless/config/reverse-proxy/http_context.conf"
+    source: "/opt/familytraffic/config/reverse-proxy/*.conf"
+    target: "/opt/familytraffic/config/reverse-proxy/http_context.conf"
     mapping:
       - "domain → rate limit zone name"
-    trigger: "vless-proxy add, vless-proxy remove commands"
+    trigger: "familytraffic-proxy add, familytraffic-proxy remove commands"
     propagation: "Update http_context.conf → Reload Nginx"
     downtime: "~0s (graceful reload)"
     critical_note: "Missing zone definition causes Nginx crash"
 
   letsencrypt_to_haproxy:
     source: "/etc/letsencrypt/live/${DOMAIN}/"
-    target: "/opt/vless/config/haproxy.cfg"
+    target: "/opt/familytraffic/config/haproxy.cfg"
     mapping:
       - "fullchain.pem + privkey.pem → combined.pem"
       - "combined.pem → HAProxy bind ssl crt"
@@ -983,17 +983,17 @@ configuration_relationships:
 
   letsencrypt_to_nginx:
     source: "/etc/letsencrypt/live/<subdomain>/"
-    target: "/opt/vless/config/reverse-proxy/<subdomain>.conf"
+    target: "/opt/familytraffic/config/reverse-proxy/<subdomain>.conf"
     mapping:
       - "fullchain.pem → ssl_certificate"
       - "privkey.pem → ssl_certificate_key"
-    trigger: "vless-proxy add command (per-domain cert acquisition)"
+    trigger: "familytraffic-proxy add command (per-domain cert acquisition)"
     propagation: "Certbot obtains cert → Nginx reload"
     downtime: "~0s (graceful reload)"
 
   users_json_to_mtproxy_secrets:
-    source: "/opt/vless/data/users.json"
-    target: "/opt/vless/config/mtproxy/proxy-secret"
+    source: "/opt/familytraffic/data/users.json"
+    target: "/opt/familytraffic/config/mtproxy/proxy-secret"
     mapping:
       - "users[].mtproxy_secret → proxy-secret (one secret per line)"
     trigger: "mtproxy add-user, mtproxy remove-user (v6.1+)"
@@ -1003,59 +1003,59 @@ configuration_relationships:
 
 propagation_paths:
   add_user_flow:
-    trigger: "sudo vless add-user <username>"
+    trigger: "sudo familytraffic add-user <username>"
     affected_files:
-      - "/opt/vless/data/users.json (add user record)"
-      - "/opt/vless/config/xray_config.json (add client to inbounds)"
-      - "/opt/vless/data/clients/<username>/ (generate configs)"
+      - "/opt/familytraffic/data/users.json (add user record)"
+      - "/opt/familytraffic/config/xray_config.json (add client to inbounds)"
+      - "/opt/familytraffic/data/clients/<username>/ (generate configs)"
     services_reloaded:
-      - "vless_xray (SIGHUP - graceful)"
+      - "familytraffic (SIGHUP - graceful)"
     duration: "~3-5 seconds"
     downtime: "0s"
 
   remove_user_flow:
-    trigger: "sudo vless remove-user <username>"
+    trigger: "sudo familytraffic remove-user <username>"
     affected_files:
-      - "/opt/vless/data/users.json (remove user record)"
-      - "/opt/vless/config/xray_config.json (remove client from inbounds)"
-      - "/opt/vless/data/clients/<username>/ (delete directory)"
+      - "/opt/familytraffic/data/users.json (remove user record)"
+      - "/opt/familytraffic/config/xray_config.json (remove client from inbounds)"
+      - "/opt/familytraffic/data/clients/<username>/ (delete directory)"
     services_reloaded:
-      - "vless_xray (SIGHUP - graceful)"
+      - "familytraffic (SIGHUP - graceful)"
     duration: "~2-3 seconds"
     downtime: "0s"
 
   set_user_proxy_flow:
-    trigger: "sudo vless set-proxy <username> <proxy-id>"
+    trigger: "sudo familytraffic set-proxy <username> <proxy-id>"
     feature_version: "v5.24+"
     affected_files:
-      - "/opt/vless/data/users.json (set external_proxy_id)"
-      - "/opt/vless/config/xray_config.json (update routing.rules)"
+      - "/opt/familytraffic/data/users.json (set external_proxy_id)"
+      - "/opt/familytraffic/config/xray_config.json (update routing.rules)"
     services_reloaded:
-      - "vless_xray (SIGHUP - graceful)"
+      - "familytraffic (SIGHUP - graceful)"
     duration: "~2-4 seconds"
     downtime: "0s"
 
   add_external_proxy_flow:
-    trigger: "sudo vless-external-proxy add"
+    trigger: "sudo familytraffic-external-proxy add"
     feature_version: "v5.24+"
     affected_files:
-      - "/opt/vless/config/external_proxy.json (add proxy record)"
-      - "/opt/vless/config/xray_config.json (update outbounds)"
+      - "/opt/familytraffic/config/external_proxy.json (add proxy record)"
+      - "/opt/familytraffic/config/xray_config.json (update outbounds)"
     services_reloaded:
-      - "vless_xray (restart - outbound changes)"
+      - "familytraffic (restart - outbound changes)"
     duration: "~5-10 seconds"
     downtime: "~2-5s"
 
   add_reverse_proxy_domain_flow:
-    trigger: "sudo vless-proxy add"
+    trigger: "sudo familytraffic-proxy add"
     affected_files:
-      - "/opt/vless/config/reverse-proxy/<domain>.conf (create Nginx config)"
-      - "/opt/vless/config/reverse-proxy/http_context.conf (add rate limit zone)"
-      - "/opt/vless/config/haproxy.cfg (add ACL + backend)"
+      - "/opt/familytraffic/config/reverse-proxy/<domain>.conf (create Nginx config)"
+      - "/opt/familytraffic/config/reverse-proxy/http_context.conf (add rate limit zone)"
+      - "/opt/familytraffic/config/haproxy.cfg (add ACL + backend)"
       - "/etc/letsencrypt/live/<domain>/ (obtain certificate)"
     services_reloaded:
-      - "vless_nginx_reverseproxy (SIGHUP - graceful)"
-      - "vless_haproxy (graceful reload)"
+      - "familytraffic-nginx (SIGHUP - graceful)"
+      - "familytraffic-haproxy (graceful reload)"
     duration: "~30-90 seconds (cert acquisition + DNS propagation)"
     downtime: "0s"
 
@@ -1065,8 +1065,8 @@ propagation_paths:
       - "/etc/letsencrypt/live/${DOMAIN}/ (renew certificates)"
       - "/etc/letsencrypt/live/${DOMAIN}/combined.pem (regenerate)"
     services_reloaded:
-      - "vless_haproxy (graceful reload)"
-      - "vless_nginx_reverseproxy (SIGHUP - graceful)"
+      - "familytraffic-haproxy (graceful reload)"
+      - "familytraffic-nginx (SIGHUP - graceful)"
     duration: "~30-60 seconds"
     downtime: "0s"
     frequency: "Every 60 days (automated)"
@@ -1075,11 +1075,11 @@ propagation_paths:
     trigger: "sudo mtproxy add-user <username>"
     feature_version: "v6.1+ (future enhancement)"
     affected_files:
-      - "/opt/vless/data/users.json (add mtproxy_secret field)"
-      - "/opt/vless/config/mtproxy/proxy-secret (append secret)"
-      - "/opt/vless/data/clients/<username>/mtproxy_config.txt (generate config)"
+      - "/opt/familytraffic/data/users.json (add mtproxy_secret field)"
+      - "/opt/familytraffic/config/mtproxy/proxy-secret (append secret)"
+      - "/opt/familytraffic/data/clients/<username>/mtproxy_config.txt (generate config)"
     services_reloaded:
-      - "vless_mtproxy (restart - secret reload)"
+      - "familytraffic-mtproxy (restart - secret reload)"
     duration: "~5-10 seconds"
     downtime: "~2-5s"
 
@@ -1087,7 +1087,7 @@ atomic_operations:
   json_file_updates:
     method: "Atomic write with file locking"
     implementation:
-      - "Acquire lock: flock /var/lock/vless_users.lock"
+      - "Acquire lock: flock /var/lock/familytraffic_users.lock"
       - "Read current file"
       - "Modify in-memory JSON"
       - "Write to temporary file"
@@ -1095,8 +1095,8 @@ atomic_operations:
       - "Atomic rename: mv temp.json target.json"
       - "Release lock"
     files_using_method:
-      - "/opt/vless/data/users.json"
-      - "/opt/vless/config/external_proxy.json"
+      - "/opt/familytraffic/data/users.json"
+      - "/opt/familytraffic/config/external_proxy.json"
     timeout: "10s"
 
   config_file_updates:
@@ -1108,23 +1108,23 @@ atomic_operations:
       - "If valid: atomic rename"
       - "If invalid: abort, log error, keep old config"
     files_using_method:
-      - "/opt/vless/config/xray_config.json"
-      - "/opt/vless/config/haproxy.cfg"
-      - "/opt/vless/config/reverse-proxy/*.conf"
+      - "/opt/familytraffic/config/xray_config.json"
+      - "/opt/familytraffic/config/haproxy.cfg"
+      - "/opt/familytraffic/config/reverse-proxy/*.conf"
 
 validation_methods:
   xray_config_validation:
-    command: "docker exec vless_xray xray test -c /opt/vless/config/xray_config.json"
+    command: "docker exec familytraffic xray test -c /opt/familytraffic/config/xray_config.json"
     success_exit_code: 0
     failure_action: "Abort update, keep old config, log error"
 
   haproxy_config_validation:
-    command: "docker exec vless_haproxy haproxy -c -f /opt/vless/config/haproxy.cfg"
+    command: "docker exec familytraffic-haproxy haproxy -c -f /opt/familytraffic/config/haproxy.cfg"
     success_exit_code: 0
     failure_action: "Abort update, keep old config, log error"
 
   nginx_config_validation:
-    command: "docker exec vless_nginx_reverseproxy nginx -t"
+    command: "docker exec familytraffic-nginx nginx -t"
     success_exit_code: 0
     failure_action: "Abort update, keep old config, log error"
 
@@ -1135,12 +1135,12 @@ validation_methods:
 
 backup_recommendations:
   critical_files:
-    - file: "/opt/vless/data/users.json"
+    - file: "/opt/familytraffic/data/users.json"
       priority: "CRITICAL"
       frequency: "Daily"
       retention: "30 days"
 
-    - file: "/opt/vless/config/"
+    - file: "/opt/familytraffic/config/"
       priority: "HIGH"
       frequency: "Weekly"
       retention: "30 days"
@@ -1157,29 +1157,29 @@ troubleshooting:
   common_issues:
     xray_config_syntax_error:
       symptom: "Xray container unhealthy or won't start"
-      detection: "docker logs vless_xray | grep 'syntax error'"
+      detection: "docker logs familytraffic | grep 'syntax error'"
       fix: "Validate xray_config.json with jq, check for malformed JSON"
 
     haproxy_config_syntax_error:
       symptom: "HAProxy container won't start or reload fails"
-      detection: "docker exec vless_haproxy haproxy -c -f /opt/vless/config/haproxy.cfg"
+      detection: "docker exec familytraffic-haproxy haproxy -c -f /opt/familytraffic/config/haproxy.cfg"
       fix: "Check haproxy.cfg syntax, validate ACL format"
 
     nginx_crash_loop:
-      symptom: "vless_nginx_reverseproxy keeps restarting"
-      detection: "docker logs vless_nginx_reverseproxy | grep 'unknown zone'"
+      symptom: "familytraffic-nginx keeps restarting"
+      detection: "docker logs familytraffic-nginx | grep 'unknown zone'"
       cause: "Missing rate limit zone in http_context.conf"
       fix: "Add missing limit_req_zone to http_context.conf, reload Nginx"
 
     missing_certificate:
       symptom: "HAProxy won't start, missing combined.pem"
-      detection: "docker logs vless_haproxy | grep 'unable to load SSL certificate'"
+      detection: "docker logs familytraffic-haproxy | grep 'unable to load SSL certificate'"
       cause: "Certificate not combined or missing"
       fix: "Run: cat fullchain.pem privkey.pem > combined.pem"
 
     users_json_corrupted:
       symptom: "Cannot add/remove users, JSON parse errors"
-      detection: "jq . /opt/vless/data/users.json (exit code != 0)"
+      detection: "jq . /opt/familytraffic/data/users.json (exit code != 0)"
       cause: "Malformed JSON, race condition, disk full"
       fix: "Restore from backup, validate JSON syntax"
 

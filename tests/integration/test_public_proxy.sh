@@ -42,7 +42,7 @@ readonly NC='\033[0m'
 
 # Test configuration
 readonly TEST_USERNAME="test_user_$(date +%s)"
-readonly VLESS_BASE_DIR="/opt/vless"
+readonly VLESS_BASE_DIR="/opt/familytraffic"
 readonly REQUIRED_COMMANDS=("curl" "jq" "fail2ban-client" "docker" "ufw")
 
 # Test results tracking
@@ -228,7 +228,7 @@ test_02_fail2ban_protection() {
 
     # Check initial ban status
     print_info "Initial banned IP count:"
-    sudo fail2ban-client status vless-socks5 | grep "Currently banned" || true
+    sudo fail2ban-client status familytraffic-socks5 | grep "Currently banned" || true
 
     # Attempt 6 connections with wrong password
     print_info "Attempting 6 connections with wrong password..."
@@ -245,7 +245,7 @@ test_02_fail2ban_protection() {
     # Check if current IP is banned
     print_info "Checking if IP is banned..."
     local banned_ips
-    banned_ips=$(sudo fail2ban-client status vless-socks5 | grep "Banned IP list" | awk -F':' '{print $2}' || echo "")
+    banned_ips=$(sudo fail2ban-client status familytraffic-socks5 | grep "Banned IP list" | awk -F':' '{print $2}' || echo "")
 
     if echo "$banned_ips" | grep -q "$server_ip"; then
         print_success "Fail2ban correctly banned IP after failed attempts"
@@ -412,18 +412,18 @@ test_07_fail2ban_jails_active() {
     print_test "Verifying both SOCKS5 and HTTP jails are active"
 
     # Check SOCKS5 jail
-    if sudo fail2ban-client status vless-socks5 &>/dev/null; then
-        print_success "Fail2ban jail 'vless-socks5' is active"
+    if sudo fail2ban-client status familytraffic-socks5 &>/dev/null; then
+        print_success "Fail2ban jail 'familytraffic-socks5' is active"
     else
-        print_failure "Fail2ban jail 'vless-socks5' NOT active"
+        print_failure "Fail2ban jail 'familytraffic-socks5' NOT active"
         return 1
     fi
 
     # Check HTTP jail
-    if sudo fail2ban-client status vless-http &>/dev/null; then
-        print_success "Fail2ban jail 'vless-http' is active"
+    if sudo fail2ban-client status familytraffic-http &>/dev/null; then
+        print_success "Fail2ban jail 'familytraffic-http' is active"
     else
-        print_failure "Fail2ban jail 'vless-http' NOT active"
+        print_failure "Fail2ban jail 'familytraffic-http' NOT active"
         return 1
     fi
 

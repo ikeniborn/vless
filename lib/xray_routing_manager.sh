@@ -121,7 +121,7 @@ enable_proxy_routing() {
 
     if [[ -z "$active_proxy_id" ]]; then
         echo -e "${YELLOW}No active proxy found. Please activate a proxy first.${NC}"
-        echo -e "${YELLOW}Use: vless-external-proxy switch <proxy-id>${NC}"
+        echo -e "${YELLOW}Use: familytraffic-external-proxy switch <proxy-id>${NC}"
         return 1
     fi
 

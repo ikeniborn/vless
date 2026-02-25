@@ -142,7 +142,7 @@ sequenceDiagram
     participant XrayConfig as xray_config.json
     participant Xray
 
-    Admin->>CLI: sudo vless set-proxy alice proxy-us-east
+    Admin->>CLI: sudo familytraffic set-proxy alice proxy-us-east
 
     CLI->>UserMgmt: cmd_set_user_proxy("alice", "proxy-us-east")
     UserMgmt->>UserMgmt: Validate user exists
@@ -422,7 +422,7 @@ graph TB
 
 ```bash
 # Step 1: Add external proxy to database
-sudo vless-external-proxy add
+sudo familytraffic-external-proxy add
 
 # Interactive wizard:
 # → Proxy type: socks5s
@@ -441,7 +441,7 @@ sudo vless-external-proxy add
 
 ```bash
 # Step 2: Assign proxy to user
-sudo vless set-proxy alice proxy-us-east
+sudo familytraffic set-proxy alice proxy-us-east
 
 # Output:
 # ✓ Updated user alice: external_proxy_id = proxy-us-east
@@ -454,7 +454,7 @@ sudo vless set-proxy alice proxy-us-east
 
 ```bash
 # Check specific user
-sudo vless show-proxy alice
+sudo familytraffic show-proxy alice
 
 # Output:
 # User: alice (alice@vless.local)
@@ -464,7 +464,7 @@ sudo vless show-proxy alice
 # Proxy Status: ✓ Enabled
 
 # List all assignments
-sudo vless list-proxy-assignments
+sudo familytraffic list-proxy-assignments
 
 # Output:
 # USER       PROXY ID         PROXY NAME        TYPE      STATUS
@@ -477,7 +477,7 @@ sudo vless list-proxy-assignments
 
 ```bash
 # Remove proxy from user (revert to direct routing)
-sudo vless set-proxy alice none
+sudo familytraffic set-proxy alice none
 
 # Output:
 # ✓ Updated user alice: external_proxy_id = null
@@ -496,13 +496,13 @@ sudo vless set-proxy alice none
 
 ```bash
 # Add proxies
-sudo vless-external-proxy add  # proxy-us
-sudo vless-external-proxy add  # proxy-eu
+sudo familytraffic-external-proxy add  # proxy-us
+sudo familytraffic-external-proxy add  # proxy-eu
 
 # Assign to users
-sudo vless set-proxy alice proxy-us    # Alice in US
-sudo vless set-proxy bob proxy-eu      # Bob in EU
-sudo vless set-proxy charlie none      # Charlie direct
+sudo familytraffic set-proxy alice proxy-us    # Alice in US
+sudo familytraffic set-proxy bob proxy-eu      # Bob in EU
+sudo familytraffic set-proxy charlie none      # Charlie direct
 ```
 
 **Result:**
@@ -516,14 +516,14 @@ sudo vless set-proxy charlie none      # Charlie direct
 
 ```bash
 # Add multiple proxies
-sudo vless-external-proxy add  # proxy-1
-sudo vless-external-proxy add  # proxy-2
-sudo vless-external-proxy add  # proxy-3
+sudo familytraffic-external-proxy add  # proxy-1
+sudo familytraffic-external-proxy add  # proxy-2
+sudo familytraffic-external-proxy add  # proxy-3
 
 # Distribute users
-sudo vless set-proxy alice proxy-1
-sudo vless set-proxy bob proxy-2
-sudo vless set-proxy charlie proxy-3
+sudo familytraffic set-proxy alice proxy-1
+sudo familytraffic set-proxy bob proxy-2
+sudo familytraffic set-proxy charlie proxy-3
 ```
 
 **Result:** Traffic load distributed across 3 upstream proxies
@@ -600,7 +600,7 @@ Client → VLESS VPN (encrypted) → External Proxy (encrypted) → Internet
 | **Use Case** | Geo-routing, selective privacy | Global proxy requirement |
 | **Complexity** | Higher (multiple routing rules) | Lower (single outbound) |
 | **Performance** | Dynamic (depends on proxy assignment) | Consistent (all users same latency) |
-| **Management** | `vless set-proxy <user> <proxy-id>` | `vless-external-proxy enable` |
+| **Management** | `vless set-proxy <user> <proxy-id>` | `familytraffic-external-proxy enable` |
 
 ---
 
@@ -613,10 +613,10 @@ Client → VLESS VPN (encrypted) → External Proxy (encrypted) → Internet
 - **Debug:**
   ```bash
   # Check user's external_proxy_id
-  jq '.users[] | select(.username == "alice") | .external_proxy_id' /opt/vless/data/users.json
+  jq '.users[] | select(.username == "alice") | .external_proxy_id' /opt/familytraffic/data/users.json
 
   # Check routing rules
-  jq '.routing.rules[] | select(.user[] == "alice@vless.local")' /opt/vless/config/xray_config.json
+  jq '.routing.rules[] | select(.user[] == "alice@vless.local")' /opt/familytraffic/config/xray_config.json
   ```
 
 **Issue 2: External proxy connection fails**
@@ -624,7 +624,7 @@ Client → VLESS VPN (encrypted) → External Proxy (encrypted) → Internet
 - **Debug:**
   ```bash
   # Check Xray logs for proxy connection errors
-  docker logs vless_xray --tail 100 | grep "external-proxy"
+  docker logs familytraffic --tail 100 | grep "external-proxy"
 
   # Test proxy connectivity manually
   curl --socks5 socks5://proxyuser:pass@proxy-us.example.com:1080 https://www.google.com
@@ -645,7 +645,7 @@ Client → VLESS VPN (encrypted) → External Proxy (encrypted) → Internet
 - [data-flows.yaml](../../yaml/data-flows.yaml) - Complete external proxy flow specification
 - [docker.yaml](../../yaml/docker.yaml) - Xray container configuration
 - [config.yaml](../../yaml/config.yaml) - users.json and external_proxy.json relationships
-- [cli.yaml](../../yaml/cli.yaml) - vless-external-proxy and vless set-proxy commands
+- [cli.yaml](../../yaml/cli.yaml) - familytraffic-external-proxy and vless set-proxy commands
 - [VLESS Reality Flow](vless-reality-flow.md) - Base VPN protocol flow
 - [SOCKS5 Proxy Flow](socks5-proxy-flow.md) - SOCKS5 protocol details
 - [HTTP Proxy Flow](http-proxy-flow.md) - HTTP proxy protocol details
