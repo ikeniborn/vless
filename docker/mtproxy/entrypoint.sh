@@ -6,7 +6,7 @@
 # Purpose:
 #   Initialize and start MTProxy server with configuration from mounted files
 #
-# Configuration files (mounted from /opt/vless/config/mtproxy/):
+# Configuration files (mounted from /opt/familytraffic/config/mtproxy/):
 #   - mtproxy_config.json: Main configuration (port, workers)
 #   - proxy-secret: MTProxy secret(s) (one per line for multi-user)
 #   - proxy-multi.conf: Telegram DC addresses
@@ -63,7 +63,7 @@ log_info "Configuration directory: ${CONFIG_DIR}"
 
 if [ ! -f "${SECRET_FILE}" ]; then
     log_error "Secret file not found: ${SECRET_FILE}"
-    log_error "Please mount /opt/vless/config/mtproxy/ to /etc/mtproxy/"
+    log_error "Please mount /opt/familytraffic/config/mtproxy/ to /etc/mtproxy/"
     exit 1
 fi
 

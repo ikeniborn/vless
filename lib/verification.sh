@@ -392,28 +392,8 @@ verify_containers() {
         log_warning "Container 'familytraffic' restart policy: $xray_restart (expected unless-stopped)"
     fi
 
-    # Check HAProxy container if proxy enabled (v4.3+)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        local haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-        if [[ "$haproxy_status" == "running" ]]; then
-            log_success "Container 'vless_haproxy' is running"
-
-            # Check healthcheck status (if available)
-            local haproxy_health=$(docker inspect vless_haproxy -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-            if [[ "$haproxy_health" == "healthy" ]]; then
-                log_success "Container 'vless_haproxy' health: healthy"
-            elif [[ "$haproxy_health" == "starting" ]]; then
-                log_info "  Container 'vless_haproxy' health: starting"
-            elif [[ "$haproxy_health" == "unhealthy" ]]; then
-                log_error "Container 'vless_haproxy' health: unhealthy"
-            fi
-
-            # v4.3: HAProxy runs in host network mode (no Docker network attachment)
-            log_info "  HAProxy network mode: host (direct access to ports 443, 1080, 8118)"
-        elif [[ "$haproxy_status" != "not-found" ]]; then
-            log_error "Container 'vless_haproxy' exists but status is: $haproxy_status"
-        fi
-    fi
+    # v5.33: HAProxy removed — public proxy handled by nginx inside familytraffic container
+    # No separate HAProxy container check needed
 
     echo ""
 }
@@ -675,25 +655,9 @@ verify_port_listening() {
         fi
     fi
 
-    # Check port bindings in Docker (v4.3: Xray uses 'expose', HAProxy uses 'ports')
-    if [[ "$vless_port" == "8443" ]]; then
-        # v4.3 architecture: Xray port 8443 is exposed (not bound), HAProxy port 443 is bound
-        local haproxy_bindings=$(docker inspect vless_haproxy -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
-        if [[ "$haproxy_bindings" =~ "443" ]]; then
-            log_success "Container 'vless_haproxy' port binding: $haproxy_bindings"
-            log_info "  Container 'familytraffic' port 8443 uses 'expose' (Docker-internal) - expected for v4.3"
-        else
-            log_error "Container 'vless_haproxy' port 443 is not bound to host"
-        fi
-    else
-        # Legacy architecture or custom port
-        local port_bindings=$(docker inspect familytraffic -f '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}} -> {{(index $conf 0).HostPort}} {{end}}' 2>/dev/null || echo "")
-        if [[ "$port_bindings" =~ "$vless_port" ]]; then
-            log_success "Container 'familytraffic' port binding: $port_bindings"
-        else
-            log_error "Container 'familytraffic' port $vless_port is not bound to host"
-        fi
-    fi
+    # v5.33: familytraffic runs in host network mode — ports 443/1080/8118 bound directly on host
+    # (no Docker port mapping; ss check above is sufficient)
+    log_info "  Container 'familytraffic' uses host network — port binding via host network stack"
 
     # Check if port is accessible from outside (basic check)
     local server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "unknown")
@@ -787,19 +751,15 @@ validate_mandatory_tls() {
         log_success "    ✓ haproxy.cfg exists"
     fi
 
-    # Check 2: HAProxy container exists
-    log_info "  [2/5] Checking HAProxy container..."
-    if ! docker ps -a --format '{{.Names}}' | grep -q '^vless_haproxy$'; then
-        log_error "    ✗ HAProxy container not found"
-        validation_failed=1
+    # Check 2: familytraffic container running (v5.33: replaces HAProxy)
+    log_info "  [2/5] Checking familytraffic container..."
+    local ft_status
+    ft_status=$(docker inspect familytraffic -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$ft_status" == "running" ]]; then
+        log_success "    ✓ familytraffic container running"
     else
-        local haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [[ "$haproxy_status" == "running" ]]; then
-            log_success "    ✓ HAProxy container running"
-        else
-            log_error "    ✗ HAProxy container status: $haproxy_status"
-            validation_failed=1
-        fi
+        log_error "    ✗ familytraffic container status: $ft_status"
+        validation_failed=1
     fi
 
     # Check 3: Certificate files exist
