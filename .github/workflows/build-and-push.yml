@@ -116,6 +116,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Ensure /opt/familytraffic exists before scp-action tries to write into it.
+      # scp-action runs mkdir via the SSH user, which may lack write access to /opt/.
+      - name: Ensure /opt/familytraffic exists on test server
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.TEST_SSH_HOST }}
+          username: ${{ secrets.TEST_SSH_USER }}
+          key:      ${{ secrets.TEST_SSH_KEY }}
+          script: sudo mkdir -p /opt/familytraffic
+
       # Sync the base service definition from the repo to the test server.
       # MTProxy block (if appended by familytraffic-mtproxy-setup) will be
       # overwritten — re-run `familytraffic-mtproxy-setup` once if needed.
