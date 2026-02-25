@@ -1491,11 +1491,6 @@ install_cli_tools() {
         return 1
     }
 
-    # Create backwards-compat symlink: vless → familytraffic
-    ln -sf /usr/local/bin/familytraffic /usr/local/bin/vless || true
-    echo "  ✓ Compat symlink: /usr/local/bin/vless → familytraffic"
-
-
     # v5.23: Install familytraffic-external-proxy CLI tool
     local external_proxy_cli_source="${project_root}/scripts/familytraffic-external-proxy"
     if [[ -f "$external_proxy_cli_source" ]]; then
@@ -1603,8 +1598,7 @@ install_cli_tools() {
     echo "    - ${SCRIPTS_DIR}/familytraffic"
     echo "  ✓ Symlinks created:"
     echo "    - /usr/local/bin/familytraffic"
-    echo "    - /usr/local/bin/vless  (compat alias → familytraffic)"
-    echo "  ✓ Commands available: familytraffic  (vless is a backwards-compat alias)"
+    echo "  ✓ Commands available: familytraffic"
 
     echo -e "${GREEN}✓ CLI tools installed${NC}"
     return 0

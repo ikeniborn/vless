@@ -109,8 +109,8 @@ display_why_sudoers() {
     echo "  • Manage user accounts and generate keys"
     echo ""
     echo "By default, you must use 'sudo' with every command:"
-    echo -e "  ${YELLOW}sudo vless add-user alice${NC}"
-    echo -e "  ${YELLOW}sudo vless status${NC}"
+    echo -e "  ${YELLOW}sudo familytraffic add-user alice${NC}"
+    echo -e "  ${YELLOW}sudo familytraffic status${NC}"
     echo ""
     echo "Configuring sudoers allows:"
     echo -e "  ${GREEN}✓${NC} Non-root users to execute VLESS commands"
@@ -385,11 +385,11 @@ offer_automatic_configuration() {
 
         # Create sudoers file
         cat > /tmp/familytraffic_sudoers << 'EOF'
-# VLESS Management Commands - Sudoers Configuration
-# Allows members of sudo group to execute VLESS commands without password
-# Created by VLESS installer
+# familyTraffic Management Commands - Sudoers Configuration
+# Allows members of sudo group to execute familytraffic commands without password
+# Created by familyTraffic installer
 
-%sudo ALL=(ALL) NOPASSWD: /usr/local/bin/vless*
+%sudo ALL=(ALL) NOPASSWD: /usr/local/bin/familytraffic*
 EOF
 
         # Install with proper permissions

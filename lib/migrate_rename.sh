@@ -5,7 +5,6 @@
 #
 # Handles upgrade path from old vless installations:
 #   - Moves /opt/familytraffic/ → /opt/familytraffic/ (atomic mv + backwards-compat symlink)
-#   - Creates compat symlink /usr/local/bin/vless → familytraffic
 #
 # WARN-7 fix: uses mv (atomic on same filesystem) instead of cp -a + rm -rf
 # Usage: source lib/migrate_rename.sh  (or execute directly)
@@ -39,11 +38,6 @@ migrate_rename() {
         : # no-op
     fi
 
-    # Create backwards-compat CLI symlink: vless → familytraffic
-    if [ -f /usr/local/bin/familytraffic ] && [ ! -e /usr/local/bin/vless ]; then
-        ln -sf /usr/local/bin/familytraffic /usr/local/bin/vless
-        echo "  [migrate] Compat symlink created: /usr/local/bin/vless → familytraffic"
-    fi
 }
 
 # Run migration when executed directly (not sourced)
