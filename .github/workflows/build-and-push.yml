@@ -5,9 +5,9 @@
 #   - Pull Request targeting the `test` branch (with relevant file changes)
 #   - Manual via workflow_dispatch
 #
-# Pipeline steps:
-#   1. Build Docker image → push :test + :sha-<short> to GHCR
-#   2. SSH into test server → docker compose pull && up -d
+# Pipeline:
+#   1. build-and-push — build image → push :test + :sha-<short> to GHCR
+#   2. deploy-test    — rsync docker-compose.yml + VERSION=test docker compose up
 #
 # Required GitHub secrets (Settings → Environments → test):
 #   TEST_SSH_HOST    — IP or hostname of the test server
@@ -23,6 +23,7 @@ on:
       - test
     paths:
       - "docker/familytraffic/**"
+      - "docker-compose.yml"
       - "lib/nginx_stream_generator.sh"
       - ".github/workflows/build-and-push.yml"
   workflow_dispatch:
@@ -71,23 +72,43 @@ jobs:
           context: .
           file: docker/familytraffic/Dockerfile
           push: true
-          tags:      ${{ steps.meta.outputs.tags }}
-          labels:    ${{ steps.meta.outputs.labels }}
+          tags:       ${{ steps.meta.outputs.tags }}
+          labels:     ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to:   type=gha,mode=max
           platforms:  linux/amd64
 
   # ============================================================
-  # Job 2: Deploy :test image to test server via SSH
+  # Job 2: Sync compose + deploy :test image on test server
   # ============================================================
   deploy-test:
     name: Deploy to Test Server
     runs-on: ubuntu-latest
     needs: build-and-push
-    environment: test          # GitHub Environment — supports required reviewers & env secrets
+    environment: test   # GitHub Environment — supports required reviewers & env secrets
 
     steps:
-      - name: Pull & restart familytraffic on test server
+      # Step 1: Copy the repo's docker-compose.yml to the test server.
+      # Only the base familytraffic service block is synced; any MTProxy section
+      # appended by familytraffic-mtproxy-setup on the server is preserved because
+      # the generator appends below the sentinel comment line — rsync replaces the
+      # base file but the MTProxy section lives in a separate append step on the server.
+      # NOTE: If MTProxy is enabled on the server, re-run `familytraffic-mtproxy-setup`
+      # once after the first CI deploy to re-append the MTProxy block.
+      - name: Sync docker-compose.yml to test server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.TEST_SSH_HOST }}
+          username: ${{ secrets.TEST_SSH_USER }}
+          key:      ${{ secrets.TEST_SSH_KEY }}
+          source:   "docker-compose.yml"
+          target:   "/opt/familytraffic/"
+          overwrite: true
+
+      # Step 2: Pull new :test image and restart the container.
+      # VERSION=test is passed inline — overrides any VERSION value in .env,
+      # so the server's .env does not need to be modified.
+      - name: Pull & restart familytraffic:test
         uses: appleboy/ssh-action@v1
         env:
           GHCR_TOKEN: ${{ secrets.TEST_GHCR_TOKEN }}
@@ -101,17 +122,22 @@ jobs:
           script: |
             set -e
 
-            # Authenticate with GHCR to pull private image
+            # Authenticate to GHCR for docker pull
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
 
-            # Pull the new :test image
+            # Pull the new :test image ahead of compose up (explicit, for logging)
             docker pull "${IMAGE}"
 
             docker logout ghcr.io
 
-            # Restart via docker compose (update image reference and recreate)
+            # Restart with VERSION=test; overrides whatever VERSION is in .env
+            # so the server's .env is never modified by CI
             cd /opt/familytraffic
-            docker compose pull
-            docker compose up -d --remove-orphans
+            VERSION=test docker compose up -d --remove-orphans --pull always
+
+            # Verify container started
+            sleep 3
+            docker inspect familytraffic --format "{{.State.Status}}" | grep -q "^running$" \
+              || { echo "ERROR: container not running after deploy"; exit 1; }
 
             echo "Deploy complete: ${IMAGE}"
