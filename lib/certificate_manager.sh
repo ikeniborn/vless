@@ -1,15 +1,17 @@
 #!/bin/bash
 #==============================================================================
-# Certificate Manager Module for HAProxy (v4.3)
-# Part of VLESS + Reality VPN v4.3
+# Certificate Manager Module (v5.33)
+# Part of familyTraffic VPN v5.33
 #
 # This module handles:
-# - HAProxy combined.pem generation (fullchain + privkey)
-# - Certificate validation for HAProxy
+# - Certificate validation (Let's Encrypt)
 # - Integration with certbot lifecycle
 #
-# Version: 4.3
-# Author: VLESS Team
+# Note: HAProxy combined.pem functions preserved as no-op stubs (v5.33).
+# In v5.33 single-container architecture nginx reads LE certs directly.
+#
+# Version: 5.33
+# Author: familyTraffic Development Team
 # Date: 2025-10-17
 #==============================================================================
 
@@ -146,218 +148,41 @@ validate_dns_for_domain() {
 
 #==============================================================================
 # FUNCTION: create_haproxy_combined_cert
-# PURPOSE: Create HAProxy combined.pem file from Let's Encrypt certificates
+# PURPOSE: No-op stub — HAProxy removed in v5.33
 # USAGE: create_haproxy_combined_cert <domain>
-# RETURNS: 0 on success, 1 on failure
+# RETURNS: 0 (always succeeds)
 #
-# DETAILS:
-#   HAProxy requires combined.pem format: fullchain.pem + privkey.pem
-#   Location: /etc/letsencrypt/live/<domain>/combined.pem
-#
-# CALLED WHEN:
-#   - After successful certificate acquisition
-#   - After successful certificate renewal
+# NOTE: In v5.33 single-container architecture nginx inside familytraffic
+#       reads fullchain.pem + privkey.pem directly. combined.pem not needed.
 #==============================================================================
 create_haproxy_combined_cert() {
-    local domain="$1"
-
-    # Validate domain parameter
-    if [[ -z "$domain" ]]; then
-        echo -e "${RED}ERROR: Domain parameter required${NC}" >&2
-        return 1
-    fi
-
-    local cert_dir="/etc/letsencrypt/live/${domain}"
-    local fullchain="${cert_dir}/fullchain.pem"
-    local privkey="${cert_dir}/privkey.pem"
-    local combined="${cert_dir}/combined.pem"
-
-    echo ""
-    echo -e "${CYAN}Creating HAProxy combined.pem for ${domain}...${NC}"
-    echo ""
-
-    # Step 1: Validate certificate directory exists
-    if [[ ! -d "$cert_dir" ]]; then
-        echo -e "${RED}ERROR: Certificate directory not found${NC}" >&2
-        echo "Expected: $cert_dir" >&2
-        return 1
-    fi
-
-    # Step 2: Validate certificate files exist
-    local missing_files=()
-    [[ ! -f "$fullchain" ]] && missing_files+=("fullchain.pem")
-    [[ ! -f "$privkey" ]] && missing_files+=("privkey.pem")
-
-    if [[ ${#missing_files[@]} -gt 0 ]]; then
-        echo -e "${RED}ERROR: Missing certificate files${NC}" >&2
-        for file in "${missing_files[@]}"; do
-            echo "  ✗ $file" >&2
-        done
-        return 1
-    fi
-
-    # Step 3: Validate certificate files are readable
-    if [[ ! -r "$fullchain" ]]; then
-        echo -e "${RED}ERROR: Cannot read fullchain.pem${NC}" >&2
-        echo "File: $fullchain" >&2
-        echo "Check permissions" >&2
-        return 1
-    fi
-
-    if [[ ! -r "$privkey" ]]; then
-        echo -e "${RED}ERROR: Cannot read privkey.pem${NC}" >&2
-        echo "File: $privkey" >&2
-        echo "Check permissions" >&2
-        return 1
-    fi
-
-    # Step 4: Create combined.pem (fullchain + privkey)
-    echo "Concatenating fullchain.pem and privkey.pem..."
-
-    # Use temporary file for atomic operation
-    local temp_combined="${combined}.tmp"
-
-    if ! cat "$fullchain" "$privkey" > "$temp_combined"; then
-        echo -e "${RED}ERROR: Failed to create combined.pem${NC}" >&2
-        rm -f "$temp_combined"
-        return 1
-    fi
-
-    # Move temporary file to final location (atomic operation)
-    if ! mv "$temp_combined" "$combined"; then
-        echo -e "${RED}ERROR: Failed to move combined.pem to final location${NC}" >&2
-        rm -f "$temp_combined"
-        return 1
-    fi
-
-    # Step 5: Set permissions (readable by HAProxy, writable only by root)
-    # HAProxy runs as non-root in host network mode, needs read access
-    chmod 644 "$combined" || {
-        echo -e "${YELLOW}WARNING: Failed to set permissions on combined.pem${NC}" >&2
-    }
-
-    # Step 6: Validate combined.pem format
-    if ! validate_haproxy_cert "$combined"; then
-        echo -e "${RED}ERROR: Generated combined.pem failed validation${NC}" >&2
-        return 1
-    fi
-
-    # Step 7: Display summary
-    local cert_size
-    cert_size=$(stat -c%s "$combined" 2>/dev/null || echo "unknown")
-
-    echo ""
-    echo -e "${GREEN}✅ HAProxy combined.pem created successfully${NC}"
-    echo ""
-    echo "Location: $combined"
-    echo "Size:     $cert_size bytes"
-    echo "Permissions: $(stat -c%a "$combined" 2>/dev/null || echo "unknown")"
-    echo ""
-
-    # Show certificate expiry
-    local expiry
-    expiry=$(openssl x509 -in "$fullchain" -noout -enddate 2>/dev/null | cut -d= -f2)
-    if [[ -n "$expiry" ]]; then
-        echo "Certificate expires: $expiry"
-        echo ""
-    fi
-
+    local domain="${1:-}"
+    echo -e "${YELLOW}ℹ️  create_haproxy_combined_cert: HAProxy removed in v5.33 — skipping for ${domain}${NC}"
+    echo "    nginx inside familytraffic reads LE certs directly (no combined.pem needed)"
     return 0
 }
 
 #==============================================================================
 # FUNCTION: validate_haproxy_cert
-# PURPOSE: Validate HAProxy combined.pem format
+# PURPOSE: No-op stub — HAProxy removed in v5.33
 # USAGE: validate_haproxy_cert <combined_pem_path>
-# RETURNS: 0 if valid, 1 if invalid
+# RETURNS: 0 (always succeeds)
 #==============================================================================
 validate_haproxy_cert() {
-    local combined_pem="$1"
-
-    if [[ ! -f "$combined_pem" ]]; then
-        echo -e "${RED}ERROR: File not found: $combined_pem${NC}" >&2
-        return 1
-    fi
-
-    # Check 1: File contains certificate
-    if ! grep -q "BEGIN CERTIFICATE" "$combined_pem"; then
-        echo -e "${RED}ERROR: No certificate found in $combined_pem${NC}" >&2
-        return 1
-    fi
-
-    # Check 2: File contains private key
-    if ! grep -q "BEGIN PRIVATE KEY" "$combined_pem"; then
-        echo -e "${RED}ERROR: No private key found in $combined_pem${NC}" >&2
-        return 1
-    fi
-
-    # Check 3: Certificate is valid (OpenSSL validation)
-    if ! openssl x509 -in "$combined_pem" -noout -checkend 0 2>/dev/null; then
-        echo -e "${YELLOW}WARNING: Certificate has expired or is invalid${NC}" >&2
-        return 1
-    fi
-
-    # Check 4: Private key is valid
-    if ! openssl pkey -in "$combined_pem" -noout 2>/dev/null; then
-        echo -e "${RED}ERROR: Private key validation failed${NC}" >&2
-        return 1
-    fi
-
-    # Success
+    local combined_pem="${1:-}"
+    echo -e "${YELLOW}ℹ️  validate_haproxy_cert: HAProxy removed in v5.33 — skipping validation for ${combined_pem}${NC}"
     return 0
 }
 
 #==============================================================================
 # FUNCTION: create_combined_cert_for_all_domains
-# PURPOSE: Create combined.pem for all domains with Let's Encrypt certificates
+# PURPOSE: No-op stub — HAProxy removed in v5.33
 # USAGE: create_combined_cert_for_all_domains
-# RETURNS: 0 on success, 1 if any domain fails
+# RETURNS: 0 (always succeeds)
 #==============================================================================
 create_combined_cert_for_all_domains() {
-    echo ""
-    echo -e "${CYAN}Creating HAProxy combined.pem for all domains...${NC}"
-    echo ""
-
-    local letsencrypt_dir="/etc/letsencrypt/live"
-
-    if [[ ! -d "$letsencrypt_dir" ]]; then
-        echo -e "${YELLOW}WARNING: Let's Encrypt directory not found${NC}"
-        echo "Location: $letsencrypt_dir"
-        echo "No certificates to process"
-        return 0
-    fi
-
-    local processed=0
-    local failed=0
-
-    # Iterate through all certificate directories
-    for cert_dir in "$letsencrypt_dir"/*/; do
-        # Skip README directory
-        [[ "$(basename "$cert_dir")" == "README" ]] && continue
-
-        local domain
-        domain=$(basename "$cert_dir")
-
-        echo "Processing: $domain"
-
-        if create_haproxy_combined_cert "$domain"; then
-            ((processed++))
-        else
-            echo -e "${RED}✗ Failed to create combined.pem for $domain${NC}" >&2
-            ((failed++))
-        fi
-    done
-
-    echo ""
-    echo "Summary:"
-    echo "  Processed: $processed"
-    echo "  Failed:    $failed"
-    echo ""
-
-    if [[ $failed -gt 0 ]]; then
-        return 1
-    fi
-
+    echo -e "${YELLOW}ℹ️  create_combined_cert_for_all_domains: HAProxy removed in v5.33 — skipping${NC}"
+    echo "    nginx inside familytraffic reads LE certs directly (no combined.pem needed)"
     return 0
 }
 
@@ -368,114 +193,16 @@ create_combined_cert_for_all_domains() {
 # RETURNS: 0 on success, 1 on failure
 #==============================================================================
 reload_haproxy_after_cert_update() {
-    echo ""
-    echo -e "${CYAN}Reloading HAProxy with new certificates...${NC}"
-    echo ""
-
-    # Check if HAProxy container exists
-    if ! docker ps -a --format '{{.Names}}' | grep -q "vless_haproxy"; then
-        echo -e "${YELLOW}WARNING: HAProxy container not found${NC}"
-        echo "Skipping HAProxy reload"
-        return 0
-    fi
-
-    # Check if container is running
-    local haproxy_status
-    haproxy_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-
-    if [[ "$haproxy_status" != "running" ]]; then
-        echo -e "${RED}ERROR: HAProxy container not running (status: $haproxy_status)${NC}" >&2
-        return 1
-    fi
-
-    # Graceful reload: haproxy -f config.cfg -sf <old_pid>
-    echo "Performing graceful reload..."
-
-    local old_pid
-    old_pid=$(docker exec vless_haproxy pidof haproxy 2>/dev/null || echo "")
-
-    if [[ -z "$old_pid" ]]; then
-        echo -e "${YELLOW}WARNING: Could not get HAProxy PID, attempting restart${NC}"
-
-        if docker restart vless_haproxy >/dev/null 2>&1; then
-            sleep 2
-            echo -e "${GREEN}✅ HAProxy restarted successfully${NC}"
-            return 0
-        else
-            echo -e "${RED}ERROR: Failed to restart HAProxy${NC}" >&2
-            return 1
-        fi
-    fi
-
-    # Graceful reload with old PID
-    # Note: Capture output to check for errors (warnings are OK, only errors should fail)
-    # Use timeout to prevent hanging when active connections are present
-    local reload_output
-    reload_output=$(timeout 10 docker exec vless_haproxy haproxy -f /usr/local/etc/haproxy/haproxy.cfg -sf $old_pid 2>&1)
-    local exit_code=$?
-
-    # Exit code 124 means timeout occurred (reload is still in progress, but that's OK)
-    # The new HAProxy process started successfully and will finish gracefully in background
-    # v5.21: Changed warning to info style (less alarming for users)
-    if [ $exit_code -eq 124 ]; then
-        echo -e "${CYAN}ℹ️  HAProxy reload: graceful shutdown in progress${NC}"
-        echo "This is normal when active VPN connections are present."
-        exit_code=0  # Consider it success
-    fi
-
-    # Check if reload has actual errors (not just warnings)
-    if echo "$reload_output" | grep -qi "\[ALERT\]"; then
-        echo -e "${RED}ERROR: HAProxy reload failed with ALERT:${NC}" >&2
-        echo "$reload_output" | grep -i "\[ALERT\]" >&2
-        echo "" >&2
-        echo "TROUBLESHOOTING:" >&2
-        echo "  1. Check HAProxy config permissions:" >&2
-        echo "     sudo ls -la /opt/familytraffic/config/haproxy.cfg" >&2
-        echo "     (Should be: -rw-r--r-- root root)" >&2
-        echo "  2. Verify config inside container:" >&2
-        echo "     docker exec vless_haproxy ls -la /usr/local/etc/haproxy/haproxy.cfg" >&2
-        echo "  3. Test config syntax:" >&2
-        echo "     docker exec vless_haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg" >&2
-        return 1
-    fi
-
-    # Wait for reload to complete
-    sleep 2
-
-    # Verify HAProxy is running and healthy after reload
-    local new_status
-    new_status=$(docker inspect vless_haproxy -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-
-    if [[ "$new_status" != "running" ]]; then
-        echo -e "${RED}ERROR: HAProxy container stopped after reload${NC}" >&2
-        echo "Container status: $new_status" >&2
-        return 1
-    fi
-
-    # Get new PID to confirm reload happened
-    local new_pid
-    new_pid=$(docker exec vless_haproxy pidof haproxy 2>/dev/null | awk '{print $1}')
-
-    if [[ -z "$new_pid" ]]; then
-        echo -e "${RED}ERROR: HAProxy process not found after reload${NC}" >&2
-        return 1
-    fi
-
-    # Log warnings if present (but don't fail)
-    if echo "$reload_output" | grep -qi "\[WARNING\]"; then
-        echo -e "${YELLOW}⚠️  HAProxy reload completed with warnings (non-critical):${NC}"
-        echo "$reload_output" | grep -i "\[WARNING\]" | head -3
-    fi
-
-    echo -e "${GREEN}✅ HAProxy reloaded gracefully (zero downtime)${NC}"
-    echo "  Old PID: $old_pid"
-    echo "  New PID: $new_pid"
+    # v5.33: HAProxy removed — nginx runs inside familytraffic container as a supervisord process
+    # Certificate reload is handled internally by certbot-renew.sh via supervisorctl signal SIGHUP nginx
+    echo -e "${YELLOW}ℹ️  HAProxy removed in v5.33 — cert reload handled by familytraffic container internally${NC}"
+    echo "    To manually reload nginx: docker exec familytraffic supervisorctl signal SIGHUP nginx"
     return 0
 }
 
 #==============================================================================
 # FUNCTION: acquire_certificate_for_domain
-# PURPOSE: Unified certificate acquisition workflow (v4.3)
+# PURPOSE: Unified certificate acquisition workflow (v5.33)
 # USAGE: acquire_certificate_for_domain <domain> <email>
 # RETURNS: 0 on success, 1 on failure
 #
@@ -483,9 +210,9 @@ reload_haproxy_after_cert_update() {
 #   1. Validate DNS A record points to server
 #   2. Start Certbot Nginx (port 80)
 #   3. Run certbot with ACME HTTP-01 challenge
-#   4. Create HAProxy combined.pem
+#   4. nginx reads LE certs directly (combined.pem not needed)
 #   5. Stop Certbot Nginx
-#   6. Reload HAProxy gracefully
+#   6. nginx in familytraffic container reads certs directly
 #
 # DEPENDENCIES:
 #   - certificate_manager.sh (this module)
@@ -510,7 +237,7 @@ acquire_certificate_for_domain() {
 
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║  Unified Certificate Acquisition (v4.3 HAProxy)             ║${NC}"
+    echo -e "${CYAN}║  Unified Certificate Acquisition (v5.33)             ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo "Domain: $domain"
@@ -562,16 +289,16 @@ acquire_certificate_for_domain() {
 
     # STEP 6: HAProxy Reload
     echo ""
-    echo -e "${CYAN}[STEP 6/6] HAProxy Reload${NC}"
+    echo -e "${CYAN}[STEP 6/6] nginx Reload (via familytraffic container)${NC}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
     if ! reload_haproxy_after_cert_update; then
         echo ""
-        echo -e "${YELLOW}⚠️  WARNING: HAProxy reload failed${NC}"
+        echo -e "${YELLOW}⚠️  WARNING: nginx reload failed${NC}"
         echo ""
-        echo "Certificate acquired successfully, but HAProxy did not reload."
-        echo "Manually reload HAProxy to use the new certificate:"
+        echo "Certificate acquired successfully, but nginx did not reload."
+        echo "Manually reload nginx to use the new certificate:"
         echo "  reload_haproxy_after_cert_update"
         echo ""
         return 1
@@ -587,8 +314,8 @@ acquire_certificate_for_domain() {
     echo "Email:          $email"
     echo "Certificate:    /etc/letsencrypt/live/$domain/fullchain.pem"
     echo "Private Key:    /etc/letsencrypt/live/$domain/privkey.pem"
-    echo "HAProxy Cert:   /etc/letsencrypt/live/$domain/combined.pem"
-    echo "HAProxy Status: Reloaded"
+    echo "nginx reads: /etc/letsencrypt/live/$domain/fullchain.pem directly"
+    echo "nginx Status: Reloaded via familytraffic container"
     echo ""
     echo -e "${GREEN}Ready to configure reverse proxy or other services using this certificate.${NC}"
     echo ""
@@ -615,17 +342,17 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo ""
         echo "Commands:"
         echo "  validate-dns <domain>              - Validate DNS A record for domain"
-        echo "  acquire <domain> <email>           - Complete certificate acquisition workflow (v4.3)"
-        echo "  create-combined <domain>           - Create HAProxy combined.pem"
-        echo "  validate-cert <combined.pem>       - Validate HAProxy certificate"
-        echo "  create-all                         - Create combined.pem for all domains"
-        echo "  reload-haproxy                     - Reload HAProxy gracefully"
+        echo "  acquire <domain> <email>           - Complete certificate acquisition workflow (v5.33)"
+        echo "  create-combined <domain>           - Create combined cert [no-op in v5.33, nginx reads LE directly]"
+        echo "  validate-cert <combined.pem>       - Validate certificate [no-op in v5.33]"
+        echo "  create-all                         - Create combined certs [no-op in v5.33]"
+        echo "  reload-haproxy                     - Reload nginx in familytraffic container"
         echo ""
-        echo "v4.3 Workflow (acquire command):"
+        echo "v5.33 Workflow (acquire command):"
         echo "  1. Validate DNS"
         echo "  2. Start Certbot Nginx (port 80)"
         echo "  3. Run certbot (ACME HTTP-01)"
-        echo "  4. Create HAProxy combined.pem"
+        echo "  4. nginx reads LE certs directly (combined.pem not needed)"
         echo "  5. Stop Certbot Nginx"
         echo "  6. Reload HAProxy"
         exit 1

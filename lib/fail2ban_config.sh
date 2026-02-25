@@ -1,20 +1,22 @@
 #!/bin/bash
 # lib/fail2ban_config.sh
 #
-# fail2ban Configuration for VLESS (v4.3 with HAProxy Protection)
-# Provides brute-force protection for reverse proxy and HAProxy endpoints
+# fail2ban Configuration for familyTraffic VPN (v5.33)
+# Provides brute-force protection for reverse proxy endpoints
 #
 # Features:
 # - Nginx reverse proxy protection (9443-9452)
-# - HAProxy protection (443, 1080, 8118) - NEW in v4.3
 # - Auth failure detection (HTTP Basic Auth)
 # - Invalid SNI / TLS handshake failure detection
 # - Rate limit violation detection
 # - UFW ban action (1 hour default)
 # - Dynamic port management
 #
-# Version: 4.3.0
-# Author: VLESS Development Team
+# Note: HAProxy functions preserved as no-op stubs (v5.33).
+# HAProxy was removed in v5.33 — single container familytraffic handles all traffic.
+#
+# Version: 5.33.0
+# Author: familyTraffic Development Team
 # Date: 2025-10-18
 
 set -euo pipefail
@@ -22,12 +24,10 @@ set -euo pipefail
 # Configuration
 FAIL2BAN_JAIL_DIR="/etc/fail2ban/jail.d"
 FAIL2BAN_FILTER_DIR="/etc/fail2ban/filter.d"
-NGINX_ERROR_LOG="/opt/vless/logs/nginx/reverse-proxy-error.log"
-HAPROXY_LOG="/opt/vless/logs/haproxy/haproxy.log"  # v4.3 NEW
+NGINX_ERROR_LOG="/opt/familytraffic/logs/nginx/reverse-proxy-error.log"
 
 # fail2ban settings
-JAIL_NAME="vless-reverseproxy"
-HAPROXY_JAIL_NAME="vless-haproxy"  # v4.3 NEW
+JAIL_NAME="familytraffic-reverseproxy"
 MAXRETRY=5
 BANTIME=3600  # 1 hour
 FINDTIME=600   # 10 minutes
@@ -73,7 +73,7 @@ install_fail2ban() {
 #   0 on success, 1 on failure
 # ============================================================================
 create_reverseproxy_filter() {
-    local filter_file="${FAIL2BAN_FILTER_DIR}/vless-reverseproxy.conf"
+    local filter_file="${FAIL2BAN_FILTER_DIR}/familytraffic-reverseproxy.conf"
 
     log "Creating fail2ban filter: $filter_file"
 
@@ -81,7 +81,7 @@ create_reverseproxy_filter() {
 # fail2ban filter for VLESS Reverse Proxy
 # Detects HTTP Basic Auth failures and rate limit violations
 #
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Version: 4.2.0
 
 [Definition]
@@ -115,14 +115,14 @@ EOF
 #   0 on success, 1 on failure
 # ============================================================================
 create_ratelimit_filter() {
-    local filter_file="${FAIL2BAN_FILTER_DIR}/vless-reverseproxy-ratelimit.conf"
+    local filter_file="${FAIL2BAN_FILTER_DIR}/familytraffic-reverseproxy-ratelimit.conf"
 
     log "Creating rate limit filter: $filter_file"
 
     sudo tee "$filter_file" > /dev/null <<'EOF'
 # fail2ban filter for VLESS Reverse Proxy Rate Limit Violations
 #
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Version: 4.2.0
 
 [Definition]
@@ -158,7 +158,7 @@ EOF
 setup_reverseproxy_jail() {
     local ports="${1:-9443}"
 
-    local jail_file="${FAIL2BAN_JAIL_DIR}/vless-reverseproxy.conf"
+    local jail_file="${FAIL2BAN_JAIL_DIR}/familytraffic-reverseproxy.conf"
 
     log "Creating fail2ban jail: $jail_file"
     log "Protected ports: $ports"
@@ -167,23 +167,23 @@ setup_reverseproxy_jail() {
 # fail2ban jail for VLESS Reverse Proxy
 # Protects against brute-force attacks on HTTP Basic Auth
 #
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Version: 4.2.0
 
-[vless-reverseproxy]
+[familytraffic-reverseproxy]
 enabled = true
 port = ${ports}
-filter = vless-reverseproxy
+filter = familytraffic-reverseproxy
 logpath = ${NGINX_ERROR_LOG}
 maxretry = ${MAXRETRY}
 bantime = ${BANTIME}
 findtime = ${FINDTIME}
 action = ufw
 
-[vless-reverseproxy-ratelimit]
+[familytraffic-reverseproxy-ratelimit]
 enabled = true
 port = ${ports}
-filter = vless-reverseproxy-ratelimit
+filter = familytraffic-reverseproxy-ratelimit
 logpath = ${NGINX_ERROR_LOG}
 maxretry = 10
 bantime = ${BANTIME}
@@ -221,7 +221,7 @@ add_port_to_jail() {
         return 1
     fi
 
-    local jail_file="${FAIL2BAN_JAIL_DIR}/vless-reverseproxy.conf"
+    local jail_file="${FAIL2BAN_JAIL_DIR}/familytraffic-reverseproxy.conf"
 
     if [ ! -f "$jail_file" ]; then
         log_error "Jail file not found: $jail_file"
@@ -277,7 +277,7 @@ remove_port_from_jail() {
         return 1
     fi
 
-    local jail_file="${FAIL2BAN_JAIL_DIR}/vless-reverseproxy.conf"
+    local jail_file="${FAIL2BAN_JAIL_DIR}/familytraffic-reverseproxy.conf"
 
     if [ ! -f "$jail_file" ]; then
         log_error "Jail file not found: $jail_file"
@@ -380,146 +380,38 @@ unban_ip() {
 
 # ============================================================================
 # Function: create_haproxy_filter
-# Description: Creates fail2ban filter for HAProxy SNI abuse detection (v4.3)
-#
-# Returns:
-#   0 on success, 1 on failure
+# Description: No-op stub — HAProxy removed in v5.33
 # ============================================================================
 create_haproxy_filter() {
-    local filter_file="${FAIL2BAN_FILTER_DIR}/haproxy-sni.conf"
-
-    log "Creating HAProxy fail2ban filter: $filter_file"
-
-    sudo tee "$filter_file" > /dev/null <<'EOF'
-# fail2ban filter for VLESS HAProxy SNI Abuse Detection
-# Detects invalid SNI requests, TLS handshake failures, and connection abuse
-#
-# Author: VLESS Development Team
-# Version: 4.3.0
-
-[Definition]
-
-# Invalid SNI patterns (SNI mismatch, unknown domains)
-failregex = ^.*<HOST>.*SSL handshake failure.*$
-            ^.*<HOST>.*SNI:.*backend not found.*$
-            ^.*<HOST>.*no server available.*$
-            ^.*<HOST>.*connection refused.*$
-
-# Ignore patterns (optional)
-ignoreregex =
-
-# Date pattern (HAProxy syslog format)
-datepattern = {^LN-BEG}
-EOF
-
-    if [ $? -eq 0 ]; then
-        log "✅ HAProxy filter created: $filter_file"
-        return 0
-    else
-        log_error "Failed to create HAProxy filter"
-        return 1
-    fi
+    log "ℹ️  create_haproxy_filter: HAProxy removed in v5.33 — skipping"
+    return 0
 }
 
 # ============================================================================
 # Function: setup_haproxy_jail
-# Description: Creates and configures fail2ban jail for HAProxy (v4.3)
-#
-# Returns:
-#   0 on success, 1 on failure
+# Description: No-op stub — HAProxy removed in v5.33
 # ============================================================================
 setup_haproxy_jail() {
-    local jail_file="${FAIL2BAN_JAIL_DIR}/vless-haproxy.conf"
-
-    log "Creating HAProxy fail2ban jail: $jail_file"
-
-    sudo tee "$jail_file" > /dev/null <<EOF
-# fail2ban jail for VLESS HAProxy v4.3
-# Protects against SNI abuse and TLS handshake attacks
-#
-# Author: VLESS Development Team
-# Version: 4.3.0
-
-[vless-haproxy]
-enabled = true
-port = 443,1080,8118
-filter = haproxy-sni
-logpath = ${HAPROXY_LOG}
-maxretry = ${MAXRETRY}
-bantime = ${BANTIME}
-findtime = ${FINDTIME}
-action = ufw
-EOF
-
-    if [ $? -eq 0 ]; then
-        log "✅ HAProxy jail created: $jail_file"
-        log "   Protected ports: 443 (VLESS), 1080 (SOCKS5), 8118 (HTTP)"
-        log "   maxretry: $MAXRETRY failures"
-        log "   bantime: $BANTIME seconds ($(($BANTIME / 60)) minutes)"
-        log "   findtime: $FINDTIME seconds ($(($FINDTIME / 60)) minutes)"
-        return 0
-    else
-        log_error "Failed to create HAProxy jail"
-        return 1
-    fi
+    log "ℹ️  setup_haproxy_jail: HAProxy removed in v5.33 — skipping"
+    return 0
 }
 
 # ============================================================================
 # Function: check_haproxy_jail_status
-# Description: Checks status of HAProxy jail (v4.3)
-#
-# Returns:
-#   Jail status information
+# Description: No-op stub — HAProxy removed in v5.33
 # ============================================================================
 check_haproxy_jail_status() {
-    log "Checking HAProxy jail status: $HAPROXY_JAIL_NAME"
-
-    if sudo fail2ban-client status "$HAPROXY_JAIL_NAME" 2>/dev/null; then
-        return 0
-    else
-        log_error "HAProxy jail not found or fail2ban not running"
-        return 1
-    fi
+    log "ℹ️  check_haproxy_jail_status: HAProxy removed in v5.33 — skipping"
+    return 0
 }
 
 # ============================================================================
 # Function: setup_haproxy_fail2ban
-# Description: Complete setup of fail2ban for HAProxy (v4.3)
-#
-# Returns:
-#   0 on success, 1 on failure
+# Description: No-op stub — HAProxy removed in v5.33
 # ============================================================================
 setup_haproxy_fail2ban() {
-    log "Setting up fail2ban for HAProxy v4.3..."
-
-    # Install fail2ban if needed
-    if ! install_fail2ban; then
-        return 1
-    fi
-
-    # Create HAProxy filter
-    if ! create_haproxy_filter; then
-        return 1
-    fi
-
-    # Create HAProxy jail
-    if ! setup_haproxy_jail; then
-        return 1
-    fi
-
-    # Reload fail2ban
-    if ! reload_fail2ban; then
-        return 1
-    fi
-
-    # Check jail status
-    sleep 2  # Give fail2ban time to load jail
-    check_haproxy_jail_status
-
-    log "✅ fail2ban setup completed for HAProxy"
-    log "   Protected services: VLESS Reality (443), SOCKS5 (1080), HTTP (8118)"
-    log "   Ban policy: $MAXRETRY failures in $FINDTIME seconds → ban for $BANTIME seconds"
-
+    log "ℹ️  setup_haproxy_fail2ban: HAProxy removed in v5.33 — skipping"
+    log "    Single-container familytraffic handles traffic; HAProxy jail not needed"
     return 0
 }
 
@@ -584,12 +476,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo ""
         echo "Commands:"
         echo "  setup [ports]           - Complete setup for reverse proxy (default: 9443)"
-        echo "  setup-haproxy           - Complete setup for HAProxy v4.3"
+        echo "  setup-haproxy           - No-op stub (HAProxy removed in v5.33)"
         echo "  add-port <port>         - Add port to reverse proxy jail"
         echo "  remove-port <port>      - Remove port from reverse proxy jail"
         echo "  reload                  - Reload fail2ban"
         echo "  status                  - Check reverse proxy jail status"
-        echo "  status-haproxy          - Check HAProxy jail status"
+        echo "  status-haproxy          - No-op stub (HAProxy removed in v5.33)"
         echo "  unban <ip>              - Unban IP address"
         exit 1
     fi

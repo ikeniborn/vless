@@ -9,7 +9,7 @@
 # Requirements:
 #   - Ubuntu 20.04+ or Debian 10+
 #   - Root privileges
-#   - Xray error logs at /opt/vless/logs/xray/error.log
+#   - Xray error logs at /opt/familytraffic/logs/xray/error.log
 #
 # Features:
 #   - Auto-install fail2ban if missing
@@ -144,7 +144,7 @@ enabled  = true
 port     = 1080
 protocol = tcp
 filter   = vless-proxy
-logpath  = /opt/vless/logs/xray/error.log
+logpath  = /opt/familytraffic/logs/xray/error.log
 maxretry = 5
 bantime  = 3600
 findtime = 600
@@ -155,7 +155,7 @@ enabled  = true
 port     = 8118
 protocol = tcp
 filter   = vless-proxy
-logpath  = /opt/vless/logs/xray/error.log
+logpath  = /opt/familytraffic/logs/xray/error.log
 maxretry = 5
 bantime  = 3600
 findtime = 600
@@ -230,19 +230,10 @@ create_xray_reality_jail() {
     echo -e "${CYAN}Creating fail2ban jail for Reality protection...${NC}"
 
     local jail_file="/etc/fail2ban/jail.d/xray-reality.conf"
-    local haproxy_cfg="/opt/vless/config/haproxy.cfg"
 
-    # Extract VLESS frontend port from HAProxy config (dynamic port detection)
-    local vless_port="443"  # Default fallback
-    if [[ -f "$haproxy_cfg" ]]; then
-        # Extract port from "frontend vless_reality_frontend" section
-        vless_port=$(grep -A 5 "frontend vless_reality_frontend" "$haproxy_cfg" | grep "bind \*:" | sed -n 's/.*bind \*:\([0-9]*\).*/\1/p' | head -1)
-
-        # Fallback if extraction fails
-        if [[ -z "$vless_port" ]]; then
-            vless_port="443"
-        fi
-    fi
+    # v5.33: HAProxy removed — familytraffic (nginx+xray) uses host network, port 443 fixed
+    # haproxy.cfg no longer exists; port is always 443 in single-container architecture
+    local vless_port="443"
 
     # Also protect internal Xray port (8443) if different from external
     local xray_internal_port="8443"
@@ -274,7 +265,7 @@ enabled  = true
 port     = $port_list
 protocol = tcp
 filter   = xray-reality
-logpath  = /opt/vless/logs/xray/error.log
+logpath  = /opt/familytraffic/logs/xray/error.log
 maxretry = 10
 bantime  = 3600
 findtime = 300
