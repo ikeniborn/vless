@@ -605,8 +605,8 @@ sequenceDiagram
     Note over PostInstall: Create Symlinks
 
     PostInstall->>System: ln -s /opt/vless/scripts/vless<br/>/usr/local/bin/vless
-    PostInstall->>System: ln -s /opt/vless/scripts/vless-external-proxy<br/>/usr/local/bin/vless-external-proxy
-    PostInstall->>System: ln -s /opt/vless/scripts/vless-proxy<br/>/usr/local/bin/vless-proxy
+    PostInstall->>System: ln -s /opt/vless/scripts/familytraffic-external-proxy<br/>/usr/local/bin/familytraffic-external-proxy
+    PostInstall->>System: ln -s /opt/vless/scripts/familytraffic-proxy<br/>/usr/local/bin/familytraffic-proxy
     PostInstall->>System: ln -s /opt/vless/scripts/mtproxy<br/>/usr/local/bin/mtproxy
     System-->>PostInstall: ✓ Symlinks created
 

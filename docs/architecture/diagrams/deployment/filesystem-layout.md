@@ -174,8 +174,8 @@ graph TB
 **Symlinks to /usr/local/bin/:**
 ```bash
 /usr/local/bin/vless → /opt/vless/scripts/vless
-/usr/local/bin/vless-external-proxy → /opt/vless/scripts/vless-external-proxy
-/usr/local/bin/vless-proxy → /opt/vless/scripts/vless-proxy
+/usr/local/bin/familytraffic-external-proxy → /opt/vless/scripts/familytraffic-external-proxy
+/usr/local/bin/familytraffic-proxy → /opt/vless/scripts/familytraffic-proxy
 /usr/local/bin/mtproxy → /opt/vless/scripts/mtproxy
 ```
 

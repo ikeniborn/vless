@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# VLESS v5.2 - Reverse Proxy IP Monitoring & Auto-Update Script
+# familyTraffic - Reverse Proxy IP Monitoring & Auto-Update Script
 # ==============================================================================
 #
 # Purpose:
@@ -17,11 +17,11 @@
 #   - Logs all changes for audit
 #
 # Usage:
-#   Manual: sudo /opt/vless/scripts/vless-monitor-reverse-proxy-ips
-#   Cron:   */30 * * * * /opt/vless/scripts/vless-monitor-reverse-proxy-ips >/dev/null 2>&1
+#   Manual: sudo /opt/familytraffic/scripts/familytraffic-monitor-reverse-proxy-ips
+#   Cron:   */30 * * * * /opt/familytraffic/scripts/familytraffic-monitor-reverse-proxy-ips >/dev/null 2>&1
 #
 # Version: 5.2.0
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-10-20
 # ==============================================================================
 
@@ -31,7 +31,7 @@ set -euo pipefail
 # Configuration
 # ==============================================================================
 
-INSTALL_PATH="/opt/vless"
+INSTALL_PATH="/opt/familytraffic"
 LIB_PATH="${INSTALL_PATH}/lib"
 LOG_FILE="${INSTALL_PATH}/logs/reverse-proxy-ip-monitor.log"
 NGINX_CONF_DIR="${INSTALL_PATH}/config/reverse-proxy"

@@ -286,7 +286,7 @@ EOF
     echo ""
     echo "Cron file: $cron_file"
     echo "Schedule:  Twice daily (00:00 and 12:00 UTC)"
-    echo "Command:   certbot renew --quiet --deploy-hook '/usr/local/bin/vless-cert-renew'"
+    echo "Command:   certbot renew --quiet --deploy-hook '/usr/local/bin/familytraffic-cert-renew'"
     echo "Log file:  /opt/familytraffic/logs/certbot-renew.log"
     echo ""
     echo "RENEWAL BEHAVIOR:"

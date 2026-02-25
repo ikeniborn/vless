@@ -160,7 +160,7 @@ sudo certbot renew --dry-run
 **Test Case 5: Deploy Hook Execution (HAProxy Reload)**
 ```bash
 # Manually trigger deploy hook
-sudo /usr/local/bin/vless-cert-renew
+sudo /usr/local/bin/familytraffic-cert-renew
 
 # Expected:
 # - combined.pem regenerated
@@ -832,7 +832,7 @@ sudo certbot renew --cert-name myproxy.example.com --dry-run
 
 # Expected:
 # - Simulated renewal succeeds
-# - Deploy hook triggered (/usr/local/bin/vless-cert-renew)
+# - Deploy hook triggered (/usr/local/bin/familytraffic-cert-renew)
 # - combined.pem regenerated (fullchain + privkey)
 # - HAProxy gracefully reloaded (haproxy -sf <old_pid>)
 # - Downtime < 5 seconds

@@ -277,7 +277,7 @@ graph TB
 ```mermaid
 graph TB
     CLI["🟦 CLI Entry<br/>vless-proxy add"]
-    WIZARD["🟩 interactive_add_domain()<br/>scripts/vless-proxy:123"]
+    WIZARD["🟩 interactive_add_domain()<br/>scripts/familytraffic-proxy:123"]
 
     subgraph "Input Collection"
         DOMAIN["🟩 prompt_domain_name()"]
@@ -469,7 +469,7 @@ graph TB
 ```mermaid
 graph TB
     CLI["🟦 CLI Entry<br/>vless-external-proxy add"]
-    WIZARD["🟩 interactive_add_proxy()<br/>scripts/vless-external-proxy:89"]
+    WIZARD["🟩 interactive_add_proxy()<br/>scripts/familytraffic-external-proxy:89"]
 
     subgraph "Input Collection"
         TYPE["🟩 prompt_proxy_type()<br/>socks5/socks5s/http/https"]
@@ -817,7 +817,7 @@ graph LR
 |--------|------------|---------|----------------|
 | user_management.sh | xray_routing_manager.sh, qr_generator.sh | scripts/vless | HIGH |
 | xray_routing_manager.sh | orchestrator.sh | user_management.sh, external_proxy_manager.sh | HIGH |
-| external_proxy_manager.sh | xray_routing_manager.sh | scripts/vless-external-proxy, user_management.sh | MEDIUM |
+| external_proxy_manager.sh | xray_routing_manager.sh | scripts/familytraffic-external-proxy, user_management.sh | MEDIUM |
 | haproxy_config_manager.sh | orchestrator.sh | reverseproxy_db.sh, certificate_manager.sh | MEDIUM |
 | certificate_manager.sh | haproxy_config_manager.sh | letsencrypt_integration.sh, certbot hooks | LOW |
 

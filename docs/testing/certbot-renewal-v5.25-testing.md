@@ -33,7 +33,7 @@ This guide provides testing procedures for the enhanced certbot renewal hook (v5
 
 ```bash
 # Validate bash syntax
-bash -n /usr/local/bin/vless-cert-renew
+bash -n /usr/local/bin/familytraffic-cert-renew
 
 # Expected: No output (success)
 ```
@@ -114,7 +114,7 @@ sudo grep "\[DEBUG\]" /opt/vless/logs/certbot-renew.log | tail -20
 sudo docker stop vless_haproxy
 
 # Trigger renewal
-RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/vless-cert-renew
+RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/familytraffic-cert-renew
 
 # Should see:
 # [WARNING] Container not running: vless_haproxy, attempting to start...
@@ -192,7 +192,7 @@ sudo cp -r /etc/letsencrypt/live /tmp/letsencrypt-backup
 sudo mv /etc/letsencrypt/live/your-domain.com/privkey.pem /tmp/privkey.pem.bak
 
 # Trigger renewal
-RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/vless-cert-renew
+RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/familytraffic-cert-renew
 
 # Restore
 sudo mv /tmp/privkey.pem.bak /etc/letsencrypt/live/your-domain.com/privkey.pem
@@ -219,7 +219,7 @@ sudo cp /opt/vless/config/haproxy.cfg /tmp/haproxy.cfg.bak
 sudo bash -c 'echo "invalid_directive_xyz" >> /opt/vless/config/haproxy.cfg'
 
 # Trigger renewal
-RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/vless-cert-renew
+RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/familytraffic-cert-renew
 
 # Restore config
 sudo cp /tmp/haproxy.cfg.bak /opt/vless/config/haproxy.cfg
@@ -327,8 +327,8 @@ ls -lh /opt/vless/logs/certbot-renew-metrics.json.*
 **Steps:**
 ```bash
 # Check that legacy functions still work
-sudo grep -A 5 "reload_nginx_reverseproxy" /usr/local/bin/vless-cert-renew
-sudo grep -A 5 "update_database_cert_info" /usr/local/bin/vless-cert-renew
+sudo grep -A 5 "reload_nginx_reverseproxy" /usr/local/bin/familytraffic-cert-renew
+sudo grep -A 5 "update_database_cert_info" /usr/local/bin/familytraffic-cert-renew
 
 # Trigger renewal
 sudo certbot renew --force-renewal
@@ -360,7 +360,7 @@ sudo certbot renew --force-renewal
 
 **Solution:** Set environment variable manually
 ```bash
-RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/vless-cert-renew
+RENEWED_DOMAINS="your-domain.com" sudo /usr/local/bin/familytraffic-cert-renew
 ```
 
 ### Issue: "Certificate manager module not found"
@@ -390,11 +390,11 @@ If v5.25 causes issues:
 ```bash
 # Revert to v5.24 (or previous version)
 cd /path/to/vless
-git checkout v5.24 scripts/vless-cert-renew
-sudo cp scripts/vless-cert-renew /usr/local/bin/
+git checkout v5.24 scripts/familytraffic-cert-renew
+sudo cp scripts/familytraffic-cert-renew /usr/local/bin/
 
 # Verify
-sudo bash -n /usr/local/bin/vless-cert-renew
+sudo bash -n /usr/local/bin/familytraffic-cert-renew
 
 # Test renewal
 sudo certbot renew --dry-run

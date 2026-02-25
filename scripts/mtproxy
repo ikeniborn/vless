@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# VLESS Reality VPN - MTProxy Management CLI
+# familyTraffic VPN - MTProxy Management CLI
 # Version: 6.1.0
 # ============================================================================
 #
@@ -28,7 +28,7 @@
 #   mtproxy status
 #   mtproxy stats --live
 #
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-11-08
 # ============================================================================
 
@@ -39,8 +39,8 @@ set -euo pipefail
 # ============================================================================
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly VLESS_HOME="/opt/vless"
-readonly LIB_DIR="${VLESS_HOME}/lib"
+readonly FAMILYTRAFFIC_HOME="/opt/familytraffic"
+readonly LIB_DIR="${FAMILYTRAFFIC_HOME}/lib"
 
 # Colors
 readonly RED='\033[0;31m'
@@ -55,7 +55,7 @@ readonly NC='\033[0m'
 # ============================================================================
 
 if [[ -f "${LIB_DIR}/mtproxy_manager.sh" ]]; then
-    # shellcheck source=/opt/vless/lib/mtproxy_manager.sh
+    # shellcheck source=/opt/familytraffic/lib/mtproxy_manager.sh
     source "${LIB_DIR}/mtproxy_manager.sh"
 else
     echo -e "${RED}Error: mtproxy_manager.sh not found${NC}" >&2
@@ -64,7 +64,7 @@ else
 fi
 
 if [[ -f "${LIB_DIR}/mtproxy_secret_manager.sh" ]]; then
-    # shellcheck source=/opt/vless/lib/mtproxy_secret_manager.sh
+    # shellcheck source=/opt/familytraffic/lib/mtproxy_secret_manager.sh
     source "${LIB_DIR}/mtproxy_secret_manager.sh"
 else
     echo -e "${RED}Error: mtproxy_secret_manager.sh not found${NC}" >&2
@@ -333,7 +333,7 @@ cmd_logs() {
         esac
     done
 
-    local container_name="vless_mtproxy"
+    local container_name="familytraffic_mtproxy"
 
     # Check if container exists
     if ! docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
@@ -383,7 +383,7 @@ cmd_generate_qr() {
     if generate_mtproxy_qrcode "$username"; then
         log_success "QR code generated successfully"
         echo ""
-        echo "Location: /opt/vless/data/clients/${username}/mtproxy_qr.png"
+        echo "Location: /opt/familytraffic/data/clients/${username}/mtproxy_qr.png"
         echo ""
         echo "Download the QR code and scan it with Telegram on your device"
     else
@@ -471,8 +471,8 @@ ${BLUE}SECRET TYPES:${NC}
     ${GREEN}ee${NC}        - "ee" + 32 hex + 16 hex domain (fake-TLS)
 
 ${BLUE}MORE INFO:${NC}
-    Documentation: /opt/vless/docs/mtproxy/
-    User Guide:    /opt/vless/docs/mtproxy/user_guide.md
+    Documentation: /opt/familytraffic/docs/mtproxy/
+    User Guide:    /opt/familytraffic/docs/mtproxy/user_guide.md
 
 EOF
 }

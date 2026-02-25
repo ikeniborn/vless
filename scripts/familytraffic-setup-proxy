@@ -1,7 +1,7 @@
 #!/bin/bash
-# cli/vless-setup-proxy
+# cli/familytraffic-setup-proxy
 #
-# VLESS v5.15 - Interactive Reverse Proxy Setup Wizard
+# familyTraffic - Interactive Reverse Proxy Setup Wizard
 # Guides user through complete reverse proxy configuration
 #
 # Features:
@@ -9,12 +9,12 @@
 # - Certificate acquisition (unified workflow via acquire_certificate_for_domain)
 # - Nginx config generation (security-hardened, localhost-only)
 # - fail2ban multi-port protection
-# - HAProxy SNI routing (NO UFW port opening required)
+# - Nginx SNI routing (NO UFW port opening required)
 # - Subdomain-based access: https://domain (NO port number!)
 # - v5.10: Advanced options wizard (OAuth2, WebSocket, CSP)
 # - v5.11: Enhanced security headers (COOP, COEP, CORP, Expect-CT)
 # - v5.14: Comprehensive pre-flight checks (CRITICAL BEFORE INSTALLATION)
-#   * Docker containers status (HAProxy, Nginx)
+#   * Docker containers status (Nginx inside familytraffic)
 #   * Disk space validation (100MB minimum)
 #   * Proxy limit enforcement (10 slots max)
 #   * Port availability (database, nginx, docker-compose, system)
@@ -25,10 +25,10 @@
 #   * DNS pre-validation (A/AAAA records, IP verification)
 #   * fail2ban status check (brute-force protection awareness)
 #   * Rate limit zone validation (nginx crash loop prevention + auto-fix)
-#   * HAProxy config syntax validation (prevent startup failures)
+#   * Nginx config syntax validation (prevent startup failures)
 #
 # Version: 5.15.0
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-10-21
 
 set -euo pipefail
@@ -37,7 +37,7 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
-INSTALL_PATH="/opt/vless"
+INSTALL_PATH="/opt/familytraffic"
 LIB_PATH="${INSTALL_PATH}/lib"
 
 # =============================================================================
@@ -232,7 +232,7 @@ prompt_domain() {
             read -p "Хотите посмотреть существующую конфигурацию? [y/N]: " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
-                sudo vless-proxy show "$domain"
+                sudo familytraffic-proxy show "$domain"
             fi
             continue
         fi
@@ -302,7 +302,7 @@ prompt_port() {
     echo "" >&2
     echo -e "${CYAN}${ICON_INFO} Nginx Architecture:${NC}" >&2
     echo "  - Nginx слушает на 127.0.0.1:<port> (localhost-only)" >&2
-    echo "  - vless_nginx маршрутизирует по SNI с порта 443 (ssl_preread)" >&2
+    echo "  - familytraffic маршрутизирует по SNI с порта 443 (ssl_preread)" >&2
     echo "  - Публичный доступ: https://<domain> (БЕЗ номера порта!)" >&2
     echo "" >&2
 
@@ -330,8 +330,8 @@ prompt_port() {
 
         # Check if port is already occupied (database + nginx configs)
         # v5.8: Enhanced port detection - checks both DB and nginx configs to prevent conflicts
-        local config_dir="/opt/vless/config/reverse-proxy"
-        local db_file="/opt/vless/config/reverse_proxies.json"
+        local config_dir="/opt/familytraffic/config/reverse-proxy"
+        local db_file="/opt/familytraffic/config/reverse_proxies.json"
 
         # Collect used ports from database
         local db_ports=""
@@ -353,7 +353,7 @@ prompt_port() {
         # Check if port is occupied
         if echo "$all_ports" | grep -q "^${port}$"; then
             print_error "Порт $port уже занят другим reverse proxy"
-            print_info "Используйте команду: sudo vless-proxy list"
+            print_info "Используйте команду: sudo familytraffic-proxy list"
             continue
         fi
 
@@ -502,30 +502,30 @@ check_proxy_limitations() {
     print_step "Проверка статуса Docker контейнеров..."
 
     local nginx_main_status
-    nginx_main_status=$(docker ps --filter "name=vless_nginx" --format "{{.Status}}" 2>/dev/null | grep -v "reverseproxy" | head -1)
+    nginx_main_status=$(docker ps --filter "name=familytraffic" --format "{{.Status}}" 2>/dev/null | grep -v "reverseproxy" | head -1)
 
     if [ -z "$nginx_main_status" ]; then
-        limitation_messages+=("❌ КРИТИЧНО: vless_nginx контейнер не запущен")
-        limitation_messages+=("   Запустите VPN сервер: cd /opt/vless && docker compose up -d")
+        limitation_messages+=("❌ КРИТИЧНО: familytraffic контейнер не запущен")
+        limitation_messages+=("   Запустите VPN сервер: cd /opt/familytraffic && docker compose up -d")
         has_limitations=true
     elif ! echo "$nginx_main_status" | grep -q "Up"; then
-        limitation_messages+=("❌ КРИТИЧНО: vless_nginx контейнер не работает (статус: $nginx_main_status)")
-        limitation_messages+=("   Проверьте логи: docker logs vless_nginx --tail 50")
+        limitation_messages+=("❌ КРИТИЧНО: familytraffic контейнер не работает (статус: $nginx_main_status)")
+        limitation_messages+=("   Проверьте логи: docker logs familytraffic --tail 50")
         has_limitations=true
     else
-        print_success "vless_nginx контейнер работает"
+        print_success "familytraffic контейнер работает"
     fi
 
     local nginx_status
-    nginx_status=$(docker ps --filter "name=vless_nginx_reverseproxy" --format "{{.Status}}" 2>/dev/null)
+    nginx_status=$(docker ps --filter "name=familytraffic" --format "{{.Status}}" 2>/dev/null)
 
     if [ -z "$nginx_status" ]; then
         limitation_messages+=("❌ КРИТИЧНО: Nginx Reverse Proxy контейнер не запущен")
-        limitation_messages+=("   Запустите VPN сервер: cd /opt/vless && docker compose up -d")
+        limitation_messages+=("   Запустите VPN сервер: cd /opt/familytraffic && docker compose up -d")
         has_limitations=true
     elif ! echo "$nginx_status" | grep -q "Up"; then
         limitation_messages+=("❌ КРИТИЧНО: Nginx контейнер не работает (статус: $nginx_status)")
-        limitation_messages+=("   Проверьте логи: docker logs vless_nginx_reverseproxy --tail 50")
+        limitation_messages+=("   Проверьте логи: docker logs familytraffic --tail 50")
         has_limitations=true
     else
         print_success "Nginx Reverse Proxy контейнер работает"
@@ -535,10 +535,10 @@ check_proxy_limitations() {
     print_step "Проверка свободного места..."
 
     local disk_free_mb
-    disk_free_mb=$(df -BM /opt/vless | tail -1 | awk '{print $4}' | sed 's/M//')
+    disk_free_mb=$(df -BM /opt/familytraffic | tail -1 | awk '{print $4}' | sed 's/M//')
 
     if [ "$disk_free_mb" -lt 100 ]; then
-        limitation_messages+=("❌ КРИТИЧНО: Недостаточно места на диске (/opt/vless: ${disk_free_mb}MB)")
+        limitation_messages+=("❌ КРИТИЧНО: Недостаточно места на диске (/opt/familytraffic: ${disk_free_mb}MB)")
         limitation_messages+=("   Требуется минимум 100MB для сертификатов и логов")
         has_limitations=true
     elif [ "$disk_free_mb" -lt 500 ]; then
@@ -556,7 +556,7 @@ check_proxy_limitations() {
     if [ "$proxy_count" -ge 10 ]; then
         limitation_messages+=("❌ КРИТИЧНО: Достигнут лимит прокси (10/10)")
         limitation_messages+=("   Необходимо удалить существующий прокси перед добавлением нового")
-        limitation_messages+=("   Команда: sudo vless-proxy list")
+        limitation_messages+=("   Команда: sudo familytraffic-proxy list")
         has_limitations=true
     elif [ "$proxy_count" -ge 8 ]; then
         warnings+=("⚠️  Осталось слотов: $((10 - proxy_count))/10")
@@ -580,21 +580,21 @@ check_proxy_limitations() {
 
     if [ "$port_check_failed" = false ]; then
         # Check in database
-        if [ -f "/opt/vless/config/reverse_proxies.json" ]; then
+        if [ -f "/opt/familytraffic/config/reverse_proxies.json" ]; then
             local db_ports
-            db_ports=$(jq -r '.proxies[].port' /opt/vless/config/reverse_proxies.json 2>/dev/null | grep "^${port}$")
+            db_ports=$(jq -r '.proxies[].port' /opt/familytraffic/config/reverse_proxies.json 2>/dev/null | grep "^${port}$")
             if [ -n "$db_ports" ]; then
                 port_check_failed=true
                 local domain_using_port
-                domain_using_port=$(jq -r ".proxies[] | select(.port == $port) | .domain" /opt/vless/config/reverse_proxies.json 2>/dev/null)
+                domain_using_port=$(jq -r ".proxies[] | select(.port == $port) | .domain" /opt/familytraffic/config/reverse_proxies.json 2>/dev/null)
                 port_check_details+=("   - База данных: порт занят доменом $domain_using_port")
             fi
         fi
 
         # Check in nginx configs
-        if [ -d "/opt/vless/config/reverse-proxy" ]; then
+        if [ -d "/opt/familytraffic/config/reverse-proxy" ]; then
             local nginx_config_with_port
-            nginx_config_with_port=$(grep -l "listen.*:${port}" /opt/vless/config/reverse-proxy/*.conf 2>/dev/null | head -1)
+            nginx_config_with_port=$(grep -l "listen.*:${port}" /opt/familytraffic/config/reverse-proxy/*.conf 2>/dev/null | head -1)
             if [ -n "$nginx_config_with_port" ]; then
                 port_check_failed=true
                 port_check_details+=("   - Nginx config: порт занят в $(basename "$nginx_config_with_port")")
@@ -602,9 +602,9 @@ check_proxy_limitations() {
         fi
 
         # Check in docker-compose.yml
-        if [ -f "/opt/vless/docker-compose.yml" ]; then
+        if [ -f "/opt/familytraffic/docker-compose.yml" ]; then
             local docker_ports
-            docker_ports=$(grep ":${port}" /opt/vless/docker-compose.yml 2>/dev/null)
+            docker_ports=$(grep ":${port}" /opt/familytraffic/docker-compose.yml 2>/dev/null)
             if [ -n "$docker_ports" ]; then
                 port_check_failed=true
                 port_check_details+=("   - Docker Compose: порт уже проброшен")
@@ -628,7 +628,7 @@ check_proxy_limitations() {
             limitation_messages+=("$detail")
         done
         limitation_messages+=("   Используйте другой порт из диапазона 9443-9452")
-        limitation_messages+=("   Свободные порты можно посмотреть: sudo vless-proxy list")
+        limitation_messages+=("   Свободные порты можно посмотреть: sudo familytraffic-proxy list")
         has_limitations=true
     else
         print_success "Порт $port доступен"
@@ -639,7 +639,7 @@ check_proxy_limitations() {
 
     if proxy_exists "$domain" 2>/dev/null; then
         limitation_messages+=("❌ КРИТИЧНО: Домен $domain уже существует в БД")
-        limitation_messages+=("   Удалите существующий прокси: sudo vless-proxy remove $domain")
+        limitation_messages+=("   Удалите существующий прокси: sudo familytraffic-proxy remove $domain")
         has_limitations=true
     else
         print_success "Домен $domain доступен"
@@ -713,11 +713,11 @@ check_proxy_limitations() {
         warnings+=("   - notion.so")
         warnings+=("   - discord.com")
         warnings+=("")
-        warnings+=("   ${GREEN}${BOLD}РЕКОМЕНДАЦИЯ: Используйте VLESS SOCKS5/HTTP прокси${NC}")
+        warnings+=("   ${GREEN}${BOLD}РЕКОМЕНДАЦИЯ: Используйте familyTraffic SOCKS5/HTTP прокси${NC}")
         warnings+=("   SOCKS5/HTTP прокси работают на уровне соединения и НЕ блокируются Cloudflare")
         warnings+=("")
         warnings+=("   ${CYAN}${BOLD}1. Получите credentials:${NC}")
-        warnings+=("      $ sudo vless-status")
+        warnings+=("      $ sudo familytraffic status")
         warnings+=("")
         warnings+=("   ${CYAN}${BOLD}2. Настройте прокси в браузере:${NC}")
         warnings+=("")
@@ -837,18 +837,18 @@ check_proxy_limitations() {
 
     if systemctl is-active --quiet fail2ban 2>/dev/null; then
         # fail2ban is running
-        if sudo fail2ban-client status vless-reverseproxy >/dev/null 2>&1; then
+        if sudo fail2ban-client status familytraffic-reverseproxy >/dev/null 2>&1; then
             # Jail is configured
             local jail_info
-            jail_info=$(sudo fail2ban-client status vless-reverseproxy 2>/dev/null)
+            jail_info=$(sudo fail2ban-client status familytraffic-reverseproxy 2>/dev/null)
             local banned_count
             banned_count=$(echo "$jail_info" | grep "Currently banned:" | awk '{print $NF}')
 
             print_success "fail2ban активен (защита от brute-force)"
-            print_info "  Jail: vless-reverseproxy | Забанено IP: ${banned_count:-0}"
+            print_info "  Jail: familytraffic-reverseproxy | Забанено IP: ${banned_count:-0}"
             fail2ban_ok=true
         else
-            warnings+=("⚠️  fail2ban запущен, но jail vless-reverseproxy не настроен")
+            warnings+=("⚠️  fail2ban запущен, но jail familytraffic-reverseproxy не настроен")
             warnings+=("   Reverse proxy будет работать БЕЗ защиты от brute-force атак")
         fi
     else
@@ -862,14 +862,14 @@ check_proxy_limitations() {
         warnings+=("      $ sudo systemctl enable fail2ban")
         warnings+=("")
         warnings+=("   2. Проверить статус:")
-        warnings+=("      $ sudo fail2ban-client status vless-reverseproxy")
+        warnings+=("      $ sudo fail2ban-client status familytraffic-reverseproxy")
     fi
 
     # Check 9: Rate Limit Zone (v5.15 - Critical with auto-fix)
     print_step "Проверка rate limit zone конфигурации..."
 
     local zone_name="reverseproxy_${domain//[.-]/_}"
-    local http_context="/opt/vless/config/reverse-proxy/http_context.conf"
+    local http_context="/opt/familytraffic/config/reverse-proxy/http_context.conf"
 
     if [ -f "$http_context" ]; then
         if grep -q "limit_req_zone.*zone=${zone_name}" "$http_context" 2>/dev/null; then
@@ -901,11 +901,11 @@ EOF"
     # Check 10: Nginx Config Syntax (Critical)
     print_step "Проверка синтаксиса Nginx конфигурации..."
 
-    local nginx_config="/opt/vless/config/nginx/nginx.conf"
+    local nginx_config="/opt/familytraffic/config/nginx/nginx.conf"
 
     if [ -f "$nginx_config" ]; then
         local validation_output
-        validation_output=$(docker exec vless_nginx nginx -t 2>&1)
+        validation_output=$(docker exec familytraffic nginx -t 2>&1)
         local validation_exit=$?
 
         if [ $validation_exit -eq 0 ]; then
@@ -920,10 +920,10 @@ EOF"
             limitation_messages+=("")
             limitation_messages+=("   ${BOLD}Требуемые действия:${NC}")
             limitation_messages+=("   1. Проверьте синтаксис вручную:")
-            limitation_messages+=("      $ docker exec vless_nginx nginx -t")
+            limitation_messages+=("      $ docker exec familytraffic nginx -t")
             limitation_messages+=("")
             limitation_messages+=("   2. Восстановите из бэкапа (если доступен):")
-            limitation_messages+=("      $ sudo cp /opt/vless/config/nginx/nginx.conf.bak /opt/vless/config/nginx/nginx.conf")
+            limitation_messages+=("      $ sudo cp /opt/familytraffic/config/nginx/nginx.conf.bak /opt/familytraffic/config/nginx/nginx.conf")
             limitation_messages+=("")
             limitation_messages+=("   3. НЕ продолжайте установку до исправления!")
             has_limitations=true
@@ -931,7 +931,7 @@ EOF"
     else
         limitation_messages+=("❌ КРИТИЧНО: Nginx конфигурация не найдена")
         limitation_messages+=("   Файл отсутствует: $nginx_config")
-        limitation_messages+=("   Требуется переустановка VLESS VPN сервера")
+        limitation_messages+=("   Требуется переустановка familyTraffic сервера")
         has_limitations=true
     fi
 
@@ -1016,15 +1016,15 @@ prompt_confirmation() {
     echo "  1. DNS validation (обязательно!)" >&2
     echo "  2. Получение Let's Encrypt сертификата для $domain" >&2
     echo "  3. Создание Nginx reverse proxy конфигурации (localhost:$port)" >&2
-    echo "  4. Добавление SNI route в vless_nginx: $domain → nginx:$port" >&2
+    echo "  4. Добавление SNI route в familytraffic: $domain → nginx:$port" >&2
     echo "  5. Настройка fail2ban защиты" >&2
     echo "  6. Генерация HTTP Basic Auth креденшелов" >&2
     echo "" >&2
     echo -e "${CYAN}${ICON_INFO} Architecture:${NC}" >&2
-    echo "  - vless_nginx (port 443) принимает HTTPS трафик (ssl_preread SNI)" >&2
-    echo "  - SNI routing по имени домена → vless_nginx_reverseproxy" >&2
+    echo "  - familytraffic (port 443) принимает HTTPS трафик (ssl_preread SNI)" >&2
+    echo "  - SNI routing по имени домена → familytraffic" >&2
     echo "  - Nginx backend слушает ТОЛЬКО на 127.0.0.1:$port" >&2
-    echo "  - UFW порт НЕ открывается (vless_nginx уже на 443)" >&2
+    echo "  - UFW порт НЕ открывается (familytraffic уже на 443)" >&2
     echo "" >&2
 
     read -p "Продолжить установку? [y/N]: " -n 1 -r
@@ -1048,7 +1048,7 @@ setup_reverse_proxy() {
     print_header "Установка Reverse Proxy"
 
     # Step 1: Unified Certificate Acquisition (v4.3)
-    # Includes: DNS validation + certbot + HAProxy combined.pem + reload
+    # Includes: DNS validation + certbot + nginx reload
     print_step "Получение Let's Encrypt сертификата (v4.3 unified workflow)..."
     if ! acquire_certificate_for_domain "$domain" "$email"; then
         print_error "Не удалось получить сертификат"
@@ -1092,7 +1092,7 @@ setup_reverse_proxy() {
     print_step "Сохранение конфигурации в БД..."
     local cert_expires
     cert_expires="$(date -u -d '+90 days' +"%Y-%m-%dT%H:%M:%SZ")"
-    local notes="Created via vless-setup-proxy wizard"
+    local notes="Created via familytraffic-setup-proxy wizard"
 
     # add_proxy: domain, target_site, port, username, password, xray_port, xray_tag, cert_expires, target_ipv4, notes
     # target_ipv4 is resolved automatically inside add_proxy() if empty
@@ -1151,8 +1151,8 @@ setup_reverse_proxy() {
     if ! retry_operation 5 "validate_reverse_proxy" validate_reverse_proxy "$domain" "$port"; then
         print_error "Reverse proxy не прошёл валидацию"
         print_warning "Проверьте вручную: curl -k -u '$username:$password' https://${domain}"
-        print_warning "Проверьте статус: docker ps | grep vless"
-        print_warning "Проверьте логи: docker logs vless_nginx_reverseproxy --tail 20"
+        print_warning "Проверьте статус: docker ps | grep familytraffic"
+        print_warning "Проверьте логи: docker logs familytraffic --tail 20"
         return 1
     fi
     echo "" >&2
@@ -1184,14 +1184,14 @@ setup_reverse_proxy() {
     echo "  4. Вы будете перенаправлены на ${target}" >&2
     echo "" >&2
     echo -e "${CYAN}${ICON_INFO} Nginx Routing:${NC}" >&2
-    echo "  - vless_nginx принимает HTTPS запросы на порту 443 (ssl_preread)" >&2
+    echo "  - familytraffic принимает HTTPS запросы на порту 443 (ssl_preread)" >&2
     echo "  - SNI-based routing: по имени домена ($domain)" >&2
     echo "  - Nginx backend слушает только localhost (недоступен извне)" >&2
     echo "" >&2
     echo -e "${CYAN}Управление:${NC}" >&2
-    echo "  sudo vless-proxy show ${domain}        # Показать детали" >&2
-    echo "  sudo vless-proxy remove ${domain}      # Удалить" >&2
-    echo "  sudo vless-proxy renew-cert ${domain}  # Обновить сертификат" >&2
+    echo "  sudo familytraffic-proxy show ${domain}        # Показать детали" >&2
+    echo "  sudo familytraffic-proxy remove ${domain}      # Удалить" >&2
+    echo "  sudo familytraffic-proxy renew-cert ${domain}  # Обновить сертификат" >&2
     echo "" >&2
 
     return 0
@@ -1208,9 +1208,9 @@ main() {
         exit 1
     fi
 
-    # Check if VLESS is installed
+    # Check if familyTraffic is installed
     if [ ! -d "$INSTALL_PATH" ]; then
-        print_error "VLESS не установлен. Сначала запустите установку."
+        print_error "familyTraffic не установлен. Сначала запустите установку."
         exit 1
     fi
 
@@ -1219,7 +1219,7 @@ main() {
 
     # Print welcome banner
     clear
-    print_header "${ICON_ROCKET} VLESS v5.33 - Reverse Proxy Setup Wizard"
+    print_header "${ICON_ROCKET} familyTraffic - Reverse Proxy Setup Wizard"
 
     echo -e "${CYAN}Этот wizard поможет настроить reverse proxy для доступа к заблокированным сайтам.${NC}" >&2
     echo -e "${YELLOW}Nginx SNI architecture - subdomain access без номера порта!${NC}" >&2

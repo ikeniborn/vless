@@ -8,17 +8,17 @@
 # - Checks all certificates from database
 # - Auto-renews certificates < 30 days from expiry
 # - Email alerts for critical certificates (< 7 days)
-# - Integrates with vless-cert-renew deploy hook
+# - Integrates with familytraffic-cert-renew deploy hook
 # - Comprehensive logging
 #
 # Integration with existing infrastructure:
 # - Uses certbot for renewal
-# - Delegates to vless-cert-renew deploy hook
+# - Delegates to familytraffic-cert-renew deploy hook
 # - Database updates handled by deploy hook
 #
 # Cron Schedule:
-#   Daily:  0 2 * * * /opt/vless/lib/cert_renewal_monitor.sh --auto-renew
-#   Weekly: 0 9 * * 1 /opt/vless/lib/cert_renewal_monitor.sh --report
+#   Daily:  0 2 * * * /opt/familytraffic/lib/cert_renewal_monitor.sh --auto-renew
+#   Weekly: 0 9 * * 1 /opt/familytraffic/lib/cert_renewal_monitor.sh --report
 #
 # Version: 4.3.0
 # Author: VLESS Development Team
@@ -361,7 +361,7 @@ generate_report() {
             echo "⚠️  ATTENTION REQUIRED: $critical_count certificate(s) in CRITICAL state!"
             echo ""
             echo "Recommended actions:"
-            echo "  1. Run: sudo /opt/vless/lib/cert_renewal_monitor.sh --auto-renew"
+            echo "  1. Run: sudo /opt/familytraffic/lib/cert_renewal_monitor.sh --auto-renew"
             echo "  2. Or manually: sudo vless-proxy renew-cert <domain>"
             echo ""
         fi
@@ -398,10 +398,10 @@ setup_cron_jobs() {
         echo ""
         echo "# VLESS v4.3 - Certificate Renewal Monitoring"
         echo "# Daily auto-renewal check (2 AM)"
-        echo "0 2 * * * /opt/vless/lib/cert_renewal_monitor.sh --auto-renew >> /var/log/vless/cert_cron.log 2>&1"
+        echo "0 2 * * * /opt/familytraffic/lib/cert_renewal_monitor.sh --auto-renew >> /var/log/vless/cert_cron.log 2>&1"
         echo ""
         echo "# Weekly status report (Monday 9 AM)"
-        echo "0 9 * * 1 /opt/vless/lib/cert_renewal_monitor.sh --report >> /var/log/vless/cert_cron.log 2>&1"
+        echo "0 9 * * 1 /opt/familytraffic/lib/cert_renewal_monitor.sh --report >> /var/log/vless/cert_cron.log 2>&1"
     ) | sudo crontab -
 
     log "✅ Cron jobs configured:"

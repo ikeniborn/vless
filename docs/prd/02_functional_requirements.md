@@ -402,7 +402,7 @@ Script performs:
 **Acceptance Criteria:**
 - [ ] Cron job created: `/etc/cron.d/certbot-vless-renew`
 - [ ] Schedule: `0 0,12 * * *` (runs twice daily)
-- [ ] Command: `certbot renew --quiet --deploy-hook "/usr/local/bin/vless-cert-renew"`
+- [ ] Command: `certbot renew --quiet --deploy-hook "/usr/local/bin/familytraffic-cert-renew"`
 - [ ] **NEW v4.3:** Deploy hook script regenerates combined.pem
 - [ ] **NEW v4.3:** HAProxy graceful reload: `haproxy -sf $(cat /var/run/haproxy.pid)`
 - [ ] Dry-run test passes: `certbot renew --dry-run`
@@ -418,13 +418,13 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Renew Let's Encrypt certificates twice daily
-0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/vless-cert-renew" >> /opt/vless/logs/certbot-renew.log 2>&1
+0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/familytraffic-cert-renew" >> /opt/vless/logs/certbot-renew.log 2>&1
 ```
 
 **Deploy Hook Script (v4.3 UPDATED):**
 ```bash
 #!/bin/bash
-# /usr/local/bin/vless-cert-renew
+# /usr/local/bin/familytraffic-cert-renew
 
 echo "$(date): Certificate renewed, regenerating combined.pem..."
 
@@ -1071,7 +1071,7 @@ action = ufw
     └── vless-reverseproxy.conf         # Nginx auth failure filter
 
 /usr/local/bin/
-└── vless-proxy → /opt/vless/scripts/vless-proxy  # Unified CLI (add/list/show/remove)
+└── vless-proxy → /opt/vless/scripts/familytraffic-proxy  # Unified CLI (add/list/show/remove)
 ```
 
 ---
@@ -1122,7 +1122,7 @@ action = ufw
 - ✅ HAProxy ACL management (lib/haproxy_config_manager.sh)
 - ✅ Nginx config generation via heredoc (lib/nginx_config_generator.sh)
 - ✅ **v5.2+:** IPv4 resolution at config time (lib/nginx_config_generator.sh)
-- ✅ **v5.2+:** IP monitoring cron job (scripts/vless-monitor-reverse-proxy-ips)
+- ✅ **v5.2+:** IP monitoring cron job (scripts/familytraffic-monitor-reverse-proxy-ips)
 - ❌ **REMOVED v5.2+:** Xray HTTP inbound management (no inbound needed for direct proxy)
 - ✅ Let's Encrypt integration (extends FR-CERT-001/002)
 - ✅ fail2ban multi-port support (HAProxy + Nginx filters)
@@ -1259,8 +1259,8 @@ action = ufw
 **File:** `lib/validation.sh` (~275 lines, 2 functions)
 
 **Integration Points:**
-1. `scripts/vless-setup-proxy:1155` - Call after add with 3 retry attempts
-2. `scripts/vless-proxy:377` - Call after remove (single attempt)
+1. `scripts/familytraffic-setup-proxy:1155` - Call after add with 3 retry attempts
+2. `scripts/familytraffic-proxy:377` - Call after remove (single attempt)
 3. `lib/haproxy_config_manager.sh` - NOT called directly (CLI tools only)
 
 **Error Handling:**
@@ -1382,7 +1382,7 @@ fi
 **Integration Points:**
 1. `lib/haproxy_config_manager.sh:255` - Check HAProxy before `add_reverse_proxy_route()`
 2. `lib/haproxy_config_manager.sh:350` - Check HAProxy before `remove_reverse_proxy_route()`
-3. `scripts/vless-setup-proxy:1133` - Check all containers before installation
+3. `scripts/familytraffic-setup-proxy:1133` - Check all containers before installation
 
 **Error Handling:**
 ```bash
@@ -1596,7 +1596,7 @@ sudo vless-external-proxy status
     └── vless-external-proxy             # NEW: CLI tool (673 lines, 10 commands)
 
 /usr/local/bin/
-└── vless-external-proxy → /opt/vless/scripts/vless-external-proxy
+└── vless-external-proxy → /opt/vless/scripts/familytraffic-external-proxy
 ```
 
 #### 4. Database Format (external_proxy.json)

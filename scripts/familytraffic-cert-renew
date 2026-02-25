@@ -1,31 +1,30 @@
 #!/bin/bash
 #==============================================================================
 # Certificate Renewal Deploy Hook
-# Part of VLESS + Reality VPN v5.30
+# Part of familyTraffic VPN v5.33
 #
 # This script is called by certbot after successful certificate renewal.
-# Handles certificate updates for vless_nginx, Xray, and Reverse Proxy.
+# Handles certificate updates for familytraffic container (nginx+xray+supervisord).
 #
 # Features:
 # - ✅ Uses nginx -s reload for zero-downtime certificate updates
-# - ✅ vless_nginx uses fullchain.pem + privkey.pem directly
+# - ✅ familytraffic nginx uses fullchain.pem + privkey.pem directly
 # - ✅ Retry logic with exponential backoff for transient failures
 # - ✅ Automatic rollback on critical failures
 # - ✅ Pre-renewal validation (certificates, config, containers, disk space)
 # - ✅ Structured logging with severity levels (DEBUG/INFO/WARNING/ERROR/CRITICAL)
 # - ✅ Execution metrics tracking in JSON format
 # - ✅ Graceful degradation (continue with other domains if one fails)
-# - ✅ Verbose debug mode via VLESS_RENEW_VERBOSE=1
-# - ✅ Restarts Xray container (VLESS Reality)
-# - ✅ Reloads Nginx reverse proxy
+# - ✅ Verbose debug mode via FAMILYTRAFFIC_RENEW_VERBOSE=1
+# - ✅ Reloads nginx inside familytraffic container (VLESS Reality)
 # - ✅ Updates reverse_proxies.json database
 # - ✅ Supports multiple renewed domains
 #
 # Usage: Called automatically by certbot via --deploy-hook
-# Location: /usr/local/bin/vless-cert-renew
+# Location: /usr/local/bin/familytraffic-cert-renew
 #
 # Optional Environment Variables:
-#   VLESS_RENEW_VERBOSE=0|1    Enable debug logging (default: 0)
+#   FAMILYTRAFFIC_RENEW_VERBOSE=0|1    Enable debug logging (default: 0)
 #   LOG_LEVEL=0-4              Set minimum log level (default: 1=INFO)
 #   RETRY_MAX_ATTEMPTS=3       Number of retry attempts (default: 3)
 #   RETRY_INITIAL_DELAY=2      Initial retry delay in seconds (default: 2)
@@ -38,7 +37,7 @@ set -euo pipefail
 # Constants
 #==============================================================================
 
-readonly VLESS_DIR="/opt/vless"
+readonly VLESS_DIR="/opt/familytraffic"
 readonly LOG_FILE="$VLESS_DIR/logs/certbot-renew.log"
 readonly METRICS_FILE="$VLESS_DIR/logs/certbot-renew-metrics.json"
 readonly DB_SCRIPT="$VLESS_DIR/lib/reverseproxy_db.sh"
@@ -56,9 +55,9 @@ readonly LOG_WARNING=2
 readonly LOG_ERROR=3
 readonly LOG_CRITICAL=4
 
-# Current log level (default INFO unless VLESS_RENEW_VERBOSE=1)
+# Current log level (default INFO unless FAMILYTRAFFIC_RENEW_VERBOSE=1)
 LOG_LEVEL="${LOG_LEVEL:-1}"
-[[ "${VLESS_RENEW_VERBOSE:-0}" == "1" ]] && LOG_LEVEL=0
+[[ "${FAMILYTRAFFIC_RENEW_VERBOSE:-0}" == "1" ]] && LOG_LEVEL=0
 
 # Track execution start time for metrics
 readonly START_TIME=$(date +%s)
@@ -122,7 +121,7 @@ save_renewal_metrics() {
     certbot_version=$(certbot --version 2>&1 | awk '{print $2}' || echo "unknown")
 
     local nginx_version
-    nginx_version=$(docker exec vless_nginx nginx -v 2>&1 | head -n1 || echo "unknown")
+    nginx_version=$(docker exec familytraffic nginx -v 2>&1 | head -n1 || echo "unknown")
 
     # Create metrics JSON
     cat > "$METRICS_FILE" <<EOF
@@ -297,14 +296,14 @@ validate_nginx_config() {
     log_debug "Validating Nginx configuration"
 
     # Check container exists
-    if ! docker ps -a --format '{{.Names}}' | grep -q "vless_nginx"; then
-        log_error "vless_nginx container not found"
+    if ! docker ps -a --format '{{.Names}}' | grep -q "familytraffic"; then
+        log_error "familytraffic container not found"
         return 1
     fi
 
     # Check nginx config syntax
     local config_check
-    config_check=$(docker exec vless_nginx nginx -t 2>&1 || true)
+    config_check=$(docker exec familytraffic nginx -t 2>&1 || true)
 
     if echo "$config_check" | grep -qi "^nginx: \[emerg\]\|^nginx: \[alert\]\|^nginx: \[crit\]"; then
         log_error "Nginx configuration validation failed:"
@@ -319,7 +318,7 @@ validate_nginx_config() {
 validate_container_health() {
     log_debug "Validating container health"
 
-    local critical_containers=("vless_nginx" "vless_xray")
+    local critical_containers=("familytraffic")
 
     for container in "${critical_containers[@]}"; do
         # Check exists
@@ -341,17 +340,15 @@ validate_container_health() {
             fi
         fi
 
-        # Check process running inside container
+        # Check processes running inside the single familytraffic container via supervisord
         case "$container" in
-            vless_nginx)
+            familytraffic)
                 if ! docker exec "$container" nginx -t &>/dev/null; then
-                    log_error "Nginx config check failed inside container"
+                    log_error "Nginx config check failed inside familytraffic container"
                     return 1
                 fi
-                ;;
-            vless_xray)
-                if ! docker exec "$container" pidof xray &>/dev/null; then
-                    log_error "Xray process not running inside container"
+                if ! docker exec "$container" supervisorctl status xray 2>/dev/null | grep -q "RUNNING"; then
+                    log_error "Xray process not running inside familytraffic container"
                     return 1
                 fi
                 ;;
@@ -375,12 +372,12 @@ validate_disk_space() {
         return 1
     fi
 
-    # Check /opt/vless (at least 100 MB recommended, warning only)
+    # Check /opt/familytraffic (at least 100 MB recommended, warning only)
     local vless_free
-    vless_free=$(df -BM /opt/vless 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0")
+    vless_free=$(df -BM /opt/familytraffic 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0")
 
     if [[ $vless_free -lt 100 ]]; then
-        log_warning "Low disk space on /opt/vless: ${vless_free}M (recommend 100M)"
+        log_warning "Low disk space on /opt/familytraffic: ${vless_free}M (recommend 100M)"
     fi
 
     log_debug "  ✓ Sufficient disk space available"
@@ -391,17 +388,17 @@ validate_write_permissions() {
     log_debug "Validating write permissions"
 
     # Test write to /etc/letsencrypt
-    local test_file="/etc/letsencrypt/.vless-test-$$"
+    local test_file="/etc/letsencrypt/.familytraffic-test-$$"
     if ! touch "$test_file" 2>/dev/null; then
         log_error "Cannot write to /etc/letsencrypt directory"
         return 1
     fi
     rm -f "$test_file"
 
-    # Test write to /opt/vless/logs
-    local test_log="/opt/vless/logs/.vless-test-$$"
+    # Test write to /opt/familytraffic/logs
+    local test_log="/opt/familytraffic/logs/.familytraffic-test-$$"
     if ! touch "$test_log" 2>/dev/null; then
-        log_error "Cannot write to /opt/vless/logs directory"
+        log_error "Cannot write to /opt/familytraffic/logs directory"
         return 1
     fi
     rm -f "$test_log"
@@ -463,28 +460,11 @@ pre_renewal_validation() {
 #==============================================================================
 
 reload_nginx_reverseproxy() {
-    log_info "Reloading Nginx reverse proxy..."
-
-    # Check if nginx reverse proxy container exists
-    if ! docker ps -a --format '{{.Names}}' | grep -q "vless_nginx_reverseproxy"; then
-        log_info "ℹ️  Nginx reverse proxy not configured, skipping"
-        return 0
-    fi
-
-    # Check if container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "vless_nginx_reverseproxy"; then
-        log_warning "⚠️  Nginx reverse proxy container not running"
-        return 1
-    fi
-
-    # Reload nginx
-    if docker exec vless_nginx_reverseproxy nginx -s reload 2>&1 >> "$LOG_FILE"; then
-        log_info "✅ Nginx reverse proxy reloaded successfully"
-        return 0
-    else
-        log_error "Failed to reload Nginx reverse proxy"
-        return 1
-    fi
+    # v5.33: reverse proxy container removed as legacy
+    # nginx runs inside the single familytraffic container — reload via supervisorctl
+    log_info "ℹ️  Reverse proxy removed in v5.33 — nginx runs inside familytraffic container"
+    log_info "    To reload nginx: docker exec familytraffic supervisorctl signal SIGHUP nginx"
+    return 0
 }
 
 update_database_cert_info() {
@@ -544,12 +524,12 @@ main() {
     fi
 
     log_info "Renewed domains: $renewed_domains"
-    log_info "Verbose mode: ${VLESS_RENEW_VERBOSE:-0}, Log level: $LOG_LEVEL"
+    log_info "Verbose mode: ${FAMILYTRAFFIC_RENEW_VERBOSE:-0}, Log level: $LOG_LEVEL"
 
     # Change to VLESS directory
     if ! cd "$VLESS_DIR"; then
         log_error "Cannot access $VLESS_DIR"
-        save_renewal_metrics "$renewed_domains" "error" "0" "Cannot access VLESS_DIR"
+        save_renewal_metrics "$renewed_domains" "error" "0" "Cannot access FAMILYTRAFFIC_DIR"
         exit 1
     fi
 
@@ -571,38 +551,38 @@ main() {
         domain_status["$domain"]="success"
     done
 
-    # PHASE 2: Reload vless_nginx (zero-downtime via nginx -s reload)
+    # PHASE 2: Reload familytraffic (zero-downtime via nginx -s reload)
     # Nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed (v5.30)
     log_info ""
     log_info "━━━ Phase 2: nginx -s reload (zero-downtime) ━━━"
 
-    if docker ps --format '{{.Names}}' | grep -q "vless_nginx"; then
+    if docker ps --format '{{.Names}}' | grep -q "familytraffic"; then
         if retry_with_backoff "$RETRY_MAX_ATTEMPTS" "$RETRY_INITIAL_DELAY" "$RETRY_MAX_DELAY" \
-            docker exec vless_nginx nginx -s reload; then
-            log_info "✅ vless_nginx reloaded successfully (zero-downtime)"
+            docker exec familytraffic supervisorctl signal SIGHUP nginx; then
+            log_info "✅ familytraffic reloaded successfully (zero-downtime)"
         else
-            log_critical "❌ vless_nginx reload failed after $RETRY_MAX_ATTEMPTS attempts"
-            log_critical "Manual intervention required: docker exec vless_nginx nginx -s reload"
+            log_critical "❌ familytraffic reload failed after $RETRY_MAX_ATTEMPTS attempts"
+            log_critical "Manual intervention required: docker exec familytraffic supervisorctl signal SIGHUP nginx"
             local end_time=$(date +%s)
             local execution_time=$((end_time - START_TIME))
-            save_renewal_metrics "$renewed_domains" "failed" "$execution_time" "vless_nginx reload failed"
+            save_renewal_metrics "$renewed_domains" "failed" "$execution_time" "familytraffic reload failed"
             exit 1
         fi
     else
-        log_warning "vless_nginx container not running — skipping reload (non-critical if not installed)"
+        log_warning "familytraffic container not running — skipping reload (non-critical if not installed)"
     fi
 
     # PHASE 4: Restart Xray container (v5.25 - with retry)
     log_info ""
     log_info "━━━ Phase 4: Restarting Xray container ━━━"
 
-    if retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 docker restart vless_xray; then
+    if retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 docker exec familytraffic supervisorctl restart xray; then
         sleep 2
 
-        if docker ps | grep -q "vless_xray.*Up"; then
-            log_info "✅ Xray restarted successfully"
+        if docker exec familytraffic supervisorctl status xray 2>/dev/null | grep -q "RUNNING"; then
+            log_info "✅ Xray process restarted successfully inside familytraffic"
         else
-            log_error "❌ Xray container failed to start after restart"
+            log_error "❌ Xray process failed to restart inside familytraffic"
             # Non-critical - continue
         fi
     else

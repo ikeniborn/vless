@@ -199,14 +199,14 @@ test_nginx_config_generator() {
 test_cli_integration() {
     log_info "Test 3.6: Checking CLI integration..."
 
-    local setup_script="${INSTALL_ROOT}/../scripts/vless-setup-proxy"
-    local proxy_cli="${INSTALL_ROOT}/../scripts/vless-proxy"
+    local setup_script="${INSTALL_ROOT}/../scripts/familytraffic-setup-proxy"
+    local proxy_cli="${INSTALL_ROOT}/../scripts/familytraffic-proxy"
 
     if [ ! -f "$setup_script" ]; then
-        setup_script="scripts/vless-setup-proxy"
+        setup_script="scripts/familytraffic-setup-proxy"
     fi
     if [ ! -f "$proxy_cli" ]; then
-        proxy_cli="scripts/vless-proxy"
+        proxy_cli="scripts/familytraffic-proxy"
     fi
 
     local cli_ok=0
@@ -248,9 +248,9 @@ test_cli_integration() {
 test_subdomain_format() {
     log_info "Test 3.7: Verifying subdomain access format (no port)..."
 
-    local proxy_cli="${INSTALL_ROOT}/../scripts/vless-proxy"
+    local proxy_cli="${INSTALL_ROOT}/../scripts/familytraffic-proxy"
     if [ ! -f "$proxy_cli" ]; then
-        proxy_cli="scripts/vless-proxy"
+        proxy_cli="scripts/familytraffic-proxy"
     fi
 
     if [ ! -f "$proxy_cli" ]; then

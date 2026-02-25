@@ -34,8 +34,8 @@ if [[ -z "${SCRIPT_DIR:-}" ]]; then
 fi
 
 # Configuration paths
-NGINX_CONF_DIR="/opt/vless/config/reverse-proxy"
-HTPASSWD_DIR="/opt/vless/config/reverse-proxy"
+NGINX_CONF_DIR="/opt/familytraffic/config/reverse-proxy"
+HTPASSWD_DIR="/opt/familytraffic/config/reverse-proxy"
 LETSENCRYPT_DIR="/etc/letsencrypt/live"
 
 # Logging
@@ -316,7 +316,7 @@ EOF
         auth_basic_user_file /etc/nginx/conf.d/reverse-proxy/.htpasswd-${domain};  # Path inside container
 
         # IPv4-only proxy_pass (resolved at config generation time)
-        # Auto-monitored by vless-monitor-reverse-proxy-ips cron job
+        # Auto-monitored by familytraffic-monitor-reverse-proxy-ips cron job
         # v5.25: use auto-detected DNS or fallback to Google DNS
         proxy_pass https://${target_ipv4};
         resolver ${DETECTED_DNS_PRIMARY:-8.8.8.8} ipv4=on valid=300s;
@@ -601,7 +601,7 @@ remove_reverseproxy_config() {
 validate_nginx_config() {
     log "Validating Nginx configuration..."
 
-    if docker exec vless_nginx_reverseproxy nginx -t 2>&1; then
+    if docker exec familytraffic nginx -t 2>&1; then
         log "✅ Nginx configuration is valid"
         return 0
     else
@@ -620,7 +620,7 @@ validate_nginx_config() {
 reload_nginx() {
     log "Reloading Nginx (graceful)..."
 
-    if docker exec vless_nginx_reverseproxy nginx -s reload 2>&1; then
+    if docker exec familytraffic nginx -s reload 2>&1; then
         log "✅ Nginx reloaded successfully (zero downtime)"
         return 0
     else

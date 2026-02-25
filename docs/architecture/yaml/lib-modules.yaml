@@ -930,10 +930,10 @@ call_chains:
     duration: "~2-4 seconds"
 
   add_reverse_proxy_flow:
-    entry_point: "scripts/vless-proxy add"
+    entry_point: "scripts/familytraffic-proxy add"
     chain:
       - step: 1
-        script: "scripts/vless-proxy"
+        script: "scripts/familytraffic-proxy"
         function: "cmd_add_reverse_proxy()"
       - step: 2
         module: "lib/reverseproxy_db.sh"

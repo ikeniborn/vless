@@ -64,12 +64,23 @@ readonly TESTS_DIR="${INSTALL_ROOT}/tests"
 readonly DOCKER_NETWORK_NAME="vless_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
-readonly XRAY_CONTAINER_NAME="vless_xray"
+readonly XRAY_CONTAINER_NAME="familytraffic"
 readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: reverse proxy (optional)
-readonly NGINX_MAIN_CONTAINER_NAME="vless_nginx"           # v5.30: main stream+http proxy
+readonly NGINX_MAIN_CONTAINER_NAME="familytraffic"         # v5.33: single container (nginx+xray+certbot)
 
 # familyTraffic container image (v5.33 single-container)
-[[ -z "${GHCR_IMAGE:-}" ]] && GHCR_IMAGE="ghcr.io/OWNER/familytraffic"
+# INFO-3 fix: warn on literal OWNER placeholder instead of silently writing wrong value to .env
+if [[ -z "${GHCR_IMAGE:-}" ]]; then
+    if [[ -n "$(git -C "${INSTALL_ROOT}" config --get remote.origin.url 2>/dev/null)" ]]; then
+        _git_owner=$(git -C "${INSTALL_ROOT}" config --get remote.origin.url \
+            | sed 's|.*github.com[:/]\([^/]*\)/.*|\1|' 2>/dev/null || true)
+        [[ -n "${_git_owner}" ]] && GHCR_IMAGE="ghcr.io/${_git_owner}/familytraffic" \
+            || GHCR_IMAGE="ghcr.io/OWNER/familytraffic"
+    else
+        GHCR_IMAGE="ghcr.io/OWNER/familytraffic"
+        echo "[WARN] GHCR_IMAGE not set and git remote not found. Set GHCR_IMAGE env var before install." >&2
+    fi
+fi
 [[ -z "${VERSION:-}" ]] && VERSION="latest"
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
@@ -177,7 +188,7 @@ orchestrate_installation() {
 
     # Step 5.6: Initialize external_proxy.json (v5.23 - external proxy support)
     # Create empty database for external proxy configuration
-    # Users can add proxies later via vless-external-proxy CLI
+    # Users can add proxies later via familytraffic-external-proxy CLI
     if declare -f init_external_proxy_db >/dev/null 2>&1; then
         init_external_proxy_db || {
             echo -e "${YELLOW}Warning: Failed to initialize external proxy database${NC}"
@@ -496,10 +507,12 @@ EOF
 # Note: v5.30 - TLS handled by Nginx stream block, Xray uses plaintext inbound
 # =============================================================================
 generate_socks5_inbound_json() {
-    # v5.30: Nginx stream TLS termination
-    # Architecture: Client → vless_nginx (TLS, 0.0.0.0:1080) → Xray (plaintext, :10800)
+    # v5.33: Single-container architecture with host networking
+    # Architecture: Client → familytraffic nginx (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
     #
-    # IMPORTANT: Xray listens plaintext on port 10800 (Docker network only)
+    # BUG-3 fix: listen on 127.0.0.1 (loopback only), NOT 0.0.0.0
+    # With network_mode:host, 0.0.0.0:10800 would be exposed on all interfaces.
+    # 127.0.0.1 ensures only local nginx (same host) can reach the plaintext inbound.
     # - Nginx handles TLS termination on public port 1080
     # - Xray handles authentication (username/password MANDATORY)
     # - No TLS streamSettings in Xray config (handled by Nginx)
@@ -507,7 +520,7 @@ generate_socks5_inbound_json() {
     cat <<'EOF'
   ,{
     "tag": "socks5-proxy",
-    "listen": "0.0.0.0",
+    "listen": "127.0.0.1",
     "port": 10800,
     "protocol": "socks",
     "settings": {
@@ -533,10 +546,12 @@ EOF
 # Note: v5.30 - TLS handled by Nginx stream block, Xray uses plaintext inbound
 # =============================================================================
 generate_http_inbound_json() {
-    # v5.30: Nginx stream TLS termination
-    # Architecture: Client → vless_nginx (TLS, 0.0.0.0:8118) → Xray (plaintext, :18118)
+    # v5.33: Single-container architecture with host networking
+    # Architecture: Client → familytraffic nginx (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
     #
-    # IMPORTANT: Xray listens plaintext on port 18118 (Docker network only)
+    # BUG-3 fix: listen on 127.0.0.1 (loopback only), NOT 0.0.0.0
+    # With network_mode:host, 0.0.0.0:18118 would be exposed on all interfaces.
+    # 127.0.0.1 ensures only local nginx (same host) can reach the plaintext inbound.
     # - Nginx handles TLS termination on public port 8118
     # - Xray handles authentication (username/password MANDATORY)
     # - No TLS streamSettings in Xray config (handled by Nginx)
@@ -544,7 +559,7 @@ generate_http_inbound_json() {
     cat <<'EOF'
   ,{
     "tag": "http-proxy",
-    "listen": "0.0.0.0",
+    "listen": "127.0.0.1",
     "port": 18118,
     "protocol": "http",
     "settings": {
@@ -1295,18 +1310,17 @@ configure_ufw() {
 
         cat >> "${UFW_AFTER_RULES}" <<EOF
 
-# BEGIN VLESS REALITY DOCKER FORWARDING RULES
+# BEGIN FAMILYTRAFFIC DOCKER FORWARDING RULES
 # Added: $(date -Iseconds)
+# v5.33: familytraffic uses network_mode:host — no bridge network, no MASQUERADE needed.
+# DOCKER-USER chain kept for Docker daemon compatibility.
 *filter
 :DOCKER-USER - [0:0]
 -A DOCKER-USER -j RETURN
 COMMIT
-
-*nat
-:POSTROUTING ACCEPT [0:0]
--A POSTROUTING -s ${DOCKER_SUBNET} -j MASQUERADE
-COMMIT
-# END VLESS REALITY DOCKER FORWARDING RULES
+# WARN-5 fix: *nat POSTROUTING MASQUERADE removed — host networking does not use NAT.
+# If MTProxy is enabled as a separate bridge container, its subnet is managed separately.
+# END FAMILYTRAFFIC DOCKER FORWARDING RULES
 EOF
         echo "  ✓ Docker forwarding rules added"
     else
@@ -1525,46 +1539,46 @@ install_cli_tools() {
 
     # Install vless-proxy CLI tool (v5.26: only if reverse proxy enabled)
     if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        local proxy_cli_source="${project_root}/scripts/vless-proxy"
+        local proxy_cli_source="${project_root}/scripts/familytraffic-proxy"
         if [[ -f "$proxy_cli_source" ]]; then
             # Copy vless-proxy script
-            cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
-                echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
+            cp "$proxy_cli_source" "${SCRIPTS_DIR}/familytraffic-proxy" || {
+                echo -e "${RED}Failed to copy familytraffic-proxy script${NC}" >&2
                 return 1
             }
 
             # Make it executable
-            chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
-                echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
+            chmod 755 "${SCRIPTS_DIR}/familytraffic-proxy" || {
+                echo -e "${RED}Failed to set execute permission on familytraffic-proxy${NC}" >&2
                 return 1
             }
 
             # Create symlink in /usr/local/bin
-            ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
-                echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
+            ln -sf "${SCRIPTS_DIR}/familytraffic-proxy" /usr/local/bin/familytraffic-proxy || {
+                echo -e "${RED}Failed to create familytraffic-proxy symlink${NC}" >&2
                 return 1
             }
 
-            echo "  ✓ vless-proxy installed"
+            echo "  ✓ familytraffic-proxy installed"
         else
-            echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
-            echo "  ℹ vless-proxy installation skipped"
+            echo -e "${YELLOW}  ⚠ familytraffic-proxy script not found: $proxy_cli_source${NC}"
+            echo "  ℹ familytraffic-proxy installation skipped"
         fi
 
         # Install vless-setup-proxy helper script
-        local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
+        local setup_proxy_source="${project_root}/scripts/familytraffic-setup-proxy"
         if [[ -f "$setup_proxy_source" ]]; then
-            cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
-                echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
+            cp "$setup_proxy_source" "${SCRIPTS_DIR}/familytraffic-setup-proxy" || {
+                echo -e "${RED}Failed to copy familytraffic-setup-proxy script${NC}" >&2
                 return 1
             }
 
-            chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
-                echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
+            chmod 755 "${SCRIPTS_DIR}/familytraffic-setup-proxy" || {
+                echo -e "${RED}Failed to set execute permission on familytraffic-setup-proxy${NC}" >&2
                 return 1
             }
 
-            echo "  ✓ vless-setup-proxy installed"
+            echo "  ✓ familytraffic-setup-proxy installed"
         else
             echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
             echo "  ℹ vless-setup-proxy installation skipped"
@@ -1573,30 +1587,30 @@ install_cli_tools() {
         echo "  ℹ️  Reverse proxy disabled, skipping vless-proxy/vless-setup-proxy installation"
     fi
 
-    # v5.23: Install vless-external-proxy CLI tool
-    local external_proxy_cli_source="${project_root}/scripts/vless-external-proxy"
+    # v5.23: Install familytraffic-external-proxy CLI tool
+    local external_proxy_cli_source="${project_root}/scripts/familytraffic-external-proxy"
     if [[ -f "$external_proxy_cli_source" ]]; then
-        cp "$external_proxy_cli_source" "${SCRIPTS_DIR}/vless-external-proxy" || {
-            echo -e "${RED}Failed to copy vless-external-proxy script${NC}" >&2
+        cp "$external_proxy_cli_source" "${SCRIPTS_DIR}/familytraffic-external-proxy" || {
+            echo -e "${RED}Failed to copy familytraffic-external-proxy script${NC}" >&2
             return 1
         }
 
         # Make it executable
-        chmod 755 "${SCRIPTS_DIR}/vless-external-proxy" || {
-            echo -e "${RED}Failed to set execute permission on vless-external-proxy${NC}" >&2
+        chmod 755 "${SCRIPTS_DIR}/familytraffic-external-proxy" || {
+            echo -e "${RED}Failed to set execute permission on familytraffic-external-proxy${NC}" >&2
             return 1
         }
 
         # Create symlink in /usr/local/bin
-        ln -sf "${SCRIPTS_DIR}/vless-external-proxy" /usr/local/bin/vless-external-proxy || {
-            echo -e "${RED}Failed to create vless-external-proxy symlink${NC}" >&2
+        ln -sf "${SCRIPTS_DIR}/familytraffic-external-proxy" /usr/local/bin/familytraffic-external-proxy || {
+            echo -e "${RED}Failed to create familytraffic-external-proxy symlink${NC}" >&2
             return 1
         }
 
-        echo "  ✓ vless-external-proxy installed"
+        echo "  ✓ familytraffic-external-proxy installed"
     else
-        echo -e "${YELLOW}  ⚠ vless-external-proxy script not found: $external_proxy_cli_source${NC}"
-        echo "  ℹ vless-external-proxy installation skipped (v5.23 feature)"
+        echo -e "${YELLOW}  ⚠ familytraffic-external-proxy script not found: $external_proxy_cli_source${NC}"
+        echo "  ℹ familytraffic-external-proxy installation skipped (v5.23 feature)"
     fi
 
     # v5.20: Copy ALL lib modules automatically (except installation-only modules)
@@ -1677,12 +1691,11 @@ install_cli_tools() {
     echo "  📊 Summary: ${copied_count} modules copied, ${skipped_count} skipped"
 
     echo "  ✓ CLI scripts installed:"
-    echo "    - ${SCRIPTS_DIR}/vless"
-    echo "    - ${SCRIPTS_DIR}/vless-proxy"
+    echo "    - ${SCRIPTS_DIR}/familytraffic"
     echo "  ✓ Symlinks created:"
-    echo "    - /usr/local/bin/vless"
-    echo "    - /usr/local/bin/vless-proxy"
-    echo "  ✓ Commands available: vless, vless-proxy"
+    echo "    - /usr/local/bin/familytraffic"
+    echo "    - /usr/local/bin/vless  (compat alias → familytraffic)"
+    echo "  ✓ Commands available: familytraffic  (vless is a backwards-compat alias)"
 
     echo -e "${GREEN}✓ CLI tools installed${NC}"
     return 0
@@ -1897,9 +1910,11 @@ verify_file_permissions() {
         echo -e "${RED}✗ Verification FAILED with $ISSUES critical issue(s) and $WARNINGS warning(s)${NC}"
         echo -e "${RED}  Installation may not work correctly!${NC}"
         echo ""
-        echo -e "${YELLOW}Run manual fixes above, then:${NC}"
-        echo -e "${YELLOW}  docker restart vless_xray${NC}"
-        echo -e "${YELLOW}  docker restart vless_nginx${NC}"
+        echo -e "${YELLOW}Run manual fixes above, then restart processes inside the container:${NC}"
+        echo -e "${YELLOW}  docker exec familytraffic supervisorctl restart xray${NC}"
+        echo -e "${YELLOW}  docker exec familytraffic supervisorctl restart nginx${NC}"
+        echo -e "${YELLOW}  # Or restart the entire container:${NC}"
+        echo -e "${YELLOW}  docker restart familytraffic${NC}"
         return 1
     fi
 }

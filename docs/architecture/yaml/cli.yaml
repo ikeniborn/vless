@@ -672,8 +672,8 @@ cli_tools:
           sudo vless test-security --quick
 
   - name: "vless-external-proxy"
-    path: "/usr/local/bin/vless-external-proxy"
-    symlink_target: "/opt/vless/scripts/vless-external-proxy"
+    path: "/usr/local/bin/familytraffic-external-proxy"
+    symlink_target: "/opt/vless/scripts/familytraffic-external-proxy"
     purpose: "External upstream proxy management (v5.24+ feature)"
     feature_version: "v5.24+"
     permission_required: "sudo (root access)"
@@ -1006,8 +1006,8 @@ cli_tools:
           sudo vless-external-proxy status
 
   - name: "vless-proxy"
-    path: "/usr/local/bin/vless-proxy"
-    symlink_target: "/opt/vless/scripts/vless-proxy"
+    path: "/usr/local/bin/familytraffic-proxy"
+    symlink_target: "/opt/vless/scripts/familytraffic-proxy"
     purpose: "Reverse proxy domain management (subdomain-based, no port)"
     feature_version: "v4.3+"
     permission_required: "sudo (root access)"
@@ -1736,8 +1736,8 @@ common_patterns:
 references:
   implementation:
     - "scripts/vless - Main CLI entry point"
-    - "scripts/vless-external-proxy - External proxy CLI"
-    - "scripts/vless-proxy - Reverse proxy CLI"
+    - "scripts/familytraffic-external-proxy - External proxy CLI"
+    - "scripts/familytraffic-proxy - Reverse proxy CLI"
     - "scripts/mtproxy - MTProxy CLI (v6.0+, planned)"
     - "lib/user_management.sh - User operations"
     - "lib/external_proxy_manager.sh - Proxy operations"

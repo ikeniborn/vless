@@ -87,9 +87,9 @@ sudo ./install.sh
 **CLI-инструменты** после установки:
 ```
 /usr/local/bin/vless
-/usr/local/bin/vless-proxy
-/usr/local/bin/vless-external-proxy
-/usr/local/bin/vless-cert-renew
+/usr/local/bin/familytraffic-proxy
+/usr/local/bin/familytraffic-external-proxy
+/usr/local/bin/familytraffic-cert-renew
 ```
 
 ---
@@ -363,7 +363,7 @@ sudo certbot renew --force-renewal
 
 **Ручной вызов хука:**
 ```bash
-RENEWED_DOMAINS="yourdomain.com" sudo /usr/local/bin/vless-cert-renew
+RENEWED_DOMAINS="yourdomain.com" sudo /usr/local/bin/familytraffic-cert-renew
 ```
 
 **Логи:**

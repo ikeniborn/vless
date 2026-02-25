@@ -1,11 +1,11 @@
 #!/bin/bash
-# cli/vless-proxy
+# cli/familytraffic-proxy
 #
-# VLESS v5.33 - Reverse Proxy Management Tool
+# familyTraffic v5.33 - Reverse Proxy Management Tool
 # Comprehensive CLI for managing reverse proxy configurations
 #
 # Commands:
-#   add                 - Create new reverse proxy (calls scripts/vless-setup-proxy)
+#   add                 - Create new reverse proxy (calls scripts/familytraffic-setup-proxy)
 #   list                - List all reverse proxies
 #   show <domain>       - Show detailed configuration
 #   remove <domain>     - Remove reverse proxy
@@ -18,10 +18,10 @@
 #   - HAProxy unified architecture (SNI routing on port 443)
 #   - Subdomain-based access: https://domain (NO port number!)
 #   - Nginx backends: localhost-only (127.0.0.1:9443-9452)
-#   - NO UFW port opening required (vless_nginx already on 443)
+#   - NO UFW port opening required (familytraffic already on 443)
 #
 # Version: 5.33.0
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-10-18
 
 set -euo pipefail
@@ -30,7 +30,7 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
-INSTALL_PATH="/opt/vless"
+INSTALL_PATH="/opt/familytraffic"
 LIB_PATH="${INSTALL_PATH}/lib"
 
 # Source library files
@@ -97,16 +97,16 @@ print_info() {
 }
 
 # =============================================================================
-# Command: add (alias to vless-setup-proxy)
+# Command: add (alias to familytraffic-setup-proxy)
 # =============================================================================
 
 cmd_add() {
-    if [ ! -f "${INSTALL_PATH}/scripts/vless-setup-proxy" ]; then
-        print_error "vless-setup-proxy не найден"
+    if [ ! -f "${INSTALL_PATH}/scripts/familytraffic-setup-proxy" ]; then
+        print_error "familytraffic-setup-proxy не найден"
         exit 1
     fi
 
-    exec "${INSTALL_PATH}/scripts/vless-setup-proxy"
+    exec "${INSTALL_PATH}/scripts/familytraffic-setup-proxy"
 }
 
 # =============================================================================
@@ -122,7 +122,7 @@ cmd_list() {
     if [ "$proxy_count" -eq 0 ]; then
         print_info "Нет настроенных reverse proxies"
         echo ""
-        echo "Используйте: sudo vless-proxy add"
+        echo "Используйте: sudo familytraffic-proxy add"
         return 0
     fi
 
@@ -159,7 +159,7 @@ cmd_list() {
 
     echo ""
     print_info "Public URLs: https://<domain> (БЕЗ номера порта!)"
-    print_info "Используйте: sudo vless-proxy show <domain> для деталей"
+    print_info "Используйте: sudo familytraffic-proxy show <domain> для деталей"
 }
 
 # =============================================================================
@@ -170,7 +170,7 @@ cmd_show() {
     local domain="$1"
 
     if [[ -z "$domain" ]]; then
-        print_error "Использование: vless-proxy show <domain>"
+        print_error "Использование: familytraffic-proxy show <domain>"
         exit 1
     fi
 
@@ -236,7 +236,7 @@ cmd_show() {
 
     if [ "$days_left" -lt 30 ]; then
         print_warning "Сертификат истекает менее чем через 30 дней!"
-        echo -e "  ${YELLOW}Выполните: sudo vless-proxy renew-cert $domain${NC}"
+        echo -e "  ${YELLOW}Выполните: sudo familytraffic-proxy renew-cert $domain${NC}"
         echo ""
     fi
 
@@ -272,7 +272,7 @@ cmd_remove() {
     local domain="$1"
 
     if [[ -z "$domain" ]]; then
-        print_error "Использование: vless-proxy remove <domain>"
+        print_error "Использование: familytraffic-proxy remove <domain>"
         exit 1
     fi
 
@@ -298,7 +298,7 @@ cmd_remove() {
     echo "  - Порт $port из docker-compose.yml"
     echo "  - Запись из БД"
     echo ""
-    echo -e "${CYAN}${ICON_INFO} UFW правило НЕ удаляется (vless_nginx уже на 443)${NC}"
+    echo -e "${CYAN}${ICON_INFO} UFW правило НЕ удаляется (familytraffic уже на 443)${NC}"
     echo -e "${RED}${BOLD}⚠️  Let's Encrypt сертификат НЕ будет удалён (может быть использован повторно)${NC}"
     echo ""
 
@@ -366,9 +366,9 @@ cmd_remove() {
     print_info "Проверка удаления порта..."
     sleep 2  # Wait for container restart
 
-    if docker ps --format "{{.Ports}}" --filter "name=vless_nginx_reverseproxy" | grep -q "127.0.0.1:${port}"; then
+    if docker ps --format "{{.Ports}}" --filter "name=familytraffic" | grep -q "127.0.0.1:${port}"; then
         print_warning "Порт $port все еще присутствует в контейнере"
-        print_info "Попробуйте вручную перезапустить: docker compose -f /opt/vless/docker-compose.yml up -d nginx"
+        print_info "Попробуйте вручную перезапустить: docker compose -f /opt/familytraffic/docker-compose.yml up -d nginx"
     else
         print_success "Порт $port успешно освобожден"
     fi
@@ -377,9 +377,9 @@ cmd_remove() {
     print_info "Финальная валидация удаления..."
     if ! validate_reverse_proxy_removed "$domain" "$port"; then
         print_warning "Некоторые компоненты reverse proxy не удалены полностью"
-        print_info "Проверьте вручную: sudo vless-proxy list"
-        print_info "Nginx config: ls -la /opt/vless/config/reverse-proxy/${domain}.conf"
-        print_info "Nginx routes: docker exec vless_nginx nginx -t"
+        print_info "Проверьте вручную: sudo familytraffic-proxy list"
+        print_info "Nginx config: ls -la /opt/familytraffic/config/reverse-proxy/${domain}.conf"
+        print_info "Nginx routes: docker exec familytraffic nginx -t"
     else
         print_success "Все компоненты успешно удалены - валидация пройдена"
     fi
@@ -403,7 +403,7 @@ cmd_renew_cert() {
     local domain="$1"
 
     if [[ -z "$domain" ]]; then
-        print_error "Использование: vless-proxy renew-cert <domain>"
+        print_error "Использование: familytraffic-proxy renew-cert <domain>"
         exit 1
     fi
 
@@ -442,7 +442,7 @@ cmd_enable() {
     local domain="$1"
 
     if [[ -z "$domain" ]]; then
-        print_error "Использование: vless-proxy enable <domain>"
+        print_error "Использование: familytraffic-proxy enable <domain>"
         exit 1
     fi
 
@@ -464,7 +464,7 @@ cmd_disable() {
     local domain="$1"
 
     if [[ -z "$domain" ]]; then
-        print_error "Использование: vless-proxy disable <domain>"
+        print_error "Использование: familytraffic-proxy disable <domain>"
         exit 1
     fi
 
@@ -542,7 +542,7 @@ cmd_check_certs() {
 
     if [ "$critical_count" -gt 0 ]; then
         print_error "$critical_count сертификатов истекли или истекают в течение 7 дней!"
-        echo -e "${RED}Выполните: sudo vless-proxy renew-cert <domain>${NC}"
+        echo -e "${RED}Выполните: sudo familytraffic-proxy renew-cert <domain>${NC}"
     elif [ "$warning_count" -gt 0 ]; then
         print_warning "$warning_count сертификатов истекают в течение 30 дней"
         echo -e "${YELLOW}Рекомендуется обновить сертификаты заранее${NC}"
@@ -559,10 +559,10 @@ cmd_check_certs() {
 
 show_usage() {
     cat <<EOF
-${BOLD}VLESS v5.33 - Reverse Proxy Management Tool${NC}
+${BOLD}familyTraffic v5.33 - Reverse Proxy Management Tool${NC}
 
 ${CYAN}${BOLD}ИСПОЛЬЗОВАНИЕ:${NC}
-  sudo vless-proxy <command> [options]
+  sudo familytraffic-proxy <command> [options]
 
 ${CYAN}${BOLD}КОМАНДЫ:${NC}
   ${BOLD}add${NC}                    Создать новый reverse proxy (интерактивный wizard)
@@ -575,17 +575,17 @@ ${CYAN}${BOLD}КОМАНДЫ:${NC}
   ${BOLD}check-certs${NC}            Проверить срок действия всех сертификатов
 
 ${CYAN}${BOLD}ПРИМЕРЫ:${NC}
-  sudo vless-proxy add
-  sudo vless-proxy list
-  sudo vless-proxy show proxy.example.com
-  sudo vless-proxy remove proxy.example.com
-  sudo vless-proxy renew-cert proxy.example.com
-  sudo vless-proxy check-certs
+  sudo familytraffic-proxy add
+  sudo familytraffic-proxy list
+  sudo familytraffic-proxy show proxy.example.com
+  sudo familytraffic-proxy remove proxy.example.com
+  sudo familytraffic-proxy renew-cert proxy.example.com
+  sudo familytraffic-proxy check-certs
 
 ${CYAN}${BOLD}ОСОБЕННОСТИ:${NC}
   - Subdomain-based access: ${GREEN}https://domain${NC} (БЕЗ номера порта!)
   - Nginx SNI routing на port 443 (ssl_preread)
-  - vless_nginx_reverseproxy: TLS termination для reverse proxy backends
+  - familytraffic: nginx handles TLS termination for reverse proxy backends
   - Unified certificate management
   - NO UFW port opening required
 
@@ -606,9 +606,9 @@ main() {
         exit 1
     fi
 
-    # Check if VLESS is installed
+    # Check if familyTraffic is installed
     if [ ! -d "$INSTALL_PATH" ]; then
-        print_error "VLESS не установлен. Сначала запустите установку."
+        print_error "familyTraffic не установлен. Сначала запустите установку."
         exit 1
     fi
 

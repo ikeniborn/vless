@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# VLESS v5.2 - Install IP Monitoring Cron Job
+# familyTraffic - Install IP Monitoring Cron Job
 # ==============================================================================
 #
 # Purpose:
@@ -8,7 +8,7 @@
 #   Runs every 30 minutes to check for IP changes
 #
 # Usage:
-#   sudo /opt/vless/scripts/vless-install-ip-monitoring
+#   sudo /opt/familytraffic/scripts/familytraffic-install-ip-monitoring
 #
 # Version: 5.2.0
 # Date: 2025-10-20
@@ -30,9 +30,9 @@ ICON_WARNING="⚠️"
 ICON_ERROR="❌"
 
 # Configuration
-INSTALL_PATH="/opt/vless"
-MONITOR_SCRIPT="${INSTALL_PATH}/scripts/vless-monitor-reverse-proxy-ips"
-CRON_FILE="/etc/cron.d/vless-ip-monitoring"
+INSTALL_PATH="/opt/familytraffic"
+MONITOR_SCRIPT="${INSTALL_PATH}/scripts/familytraffic-monitor-reverse-proxy-ips"
+CRON_FILE="/etc/cron.d/familytraffic-ip-monitoring"
 
 # ==============================================================================
 # Helper Functions
@@ -67,7 +67,7 @@ print_header() {
 # ==============================================================================
 
 install_monitoring() {
-    print_header "VLESS v5.2 - IP Monitoring Installation"
+    print_header "familyTraffic - IP Monitoring Installation"
 
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
@@ -78,7 +78,7 @@ install_monitoring() {
     # Check if monitoring script exists
     if [ ! -f "$MONITOR_SCRIPT" ]; then
         print_error "Monitoring script not found: $MONITOR_SCRIPT"
-        print_error "Please install VLESS first"
+        print_error "Please install familyTraffic first"
         exit 1
     fi
 
@@ -103,7 +103,7 @@ install_monitoring() {
     print_info "Creating cron job: $CRON_FILE"
 
     cat > "$CRON_FILE" <<EOF
-# VLESS v5.2 - Reverse Proxy IP Monitoring
+# familyTraffic - Reverse Proxy IP Monitoring
 # Checks for IP changes every 30 minutes and auto-updates configs
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
@@ -166,7 +166,7 @@ EOF
 # ==============================================================================
 
 uninstall_monitoring() {
-    print_header "VLESS v5.2 - IP Monitoring Uninstallation"
+    print_header "familyTraffic - IP Monitoring Uninstallation"
 
     if [ ! -f "$CRON_FILE" ]; then
         print_error "Cron job not found: $CRON_FILE"

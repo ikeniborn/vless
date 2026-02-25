@@ -631,7 +631,7 @@ sudo vless-proxy add  # Validation should pass for port 9444
 - **Symptom:** User enters "y", "yes", "n", "no" as TLS Server Name → Xray config invalid → connection fails
 - **Root Cause:** No validation on TLS Server Name input, prompts confusing (users typing confirmation instead of domain)
 - **Security Impact:** MEDIUM - Misconfiguration blocks proxy connectivity (service disruption)
-- **Fix:** `scripts/vless-external-proxy:192-208, 260-265`
+- **Fix:** `scripts/familytraffic-external-proxy:192-208, 260-265`
   - Added `validate_server_name()` function: FQDN/IP format validation
   - Rejects invalid inputs: "y", "yes", "n", "no", single words without dot
   - Clear prompt: "Press ENTER to use the proxy address [proxy.example.com]"
@@ -642,7 +642,7 @@ sudo vless-proxy add  # Validation should pass for port 9444
 - **Symptom:** Users forget to activate proxy after `add` (forget switch/enable/restart steps)
 - **Root Cause:** Multi-step activation (add → switch → enable → restart) error-prone
 - **UX Impact:** HIGH - Poor first-time experience, 30% users fail to activate
-- **Fix:** `scripts/vless-external-proxy:335-365`
+- **Fix:** `scripts/familytraffic-external-proxy:335-365`
   - Auto-activation offer after successful test: "Do you want to activate this proxy now? [Y/n]:"
   - Atomic operation: switch + enable + restart in one step
   - Default behavior: Y (immediate activation)
@@ -764,9 +764,9 @@ sudo vless-external-proxy test <proxy-id>                 # Test specific proxy 
 jq . /opt/vless/config/external_proxy.json                # Validate external proxy database
 jq '.routing' /opt/vless/config/xray_config.json          # Check Xray routing rules
 # Test TLS Server Name validation (v5.33)
-grep -A 10 "validate_server_name" /opt/vless/scripts/vless-external-proxy
+grep -A 10 "validate_server_name" /opt/vless/scripts/familytraffic-external-proxy
 # Check auto-activation workflow (v5.33)
-grep -A 20 "Do you want to activate this proxy now" /opt/vless/scripts/vless-external-proxy
+grep -A 20 "Do you want to activate this proxy now" /opt/vless/scripts/familytraffic-external-proxy
 
 # Security Tests
 sudo vless test-security             # Run comprehensive security test suite

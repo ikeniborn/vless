@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# vless-external-proxy CLI Tool
-# Part of VLESS+Reality VPN Deployment System (v5.23)
+# familytraffic-external-proxy CLI Tool
+# Part of familyTraffic VPN Deployment System (v5.23)
 #
 # Purpose: Manage external proxy configuration for routing traffic through
 #          upstream SOCKS5/HTTP proxies
 #
-# Usage: vless-external-proxy <command> [args]
+# Usage: familytraffic-external-proxy <command> [args]
 #
 # Commands:
 #   add                - Add external proxy (interactive wizard)
@@ -30,7 +30,7 @@ set -euo pipefail
 # =============================================================================
 
 # Paths
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
 readonly LIB_DIR="${INSTALL_ROOT}/lib"
 readonly CONFIG_DIR="${INSTALL_ROOT}/config"
 readonly EXTERNAL_PROXY_DB="${CONFIG_DIR}/external_proxy.json"
@@ -52,7 +52,7 @@ if [[ -f "${LIB_DIR}/external_proxy_manager.sh" ]]; then
     source "${LIB_DIR}/external_proxy_manager.sh"
 else
     echo -e "${RED}Error: external_proxy_manager.sh not found${NC}" >&2
-    echo "Please ensure VLESS is installed correctly" >&2
+    echo "Please ensure familyTraffic is installed correctly" >&2
     exit 1
 fi
 
@@ -60,7 +60,7 @@ if [[ -f "${LIB_DIR}/xray_routing_manager.sh" ]]; then
     source "${LIB_DIR}/xray_routing_manager.sh"
 else
     echo -e "${RED}Error: xray_routing_manager.sh not found${NC}" >&2
-    echo "Please ensure VLESS is installed correctly" >&2
+    echo "Please ensure familyTraffic is installed correctly" >&2
     exit 1
 fi
 
@@ -71,7 +71,7 @@ fi
 # Show usage information
 show_usage() {
     cat <<EOF
-${CYAN}VLESS External Proxy Manager (v5.23.1)${NC}
+${CYAN}familyTraffic External Proxy Manager (v5.23.1)${NC}
 
 Manage external proxy configuration for routing traffic through upstream
 SOCKS5/HTTP proxies.
@@ -99,9 +99,9 @@ ${YELLOW}Examples:${NC}
   $(basename "$0") enable            # Enable routing through active proxy
 
 ${YELLOW}Architecture:${NC}
-  Client → HAProxy → Xray → External Proxy → Internet
+  Client → Nginx → Xray → External Proxy → Internet
 
-For more information, visit: https://github.com/ikeniborn/vless
+For more information, visit: https://github.com/ikeniborn/familytraffic
 EOF
 }
 
@@ -352,17 +352,17 @@ cmd_add() {
 
                 echo ""
                 echo -e "${YELLOW}⚠️  IMPORTANT: Restart Xray container to apply changes:${NC}"
-                echo "   sudo docker restart vless_xray"
+                echo "   sudo docker exec familytraffic supervisorctl restart xray"
             else
                 echo -e "${RED}Failed to activate proxy${NC}"
                 echo "You can activate it manually:"
-                echo "  vless-external-proxy switch $proxy_id"
+                echo "  familytraffic-external-proxy switch $proxy_id"
             fi
         else
             echo "You can activate it later:"
-            echo "  1. Activate: vless-external-proxy switch $proxy_id"
-            echo "  2. Enable: vless-external-proxy enable"
-            echo "  3. Restart: docker restart vless_xray"
+            echo "  1. Activate: familytraffic-external-proxy switch $proxy_id"
+            echo "  2. Enable: familytraffic-external-proxy enable"
+            echo "  3. Restart: docker exec familytraffic supervisorctl restart xray"
         fi
     else
         echo ""
@@ -370,9 +370,9 @@ cmd_add() {
         echo "Proxy ID: $proxy_id"
         echo ""
         echo "You can:"
-        echo "  - Check proxy configuration: vless-external-proxy show $proxy_id"
-        echo "  - Test again later: vless-external-proxy test $proxy_id"
-        echo "  - Remove if incorrect: vless-external-proxy remove $proxy_id"
+        echo "  - Check proxy configuration: familytraffic-external-proxy show $proxy_id"
+        echo "  - Test again later: familytraffic-external-proxy test $proxy_id"
+        echo "  - Remove if incorrect: familytraffic-external-proxy remove $proxy_id"
     fi
 
     return 0
@@ -482,7 +482,7 @@ cmd_switch() {
     echo -e "${GREEN}✓ Proxy switched successfully${NC}"
     echo ""
     echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
-    echo "   docker restart vless_xray"
+    echo "   docker exec familytraffic supervisorctl restart xray"
 
     return 0
 }
@@ -557,7 +557,7 @@ cmd_update() {
         update_xray_outbounds "$proxy_id"
         echo ""
         echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
-        echo "   docker restart vless_xray"
+        echo "   docker exec familytraffic supervisorctl restart xray"
     fi
 
     return 0
@@ -605,7 +605,7 @@ cmd_remove() {
         disable_proxy_routing
         echo ""
         echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
-        echo "   docker restart vless_xray"
+        echo "   docker exec familytraffic supervisorctl restart xray"
     fi
 
     return 0
@@ -638,11 +638,11 @@ cmd_enable() {
         echo -e "${YELLOW}⚠️  No active proxy found${NC}"
         echo ""
         echo "Please activate a proxy first:"
-        echo "  1. List proxies: vless-external-proxy list"
-        echo "  2. Switch to proxy: vless-external-proxy switch <proxy-id>"
+        echo "  1. List proxies: familytraffic-external-proxy list"
+        echo "  2. Switch to proxy: familytraffic-external-proxy switch <proxy-id>"
         echo ""
         echo "Or add a new proxy:"
-        echo "  vless-external-proxy add"
+        echo "  familytraffic-external-proxy add"
         return 1
     fi
 
@@ -657,7 +657,7 @@ cmd_enable() {
     # Automatically restart Xray container to apply changes
     echo ""
     echo -e "${CYAN}Restarting Xray container...${NC}"
-    if docker restart vless_xray >/dev/null 2>&1; then
+    if docker exec familytraffic supervisorctl restart xray >/dev/null 2>&1; then
         echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
 
         # Wait for container to be healthy
@@ -665,17 +665,17 @@ cmd_enable() {
         sleep 3
 
         local container_status
-        container_status=$(docker inspect -f '{{.State.Status}}' vless_xray 2>/dev/null || echo "unknown")
+        container_status=$(docker inspect -f '{{.State.Status}}' familytraffic 2>/dev/null || echo "unknown")
 
         if [[ "$container_status" == "running" ]]; then
             echo -e "${GREEN}✓ External proxy routing is now active${NC}"
         else
             echo -e "${YELLOW}⚠️  Container restarted but status is: $container_status${NC}"
-            echo "  Check logs: docker logs vless_xray"
+            echo "  Check logs: docker logs familytraffic"
         fi
     else
         echo -e "${RED}✗ Failed to restart Xray container${NC}" >&2
-        echo "  Please restart manually: docker restart vless_xray"
+        echo "  Please restart manually: docker exec familytraffic supervisorctl restart xray"
         return 1
     fi
 
@@ -695,7 +695,7 @@ cmd_disable() {
         # Automatically restart Xray container to apply changes
         echo ""
         echo -e "${CYAN}Restarting Xray container...${NC}"
-        if docker restart vless_xray >/dev/null 2>&1; then
+        if docker exec familytraffic supervisorctl restart xray >/dev/null 2>&1; then
             echo -e "${GREEN}✓ Xray container restarted successfully${NC}"
 
             # Wait for container to be healthy
@@ -703,17 +703,17 @@ cmd_disable() {
             sleep 3
 
             local container_status
-            container_status=$(docker inspect -f '{{.State.Status}}' vless_xray 2>/dev/null || echo "unknown")
+            container_status=$(docker inspect -f '{{.State.Status}}' familytraffic 2>/dev/null || echo "unknown")
 
             if [[ "$container_status" == "running" ]]; then
                 echo -e "${GREEN}✓ External proxy routing is now disabled (direct mode)${NC}"
             else
                 echo -e "${YELLOW}⚠️  Container restarted but status is: $container_status${NC}"
-                echo "  Check logs: docker logs vless_xray"
+                echo "  Check logs: docker logs familytraffic"
             fi
         else
             echo -e "${RED}✗ Failed to restart Xray container${NC}" >&2
-            echo "  Please restart manually: docker restart vless_xray"
+            echo "  Please restart manually: docker exec familytraffic supervisorctl restart xray"
             return 1
         fi
     else
@@ -740,10 +740,10 @@ main() {
         exit 1
     fi
 
-    # Check if VLESS is installed
+    # Check if familyTraffic is installed
     if [[ ! -d "$INSTALL_ROOT" ]]; then
-        echo -e "${RED}Error: VLESS installation not found${NC}" >&2
-        echo "Please install VLESS first" >&2
+        echo -e "${RED}Error: familyTraffic installation not found${NC}" >&2
+        echo "Please install familyTraffic first" >&2
         exit 1
     fi
 

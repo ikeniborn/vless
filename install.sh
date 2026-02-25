@@ -243,9 +243,9 @@ main() {
     check_root
     print_success "Running with root privileges"
 
-    # Run migration (upgrade path: /opt/vless → /opt/familytraffic)
-    if [[ -d /opt/vless ]] && [[ ! -L /opt/vless ]]; then
-        print_message "${COLOR_YELLOW}" "\nDetected legacy /opt/vless installation, running migration..."
+    # Run migration (upgrade path: /opt/familytraffic → /opt/familytraffic)
+    if [[ -d /opt/familytraffic ]] && [[ ! -L /opt/familytraffic ]]; then
+        print_message "${COLOR_YELLOW}" "\nDetected legacy /opt/familytraffic installation, running migration..."
         source "${SCRIPT_DIR}/lib/migrate_rename.sh"
         migrate_rename
     fi
@@ -407,9 +407,9 @@ main() {
 
         # Install deploy hook script
         print_message "${COLOR_CYAN}" "Installing certificate renewal deploy hook..."
-        if [[ -f "${SCRIPT_DIR}/scripts/vless-cert-renew" ]]; then
-            cp "${SCRIPT_DIR}/scripts/vless-cert-renew" /usr/local/bin/vless-cert-renew
-            chmod 755 /usr/local/bin/vless-cert-renew
+        if [[ -f "${SCRIPT_DIR}/scripts/familytraffic-cert-renew" ]]; then
+            cp "${SCRIPT_DIR}/scripts/familytraffic-cert-renew" /usr/local/bin/familytraffic-cert-renew
+            chmod 755 /usr/local/bin/familytraffic-cert-renew
             print_success "Deploy hook installed"
         else
             print_warning "Deploy hook script not found, skipping"

@@ -804,7 +804,7 @@ reload_haproxy() {
 
 **Renewal:**
 - **Cron job:** `/etc/cron.d/vless-cert-renew`
-- **Script:** `scripts/vless-cert-renew`
+- **Script:** `scripts/familytraffic-cert-renew`
 - **Frequency:** Daily check (certbot renew --quiet)
 - **Post-hook:** Regenerate combined.pem + reload HAProxy
 
@@ -1001,7 +1001,7 @@ Client → HAProxy (TLS) → Xray (VPN Core) → External SOCKS5s/HTTPS Proxy �
 **Key Components:**
 1. **External Proxy Manager** (lib/external_proxy_manager.sh)
 2. **Xray Routing Manager** (lib/xray_routing_manager.sh)
-3. **CLI Tool** (scripts/vless-external-proxy)
+3. **CLI Tool** (scripts/familytraffic-external-proxy)
 4. **Proxy Database** (/opt/vless/config/external_proxy.json)
 
 #### 4.8.2 Detailed Architecture Diagram
@@ -1306,7 +1306,7 @@ Attempt 3: FAIL (connection refused) → Wait 4s
 #### 4.8.7 CLI Management Interface
 
 **Command:** `vless-external-proxy`
-**Symlink:** `/usr/local/bin/vless-external-proxy` → `/opt/vless/scripts/vless-external-proxy`
+**Symlink:** `/usr/local/bin/familytraffic-external-proxy` → `/opt/vless/scripts/familytraffic-external-proxy`
 
 **Workflow Example:**
 ```bash
@@ -1421,7 +1421,7 @@ if [[ -f "${INSTALL_ROOT}/config/external_proxy.json" ]]; then
 fi
 ```
 
-**Auto-Restart Integration (scripts/vless-external-proxy):**
+**Auto-Restart Integration (scripts/familytraffic-external-proxy):**
 ```bash
 cmd_enable() {
     enable_proxy_routing
