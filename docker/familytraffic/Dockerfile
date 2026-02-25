@@ -31,9 +31,13 @@ RUN apk add --no-cache \
 FROM nginx:1.27-alpine AS final
 
 # Install supervisor (Alpine package name: supervisor, NOT supervisord)
+# iproute2: provides 'ss' for port-80 pre-flight check in entrypoint.sh (BUG-4 fix)
+# netcat-openbsd: provides 'nc' for Docker healthcheck (WARN-1 fix)
 RUN apk add --no-cache \
     supervisor \
     openssl \
+    iproute2 \
+    netcat-openbsd \
     && mkdir -p /etc/familytraffic \
     && mkdir -p /var/www/html/.well-known/acme-challenge
 

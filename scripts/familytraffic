@@ -197,8 +197,8 @@ main() {
             if [[ $# -lt 2 ]]; then
                 echo -e "${RED}Error: Username and proxy ID required${NC}" >&2
                 echo "Usage: familytraffic set-proxy <username> <proxy-id|none>" >&2
-                echo "Example: vless set-proxy alice corporate-proxy-123" >&2
-                echo "         vless set-proxy alice none" >&2
+                echo "Example: familytraffic set-proxy alice corporate-proxy-123" >&2
+                echo "         familytraffic set-proxy alice none" >&2
                 exit 1
             fi
             source_modules
@@ -233,7 +233,7 @@ main() {
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP list required${NC}" >&2
                 echo "Usage: familytraffic set-proxy-ips <ip1,ip2,...>" >&2
-                echo "Example: vless set-proxy-ips 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
+                echo "Example: familytraffic set-proxy-ips 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
                 exit 1
             fi
             source_modules
@@ -245,7 +245,7 @@ main() {
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
                 echo "Usage: familytraffic add-proxy-ip <ip>" >&2
-                echo "Example: vless add-proxy-ip 192.168.1.5" >&2
+                echo "Example: familytraffic add-proxy-ip 192.168.1.5" >&2
                 exit 1
             fi
             source_modules
@@ -257,7 +257,7 @@ main() {
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
                 echo "Usage: familytraffic remove-proxy-ip <ip>" >&2
-                echo "Example: vless remove-proxy-ip 192.168.1.5" >&2
+                echo "Example: familytraffic remove-proxy-ip 192.168.1.5" >&2
                 exit 1
             fi
             source_modules
@@ -281,7 +281,7 @@ main() {
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
                 echo "Usage: familytraffic add-ufw-ip <ip>" >&2
-                echo "Example: vless add-ufw-ip 192.168.1.100" >&2
+                echo "Example: familytraffic add-ufw-ip 192.168.1.100" >&2
                 exit 1
             fi
             source_modules
@@ -293,7 +293,7 @@ main() {
             if [[ $# -eq 0 ]]; then
                 echo -e "${RED}Error: IP address required${NC}" >&2
                 echo "Usage: familytraffic remove-ufw-ip <ip>" >&2
-                echo "Example: vless remove-ufw-ip 192.168.1.100" >&2
+                echo "Example: familytraffic remove-ufw-ip 192.168.1.100" >&2
                 exit 1
             fi
             source_modules
@@ -451,7 +451,7 @@ main() {
                             echo "$proxy_stats" | jq -r '.[] | "    • \(.proxy): \(.count) user(s)"' 2>/dev/null
 
                             echo ""
-                            echo "  Hint: vless list-proxy-assignments (detailed view)"
+                            echo "  Hint: familytraffic list-proxy-assignments (detailed view)"
                         fi
                     fi
                 fi
@@ -464,19 +464,19 @@ main() {
 
         start)
             check_root
-            echo "Starting VLESS services..."
+            echo "Starting familyTraffic services..."
             (cd "${INSTALL_ROOT}" && docker compose up -d)
             ;;
 
         stop)
             check_root
-            echo "Stopping VLESS services..."
+            echo "Stopping familyTraffic services..."
             (cd "${INSTALL_ROOT}" && docker compose down)
             ;;
 
         restart)
             check_root
-            echo "Restarting VLESS services..."
+            echo "Restarting familyTraffic services..."
             (cd "${INSTALL_ROOT}" && docker compose restart)
             ;;
 
@@ -524,11 +524,11 @@ main() {
 
             echo ""
             echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-            echo -e "${BLUE}║            VLESS Reality VPN - Update Check                ║${NC}"
+            echo -e "${BLUE}║          familyTraffic VPN - Update Check                   ║${NC}"
             echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
             echo ""
             echo -e "Current Version: ${YELLOW}${current_version:-unknown}${NC}"
-            echo -e "Target Version:  ${GREEN}3.3${NC}"
+            echo -e "Target Version:  ${GREEN}5.33${NC}"
             echo ""
 
             # Show breaking change warning for v3.2 → v3.3 migration
@@ -595,7 +595,7 @@ main() {
         backup)
             check_root
             local backup_dir="${INSTALL_ROOT}/backup"
-            local backup_file="${backup_dir}/vless_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+            local backup_file="${backup_dir}/familytraffic_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
 
             mkdir -p "$backup_dir"
 
@@ -640,7 +640,7 @@ main() {
                 echo -e "${RED}Error: transport type and subdomain required${NC}" >&2
                 echo "Usage: familytraffic add-transport <type> <subdomain>" >&2
                 echo "Types: ws, xhttp, grpc" >&2
-                echo "Example: vless add-transport ws ws.example.com" >&2
+                echo "Example: familytraffic add-transport ws ws.example.com" >&2
                 exit 1
             fi
             source_modules

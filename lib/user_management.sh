@@ -63,7 +63,7 @@ fi
 [[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_users.lock"
 
 # Container name (only define if not already set)
-[[ -z "${XRAY_CONTAINER:-}" ]] && readonly XRAY_CONTAINER="vless_xray"
+[[ -z "${XRAY_CONTAINER:-}" ]] && readonly XRAY_CONTAINER="familytraffic"
 
 # Colors for output (only define if not already set to avoid conflicts)
 [[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
@@ -1951,7 +1951,7 @@ migrate_xtls_vision() {
     log_warning "Use 'vless list-users' to regenerate QR codes/URIs for affected users"
 
     # Reload Xray to apply changes
-    docker restart vless_xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
+    docker exec familytraffic supervisorctl restart xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
 
     return 0
 }
@@ -2728,7 +2728,7 @@ cmd_set_user_proxy() {
 
     echo ""
     log_info "Xray will reload automatically within 30 seconds"
-    log_info "Or run: sudo docker restart vless_xray"
+    log_info "Or run: sudo docker exec familytraffic supervisorctl restart xray"
     echo ""
 
     return 0

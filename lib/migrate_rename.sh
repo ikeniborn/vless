@@ -1,34 +1,48 @@
 #!/bin/bash
 # lib/migrate_rename.sh
-# Migration script: rename /opt/vless → /opt/familytraffic
+# Migration script: /opt/vless → /opt/familytraffic (project rename v5.33)
 # Part of familyTraffic VPN v5.33
 #
 # Handles upgrade path from old vless installations:
-#   - Moves /opt/vless/ → /opt/familytraffic/ (with backwards-compat symlink)
+#   - Moves /opt/vless/ → /opt/familytraffic/ (atomic mv + backwards-compat symlink)
 #   - Creates compat symlink /usr/local/bin/vless → familytraffic
 #
+# WARN-7 fix: uses mv (atomic on same filesystem) instead of cp -a + rm -rf
 # Usage: source lib/migrate_rename.sh  (or execute directly)
 
 set -euo pipefail
 
+# Literal old/new paths — must NOT be substituted by rename sed passes
+OLD_INSTALL="/opt/vless"
+NEW_INSTALL="/opt/familytraffic"
+
 migrate_rename() {
-    # Migrate /opt/vless → /opt/familytraffic if old install exists
-    if [ -d /opt/vless ] && [ ! -d /opt/familytraffic ]; then
-        echo "  [migrate] Migrating /opt/vless → /opt/familytraffic..."
-        cp -a /opt/vless /opt/familytraffic
-        rm -rf /opt/vless
-        ln -s /opt/familytraffic /opt/vless
-        echo "  [migrate] Migration: /opt/vless → /opt/familytraffic (symlink left for compat)"
-    elif [ -L /opt/vless ]; then
-        echo "  [migrate] /opt/vless is already a symlink (migration previously completed)"
-    elif [ -d /opt/vless ] && [ -d /opt/familytraffic ]; then
-        echo "  [migrate] Both /opt/vless and /opt/familytraffic exist — skipping migration"
+    # Case 1: old install exists, new does not → migrate
+    if [ -d "${OLD_INSTALL}" ] && [ ! -d "${NEW_INSTALL}" ] && [ ! -L "${OLD_INSTALL}" ]; then
+        echo "  [migrate] Migrating ${OLD_INSTALL} → ${NEW_INSTALL}..."
+        # mv is atomic on same filesystem: no partial-state window if interrupted
+        mv "${OLD_INSTALL}" "${NEW_INSTALL}"
+        ln -s "${NEW_INSTALL}" "${OLD_INSTALL}"
+        echo "  [migrate] Done: ${OLD_INSTALL} → ${NEW_INSTALL} (symlink left for compat)"
+
+    # Case 2: old path is already a symlink → migration was done before
+    elif [ -L "${OLD_INSTALL}" ]; then
+        echo "  [migrate] ${OLD_INSTALL} is already a symlink — migration previously completed"
+
+    # Case 3: both exist as real directories → skip, warn
+    elif [ -d "${OLD_INSTALL}" ] && [ -d "${NEW_INSTALL}" ]; then
+        echo "  [migrate] WARNING: Both ${OLD_INSTALL} and ${NEW_INSTALL} exist as directories" >&2
+        echo "  [migrate] Skipping automatic migration — review manually" >&2
+
+    # Case 4: neither exists → fresh install, nothing to migrate
+    else
+        : # no-op
     fi
 
-    # Create backwards-compat symlink: vless → familytraffic
-    if [ -f /usr/local/bin/familytraffic ] && [ ! -L /usr/local/bin/vless ]; then
+    # Create backwards-compat CLI symlink: vless → familytraffic
+    if [ -f /usr/local/bin/familytraffic ] && [ ! -e /usr/local/bin/vless ]; then
         ln -sf /usr/local/bin/familytraffic /usr/local/bin/vless
-        echo "  [migrate] Compat symlink created: vless → familytraffic"
+        echo "  [migrate] Compat symlink created: /usr/local/bin/vless → familytraffic"
     fi
 }
 

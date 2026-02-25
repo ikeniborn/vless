@@ -646,7 +646,7 @@ reload_xray() {
     # If not available, provide basic implementation
     if ! type reload_xray_container &>/dev/null; then
         local compose_dir="/opt/familytraffic"
-        if docker ps --format '{{.Names}}' | grep -q "^vless_xray$"; then
+        if docker ps --format '{{.Names}}' | grep -q "^familytraffic$"; then
             (cd "$compose_dir" && docker compose restart xray) 2>/dev/null
             return $?
         fi

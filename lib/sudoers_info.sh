@@ -104,7 +104,7 @@ display_why_sudoers() {
     echo ""
     echo "VLESS management commands require root privileges to:"
     echo "  • Manage Docker containers (start/stop/restart)"
-    echo "  • Modify configuration files in /opt/vless"
+    echo "  • Modify configuration files in /opt/familytraffic"
     echo "  • Update Xray configuration and reload services"
     echo "  • Manage user accounts and generate keys"
     echo ""
