@@ -726,61 +726,76 @@ apply_per_user_routing() {
 
     local temp_file="${XRAY_CONFIG}.tmp.$$"
 
-    # Update routing section
-    echo "$routing_json" | jq -s '.[0]' > /tmp/routing_rules.json || {
-        log_error "Failed to parse routing JSON"
+    # Use mktemp to avoid predictable /tmp path (CWE-377 symlink attack)
+    local routing_tmp
+    routing_tmp=$(mktemp) || {
+        log_error "Failed to create temporary file"
         return 1
     }
 
-    jq --slurpfile routing /tmp/routing_rules.json \
+    # Update routing section
+    echo "$routing_json" | jq -s '.[0]' > "$routing_tmp" || {
+        log_error "Failed to parse routing JSON"
+        rm -f "$routing_tmp"
+        return 1
+    }
+
+    jq --slurpfile routing "$routing_tmp" \
         '.routing = $routing[0]' \
         "$XRAY_CONFIG" > "$temp_file"
 
     if [[ $? -ne 0 ]]; then
         log_error "Failed to update routing rules in Xray config"
-        rm -f "$temp_file" /tmp/routing_rules.json
+        rm -f "$temp_file" "$routing_tmp"
         return 1
     fi
 
     # Validate JSON
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
-        rm -f "$temp_file" /tmp/routing_rules.json
+        rm -f "$temp_file" "$routing_tmp"
         return 1
     fi
 
     # Apply changes
     mv "$temp_file" "$XRAY_CONFIG"
-    rm -f /tmp/routing_rules.json
+    rm -f "$routing_tmp"
 
     log_success "Per-user routing applied successfully"
+
+    # Reload Xray so routing changes take effect immediately
+    if ! reload_xray; then
+        log_warning "Routing config written but Xray reload failed"
+        log_warning "Run manually: docker exec familytraffic supervisorctl restart xray"
+        return 1
+    fi
     return 0
 }
 
 reload_xray() {
     log_info "Reloading Xray configuration..."
 
-    local compose_dir="/opt/familytraffic"
-
     if ! docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
-        log_warning "Xray container is not running, skipping reload"
+        log_warning "Container ${XRAY_CONTAINER} is not running, skipping reload"
         return 0
     fi
 
-    # Try graceful reload via HUP signal first (using docker compose)
-    if (cd "$compose_dir" && docker compose kill -s HUP xray) 2>/dev/null; then
-        log_success "Xray configuration reloaded (HUP signal)"
+    # v5.33 single-container: send SIGHUP to the xray process managed by supervisord.
+    # This reloads only xray — nginx and certbot are not affected.
+    if docker exec "${XRAY_CONTAINER}" supervisorctl signal SIGHUP xray 2>/dev/null; then
+        log_success "Xray configuration reloaded (SIGHUP via supervisorctl)"
         return 0
-    else
-        log_warning "Failed to send HUP signal, restarting container..."
-        if (cd "$compose_dir" && docker compose restart xray) 2>/dev/null; then
-            log_success "Xray container restarted"
-            return 0
-        else
-            log_error "Failed to restart Xray container"
-            return 1
-        fi
     fi
+
+    # Fallback: restart only the xray process inside the container (not the container itself)
+    log_warning "SIGHUP failed, restarting xray process via supervisorctl..."
+    if docker exec "${XRAY_CONTAINER}" supervisorctl restart xray 2>/dev/null; then
+        log_success "Xray process restarted (supervisorctl)"
+        return 0
+    fi
+
+    log_error "Failed to reload Xray inside container ${XRAY_CONTAINER}"
+    return 1
 }
 
 # ============================================================================
@@ -2727,8 +2742,7 @@ cmd_set_user_proxy() {
     fi
 
     echo ""
-    log_info "Xray will reload automatically within 30 seconds"
-    log_info "Or run: sudo docker exec familytraffic supervisorctl restart xray"
+    log_info "Xray configuration reloaded"
     echo ""
 
     return 0

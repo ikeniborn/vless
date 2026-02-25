@@ -40,7 +40,6 @@ set -euo pipefail
 readonly VLESS_DIR="/opt/familytraffic"
 readonly LOG_FILE="$VLESS_DIR/logs/certbot-renew.log"
 readonly METRICS_FILE="$VLESS_DIR/logs/certbot-renew-metrics.json"
-readonly DB_SCRIPT="$VLESS_DIR/lib/reverseproxy_db.sh"
 readonly CERT_MANAGER="$VLESS_DIR/lib/certificate_manager.sh"
 
 # Retry configuration (can be overridden by environment variables)
@@ -468,40 +467,8 @@ reload_nginx_reverseproxy() {
 }
 
 update_database_cert_info() {
-    local domain="$1"
-
-    # Check if database script exists
-    if [[ ! -f "$DB_SCRIPT" ]]; then
-        log_info "ℹ️  Database script not found, skipping database update"
-        return 0
-    fi
-
-    # Source database functions
-    source "$DB_SCRIPT"
-
-    # Check if this is a reverse proxy domain
-    if ! get_proxy "$domain" &>/dev/null; then
-        log_info "ℹ️  $domain is not a reverse proxy, skipping database update"
-        return 0
-    fi
-
-    log_info "Updating database for $domain..."
-
-    # Calculate new expiry (Let's Encrypt: 90 days)
-    local new_expiry
-    new_expiry=$(date -u -d '+90 days' +'%Y-%m-%dT%H:%M:%SZ')
-
-    local renewed_at
-    renewed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-
-    # Update database
-    if update_certificate_info "$domain" "$new_expiry" "$renewed_at" 2>&1 >> "$LOG_FILE"; then
-        log_info "✅ Database updated for $domain (expires: $new_expiry)"
-        return 0
-    else
-        log_error "Failed to update database for $domain"
-        return 1
-    fi
+    # Reverse proxy database removed in v5.33 — no-op
+    return 0
 }
 
 #==============================================================================

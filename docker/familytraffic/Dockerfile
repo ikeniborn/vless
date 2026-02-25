@@ -2,40 +2,39 @@
 # familyTraffic VPN Server - Single Container Image
 # nginx + xray + certbot + supervisord
 #
-# 3-stage build:
-#   Stage 1: xray-src     — extract xray binary from teddysun image
-#   Stage 2: certbot-builder — build certbot via pip on Alpine
-#   Stage 3: final        — nginx:1.27-alpine + supervisor + xray + certbot
+# 2-stage build:
+#   Stage 1: xray-src — extract xray binary from teddysun image
+#   Stage 2: final    — nginx:alpine + supervisor + certbot (apk) + xray
+#
+# Override base image versions at build time:
+#   docker build --build-arg NGINX_IMAGE=nginx:1.27-alpine .
+#
+# NOTE: certbot is installed via apk (not pip) to avoid Python interpreter
+# path mismatch. pip-installed certbot embeds #!/usr/local/bin/python3.12
+# which does not exist when supervisor brings Python via Alpine apk (/usr/bin).
+
+# All FROM-referenced ARGs must be declared before the first FROM.
+ARG XRAY_IMAGE=teddysun/xray:24.11.30
+ARG NGINX_IMAGE=nginx:1.27-alpine
 
 # =============================================================================
 # Stage 1: Extract Xray binary
 # =============================================================================
-FROM teddysun/xray:24.11.30 AS xray-src
+FROM ${XRAY_IMAGE} AS xray-src
 
 # =============================================================================
-# Stage 2: Build certbot
+# Stage 2: Final image
 # =============================================================================
-FROM python:3.12-alpine AS certbot-builder
+FROM ${NGINX_IMAGE} AS final
 
-RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    libffi-dev \
-    openssl-dev \
-    cargo \
-    && pip install --no-cache-dir certbot
-
-# =============================================================================
-# Stage 3: Final image
-# =============================================================================
-FROM nginx:1.27-alpine AS final
-
-# Install supervisor (Alpine package name: supervisor, NOT supervisord)
-# iproute2: provides 'ss' for port-80 pre-flight check in entrypoint.sh (BUG-4 fix)
-# netcat-openbsd: provides 'nc' for Docker healthcheck (WARN-1 fix)
+# Runtime packages:
+#   supervisor     — process manager (PID 1); brings python3 as apk dep
+#   certbot        — ACME client for Let's Encrypt (Alpine community repo)
+#   iproute2       — provides 'ss' for port-80 pre-flight check (entrypoint.sh)
+#   netcat-openbsd — provides 'nc -w' for Docker healthcheck
 RUN apk add --no-cache \
     supervisor \
-    openssl \
+    certbot \
     iproute2 \
     netcat-openbsd \
     && mkdir -p /etc/familytraffic \
@@ -44,25 +43,24 @@ RUN apk add --no-cache \
 # Copy xray binary from Stage 1
 COPY --from=xray-src /usr/bin/xray /usr/bin/xray
 
-# Copy certbot binary and Python libs from Stage 2
-COPY --from=certbot-builder /usr/local/bin/certbot /usr/local/bin/certbot
-COPY --from=certbot-builder /usr/local/lib /usr/local/lib
-
-# Copy supervisord configuration
+# Config file (644 — no --chmod needed)
 COPY docker/familytraffic/supervisord.conf /etc/familytraffic/supervisord.conf
 
-# Copy certbot renewal script
-COPY docker/familytraffic/certbot-renew.sh /etc/familytraffic/certbot-renew.sh
-RUN chmod +x /etc/familytraffic/certbot-renew.sh
+# Runtime scripts — merged into one COPY to save a layer
+COPY --chmod=755 \
+    docker/familytraffic/certbot-renew.sh \
+    docker/familytraffic/entrypoint.sh \
+    /etc/familytraffic/
 
-# Copy entrypoint
-COPY docker/familytraffic/entrypoint.sh /docker/familytraffic/entrypoint.sh
-RUN chmod +x /docker/familytraffic/entrypoint.sh
-
-# Environment defaults
 ENV INSTALL_PATH=/opt/familytraffic
 
-# Expose ports
+# Documentation only — actual binding controlled by network_mode:host in compose
 EXPOSE 443 1080 8118
 
-ENTRYPOINT ["/docker/familytraffic/entrypoint.sh"]
+# Fallback healthcheck — overridden by docker-compose.yml when run via compose
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=20s \
+    CMD timeout 5 supervisorctl status xray | grep -q RUNNING \
+     && timeout 5 supervisorctl status nginx | grep -q RUNNING \
+     && nc -z -w 3 127.0.0.1 8443
+
+ENTRYPOINT ["/etc/familytraffic/entrypoint.sh"]

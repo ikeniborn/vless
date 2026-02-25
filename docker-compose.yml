@@ -43,11 +43,15 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "8443"]
+      # Check all critical processes via supervisorctl + verify xray accepts TCP on 8443.
+      # supervisorctl connects to unix:///var/run/supervisor.sock (configured in supervisord.conf).
+      # certbot-cron is non-critical (autorestart=false) and excluded from the check.
+      test: ["CMD", "sh", "-c",
+        "timeout 5 supervisorctl status xray | grep -q RUNNING && timeout 5 supervisorctl status nginx | grep -q RUNNING && nc -z -w 3 127.0.0.1 8443"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
 # MTProxy service block is appended here by familytraffic-mtproxy-setup
 # Do not add anything below this line manually

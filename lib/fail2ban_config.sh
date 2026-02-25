@@ -12,8 +12,6 @@
 # - UFW ban action (1 hour default)
 # - Dynamic port management
 #
-# Note: HAProxy functions preserved as no-op stubs (v5.33).
-# HAProxy was removed in v5.33 — single container familytraffic handles all traffic.
 #
 # Version: 5.33.0
 # Author: familyTraffic Development Team
@@ -251,8 +249,12 @@ add_port_to_jail() {
         new_ports="${current_ports},${new_port}"
     fi
 
+    # Escape metacharacters before using in sed replacement (SEC: injection prevention)
+    local new_ports_esc
+    new_ports_esc=$(printf '%s\n' "$new_ports" | sed 's/[&\/\\]/\\&/g')
+
     # Update both jail sections
-    sudo sed -i "s/^port = .*/port = ${new_ports}/" "$jail_file"
+    sudo sed -i "s/^port = .*/port = ${new_ports_esc}/" "$jail_file"
 
     log "✅ Port $new_port added to jail"
 
@@ -304,8 +306,12 @@ remove_port_from_jail() {
         return 0
     fi
 
+    # Escape metacharacters before using in sed replacement (SEC: injection prevention)
+    local new_ports_esc
+    new_ports_esc=$(printf '%s\n' "$new_ports" | sed 's/[&\/\\]/\\&/g')
+
     # Update both jail sections
-    sudo sed -i "s/^port = .*/port = ${new_ports}/" "$jail_file"
+    sudo sed -i "s/^port = .*/port = ${new_ports_esc}/" "$jail_file"
 
     log "✅ Port $port_to_remove removed from jail (new: $new_ports)"
 
@@ -378,42 +384,6 @@ unban_ip() {
     fi
 }
 
-# ============================================================================
-# Function: create_haproxy_filter
-# Description: No-op stub — HAProxy removed in v5.33
-# ============================================================================
-create_haproxy_filter() {
-    log "ℹ️  create_haproxy_filter: HAProxy removed in v5.33 — skipping"
-    return 0
-}
-
-# ============================================================================
-# Function: setup_haproxy_jail
-# Description: No-op stub — HAProxy removed in v5.33
-# ============================================================================
-setup_haproxy_jail() {
-    log "ℹ️  setup_haproxy_jail: HAProxy removed in v5.33 — skipping"
-    return 0
-}
-
-# ============================================================================
-# Function: check_haproxy_jail_status
-# Description: No-op stub — HAProxy removed in v5.33
-# ============================================================================
-check_haproxy_jail_status() {
-    log "ℹ️  check_haproxy_jail_status: HAProxy removed in v5.33 — skipping"
-    return 0
-}
-
-# ============================================================================
-# Function: setup_haproxy_fail2ban
-# Description: No-op stub — HAProxy removed in v5.33
-# ============================================================================
-setup_haproxy_fail2ban() {
-    log "ℹ️  setup_haproxy_fail2ban: HAProxy removed in v5.33 — skipping"
-    log "    Single-container familytraffic handles traffic; HAProxy jail not needed"
-    return 0
-}
 
 # ============================================================================
 # Function: setup_reverseproxy_fail2ban
@@ -476,12 +446,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo ""
         echo "Commands:"
         echo "  setup [ports]           - Complete setup for reverse proxy (default: 9443)"
-        echo "  setup-haproxy           - No-op stub (HAProxy removed in v5.33)"
         echo "  add-port <port>         - Add port to reverse proxy jail"
         echo "  remove-port <port>      - Remove port from reverse proxy jail"
         echo "  reload                  - Reload fail2ban"
         echo "  status                  - Check reverse proxy jail status"
-        echo "  status-haproxy          - No-op stub (HAProxy removed in v5.33)"
         echo "  unban <ip>              - Unban IP address"
         exit 1
     fi
@@ -492,9 +460,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "$command" in
         setup)
             setup_reverseproxy_fail2ban "$@"
-            ;;
-        setup-haproxy)
-            setup_haproxy_fail2ban
             ;;
         add-port)
             add_port_to_jail "$@" && reload_fail2ban
@@ -507,9 +472,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         status)
             check_jail_status
-            ;;
-        status-haproxy)
-            check_haproxy_jail_status
             ;;
         unban)
             unban_ip "$@"

@@ -38,8 +38,7 @@ WARNING_THRESHOLD=14
 CRITICAL_THRESHOLD=7
 
 # Source libraries
-source "${SCRIPT_DIR}/reverseproxy_db.sh"
-source "${SCRIPT_DIR}/letsencrypt_integration.sh"
+[[ -f "${SCRIPT_DIR}/letsencrypt_integration.sh" ]] && source "${SCRIPT_DIR}/letsencrypt_integration.sh"
 
 # Colors (for terminal output)
 GREEN='\033[0;32m'

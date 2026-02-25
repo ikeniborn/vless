@@ -642,18 +642,15 @@ regenerate_proxy_routing() {
 # FUNCTION: reload_xray (stub - expects function from user_management.sh)
 # ============================================================================
 reload_xray() {
-    # This function should be provided by user_management.sh
-    # If not available, provide basic implementation
-    if ! type reload_xray_container &>/dev/null; then
-        local compose_dir="/opt/familytraffic"
-        if docker ps --format '{{.Names}}' | grep -q "^familytraffic$"; then
-            (cd "$compose_dir" && docker compose restart xray) 2>/dev/null
-            return $?
-        fi
-        return 0
+    # This function should be provided by user_management.sh.
+    # Fallback for v5.33 single-container: restart only the xray process
+    # inside the container via supervisorctl (nginx/certbot are not affected).
+    if docker ps --format '{{.Names}}' | grep -q "^familytraffic$"; then
+        docker exec familytraffic supervisorctl signal SIGHUP xray 2>/dev/null && return 0
+        docker exec familytraffic supervisorctl restart xray 2>/dev/null
+        return $?
     fi
-
-    reload_xray_container
+    return 0
 }
 
 # ============================================================================

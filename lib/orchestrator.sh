@@ -26,7 +26,6 @@ set -euo pipefail
 # v5.30: nginx_stream_generator.sh (stream+http) replaced haproxy_config_manager.sh
 SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh"
-[[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
 
 # =============================================================================
 # IMPORT v5.23 MODULES (External Proxy Support)
@@ -65,7 +64,6 @@ readonly DOCKER_NETWORK_NAME="vless_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
 readonly XRAY_CONTAINER_NAME="familytraffic"
-readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: reverse proxy (optional)
 readonly NGINX_MAIN_CONTAINER_NAME="familytraffic"         # v5.33: single container (nginx+xray+certbot)
 
 # familyTraffic container image (v5.33 single-container)
@@ -204,19 +202,6 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 6.3: Generate Nginx reverse proxy HTTP context (v5.26) - only if reverse proxy enabled
-    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        # Source nginx_config_generator.sh if not already loaded
-        if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
-            source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
-            if ! generate_reverseproxy_http_context; then
-                echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
-                # Non-critical: Continue installation
-            fi
-        fi
-    else
-        echo "  ℹ️  Reverse proxy disabled, skipping nginx HTTP context generation"
-    fi
 
     # Step 6.5: Generate Nginx configuration (v5.30 unified stream+http, replaces HAProxy)
     generate_nginx_config_wrapper || {
@@ -349,10 +334,6 @@ create_directory_structure() {
         "${TESTS_DIR}/integration"
     )
 
-    # v5.26: Conditionally add reverse-proxy directory
-    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        directories+=("${CONFIG_DIR}/reverse-proxy")
-    fi
 
     for dir in "${directories[@]}"; do
         # Always ensure directory exists (mkdir -p is idempotent)
@@ -1127,51 +1108,30 @@ generate_nginx_config_wrapper() {
 # =============================================================================
 # FUNCTION: create_docker_compose
 # =============================================================================
-# Description: Wrapper for lib/docker_compose_generator.sh::generate_docker_compose()
-# Uses: XRAY_IMAGE, NGINX_IMAGE, VLESS_PORT, DOCKER_NETWORK_NAME (via env)
+# Description: Copy docker-compose.yml from the repo root to INSTALL_ROOT.
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_docker_compose() {
-    echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v5.30 Nginx stream+http)...${NC}"
+    echo -e "${CYAN}[7/12] Copying Docker Compose configuration from repo...${NC}"
 
-    # Set required environment variables for the external generator
-    # Note: VLESS_DIR already set in docker_compose_generator.sh (sourced at top)
-    export DOCKER_SUBNET="${DOCKER_SUBNET}"
-    export VLESS_PORT="${VLESS_PORT}"
-
-    # Call external generator with empty nginx_ports array (managed dynamically)
-    # nginx_ports will be added later by lib/docker_compose_manager.sh when reverse proxies are configured
-    if ! generate_docker_compose; then
-        echo -e "${RED}Failed to generate docker-compose.yml${NC}" >&2
+    local compose_src="${SCRIPT_DIR_LIB}/../docker-compose.yml"
+    if [[ ! -f "${compose_src}" ]]; then
+        echo -e "${RED}Source docker-compose.yml not found: ${compose_src}${NC}" >&2
+        return 1
+    fi
+    # SEC: refuse to follow symlinks (CWE-61 symlink following)
+    if [[ -L "${compose_src}" ]]; then
+        echo -e "${RED}Symlink detected for docker-compose.yml source — refusing to copy${NC}" >&2
         return 1
     fi
 
-    # Verify file was created
-    if [[ ! -f "${DOCKER_COMPOSE_FILE}" ]]; then
-        echo -e "${RED}Docker compose file not found after generation${NC}" >&2
+    cp "${compose_src}" "${DOCKER_COMPOSE_FILE}" || {
+        echo -e "${RED}Failed to copy docker-compose.yml${NC}" >&2
         return 1
-    fi
+    }
 
-    echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE}"
-    echo "  ✓ Nginx image: nginx:1.27-alpine (stream+http unified)"
-    echo "  ✓ Xray image: ${XRAY_IMAGE}"
-    echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
-    echo "  ✓ Security: hardened containers with minimal capabilities"
-
-    # v5.30: Nginx unified architecture (replaces HAProxy)
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo "  ✓ Mode: PUBLIC PROXY with Nginx unified stream TLS (v5.30)"
-        echo "  ✓ Nginx: Handles ALL ports (443 SNI, 1080 SOCKS5 TLS, 8118 HTTP TLS)"
-        echo "  ✓ Xray: Localhost ports 8443 (VLESS), 10800 (SOCKS5), 18118 (HTTP)"
-        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to vless_nginx"
-        echo "  ✓ Architecture: Client → vless_nginx (TLS) → Xray (auth) → Internet"
-    else
-        echo "  ✓ Mode: VLESS-only with Nginx SNI passthrough (v5.30)"
-        echo "  ✓ Exposed ports: 443 (VLESS Reality via Nginx ssl_preread)"
-        echo "  ✓ Xray: Docker network port 8443 (Nginx forwards from port 443)"
-    fi
-
-    echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
+    echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE} (from repo)"
+    echo -e "${GREEN}✓ Docker Compose configuration copied${NC}"
     return 0
 }
 
@@ -1208,8 +1168,6 @@ ENABLE_PROXY=${ENABLE_PROXY:-false}
 ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
 ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
 
-# Reverse Proxy Configuration (v5.26)
-ENABLE_REVERSE_PROXY=${ENABLE_REVERSE_PROXY:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
@@ -1537,55 +1495,6 @@ install_cli_tools() {
     ln -sf /usr/local/bin/familytraffic /usr/local/bin/vless || true
     echo "  ✓ Compat symlink: /usr/local/bin/vless → familytraffic"
 
-    # Install vless-proxy CLI tool (v5.26: only if reverse proxy enabled)
-    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        local proxy_cli_source="${project_root}/scripts/familytraffic-proxy"
-        if [[ -f "$proxy_cli_source" ]]; then
-            # Copy vless-proxy script
-            cp "$proxy_cli_source" "${SCRIPTS_DIR}/familytraffic-proxy" || {
-                echo -e "${RED}Failed to copy familytraffic-proxy script${NC}" >&2
-                return 1
-            }
-
-            # Make it executable
-            chmod 755 "${SCRIPTS_DIR}/familytraffic-proxy" || {
-                echo -e "${RED}Failed to set execute permission on familytraffic-proxy${NC}" >&2
-                return 1
-            }
-
-            # Create symlink in /usr/local/bin
-            ln -sf "${SCRIPTS_DIR}/familytraffic-proxy" /usr/local/bin/familytraffic-proxy || {
-                echo -e "${RED}Failed to create familytraffic-proxy symlink${NC}" >&2
-                return 1
-            }
-
-            echo "  ✓ familytraffic-proxy installed"
-        else
-            echo -e "${YELLOW}  ⚠ familytraffic-proxy script not found: $proxy_cli_source${NC}"
-            echo "  ℹ familytraffic-proxy installation skipped"
-        fi
-
-        # Install vless-setup-proxy helper script
-        local setup_proxy_source="${project_root}/scripts/familytraffic-setup-proxy"
-        if [[ -f "$setup_proxy_source" ]]; then
-            cp "$setup_proxy_source" "${SCRIPTS_DIR}/familytraffic-setup-proxy" || {
-                echo -e "${RED}Failed to copy familytraffic-setup-proxy script${NC}" >&2
-                return 1
-            }
-
-            chmod 755 "${SCRIPTS_DIR}/familytraffic-setup-proxy" || {
-                echo -e "${RED}Failed to set execute permission on familytraffic-setup-proxy${NC}" >&2
-                return 1
-            }
-
-            echo "  ✓ familytraffic-setup-proxy installed"
-        else
-            echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
-            echo "  ℹ vless-setup-proxy installation skipped"
-        fi
-    else
-        echo "  ℹ️  Reverse proxy disabled, skipping vless-proxy/vless-setup-proxy installation"
-    fi
 
     # v5.23: Install familytraffic-external-proxy CLI tool
     local external_proxy_cli_source="${project_root}/scripts/familytraffic-external-proxy"
@@ -1723,9 +1632,6 @@ set_permissions() {
     # This allows Xray (root) and Nginx containers to read config files
     if [[ -d "${CONFIG_DIR}" ]]; then
         chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
-    fi
-    if [[ -d "${CONFIG_DIR}/reverse-proxy" ]]; then
-        chmod 755 "${CONFIG_DIR}/reverse-proxy" 2>/dev/null || true
     fi
 
     # Sensitive files: 600 (root read/write only)

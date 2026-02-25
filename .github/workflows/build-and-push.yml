@@ -2,22 +2,37 @@
 # familyTraffic VPN — Test Pipeline
 #
 # Triggers:
+#   - push to `test` branch (with relevant file changes)
 #   - Pull Request targeting the `test` branch (with relevant file changes)
 #   - Manual via workflow_dispatch
 #
 # Pipeline:
-#   1. build-and-push — build image → push :test + :sha-<short> to GHCR
-#   2. deploy-test    — checkout → scp docker-compose.yml → ssh pull & up
+#   1. build-and-push     — build image → push :test + :sha-<short> to GHCR
+#   2. deploy-test        — scp docker-compose.yml → ssh pull & up
+#   3. cleanup-registry   — keep 3 latest sha-* tags, never delete :test
+#   4. notify             — Telegram notification (always, even on failure)
 #
-# Required GitHub secrets (Settings → Environments → test):
+# Secrets — Environment (Settings → Environments → test):
 #   TEST_SSH_HOST    — IP or hostname of the test server
 #   TEST_SSH_USER    — SSH username (e.g. root)
 #   TEST_SSH_KEY     — SSH private key, PEM format (ED25519 or RSA)
 #   TEST_GHCR_TOKEN  — GitHub PAT with read:packages scope (for docker pull on server)
+#
+# Secrets — Repository (Settings → Secrets and variables → Actions):
+#   TELEGRAM_BOT_TOKEN — token from @BotFather (format: 123456:ABC-xxx)
+#   TELEGRAM_CHAT_ID   — chat/channel ID (negative for channels, e.g. -1001234567890)
 
 name: Test — Build, Push and Deploy
 
 on:
+  push:
+    branches:
+      - test
+    paths:
+      - "docker/familytraffic/**"
+      - "docker-compose.yml"
+      - "lib/nginx_stream_generator.sh"
+      - ".github/workflows/build-and-push.yml"
   pull_request:
     branches:
       - test
@@ -88,7 +103,6 @@ jobs:
     environment: test
 
     steps:
-      # FIX-1: checkout required so docker-compose.yml exists on the runner
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -110,8 +124,8 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.TEST_GHCR_TOKEN }}
           GH_ACTOR:   ${{ github.actor }}
-          # FIX-3: pass GHCR_IMAGE explicitly so compose image ref is always correct
-          # regardless of what GHCR_IMAGE is set to (or not set) in the server's .env
+          # Pass GHCR_IMAGE explicitly so compose image ref is always correct
+          # regardless of what GHCR_IMAGE is set to in the server's .env
           GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/familytraffic
           IMAGE:      ghcr.io/${{ github.repository_owner }}/familytraffic:test
         with:
@@ -126,21 +140,100 @@ jobs:
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
             docker pull "${IMAGE}"
 
-            # FIX-2: logout AFTER compose up, not before
-            # FIX-3: GHCR_IMAGE and VERSION override .env so the server file is never modified
-            # Removed --pull always: image already pulled above; avoids second pull attempt post-logout
+            # GHCR_IMAGE and VERSION override .env so the server file is never modified.
+            # --remove-orphans cleans up containers from removed compose services.
+            # Image already pulled above — no second pull attempt after logout.
             cd /opt/familytraffic
             GHCR_IMAGE="${GHCR_IMAGE}" VERSION=test docker compose up -d --remove-orphans
 
             docker logout ghcr.io
 
-            # Verify the container came up
-            sleep 3
+            # Wait for container to initialise, then verify it is running
+            sleep 10
             STATUS=$(docker inspect familytraffic --format '{{.State.Status}}' 2>/dev/null || echo "missing")
             if [ "${STATUS}" != "running" ]; then
               echo "ERROR: container status is '${STATUS}' after deploy"
-              docker logs familytraffic --tail 30 || true
+              docker logs familytraffic --tail 50 || true
               exit 1
             fi
 
             echo "Deploy complete: ${IMAGE}"
+
+  # ============================================================
+  # Job 3: Clean up old GHCR versions (keep 3 latest sha-* tags)
+  # ============================================================
+  cleanup-registry:
+    name: Cleanup Old Images (keep 3)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete old versions (keep 3 latest sha-* tags)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: familytraffic
+          package-type: container
+          min-versions-to-keep: 3
+          ignore-versions: '^test$'
+
+  # ============================================================
+  # Job 4: Telegram notification (runs always, even on failure)
+  # ============================================================
+  notify:
+    name: Notify Telegram
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-test]
+    if: always()
+
+    steps:
+      - name: Send Telegram notification
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          BUILD_RESULT:  ${{ needs.build-and-push.result }}
+          DEPLOY_RESULT: ${{ needs.deploy-test.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          REF:   ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # Map result to emoji
+          result_icon() {
+            case "$1" in
+              success)   echo "✅" ;;
+              failure)   echo "❌" ;;
+              skipped)   echo "⏭️" ;;
+              cancelled) echo "🚫" ;;
+              *)         echo "❓" ;;
+            esac
+          }
+
+          BUILD_ICON=$(result_icon  "${BUILD_RESULT}")
+          DEPLOY_ICON=$(result_icon "${DEPLOY_RESULT}")
+
+          # Overall status: failed if any critical job did not succeed
+          if [ "${BUILD_RESULT}" = "success" ] && [ "${DEPLOY_RESULT}" = "success" ]; then
+            HEADER="✅ Deploy OK"
+          else
+            HEADER="❌ Deploy FAILED"
+          fi
+
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+
+          TEXT=$(printf '%s\n\n%s Build: <b>%s</b>\n%s Deploy: <b>%s</b>\n\nBranch: <code>%s</code>\nCommit: <code>%s</code>\nActor: %s\nEvent: %s\n\n<a href="%s">View run #%s</a>' \
+            "${HEADER}" \
+            "${BUILD_ICON}"  "${BUILD_RESULT}" \
+            "${DEPLOY_ICON}" "${DEPLOY_RESULT}" \
+            "${REF}" "${SHORT_SHA}" "${ACTOR}" "${EVENT}" \
+            "${RUN_URL}" "${{ github.run_number }}")
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null \
+            -w "Telegram API: %{http_code}\n"
