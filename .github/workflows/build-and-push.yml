@@ -124,7 +124,9 @@ jobs:
           host:     ${{ secrets.TEST_SSH_HOST }}
           username: ${{ secrets.TEST_SSH_USER }}
           key:      ${{ secrets.TEST_SSH_KEY }}
-          script: sudo mkdir -p /opt/familytraffic
+          script: |
+            sudo mkdir -p /opt/familytraffic
+            sudo chown "$(whoami):$(whoami)" /opt/familytraffic
 
       # Sync the base service definition from the repo to the test server.
       # MTProxy block (if appended by familytraffic-mtproxy-setup) will be
