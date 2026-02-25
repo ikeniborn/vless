@@ -7,7 +7,7 @@
 #
 # Pipeline:
 #   1. build-and-push — build image → push :test + :sha-<short> to GHCR
-#   2. deploy-test    — rsync docker-compose.yml + VERSION=test docker compose up
+#   2. deploy-test    — checkout → scp docker-compose.yml → ssh pull & up
 #
 # Required GitHub secrets (Settings → Environments → test):
 #   TEST_SSH_HOST    — IP or hostname of the test server
@@ -85,59 +85,62 @@ jobs:
     name: Deploy to Test Server
     runs-on: ubuntu-latest
     needs: build-and-push
-    environment: test   # GitHub Environment — supports required reviewers & env secrets
+    environment: test
 
     steps:
-      # Step 1: Copy the repo's docker-compose.yml to the test server.
-      # Only the base familytraffic service block is synced; any MTProxy section
-      # appended by familytraffic-mtproxy-setup on the server is preserved because
-      # the generator appends below the sentinel comment line — rsync replaces the
-      # base file but the MTProxy section lives in a separate append step on the server.
-      # NOTE: If MTProxy is enabled on the server, re-run `familytraffic-mtproxy-setup`
-      # once after the first CI deploy to re-append the MTProxy block.
+      # FIX-1: checkout required so docker-compose.yml exists on the runner
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Sync the base service definition from the repo to the test server.
+      # MTProxy block (if appended by familytraffic-mtproxy-setup) will be
+      # overwritten — re-run `familytraffic-mtproxy-setup` once if needed.
       - name: Sync docker-compose.yml to test server
         uses: appleboy/scp-action@v0.1.7
         with:
-          host:     ${{ secrets.TEST_SSH_HOST }}
-          username: ${{ secrets.TEST_SSH_USER }}
-          key:      ${{ secrets.TEST_SSH_KEY }}
-          source:   "docker-compose.yml"
-          target:   "/opt/familytraffic/"
+          host:      ${{ secrets.TEST_SSH_HOST }}
+          username:  ${{ secrets.TEST_SSH_USER }}
+          key:       ${{ secrets.TEST_SSH_KEY }}
+          source:    "docker-compose.yml"
+          target:    "/opt/familytraffic/"
           overwrite: true
 
-      # Step 2: Pull new :test image and restart the container.
-      # VERSION=test is passed inline — overrides any VERSION value in .env,
-      # so the server's .env does not need to be modified.
       - name: Pull & restart familytraffic:test
         uses: appleboy/ssh-action@v1
         env:
           GHCR_TOKEN: ${{ secrets.TEST_GHCR_TOKEN }}
           GH_ACTOR:   ${{ github.actor }}
+          # FIX-3: pass GHCR_IMAGE explicitly so compose image ref is always correct
+          # regardless of what GHCR_IMAGE is set to (or not set) in the server's .env
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/familytraffic
           IMAGE:      ghcr.io/${{ github.repository_owner }}/familytraffic:test
         with:
           host:     ${{ secrets.TEST_SSH_HOST }}
           username: ${{ secrets.TEST_SSH_USER }}
           key:      ${{ secrets.TEST_SSH_KEY }}
-          envs:     GHCR_TOKEN,GH_ACTOR,IMAGE
+          envs:     GHCR_TOKEN,GH_ACTOR,GHCR_IMAGE,IMAGE
           script: |
             set -e
 
-            # Authenticate to GHCR for docker pull
+            # Authenticate and pull the new :test image
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
-
-            # Pull the new :test image ahead of compose up (explicit, for logging)
             docker pull "${IMAGE}"
+
+            # FIX-2: logout AFTER compose up, not before
+            # FIX-3: GHCR_IMAGE and VERSION override .env so the server file is never modified
+            # Removed --pull always: image already pulled above; avoids second pull attempt post-logout
+            cd /opt/familytraffic
+            GHCR_IMAGE="${GHCR_IMAGE}" VERSION=test docker compose up -d --remove-orphans
 
             docker logout ghcr.io
 
-            # Restart with VERSION=test; overrides whatever VERSION is in .env
-            # so the server's .env is never modified by CI
-            cd /opt/familytraffic
-            VERSION=test docker compose up -d --remove-orphans --pull always
-
-            # Verify container started
+            # Verify the container came up
             sleep 3
-            docker inspect familytraffic --format "{{.State.Status}}" | grep -q "^running$" \
-              || { echo "ERROR: container not running after deploy"; exit 1; }
+            STATUS=$(docker inspect familytraffic --format '{{.State.Status}}' 2>/dev/null || echo "missing")
+            if [ "${STATUS}" != "running" ]; then
+              echo "ERROR: container status is '${STATUS}' after deploy"
+              docker logs familytraffic --tail 30 || true
+              exit 1
+            fi
 
             echo "Deploy complete: ${IMAGE}"
