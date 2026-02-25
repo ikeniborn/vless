@@ -12,6 +12,16 @@
 #   3. cleanup-registry   — keep 3 latest sha-* tags, never delete :test
 #   4. notify             — Telegram notification (always, even on failure)
 #
+# Path filters — what triggers CI/CD:
+#   docker/familytraffic/**               — files COPY'd into the Docker image
+#   .dockerignore                          — controls Docker build context
+#   docker-compose.yml                     — synced to test server via scp
+#   .github/workflows/build-and-push.yml  — the workflow itself
+#
+# NOT in paths (host-only scripts, not synced by CI/CD):
+#   lib/nginx_stream_generator.sh — generates nginx.conf on host (volume mount,
+#     not baked into image). Changes to it require manual redeploy on test server.
+#
 # Secrets — Environment (Settings → Environments → test):
 #   TEST_SSH_HOST    — IP or hostname of the test server
 #   TEST_SSH_USER    — SSH username (e.g. root)
@@ -29,17 +39,17 @@ on:
     branches:
       - test
     paths:
-      - "docker/familytraffic/**"
-      - "docker-compose.yml"
-      - "lib/nginx_stream_generator.sh"
+      - "docker/familytraffic/**"   # baked into image via COPY
+      - ".dockerignore"              # affects Docker build context
+      - "docker-compose.yml"         # synced to test server via scp
       - ".github/workflows/build-and-push.yml"
   pull_request:
     branches:
       - test
     paths:
       - "docker/familytraffic/**"
+      - ".dockerignore"
       - "docker-compose.yml"
-      - "lib/nginx_stream_generator.sh"
       - ".github/workflows/build-and-push.yml"
   workflow_dispatch:
 
