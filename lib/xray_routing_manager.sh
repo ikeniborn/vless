@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Xray Routing Manager Module
-# Part of VLESS+Reality VPN Deployment System (v5.23)
+# Part of familyTraffic VPN Deployment System (v5.33)
 #
 # Purpose: Manage Xray routing rules for directing traffic through external proxies
 #
@@ -25,8 +25,8 @@ set -euo pipefail
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Paths
-[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
-[[ -z "${EXTERNAL_PROXY_DB:-}" ]] && readonly EXTERNAL_PROXY_DB="/opt/vless/config/external_proxy.json"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/familytraffic/config/xray_config.json"
+[[ -z "${EXTERNAL_PROXY_DB:-}" ]] && readonly EXTERNAL_PROXY_DB="/opt/familytraffic/config/external_proxy.json"
 
 # =============================================================================
 # FUNCTION: generate_routing_rules_json
@@ -171,7 +171,7 @@ enable_proxy_routing() {
     echo -e "${GREEN}✓ Proxy routing enabled${NC}"
     echo ""
     echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
-    echo "   docker restart vless_xray"
+    echo "   docker exec familytraffic supervisorctl restart xray"
     return 0
 }
 
@@ -223,7 +223,7 @@ disable_proxy_routing() {
     echo -e "${GREEN}✓ Proxy routing disabled${NC}"
     echo ""
     echo "⚠️  IMPORTANT: Restart Xray container to apply changes:"
-    echo "   docker restart vless_xray"
+    echo "   docker exec familytraffic supervisorctl restart xray"
     return 0
 }
 
@@ -246,8 +246,8 @@ update_xray_outbounds() {
     echo -e "${CYAN}Updating Xray outbounds...${NC}"
 
     # Source external_proxy_manager to use generate_xray_outbound_json
-    if [[ -f "/opt/vless/lib/external_proxy_manager.sh" ]]; then
-        source "/opt/vless/lib/external_proxy_manager.sh"
+    if [[ -f "/opt/familytraffic/lib/external_proxy_manager.sh" ]]; then
+        source "/opt/familytraffic/lib/external_proxy_manager.sh"
     elif [[ -f "$(dirname "${BASH_SOURCE[0]}")/external_proxy_manager.sh" ]]; then
         source "$(dirname "${BASH_SOURCE[0]}")/external_proxy_manager.sh"
     else
@@ -306,7 +306,7 @@ update_xray_outbounds() {
 # =============================================================================
 # Description: Update Xray outbounds for per-user external proxy support
 #              Creates one outbound per unique external_proxy_id
-# Arguments: None (reads from /opt/vless/data/users.json)
+# Arguments: None (reads from /opt/familytraffic/data/users.json)
 # Returns: 0 on success, 1 on failure
 #
 # Logic:
@@ -318,8 +318,8 @@ update_per_user_xray_outbounds() {
     echo -e "${CYAN}Updating per-user Xray outbounds...${NC}"
 
     # Source external_proxy_manager to use generate_xray_outbound_json
-    if [[ -f "/opt/vless/lib/external_proxy_manager.sh" ]]; then
-        source "/opt/vless/lib/external_proxy_manager.sh"
+    if [[ -f "/opt/familytraffic/lib/external_proxy_manager.sh" ]]; then
+        source "/opt/familytraffic/lib/external_proxy_manager.sh"
     elif [[ -f "$(dirname "${BASH_SOURCE[0]}")/external_proxy_manager.sh" ]]; then
         source "$(dirname "${BASH_SOURCE[0]}")/external_proxy_manager.sh"
     else
@@ -598,14 +598,14 @@ get_routing_status() {
 # FUNCTION: get_unique_proxy_outbounds (v5.24)
 # =============================================================================
 # Description: Scan users.json to get unique external_proxy_id values (exclude null)
-# Arguments: None (reads from /opt/vless/data/users.json)
+# Arguments: None (reads from /opt/familytraffic/data/users.json)
 # Returns:
 #   Stdout: JSON array of unique proxy IDs
 #   Exit: 0 on success, 1 on failure
 # Output Example: ["proxy-corporate-123456", "proxy-home-789012"]
 # =============================================================================
 get_unique_proxy_outbounds() {
-    local users_json="/opt/vless/data/users.json"
+    local users_json="/opt/familytraffic/data/users.json"
 
     if [[ ! -f "$users_json" ]]; then
         echo -e "${YELLOW}Users database not found: $users_json${NC}" >&2
@@ -644,7 +644,7 @@ get_unique_proxy_outbounds() {
 # FUNCTION: generate_per_user_routing_rules (v5.24)
 # =============================================================================
 # Description: Generate Xray routing rules for per-user external proxy assignment
-# Arguments: None (reads from /opt/vless/data/users.json)
+# Arguments: None (reads from /opt/familytraffic/data/users.json)
 # Returns:
 #   Stdout: JSON object for routing section
 #   Exit: 0 on success, 1 on failure
@@ -675,7 +675,7 @@ get_unique_proxy_outbounds() {
 generate_per_user_routing_rules() {
     echo -e "${CYAN}Generating per-user routing rules...${NC}" >&2
 
-    local users_json="/opt/vless/data/users.json"
+    local users_json="/opt/familytraffic/data/users.json"
 
     if [[ ! -f "$users_json" ]]; then
         echo -e "${RED}Users database not found: $users_json${NC}" >&2

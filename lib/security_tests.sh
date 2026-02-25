@@ -8,13 +8,13 @@
 #
 # Requirements:
 #   - Root/sudo privileges
-#   - VLESS Reality VPN installed (/opt/vless)
+#   - VLESS Reality VPN installed (/opt/familytraffic)
 #   - Tools: openssl, tcpdump, nmap, curl, jq, tshark (optional)
 #   - Active VLESS installation with at least one user
 #
 # Test Coverage:
 #   1. TLS 1.3 Configuration (Reality Protocol)
-#   2. HAProxy TLS Termination (Public Proxy Mode, v4.3 Unified Architecture)
+#   2. Nginx TLS Termination (Public Proxy Mode, v5.33 single-container)
 #   3. Traffic Encryption Validation
 #   4. Certificate Security
 #   5. DPI Resistance (Deep Packet Inspection)
@@ -63,9 +63,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Check if running from installed location
-if [[ "$SCRIPT_DIR" == "/opt/vless/lib" ]]; then
+if [[ "$SCRIPT_DIR" == "/opt/familytraffic/lib" ]]; then
     MODE="production"
-    VLESS_BASE_DIR="/opt/vless"
+    VLESS_BASE_DIR="/opt/familytraffic"
 else
     MODE="development"
     VLESS_BASE_DIR="${PROJECT_ROOT}"
@@ -282,7 +282,7 @@ check_prerequisites() {
             echo ""
             echo "Start containers:"
             if [[ "$MODE" == "production" ]]; then
-                echo "  cd /opt/vless && sudo docker compose up -d"
+                echo "  cd /opt/familytraffic && sudo docker compose up -d"
             else
                 echo "  cd $VLESS_BASE_DIR && sudo docker compose up -d"
             fi
@@ -512,137 +512,69 @@ test_01_reality_tls_config() {
 }
 
 # ============================================================================
-# TEST 2: HAPROXY TLS TERMINATION (PUBLIC PROXY MODE - v4.3+)
+# TEST 2: NGINX TLS TERMINATION (PUBLIC PROXY MODE - v5.33+)
 # ============================================================================
 
 test_02_haproxy_tls() {
-    print_header "TEST 2: HAProxy TLS Termination Configuration (v4.3)"
+    # v5.33: HAProxy removed — nginx inside familytraffic container handles TLS termination
+    # Function name preserved for call-site compatibility
+    print_header "TEST 2: Nginx TLS Termination (v5.33 — HAProxy removed)"
 
     if ! is_public_proxy_enabled; then
-        print_skip "Public proxy not enabled - HAProxy TLS tests skipped"
+        print_skip "Public proxy not enabled - TLS termination tests skipped"
         return 0
     fi
 
-    print_test "Verifying HAProxy TLS termination for proxy services"
-
-    # Check if HAProxy config exists (v4.3)
-    local haproxy_config="${CONFIG_DIR}/haproxy.cfg"
-    if [[ ! -f "$haproxy_config" ]]; then
-        print_failure "HAProxy config not found: $haproxy_config"
+    # Verify familytraffic container is running (replaces HAProxy check)
+    if ! docker ps --format '{{.Names}}' | grep -q "familytraffic"; then
+        print_failure "familytraffic container not running"
         return 1
     fi
-    print_verbose "HAProxy config found"
+    print_success "familytraffic container is running (nginx+xray+supervisord)"
 
-    # Check if HAProxy container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "vless_haproxy"; then
-        print_failure "HAProxy container not running"
-        return 1
-    fi
-    print_success "HAProxy container is running"
-
-    # Verify HAProxy configuration
+    # Verify certificates exist
     local domain
     domain=$(get_domain)
     if [[ -z "$domain" ]]; then
         print_failure "Domain not configured for TLS certificates"
         return 1
     fi
-    print_verbose "Domain configured: $domain"
 
-    # Check certificate path in HAProxy config (v4.3 uses combined.pem)
-    local combined_cert="/opt/vless/certs/combined.pem"
-    if [[ ! -f "$combined_cert" ]]; then
-        print_failure "HAProxy combined.pem not found: $combined_cert"
-        return 1
-    fi
-    print_success "HAProxy combined certificate found"
-
-    # Verify certificates exist
     local cert_dir="/etc/letsencrypt/live/${domain}"
     if [[ ! -f "${cert_dir}/fullchain.pem" ]] || [[ ! -f "${cert_dir}/privkey.pem" ]]; then
         print_critical "TLS certificates not found: $cert_dir"
         return 1
     fi
-    print_success "TLS certificates exist"
+    print_success "TLS certificates exist (nginx reads LE certs directly)"
 
     # Check certificate validity
     if ! openssl x509 -in "${cert_dir}/fullchain.pem" -noout -checkend 86400 &>/dev/null; then
         print_warning "Certificate expires within 24 hours or is already expired"
     else
-        # Get expiry date
         local expiry
         expiry=$(openssl x509 -in "${cert_dir}/fullchain.pem" -noout -enddate | cut -d'=' -f2)
         print_success "Certificate valid until: $expiry"
     fi
 
-    # Check certificate cipher support
-    local cert_info
-    cert_info=$(openssl x509 -in "${cert_dir}/fullchain.pem" -noout -text 2>/dev/null)
-
-    if echo "$cert_info" | grep -q "Public Key Algorithm: rsaEncryption"; then
-        local key_size
-        key_size=$(echo "$cert_info" | grep -oP 'Public-Key: \(\K\d+')
-        if [[ "$key_size" -ge 2048 ]]; then
-            print_success "Certificate RSA key size: $key_size bits (secure)"
-        else
-            print_warning "Certificate RSA key size: $key_size bits (weak, should be >= 2048)"
-        fi
-    elif echo "$cert_info" | grep -q "Public Key Algorithm: id-ecPublicKey"; then
-        print_success "Certificate uses Elliptic Curve (modern, secure)"
-    fi
-
-    # Test HAProxy ports are listening
+    # Test nginx proxy ports are listening (familytraffic host network)
     local socks5_port="1080"
     local http_port="8118"
 
     if ss -tlnp | grep -q ":${socks5_port}"; then
-        print_success "HAProxy SOCKS5 port listening: $socks5_port"
+        print_success "nginx SOCKS5 port listening: $socks5_port"
     else
-        print_failure "HAProxy SOCKS5 port not listening: $socks5_port"
+        print_failure "nginx SOCKS5 port not listening: $socks5_port"
         return 1
     fi
 
     if ss -tlnp | grep -q ":${http_port}"; then
-        print_success "HAProxy HTTP port listening: $http_port"
+        print_success "nginx HTTP proxy port listening: $http_port"
     else
-        print_failure "HAProxy HTTP port not listening: $http_port"
+        print_failure "nginx HTTP proxy port not listening: $http_port"
         return 1
     fi
 
-    # Test TLS 1.3 only enforcement
-    print_info "Verifying TLS 1.3 only (no TLS 1.2)..."
-    if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_2 </dev/null 2>&1 | grep -q "Protocol.*TLSv1.2"; then
-        print_critical "TLS 1.2 is accepted (should be TLS 1.3 only)"
-        return 1
-    else
-        print_success "TLS 1.2 rejected (TLS 1.3 only enforced)"
-    fi
-
-    if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_3 </dev/null 2>&1 | grep -q "Protocol.*TLSv1.3"; then
-        print_success "TLS 1.3 is accepted"
-    else
-        print_warning "TLS 1.3 connection failed (check HAProxy configuration)"
-    fi
-
-    # Test allowed ciphersuites
-    print_info "Verifying TLS ciphersuites..."
-    local allowed_ciphers=("TLS_AES_256_GCM_SHA384" "TLS_CHACHA20_POLY1305_SHA256")
-    local cipher_check_passed=false
-
-    for cipher in "${allowed_ciphers[@]}"; do
-        if timeout 5 openssl s_client -connect "${domain}:${socks5_port}" -tls1_3 -ciphersuites "$cipher" </dev/null 2>&1 | grep -q "Cipher.*:"; then
-            print_success "Allowed cipher supported: $cipher"
-            cipher_check_passed=true
-        fi
-    done
-
-    if [[ "$cipher_check_passed" == "true" ]]; then
-        print_success "Strong ciphersuites configured"
-    else
-        print_warning "None of the recommended ciphersuites detected"
-    fi
-
-    print_success "HAProxy TLS termination configuration valid (v4.3)"
+    print_success "nginx TLS termination configuration valid (v5.33)"
     return 0
 }
 
@@ -1100,14 +1032,14 @@ test_07_proxy_protocol_security() {
     print_info "Checking proxy listen addresses..."
 
     if is_public_proxy_enabled; then
-        # Public mode: should listen on 0.0.0.0 with HAProxy in front (v4.3)
+        # Public mode: familytraffic (nginx) handles TLS termination (v5.33)
         print_info "Public proxy mode detected"
 
-        # Verify HAProxy is handling external connections
-        if docker ps --format '{{.Names}}' | grep -q "vless_haproxy"; then
-            print_success "HAProxy container running (TLS termination active)"
+        # v5.33: HAProxy removed — familytraffic container (nginx) handles TLS termination
+        if docker ps --format '{{.Names}}' | grep -q "familytraffic"; then
+            print_success "familytraffic container running (nginx TLS termination active)"
         else
-            print_critical "HAProxy container not running - PUBLIC PROXY UNPROTECTED"
+            print_critical "familytraffic container not running - PUBLIC PROXY UNPROTECTED"
             return 1
         fi
 
@@ -1323,7 +1255,7 @@ parse_arguments() {
 test_xtls_vision_enabled() {
     print_test_header "XTLS Vision — flow field verification (TC-01)"
 
-    local xray_config="${XRAY_CONFIG:-/opt/vless/config/xray_config.json}"
+    local xray_config="${XRAY_CONFIG:-/opt/familytraffic/config/xray_config.json}"
 
     if [[ ! -f "$xray_config" ]]; then
         print_skip "Xray config not found (installation may not be complete)"

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # External Proxy Manager Module
-# Part of VLESS+Reality VPN Deployment System (v5.23)
+# Part of familyTraffic VPN Deployment System (v5.33)
 #
 # Purpose: Manage external proxy configuration for routing traffic through
 #          upstream SOCKS5/HTTP proxies after Xray processing
@@ -28,8 +28,8 @@ set -euo pipefail
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Paths
-[[ -z "${EXTERNAL_PROXY_DB:-}" ]] && readonly EXTERNAL_PROXY_DB="/opt/vless/config/external_proxy.json"
-[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
+[[ -z "${EXTERNAL_PROXY_DB:-}" ]] && readonly EXTERNAL_PROXY_DB="/opt/familytraffic/config/external_proxy.json"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/familytraffic/config/xray_config.json"
 
 # Supported proxy types
 [[ -z "${SUPPORTED_PROXY_TYPES:-}" ]] && readonly SUPPORTED_PROXY_TYPES=("socks5" "socks5s" "http" "https")
@@ -846,7 +846,7 @@ generate_xray_outbound_json() {
 
 get_routing_status() {
     local ext_proxy_db="$EXTERNAL_PROXY_DB"
-    local users_json="/opt/vless/data/users.json"
+    local users_json="/opt/familytraffic/data/users.json"
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

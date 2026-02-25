@@ -298,7 +298,7 @@ validate_destination() {
 # =============================================================================
 # FUNCTION: select_port - REMOVED in v5.1
 # =============================================================================
-# VLESS port is now hardcoded to 8443 for HAProxy architecture (v4.3+)
+# VLESS port is hardcoded to 8443 (Xray internal port; nginx listens on 443 via host network)
 # This function has been removed as port selection is no longer needed
 # =============================================================================
 
@@ -822,7 +822,7 @@ prompt_enable_reverse_proxy() {
     echo "  • Nginx reverse proxy container (nginx:alpine)"
     echo "  • HAProxy dynamic ACL routing section"
     echo "  • CLI tools: vless-proxy, vless-setup-proxy"
-    echo "  • Directory: /opt/vless/config/reverse-proxy/"
+    echo "  • Directory: /opt/familytraffic/config/reverse-proxy/"
     echo ""
     echo -e "${YELLOW}Resource usage:${NC}"
     echo "  • ~50-100MB RAM (nginx container)"

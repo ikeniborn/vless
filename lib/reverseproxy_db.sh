@@ -8,7 +8,7 @@
 #   JSON-based database for reverse proxy configurations (v4.3 HAProxy)
 #
 # Database Location:
-#   /opt/vless/config/reverse_proxies.json
+#   /opt/familytraffic/config/reverse_proxies.json
 #
 # Schema:
 #   {
@@ -47,7 +47,7 @@
 #   - proxy_exists(domain)         # Check if proxy exists
 #
 # Version: 4.3.0
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-10-20
 # ==============================================================================
 
@@ -57,7 +57,7 @@ set -euo pipefail
 # Configuration
 # ==============================================================================
 
-readonly DB_FILE="/opt/vless/config/reverse_proxies.json"
+readonly DB_FILE="/opt/familytraffic/config/reverse_proxies.json"
 readonly DB_LOCK="/var/lock/vless_reverseproxy_db.lock"
 readonly MIN_PORT=9443
 readonly MAX_PORT=9452
@@ -220,7 +220,7 @@ get_next_port() {
 # v5.8: Enhanced port detection - checks both DB and nginx configs to prevent conflicts
 # ==============================================================================
 get_next_available_port() {
-    local config_dir="/opt/vless/config/reverse-proxy"
+    local config_dir="/opt/familytraffic/config/reverse-proxy"
 
     # Collect used ports from database
     local db_ports=""
