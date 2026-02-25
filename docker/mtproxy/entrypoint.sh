@@ -17,7 +17,7 @@
 #   MTPROXY_STATS_PORT: Stats endpoint port (default: 8888)
 #   MTPROXY_DEBUG: Enable debug logging (default: false)
 #
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-11-08
 # ============================================================================
 

@@ -13,16 +13,16 @@
 #   - Statistics endpoint (:8888/stats)
 #
 # Build:
-#   docker build -t vless/mtproxy:latest -f docker/mtproxy/Dockerfile .
+#   docker build -t familytraffic/mtproxy:latest -f docker/mtproxy/Dockerfile .
 #
 # Run:
-#   docker run -d --name vless_mtproxy \
+#   docker run -d --name familytraffic_mtproxy \
 #     -p 8443:8443 -p 127.0.0.1:8888:8888 \
-#     -v /opt/vless/config/mtproxy:/etc/mtproxy:ro \
-#     -v /opt/vless/logs/mtproxy:/var/log/mtproxy \
-#     vless/mtproxy:latest
+#     -v /opt/familytraffic/config/mtproxy:/etc/mtproxy:ro \
+#     -v /opt/familytraffic/logs/mtproxy:/var/log/mtproxy \
+#     familytraffic/mtproxy:latest
 #
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-11-08
 # ============================================================================
 
@@ -64,7 +64,7 @@ RUN test -f objs/bin/mtproto-proxy || (echo "ERROR: mtproto-proxy binary not fou
 # ===========================================================================
 FROM alpine:latest
 
-LABEL maintainer="VLESS Development Team" \
+LABEL maintainer="familyTraffic Development Team" \
       version="6.0.0" \
       description="MTProxy server for Telegram (Transport Obfuscation + Multi-User)" \
       org.opencontainers.image.source="https://github.com/TelegramMessenger/MTProxy"

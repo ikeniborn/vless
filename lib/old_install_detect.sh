@@ -1,9 +1,9 @@
 #!/bin/bash
 #
 # Old Installation Detection and Cleanup Module
-# Part of VLESS+Reality VPN Deployment System
+# Part of familyTraffic VPN Deployment System
 #
-# Purpose: Detect and safely cleanup existing VLESS installations with UFW backup
+# Purpose: Detect and safely cleanup existing vless/familyTraffic installations with UFW backup
 # Supports: Ubuntu 20.04+, Debian 10+
 # Usage: source this file from install.sh (after dependencies.sh)
 #
@@ -11,7 +11,7 @@
 #   Level 1: Docker containers (vless_*, xray*, nginx*)
 #   Level 2: Docker networks (vless_*)
 #   Level 3: Docker volumes (vless_*)
-#   Level 4: /opt/vless directory
+#   Level 4: /opt/familytraffic directory
 #   Level 5: UFW rules (port 443, vless-related)
 #   Level 6: Systemd services (vless*)
 #   Level 7: Symlinks in /usr/local/bin (vless-*)
@@ -40,8 +40,8 @@ OLD_SYMLINKS=()
 declare -ga OLD_CONTAINERS OLD_NETWORKS OLD_VOLUMES OLD_UFW_RULES OLD_SERVICES OLD_SYMLINKS
 
 OLD_INSTALL_FOUND=false
-OLD_INSTALL_DIR="/opt/vless"
-BACKUP_BASE_DIR="/opt/vless_backup"
+OLD_INSTALL_DIR="/opt/familytraffic"
+BACKUP_BASE_DIR="/opt/familytraffic_backup"
 UFW_BACKUP_DIR="/tmp/vless_ufw_backup"
 
 # Color codes (inherited from dependencies.sh but redefined for standalone use)
@@ -169,7 +169,7 @@ detect_old_installation() {
     echo ""
 
     # -------------------------------------------------------------------------
-    # LEVEL 4: /opt/vless Directory
+    # LEVEL 4: /opt/familytraffic Directory
     # -------------------------------------------------------------------------
     echo -e "${CYAN}[Level 4/7] Checking ${OLD_INSTALL_DIR} directory...${NC}"
 
@@ -509,7 +509,7 @@ EOF
 # FUNCTION: backup_old_installation
 # =============================================================================
 # Description: Create comprehensive backup of old VLESS installation
-# Backs up: /opt/vless directory, Docker configs, UFW rules
+# Backs up: /opt/familytraffic directory, Docker configs, UFW rules
 # Creates timestamped backup with metadata
 # Returns: 0 on success, 1 on failure
 # =============================================================================
@@ -534,7 +534,7 @@ backup_old_installation() {
     local backup_success=true
 
     # -------------------------------------------------------------------------
-    # BACKUP 1: /opt/vless directory
+    # BACKUP 1: /opt/familytraffic directory
     # -------------------------------------------------------------------------
     if [[ -d "$OLD_INSTALL_DIR" ]]; then
         echo -e "${CYAN}[1/5] Backing up $OLD_INSTALL_DIR...${NC}"
@@ -712,9 +712,9 @@ cleanup_old_installation() {
     echo ""
 
     # Check for non-interactive confirmation via environment variable
-    if [[ "${VLESS_CONFIRM_CLEANUP:-}" == "yes" ]]; then
+    if [[ "${FT_CONFIRM_CLEANUP:-}" == "yes" ]]; then
         confirmation="yes"
-        echo -e "${CYAN}Non-interactive mode: Auto-confirmed via VLESS_CONFIRM_CLEANUP${NC}"
+        echo -e "${CYAN}Non-interactive mode: Auto-confirmed via FT_CONFIRM_CLEANUP${NC}"
     else
         echo -n -e "${YELLOW}Type 'yes' to confirm cleanup (30s timeout, default=no): ${NC}"
         if ! read -t 30 -r confirmation; then
@@ -794,7 +794,7 @@ cleanup_old_installation() {
     fi
 
     # -------------------------------------------------------------------------
-    # CLEANUP 4: Remove /opt/vless directory
+    # CLEANUP 4: Remove /opt/familytraffic directory
     # -------------------------------------------------------------------------
     if [[ -d "$OLD_INSTALL_DIR" ]]; then
         echo -e "${CYAN}[4/7] Removing installation directory...${NC}"
@@ -913,7 +913,7 @@ cleanup_old_installation() {
 # FUNCTION: restore_from_backup
 # =============================================================================
 # Description: Restore VLESS installation from backup directory
-# Restores: /opt/vless, UFW rules, Docker containers (if docker-compose.yml exists)
+# Restores: /opt/familytraffic, UFW rules, Docker containers (if docker-compose.yml exists)
 # Parameters: $1 = backup_directory path
 # Returns: 0 on success, 1 on failure
 # =============================================================================
@@ -942,9 +942,9 @@ restore_from_backup() {
     echo -e "${YELLOW}${WARNING_MARK} This will restore the old installation${NC}"
 
     # Check for non-interactive confirmation via environment variable
-    if [[ "${VLESS_CONFIRM_RESTORE:-}" == "yes" ]]; then
+    if [[ "${FT_CONFIRM_RESTORE:-}" == "yes" ]]; then
         confirmation="yes"
-        echo -e "${CYAN}Non-interactive mode: Auto-confirmed via VLESS_CONFIRM_RESTORE${NC}"
+        echo -e "${CYAN}Non-interactive mode: Auto-confirmed via FT_CONFIRM_RESTORE${NC}"
     else
         echo -n -e "${YELLOW}Type 'yes' to confirm restoration (30s timeout, default=no): ${NC}"
         if ! read -t 30 -r confirmation; then
@@ -963,7 +963,7 @@ restore_from_backup() {
     local restore_errors=0
 
     # -------------------------------------------------------------------------
-    # RESTORE 1: /opt/vless directory
+    # RESTORE 1: /opt/familytraffic directory
     # -------------------------------------------------------------------------
     if [[ -d "$backup_dir/vless" ]]; then
         echo -e "${CYAN}[1/3] Restoring installation directory...${NC}"

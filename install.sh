@@ -1,9 +1,9 @@
 #!/bin/bash
 ################################################################################
-# VLESS + Reality VPN Server - Installation Entry Point
+# familyTraffic VPN Server - Installation Entry Point
 #
 # Description:
-#   Main entry point for VLESS Reality VPN installation system.
+#   Main entry point for familyTraffic VPN installation system.
 #   Orchestrates the complete installation process by calling modular functions
 #   from the lib/ directory.
 #
@@ -11,11 +11,11 @@
 #   sudo ./install.sh
 #
 #   Non-Interactive Mode (for automation):
-#     VLESS_AUTO_CLEANUP=1 sudo ./install.sh          # Auto backup+cleanup old installation
-#     VLESS_AUTO_CLEANUP=2 sudo ./install.sh          # Auto cleanup without backup
-#     VLESS_AUTO_CLEANUP=3 sudo ./install.sh          # Auto skip and exit
-#     VLESS_CONFIRM_CLEANUP=yes sudo ./install.sh     # Auto-confirm cleanup prompts
-#     VLESS_AUTO_INSTALL_DEPS=yes sudo ./install.sh   # Auto-install missing dependencies
+#     FT_AUTO_CLEANUP=1 sudo ./install.sh          # Auto backup+cleanup old installation
+#     FT_AUTO_CLEANUP=2 sudo ./install.sh          # Auto cleanup without backup
+#     FT_AUTO_CLEANUP=3 sudo ./install.sh          # Auto skip and exit
+#     FT_CONFIRM_CLEANUP=yes sudo ./install.sh     # Auto-confirm cleanup prompts
+#     FT_AUTO_INSTALL_DEPS=yes sudo ./install.sh   # Auto-install missing dependencies
 #
 # Requirements:
 #   - Must be run as root
@@ -43,8 +43,8 @@ readonly COLOR_CYAN='\033[0;36m'
 readonly COLOR_RESET='\033[0m'
 
 # Version tracking (matches CHANGELOG.md)
-# Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
-readonly VLESS_VERSION="5.33.0"
+# Note: renamed from VERSION to FT_VERSION to avoid conflict with /etc/os-release
+readonly FT_VERSION="5.33.0"
 
 # Container image configuration (v5.33 familyTraffic)
 # GHCR_IMAGE: auto-detected from git remote URL, can be overridden via environment
@@ -141,7 +141,7 @@ print_banner() {
     cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║          VLESS + Reality VPN Server Installation            ║
+║           familyTraffic VPN Server Installation             ║
 ║                                                              ║
 ║  Production-grade CLI-based Reality protocol deployment     ║
 ║  Version: 5.33.0                                           ║
@@ -187,7 +187,7 @@ source_libraries() {
     if [[ ! -d "${lib_dir}" ]]; then
         print_error "Library directory not found: ${lib_dir}"
         print_message "${COLOR_YELLOW}" "Make sure you are running this script from the project directory:"
-        print_message "${COLOR_YELLOW}" "  cd /path/to/vless"
+        print_message "${COLOR_YELLOW}" "  cd /path/to/familytraffic"
         print_message "${COLOR_YELLOW}" "  sudo ./install.sh"
         exit 1
     fi
@@ -290,9 +290,9 @@ main() {
         display_detection_summary
 
         # Check for non-interactive mode via environment variable
-        if [[ -n "${VLESS_AUTO_CLEANUP:-}" ]]; then
-            cleanup_choice="${VLESS_AUTO_CLEANUP}"
-            print_message "${COLOR_CYAN}" "Non-interactive mode: Using VLESS_AUTO_CLEANUP=$cleanup_choice"
+        if [[ -n "${FT_AUTO_CLEANUP:-}" ]]; then
+            cleanup_choice="${FT_AUTO_CLEANUP}"
+            print_message "${COLOR_CYAN}" "Non-interactive mode: Using FT_AUTO_CLEANUP=$cleanup_choice"
         else
             echo ""
             print_message "${COLOR_YELLOW}" "Would you like to:"
@@ -417,9 +417,9 @@ main() {
 
         # Install logrotate configuration for renewal logs (v5.25)
         print_message "${COLOR_CYAN}" "Installing logrotate configuration..."
-        cat > /etc/logrotate.d/vless-certbot-renew <<'LOGROTATE_EOF'
-# VLESS Certificate Renewal Logs Rotation
-# Part of VLESS + Reality VPN v5.25
+        cat > /etc/logrotate.d/familytraffic-certbot-renew <<'LOGROTATE_EOF'
+# familyTraffic Certificate Renewal Logs Rotation
+# Part of familyTraffic VPN v5.33
 
 /opt/familytraffic/logs/certbot-renew.log {
     daily
@@ -441,8 +441,8 @@ main() {
 }
 LOGROTATE_EOF
 
-        if [[ -f /etc/logrotate.d/vless-certbot-renew ]]; then
-            chmod 644 /etc/logrotate.d/vless-certbot-renew
+        if [[ -f /etc/logrotate.d/familytraffic-certbot-renew ]]; then
+            chmod 644 /etc/logrotate.d/familytraffic-certbot-renew
             print_success "Logrotate configuration installed"
             print_message "${COLOR_GREEN}" "  Logs: 30 days retention"
             print_message "${COLOR_GREEN}" "  Metrics: 12 weeks retention"
@@ -472,9 +472,9 @@ LOGROTATE_EOF
     print_success "Installation verified"
 
     # Step 9.5: Save version file
-    echo "${VLESS_VERSION}" > "${INSTALL_ROOT}/.version"
+    echo "${FT_VERSION}" > "${INSTALL_ROOT}/.version"
     chmod 644 "${INSTALL_ROOT}/.version"
-    print_message "${COLOR_CYAN}" "Version file saved: v${VLESS_VERSION}"
+    print_message "${COLOR_CYAN}" "Version file saved: v${FT_VERSION}"
 
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"
@@ -490,12 +490,12 @@ LOGROTATE_EOF
     echo ""
     print_message "${COLOR_CYAN}" "Next Steps:"
     print_message "${COLOR_YELLOW}" "  1. Configure sudoers (see instructions above)"
-    print_message "${COLOR_YELLOW}" "  2. Add your first user: vless add-user <username>"
-    print_message "${COLOR_YELLOW}" "  3. Check service status: vless status"
-    print_message "${COLOR_YELLOW}" "  4. View logs: vless logs"
+    print_message "${COLOR_YELLOW}" "  2. Add your first user: familytraffic add-user <username>"
+    print_message "${COLOR_YELLOW}" "  3. Check service status: familytraffic status"
+    print_message "${COLOR_YELLOW}" "  4. View logs: familytraffic logs"
     echo ""
     print_message "${COLOR_CYAN}" "Installation directory: /opt/familytraffic"
-    print_message "${COLOR_CYAN}" "Management command: vless"
+    print_message "${COLOR_CYAN}" "Management command: familytraffic"
     echo ""
 
     # Clear error trap on success

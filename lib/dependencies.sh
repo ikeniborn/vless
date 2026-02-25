@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Dependency Auto-Installation Module
-# Part of VLESS+Reality VPN Deployment System
+# Part of familyTraffic VPN Deployment System
 #
 # Purpose: Check and auto-install all required dependencies with extended Docker diagnostics
 # Supports: Ubuntu 20.04+, Debian 10+
@@ -26,7 +26,7 @@
 # GLOBAL VARIABLES
 # =============================================================================
 
-# Required packages for VLESS+Reality system
+# Required packages for familyTraffic VPN system
 REQUIRED_PACKAGES=(
     "docker.io"
     "docker-compose-plugin"
@@ -351,7 +351,7 @@ check_dependencies() {
         echo -e "${CYAN}These packages will be installed automatically in the next step.${NC}"
 
         # Check for non-interactive mode via environment variable
-        if [[ "${VLESS_AUTO_INSTALL_DEPS:-}" == "yes" ]]; then
+        if [[ "${FT_AUTO_INSTALL_DEPS:-}" == "yes" ]]; then
             echo -e "${CYAN}Non-interactive mode: Auto-proceeding to installation${NC}"
             echo ""
             return 0
@@ -674,8 +674,8 @@ kill_safe_apt_processes() {
 # Validates each installation after completion
 # Includes APT lock detection and handling with SAFE auto-kill
 # ENV variables:
-#   - VLESS_AUTO_INSTALL_DEPS=yes: Skip user prompts for dependency installation
-#   - VLESS_AUTO_KILL_SAFE_LOCKS=yes: Auto-kill SAFE blocking processes
+#   - FT_AUTO_INSTALL_DEPS=yes: Skip user prompts for dependency installation
+#   - FT_AUTO_KILL_SAFE_LOCKS=yes: Auto-kill SAFE blocking processes
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 install_dependencies() {
@@ -716,7 +716,7 @@ install_dependencies() {
         echo ""
 
         # Check if auto-kill is enabled
-        if [[ "${VLESS_AUTO_KILL_SAFE_LOCKS:-}" == "yes" ]]; then
+        if [[ "${FT_AUTO_KILL_SAFE_LOCKS:-}" == "yes" ]]; then
             echo -e "${CYAN}Auto-kill mode enabled. Attempting safe process termination...${NC}"
             echo ""
 
@@ -884,7 +884,7 @@ install_dependencies() {
         echo ""
 
         # Ask user if they want to continue without docker-compose-plugin
-        if [[ "${VLESS_AUTO_INSTALL_DEPS:-}" != "yes" ]]; then
+        if [[ "${FT_AUTO_INSTALL_DEPS:-}" != "yes" ]]; then
             echo -e "${YELLOW}Continue installation without docker-compose-plugin? [y/N]: ${NC}"
             local user_response
             if ! read -t 30 -r user_response; then
