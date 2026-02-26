@@ -13,14 +13,10 @@
 #   4. notify             — Telegram notification (always, even on failure)
 #
 # Path filters — what triggers CI/CD:
-#   docker/familytraffic/**               — files COPY'd into the Docker image
-#   .dockerignore                          — controls Docker build context
-#   docker-compose.yml                     — synced to test server via scp
-#   .github/workflows/build-and-push.yml  — the workflow itself
+#   VERSION  — единственный триггер: сборка запускается только при смене версии.
+#              Любые изменения в коде/конфиге требуют бампа VERSION.
 #
-# NOT in paths (host-only scripts, not synced by CI/CD):
-#   lib/nginx_stream_generator.sh — generates nginx.conf on host (volume mount,
-#     not baked into image). Changes to it require manual redeploy on test server.
+# Чтобы запустить сборку вручную без смены версии — используй workflow_dispatch.
 #
 # Secrets — Environment (Settings → Environments → test):
 #   TEST_SSH_HOST    — IP or hostname of the test server
@@ -39,20 +35,12 @@ on:
     branches:
       - test
     paths:
-      - "docker/familytraffic/**"   # baked into image via COPY
-      - ".dockerignore"              # affects Docker build context
-      - "docker-compose.yml"         # synced to test server via scp
-      - "VERSION"                    # semver version bump triggers new tag
-      - ".github/workflows/build-and-push.yml"
+      - "VERSION"
   pull_request:
     branches:
       - test
     paths:
-      - "docker/familytraffic/**"
-      - ".dockerignore"
-      - "docker-compose.yml"
       - "VERSION"
-      - ".github/workflows/build-and-push.yml"
   workflow_dispatch:
 
 env:
@@ -96,7 +84,7 @@ jobs:
           tags: |
             type=raw,value=test
             type=sha,prefix=sha-,format=short
-            type=raw,value=${{ steps.version.outputs.version }}-test
+            type=raw,value=${{ steps.version.outputs.version }}
 
       - name: Build and push image
         uses: docker/build-push-action@v5
