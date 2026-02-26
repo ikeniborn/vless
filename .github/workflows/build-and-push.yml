@@ -1,11 +1,6 @@
 # .github/workflows/build-and-push.yml
 # familyTraffic VPN — Test Pipeline
 #
-# NOTE: For production releases with semantic versioning use release.yml
-#   - release.yml triggers on git tags: v*.*.* (e.g. v0.1.0)
-#   - release.yml pushes :M.N.P :M.N :M :latest tags to GHCR
-#   - Convention: git tag v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0
-#
 # Triggers:
 #   - push to `test` branch (with relevant file changes)
 #   - Pull Request targeting the `test` branch (with relevant file changes)
