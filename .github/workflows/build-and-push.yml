@@ -47,6 +47,7 @@ on:
       - "docker/familytraffic/**"   # baked into image via COPY
       - ".dockerignore"              # affects Docker build context
       - "docker-compose.yml"         # synced to test server via scp
+      - "VERSION"                    # semver version bump triggers new tag
       - ".github/workflows/build-and-push.yml"
   pull_request:
     branches:
@@ -55,6 +56,7 @@ on:
       - "docker/familytraffic/**"
       - ".dockerignore"
       - "docker-compose.yml"
+      - "VERSION"
       - ".github/workflows/build-and-push.yml"
   workflow_dispatch:
 
@@ -87,6 +89,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read VERSION file
+        id: version
+        run: echo "version=$(cat VERSION)" >> "${GITHUB_OUTPUT}"
+
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -95,6 +101,7 @@ jobs:
           tags: |
             type=raw,value=test
             type=sha,prefix=sha-,format=short
+            type=raw,value=${{ steps.version.outputs.version }}-test
 
       - name: Build and push image
         uses: docker/build-push-action@v5
@@ -203,7 +210,7 @@ jobs:
           package-name: familytraffic
           package-type: container
           min-versions-to-keep: 3
-          ignore-versions: '^(test|latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)$'
+          ignore-versions: '^(test|latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+-test)$'
 
   # ============================================================
   # Job 4: Telegram notification (runs always, even on failure)
