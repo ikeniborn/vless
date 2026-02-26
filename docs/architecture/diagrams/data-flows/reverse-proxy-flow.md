@@ -1,8 +1,10 @@
 # Subdomain-Based Reverse Proxy Traffic Flow
 
+> **Note:** Reverse proxy feature was removed in v5.33. Content below describes pre-v5.33 architecture and is preserved as historical reference only.
+
 **Purpose:** Visualize the complete reverse proxy flow for subdomain-based routing without port numbers
 
-**Protocol:** HTTPS (TLS 1.3) with SNI-based routing
+**Protocol:** HTTPS (TLS 1.3) with SNI-based routing (pre-v5.33)
 
 **Features:**
 - SNI-based routing at HAProxy (NO TLS decryption)
@@ -586,13 +588,13 @@ sudo certbot certonly --standalone \
 - **Debug:**
   ```bash
   # Check Nginx backend status
-  docker logs familytraffic-nginx --tail 50
+  docker logs familytraffic --tail 50
 
   # Check HAProxy stats
   curl http://127.0.0.1:9000/stats | grep nginx_app
 
   # Test Nginx config
-  docker exec familytraffic-nginx nginx -t
+  docker exec familytraffic nginx -t
   ```
 
 **Issue 2: SNI routing not working**
@@ -614,7 +616,7 @@ sudo certbot certonly --standalone \
   openssl x509 -in /etc/letsencrypt/live/example.com/fullchain.pem -text | grep "Subject Alternative Name"
 
   # Verify Nginx SSL config
-  docker exec familytraffic-nginx nginx -T | grep ssl_certificate
+  docker exec familytraffic nginx -T | grep ssl_certificate
   ```
 
 **Issue 4: WebSocket connection fails**

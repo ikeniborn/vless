@@ -372,11 +372,11 @@ validate_disk_space() {
     fi
 
     # Check /opt/familytraffic (at least 100 MB recommended, warning only)
-    local vless_free
-    vless_free=$(df -BM /opt/familytraffic 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0")
+    local disk_free
+    disk_free=$(df -BM /opt/familytraffic 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0")
 
-    if [[ $vless_free -lt 100 ]]; then
-        log_warning "Low disk space on /opt/familytraffic: ${vless_free}M (recommend 100M)"
+    if [[ $disk_free -lt 100 ]]; then
+        log_warning "Low disk space on /opt/familytraffic: ${disk_free}M (recommend 100M)"
     fi
 
     log_debug "  ✓ Sufficient disk space available"

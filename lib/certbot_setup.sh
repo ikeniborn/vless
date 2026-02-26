@@ -257,7 +257,7 @@ obtain_certificate() {
 # RETURNS: 0 on success, 1 on failure
 #==============================================================================
 setup_renewal_cron() {
-    local cron_file="/etc/cron.d/certbot-vless-renew"
+    local cron_file="/etc/cron.d/certbot-familytraffic-renew"
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -324,7 +324,7 @@ cleanup_certificates() {
     echo ""
 
     # Step 1: Remove cron job
-    local cron_file="/etc/cron.d/certbot-vless-renew"
+    local cron_file="/etc/cron.d/certbot-familytraffic-renew"
     if [[ -f "$cron_file" ]]; then
         echo "Removing auto-renewal cron job..."
         rm -f "$cron_file"

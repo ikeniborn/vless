@@ -309,8 +309,8 @@ show_ufw_proxy_ips() {
     if [[ -z "$proxy_rules" ]]; then
         echo -e "${YELLOW}No UFW proxy whitelist rules configured${NC}"
         echo ""
-        echo "Add IP: sudo vless add-ufw-ip <ip>"
-        echo "Example: sudo vless add-ufw-ip 192.168.1.100"
+        echo "Add IP: sudo familytraffic add-ufw-ip <ip>"
+        echo "Example: sudo familytraffic add-ufw-ip 192.168.1.100"
         echo ""
     else
         echo -e "${CYAN}Proxy Whitelist Rules:${NC}"
@@ -339,9 +339,9 @@ show_ufw_proxy_ips() {
     echo ""
 
     echo -e "${CYAN}Management Commands:${NC}"
-    echo "  sudo vless add-ufw-ip <ip>       # Add IP to whitelist"
-    echo "  sudo vless remove-ufw-ip <ip>    # Remove IP from whitelist"
-    echo "  sudo vless reset-ufw-ips         # Remove all rules"
+    echo "  sudo familytraffic add-ufw-ip <ip>       # Add IP to whitelist"
+    echo "  sudo familytraffic remove-ufw-ip <ip>    # Remove IP from whitelist"
+    echo "  sudo familytraffic reset-ufw-ips         # Remove all rules"
     echo ""
 }
 

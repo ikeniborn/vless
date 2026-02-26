@@ -134,7 +134,7 @@ listen stats
 ```yaml
 haproxy:
   image: haproxy:latest
-  container_name: familytraffic-haproxy
+  container_name: familytraffic
   ports:
     - "443:443"   # VLESS Reality + Reverse Proxy (SNI routing)
     - "1080:1080" # SOCKS5 with TLS
@@ -436,7 +436,7 @@ cat /etc/letsencrypt/live/${DOMAIN}/fullchain.pem \
 chmod 600 /opt/familytraffic/certs/combined.pem
 
 # Graceful HAProxy reload (zero downtime)
-docker exec familytraffic-haproxy haproxy -sf $(cat /var/run/haproxy.pid)
+docker exec familytraffic haproxy -sf $(cat /var/run/haproxy.pid)
 
 echo "$(date): HAProxy reloaded successfully"
 ```
@@ -599,7 +599,7 @@ git config --get http.proxy
 git clone https://github.com/torvalds/linux.git
 
 # Verify proxy usage in HAProxy logs (v4.3)
-sudo docker logs familytraffic-haproxy | grep "socks5-tls"
+sudo docker logs familytraffic | grep "socks5-tls"
 ```
 
 **User Story:** As a developer, I want to use Git with socks5s:// proxy so that my code and credentials are encrypted during clone/push operations.
@@ -644,7 +644,7 @@ sudo docker logs familytraffic-haproxy | grep "socks5-tls"
 **Acceptance Criteria:**
 - [ ] Fail2ban installed when `ENABLE_PROXY=true` (regardless of public/localhost mode)
 - [ ] **NEW v4.3:** HAProxy filter created (`/etc/fail2ban/filter.d/haproxy-sni.conf`)
-- [ ] **NEW v4.3:** HAProxy jail created (`/etc/fail2ban/jail.d/familytraffic-haproxy.conf`)
+- [ ] **NEW v4.3:** HAProxy jail created (`/etc/fail2ban/jail.d/familytraffic.conf`)
 - [ ] Jail created for SOCKS5 (port 1080)
 - [ ] Jail created for HTTP (port 8118)
 - [ ] Ban after 5 failed auth attempts
@@ -664,8 +664,8 @@ ignoreregex =
 
 **HAProxy Jail (NEW v4.3):**
 ```ini
-# /etc/fail2ban/jail.d/familytraffic-haproxy.conf
-[familytraffic-haproxy]
+# /etc/fail2ban/jail.d/familytraffic.conf
+[familytraffic]
 enabled = true
 port = 443,1080,8118
 filter = haproxy-sni
@@ -879,7 +879,7 @@ If migration fails:
 - [ ] **NEW v4.3:** HAProxy graceful reload: `haproxy -sf $(cat /var/run/haproxy.pid)`
 - [ ] Healthcheck: haproxy, nginx, xray containers running
 - [ ] Port listening: `ss -tulnp | grep :443` (HAProxy)
-- [ ] fail2ban jail active: `fail2ban-client status familytraffic-haproxy`
+- [ ] fail2ban jail active: `fail2ban-client status familytraffic`
 
 **AC-6: Access Without Auth → 401 Unauthorized (v4.3 UPDATED)**
 ```bash
@@ -1010,8 +1010,8 @@ sudo familytraffic-proxy remove subdomain.example.com
 
 **SEC-9: fail2ban Integration (v4.3 UPDATED - MANDATORY)**
 ```ini
-# /etc/fail2ban/jail.d/familytraffic-haproxy.conf (v4.3)
-[familytraffic-haproxy]
+# /etc/fail2ban/jail.d/familytraffic.conf (v4.3)
+[familytraffic]
 enabled = true
 port = 443,1080,8118
 filter = haproxy-sni
@@ -1064,7 +1064,7 @@ action = ufw
 
 /etc/fail2ban/                          # v4.3: fail2ban configs
 ├── jail.d/
-│   ├── familytraffic-haproxy.conf              # Multi-port jail (HAProxy)
+│   ├── familytraffic.conf              # Multi-port jail (HAProxy)
 │   └── familytraffic-reverseproxy.conf         # Multi-port jail (Nginx)
 └── filter.d/
     ├── haproxy-sni.conf                # HAProxy filter
@@ -1310,7 +1310,7 @@ fi
 **Problem (Before v5.22):**
 - Operations failed when HAProxy/Nginx stopped
 - Error messages: "Connection refused", "No such container"
-- Required manual intervention: `docker start familytraffic-haproxy`
+- Required manual intervention: `docker start familytraffic`
 - User frustration: "Why do I need to start containers manually?"
 
 **Solution: 3-Layer Container Management**
@@ -1352,7 +1352,7 @@ fi
 **Function:** `ensure_all_containers_running()`
 
 **Required Containers:**
-1. `familytraffic-haproxy` - TLS termination & SNI routing
+1. `familytraffic` - TLS termination & SNI routing
 2. `familytraffic` - VPN core + proxy backends
 3. `familytraffic-nginx` - Reverse proxy backends (v5.2+)
 
@@ -1387,11 +1387,11 @@ fi
 **Error Handling:**
 ```bash
 # Auto-recovery example
-ensure_container_running "familytraffic-haproxy"
+ensure_container_running "familytraffic"
 if [ $? -ne 0 ]; then
     print_error "Critical: HAProxy container failed to start"
     print_info "Troubleshooting:"
-    print_info "  1. Check logs: docker logs familytraffic-haproxy"
+    print_info "  1. Check logs: docker logs familytraffic"
     print_info "  2. Verify docker-compose.yml exists"
     print_info "  3. Check port conflicts: sudo ss -tulnp | grep 443"
     return 1
@@ -1404,7 +1404,7 @@ fi
 ```
 User: sudo familytraffic-proxy add
 System: ❌ Connection refused (HAProxy not running)
-User: *manually runs: docker start familytraffic-haproxy*
+User: *manually runs: docker start familytraffic*
 User: sudo familytraffic-proxy add  # retry
 System: ✅ Success
 ```
@@ -1412,8 +1412,8 @@ System: ✅ Success
 **After v5.22:**
 ```
 User: sudo familytraffic-proxy add
-System: ⚠️  Container 'familytraffic-haproxy' not running, attempting to start...
-        ✅ Container 'familytraffic-haproxy' started successfully
+System: ⚠️  Container 'familytraffic' not running, attempting to start...
+        ✅ Container 'familytraffic' started successfully
         [1/4] Checking HAProxy ACL configuration... ✅
         [2/4] Checking Nginx configuration file... ✅
         [3/4] Checking port binding... ✅

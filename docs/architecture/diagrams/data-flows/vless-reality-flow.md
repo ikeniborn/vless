@@ -6,7 +6,7 @@
 
 **Features:**
 - DPI-resistant (mimics legitimate HTTPS traffic)
-- TLS 1.3 passthrough at HAProxy (no decryption)
+- TLS 1.3 ssl_preread passthrough at nginx stream block (no decryption)
 - UUID-based authentication
 - Optional external proxy routing (v5.24+)
 
@@ -17,17 +17,15 @@
 ```mermaid
 graph TB
     Client[Client Device<br/>VLESS Reality Client]
-    HAProxy[HAProxy<br/>Port 443 SNI Router]
-    Xray[Xray<br/>Port 8443 VLESS]
+    Nginx[nginx stream block<br/>Port 443 ssl_preread<br/>inside familytraffic]
+    Xray[xray<br/>Port 8443 VLESS Reality<br/>127.0.0.1]
     RoutingDecision{Routing<br/>Decision}
     ExtProxy[External Proxy<br/>SOCKS5s/HTTPS]
     Internet[Internet<br/>Target Site]
-    FakeSite[Fake Site<br/>Fallback Nginx]
 
-    Client -->|TLS 1.3 ClientHello<br/>SNI: vless.example.com<br/>Reality Protocol| HAProxy
+    Client -->|TLS 1.3 ClientHello<br/>SNI: vless.example.com<br/>Reality Protocol| Nginx
 
-    HAProxy -->|SNI Match<br/>TLS Passthrough<br/>NO decryption| Xray
-    HAProxy -.->|SNI Mismatch<br/>Unknown Domain| FakeSite
+    Nginx -->|SNI Match<br/>TLS Passthrough ssl_preread<br/>NO decryption| Xray
 
     Xray -->|UUID Validation<br/>Reality Handshake<br/>Success| RoutingDecision
     Xray -.->|UUID Invalid OR<br/>Handshake Fail| FakeSite
@@ -330,7 +328,7 @@ graph TB
         "decryption": "none",
         "fallbacks": [
           {
-            "dest": "familytraffic-fake-site:80",
+            "dest": "familytraffic:80",
             "xver": 0
           }
         ]
@@ -381,5 +379,5 @@ backend xray_vless
 ---
 
 **Created:** 2026-01-07
-**Version:** v5.26
+**Version:** v5.33
 **Status:** ✅ CURRENT (v5.24+ per-user external proxy supported)

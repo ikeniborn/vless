@@ -2,7 +2,7 @@
 
 **Purpose:** Function call graphs for major runtime operations
 
-**Version:** v5.26
+**Version:** v5.33
 **Status:** Production
 **Related Files:**
 - [lib-modules.yaml](../../yaml/lib-modules.yaml) - Module specifications
@@ -18,7 +18,7 @@ This diagram shows the actual function call chains during runtime operations in 
 1. Add User Flow
 2. Remove User Flow
 3. Set Per-User Proxy Flow (v5.24+)
-4. Add Reverse Proxy Domain Flow
+4. Add Reverse Proxy Domain Flow (REMOVED in v5.33)
 5. Certificate Renewal Flow
 6. External Proxy Management Flow (v5.24+)
 
@@ -268,9 +268,11 @@ graph TB
 
 ---
 
-## 4. Add Reverse Proxy Domain Flow
+## 4. Add Reverse Proxy Domain Flow (REMOVED in v5.33)
 
-**Entry Point:** `familytraffic-proxy add`
+> **Note:** This feature was removed in v5.33. The call chain below is preserved as historical reference only.
+
+**Entry Point:** `familytraffic-proxy add` (removed)
 **Duration:** ~8-12 seconds (includes DNS validation)
 **Modules:** lib/reverseproxy_db.sh, lib/haproxy_config_manager.sh
 
@@ -312,7 +314,7 @@ graph TB
 
     subgraph "Service Reloads"
         RLHAPROXY["🟥 reload_haproxy()<br/>haproxy_config_manager.sh:923"]
-        RLNGINX["🟥 reload_nginx()<br/>docker restart familytraffic-nginx"]
+        RLNGINX["🟥 reload_nginx()<br/>docker exec familytraffic supervisorctl restart nginx"]
     end
 
     VERIFY["🟥 verify_domain_accessible()<br/>curl https://domain"]
@@ -788,7 +790,7 @@ graph LR
 |-----------|---------|-------|---------|
 | `/var/lock/familytraffic_users.lock` | Serialize users.json modifications | All user operations | 10s |
 | `/var/lock/familytraffic_config.lock` | Serialize xray_config.json updates | Config regeneration | 15s |
-| `/var/lock/familytraffic-haproxy.lock` | Serialize HAProxy reloads | HAProxy operations | 5s |
+| `/var/lock/familytraffic.lock` | Serialize HAProxy reloads | HAProxy operations | 5s |
 | `/var/lock/familytraffic_external_proxy.lock` | Serialize external_proxy.json updates | Proxy management (v5.24+) | 10s |
 
 **Lock Acquisition Order (prevents deadlock):**
@@ -888,6 +890,6 @@ This document provides complete traceability of function call chains during runt
 
 ---
 
-**Version:** v5.26
+**Version:** v5.33
 **Last Updated:** 2025-01-07
 **Status:** Production Documentation

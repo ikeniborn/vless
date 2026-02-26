@@ -276,7 +276,7 @@ Integrated fail2ban for automated IP banning after failed authentication attempt
 
 **fail2ban Configuration (v4.3 - HAProxy Filter):**
 ```ini
-[familytraffic-haproxy]
+[familytraffic]
 enabled = true
 port = 443
 filter = haproxy-sni
@@ -371,7 +371,7 @@ failregex = ^.* "401" .* "https://[^"]+.*" .*$
 2. **fail2ban Ban Rate Monitoring**
    ```bash
    # Check banned IPs for HAProxy and Nginx
-   sudo fail2ban-client status familytraffic-haproxy
+   sudo fail2ban-client status familytraffic
    sudo fail2ban-client status familytraffic-reverse-proxy-nginx
    ```
 
@@ -614,7 +614,7 @@ sudo cat /etc/fail2ban/jail.d/familytraffic-reverseproxy.conf  # enabled = false
 
 # Issue 10: Test port range validation
 sudo familytraffic-proxy add  # Create 2 proxies (ports 9443, 9444)
-docker ps | grep familytraffic-nginx  # Should show 127.0.0.1:9443-9444
+docker ps | grep familytraffic  # Should show familytraffic: Up
 sudo familytraffic-proxy add  # Validation should pass for port 9444
 ```
 
@@ -738,14 +738,14 @@ sudo familytraffic-proxy migrate-urls --remove-ports
 # System Status
 sudo vless-status                    # Full system status (includes HAProxy info)
 docker ps                            # Check container health
-docker logs familytraffic-haproxy            # HAProxy logs (unified)
+docker logs familytraffic            # HAProxy logs (unified)
 docker logs familytraffic               # Xray proxy logs
-docker logs familytraffic-nginx # Nginx reverse proxy logs
+docker logs familytraffic # Nginx reverse proxy logs
 
 # Config Validation
 jq . /opt/familytraffic/config/xray_config.json      # Validate Xray JSON syntax
 cat /opt/familytraffic/config/haproxy.cfg | grep -E 'frontend|backend|acl' # HAProxy structure
-docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg  # Validate HAProxy config
+docker exec familytraffic haproxy -c -f /etc/haproxy/haproxy.cfg  # Validate HAProxy config
 
 # Network Tests
 sudo ss -tulnp | grep -E '443|1080|8118|9443' # Check listening ports
@@ -777,7 +777,7 @@ openssl x509 -in /opt/familytraffic/certs/combined.pem -noout -text  # Verify co
 openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /opt/familytraffic/certs/combined.pem
 
 # fail2ban Tests
-sudo fail2ban-client status familytraffic-haproxy       # HAProxy jail status
+sudo fail2ban-client status familytraffic       # HAProxy jail status
 sudo fail2ban-client status familytraffic-reverse-proxy-nginx  # Nginx jail status
 ```
 

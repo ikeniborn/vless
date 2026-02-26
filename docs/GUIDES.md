@@ -63,8 +63,8 @@ sudo ./install.sh
 /opt/familytraffic/
 ├── config/
 │   ├── xray_config.json         # Конфигурация Xray
-│   ├── nginx/nginx.conf         # Конфигурация familytraffic-nginx (stream + http)
-│   ├── reverse-proxy/           # Конфиги familytraffic-nginx (если включён)
+│   ├── nginx/nginx.conf         # Конфигурация nginx (stream + http, внутри familytraffic)
+│   ├── reverse-proxy/           # Legacy: конфиги reverse proxy (удалён в v5.33)
 │   └── keys/                    # Reality ключи (private.key, public.key)
 ├── data/
 │   ├── users.json               # База пользователей
@@ -79,15 +79,12 @@ sudo ./install.sh
 
 | Контейнер | Назначение | Всегда |
 |---|---|---|
-| `familytraffic-nginx` | SNI routing (443), TLS termination (1080/8118), Tier 2 http block (8448) | ✅ |
-| `familytraffic` | VLESS Reality + SOCKS5 + HTTP + Tier 2 inbounds | ✅ |
-| `familytraffic-fake-site` | Fallback сайт для Reality handshake | ✅ |
-| `familytraffic-nginx` | Reverse proxy к внешним сайтам (поддомены) | Опционально |
+| `familytraffic` | Единый контейнер: nginx (SNI routing 443, TLS termination 1080/8118, Tier 2 8448) + xray + certbot-cron + supervisord | ✅ |
+| `familytraffic-mtproxy` | Telegram MTProxy (опциональный, отдельный контейнер) | Опционально |
 
 **CLI-инструменты** после установки:
 ```
-/usr/local/bin/vless
-/usr/local/bin/familytraffic-proxy
+/usr/local/bin/familytraffic
 /usr/local/bin/familytraffic-external-proxy
 /usr/local/bin/familytraffic-cert-renew
 ```
@@ -183,7 +180,7 @@ vless://UUID@SERVER:443?encryption=none&flow=xtls-rprx-vision&security=reality&s
 
 ## 5. SOCKS5 и HTTP прокси
 
-Прокси использует TLS-терминацию через `familytraffic-nginx`. Нужен домен с сертификатом.
+Прокси использует TLS-терминацию через nginx (внутри контейнера `familytraffic`). Нужен домен с сертификатом.
 
 ### Схемы подключения
 
@@ -234,9 +231,9 @@ Tier 2 транспорты используют TLS-терминацию чер
 ### Архитектура Tier 2
 
 ```
-Client → TCP:443 → familytraffic-nginx (ssl_preread)
-  └─ SNI ws.domain → 127.0.0.1:8448 (http block)
-       └─ proxy_pass → familytraffic:8444 (WS plaintext)
+Client → TCP:443 → familytraffic (nginx stream, ssl_preread)
+  └─ SNI ws.domain → 127.0.0.1:8448 (nginx http block, inside familytraffic)
+       └─ proxy_pass → 127.0.0.1:8448 (xray WS/XHTTP/gRPC plaintext)
 ```
 
 ### Включить транспорт
@@ -250,7 +247,7 @@ sudo familytraffic add-transport grpc  grpc.yourdomain.com
 Команда:
 - Добавляет inbound в `xray_config.json` (не затрагивает существующих пользователей)
 - Обновляет `nginx.conf`: SNI map + http server block
-- Перезагружает `familytraffic-nginx` (zero-downtime) и перезапускает `familytraffic`
+- Перезагружает nginx внутри контейнера (zero-downtime via supervisorctl)
 
 ### Список активных транспортов
 
@@ -352,7 +349,7 @@ Per-user proxy работает только для VLESS (email-based routing).
 Certbot обновляет сертификаты автоматически через `--deploy-hook`. После обновления хук:
 
 1. Валидирует новые файлы сертификата
-2. Проверяет здоровье контейнеров `familytraffic-nginx` и `familytraffic`
+2. Проверяет здоровье контейнера `familytraffic` (supervisorctl status)
 3. Выполняет `nginx -s reload` (zero-downtime)
 4. Перезапускает `familytraffic`
 
@@ -390,7 +387,7 @@ sudo familytraffic logs xray        # Xray логи
 sudo familytraffic logs nginx       # Nginx логи
 sudo familytraffic logs all         # Все логи
 docker logs familytraffic --tail 50
-docker logs familytraffic-nginx --tail 50
+docker logs familytraffic --tail 50
 ```
 
 ### Тесты безопасности
@@ -404,7 +401,7 @@ sudo familytraffic test-security --quick    # Без packet capture
 
 ```bash
 # Nginx
-docker exec familytraffic-nginx nginx -t
+docker exec familytraffic nginx -t
 
 # Xray JSON
 jq empty /opt/familytraffic/config/xray_config.json && echo "OK"
@@ -425,8 +422,8 @@ jq '.inbounds[0].port' /opt/familytraffic/config/xray_config.json  # должн�
 **Nginx не запускается**
 
 ```bash
-docker exec familytraffic-nginx nginx -t  # покажет ошибку в конфиге
-docker logs familytraffic-nginx --tail 30
+docker exec familytraffic nginx -t  # покажет ошибку в конфиге
+docker logs familytraffic --tail 30
 ```
 
 **Нет интернета в контейнерах (UFW блокирует Docker)**
@@ -439,10 +436,10 @@ docker exec familytraffic ping -c 1 8.8.8.8
 sudo ufw reload
 ```
 
-**Cert renewal падает — familytraffic-nginx не запущен**
+**Cert renewal падает — nginx не запущен внутри familytraffic**
 
 ```bash
-docker start familytraffic-nginx
+docker exec familytraffic supervisorctl start nginx
 # Затем повторить:
 RENEWED_DOMAINS="domain" sudo familytraffic-cert-renew
 ```

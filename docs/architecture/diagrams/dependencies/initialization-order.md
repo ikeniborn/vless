@@ -24,7 +24,7 @@ graph TB
     Step6[Step 6: Validate DNS<br/>Verify DNS A record]
     Step7[Step 7: Obtain Certificate<br/>Let's Encrypt HTTP-01]
     Step8[Step 8: Generate Docker Compose<br/>Create docker-compose.yml]
-    Step9[Step 9: Generate HAProxy Config<br/>Create haproxy.cfg]
+    Step9[Step 9: Generate nginx Config<br/>Create nginx.conf stream+http blocks]
     Step10[Step 10: Generate Xray Config<br/>Create xray_config.json]
     Step11[Step 11: Security Hardening<br/>UFW, fail2ban, sysctl]
     Step12[Step 12: Launch Containers<br/>docker-compose up -d]
@@ -506,13 +506,13 @@ sequenceDiagram
 
     Note over Docker: Start containers in dependency order
 
-    Docker->>HAProxy: Start familytraffic-haproxy
-    Docker->>FakeSite: Start familytraffic-fake-site
+    Docker->>HAProxy: Start familytraffic
+    Docker->>FakeSite: Start familytraffic
     HAProxy-->>Docker: ✓ Running
     FakeSite-->>Docker: ✓ Running
 
     Docker->>Xray: Start familytraffic (depends on HAProxy)
-    Docker->>Nginx: Start familytraffic-nginx (depends on HAProxy)
+    Docker->>Nginx: Start nginx (inside familytraffic via supervisord)
     Xray-->>Docker: ✓ Running
     Nginx-->>Docker: ✓ Running
 
@@ -773,5 +773,5 @@ graph TB
 ---
 
 **Created:** 2026-01-07
-**Version:** v5.26
+**Version:** v5.33
 **Status:** ✅ CURRENT (15-step installation process)

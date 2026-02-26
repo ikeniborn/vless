@@ -1,8 +1,8 @@
 # Architecture Documentation Validation Report
 
 **Project:** familyTraffic VPN
-**Version:** v5.26
-**Date:** 2026-01-07
+**Version:** v5.33
+**Date:** 2026-02-26
 **Status:** ✅ **100% COMPLETE & VALIDATED**
 
 ---
@@ -22,7 +22,7 @@
 
 | File | Lines | Size | Coverage | Status |
 |------|-------|------|----------|--------|
-| **docker.yaml** | 1,137 | 38.9 KB | 6 containers, all ports, volumes, networks | ✅ 100% |
+| **docker.yaml** | 1,137 | 38.9 KB | Single container + optional MTProxy, all ports, volumes | ✅ 100% |
 | **config.yaml** | 1,210 | 42.3 KB | All config files, relationships, propagation | ✅ 100% |
 | **cli.yaml** | 1,761 | 54.9 KB | 4 CLI tools, all commands, workflows | ✅ 100% |
 | **lib-modules.yaml** | 1,150 | 37.8 KB | 44 modules, functions, dependencies | ✅ 100% |
@@ -36,7 +36,7 @@
 
 #### Data Flow Diagrams (5/5)
 - ✅ `vless-reality-flow.md` - VLESS Reality protocol with routing
-- ✅ `socks5-proxy-flow.md` - SOCKS5 over TLS with HAProxy termination
+- ✅ `socks5-proxy-flow.md` - SOCKS5 over TLS with nginx termination (inside familytraffic)
 - ✅ `http-proxy-flow.md` - HTTP CONNECT tunneling
 - ✅ `reverse-proxy-flow.md` - Subdomain-based routing (no ports!)
 - ✅ `external-proxy-flow.md` - Per-user upstream routing (v5.24+)
@@ -49,7 +49,7 @@
 - ✅ `reverse-proxy-setup.md` - Interactive domain wizard
 
 #### Deployment Diagrams (3/3)
-- ✅ `docker-topology.md` - 6-container architecture with network layout
+- ✅ `docker-topology.md` - Single-container architecture (familytraffic + optional MTProxy)
 - ✅ `port-mapping.md` - Public/internal port allocation (MTProxy 8443 conflict resolution!)
 - ✅ `filesystem-layout.md` - Complete /opt/familytraffic/ structure
 
@@ -106,19 +106,21 @@ Architecture documentation is structurally correct!
 
 ## Coverage Analysis
 
-### Docker Architecture (100% Coverage)
+### Docker Architecture (100% Coverage — Updated for v5.33)
 
 **Containers Documented:**
-1. ✅ `familytraffic-haproxy` - Unified TLS termination & SNI routing (HAProxy 2.8-alpine)
-2. ✅ `familytraffic` - VLESS Reality core (Xray 24.11.30)
-3. ✅ `familytraffic-nginx` - Subdomain reverse proxy (Nginx Alpine)
-4. ✅ `familytraffic-certbot` - Certificate management (Nginx Alpine, on-demand)
-5. ✅ `familytraffic-fake-site` - Fallback site (Nginx Alpine, internal only)
-6. ✅ `familytraffic-mtproxy` - Telegram MTProxy (v6.0+ planned, custom build)
+1. ✅ `familytraffic` - Single main container: nginx + xray + certbot-cron + supervisord (`network_mode: host`)
+2. ✅ `familytraffic-mtproxy` - Telegram MTProxy (optional, separate container)
 
-**Networks:** `familytraffic_net` (172.20.0.0/16 bridge)
-**Volumes:** All mounted configurations, certificates, logs documented
-**Port Allocation:** All ports documented with conflict resolution (MTProxy 8443!)
+**Removed in v5.33 (no longer exist):**
+- `familytraffic-haproxy` - removed; nginx inside `familytraffic` now does SNI routing
+- `familytraffic-nginx` as separate container - nginx runs inside `familytraffic`
+- `familytraffic-certbot` as separate container - certbot runs as cron job inside `familytraffic`
+- `familytraffic-fake-site` - removed
+
+**Network:** `network_mode: host` (main container shares host network stack)
+**Volumes:** nginx.conf, xray_config.json, users.json, /etc/letsencrypt, /var/www/html
+**Port Allocation:** 443 (nginx SNI), 1080 (nginx TLS/SOCKS5), 8118 (nginx TLS/HTTP), 80 (certbot webroot)
 
 ---
 
@@ -126,11 +128,10 @@ Architecture documentation is structurally correct!
 
 **Configuration Files:**
 1. ✅ `/opt/familytraffic/config/xray_config.json` - Xray runtime config
-2. ✅ `/opt/familytraffic/config/haproxy.cfg` - HAProxy unified routing
+2. ✅ `/opt/familytraffic/config/nginx/nginx.conf` - nginx stream+http config (SNI routing + TLS termination)
 3. ✅ `/opt/familytraffic/config/external_proxy.json` - Upstream proxies (v5.24+)
 4. ✅ `/opt/familytraffic/data/users.json` - User database
-5. ✅ `/opt/familytraffic/config/reverse-proxy/*.conf` - Nginx reverse proxy configs
-6. ✅ `/opt/familytraffic/config/mtproxy/*` - MTProxy configs (v6.0+ planned)
+5. ✅ `/opt/familytraffic/config/mtproxy/*` - MTProxy configs (v6.0+ planned)
 
 **Relationships:** 6 configuration propagation paths documented
 **Reload Methods:** Graceful reload procedures for all services
@@ -170,9 +171,9 @@ Architecture documentation is structurally correct!
 
 **Traffic Flows:**
 1. ✅ VLESS Reality - Main VPN protocol with Reality TLS masquerading
-2. ✅ SOCKS5 TLS - HAProxy termination → Xray plaintext SOCKS5
+2. ✅ SOCKS5 TLS - nginx termination (inside familytraffic) → Xray plaintext SOCKS5
 3. ✅ HTTP Proxy - HTTPS CONNECT tunneling
-4. ✅ Reverse Proxy - SNI-based subdomain routing (port 443, no port numbers!)
+4. ⚠️ Reverse Proxy - REMOVED in v5.33 (subdomain reverse proxy feature removed)
 5. ✅ External Proxy - Per-user upstream routing (v5.24+)
 6. ✅ MTProxy - Telegram MTProto proxy (v6.0+ planned)
 
@@ -213,27 +214,26 @@ Architecture documentation is structurally correct!
 
 ---
 
-### 3. HAProxy Unified Architecture (v4.3+) ✅
+### 3. Single-Container Architecture (v5.33) ✅
 
-**Architecture:** Single HAProxy container for all TLS termination & routing
-**Ports:** 443 (SNI router), 1080 (SOCKS5 TLS), 8118 (HTTP TLS), 9000 (stats)
-**Dynamic ACLs:** `### DYNAMIC_REVERSE_PROXY_ROUTES ###` marker for runtime injection
-**Zero Downtime:** Graceful reload with `-sf` flag
+**Architecture:** Single `familytraffic` container (nginx + xray + certbot-cron + supervisord), `network_mode: host`
+**Ports:** 443 (nginx SNI router), 1080 (nginx SOCKS5 TLS), 8118 (nginx HTTP TLS), 80 (certbot webroot)
+**nginx stream block:** ssl_preread SNI routing on port 443 → 127.0.0.1:8443 (Xray) or 127.0.0.1:8448 (Tier 2)
+**nginx http block:** TLS termination on ports 1080/8118 → Xray plaintext
+**Zero Downtime:** Graceful reload with `nginx -s reload`
 
 ---
 
-### 4. Subdomain Reverse Proxy ✅
+### 4. Subdomain Reverse Proxy (REMOVED in v5.33)
 
-**Feature:** Reverse proxy domains without port numbers (https://domain.com, NOT https://domain.com:9443)
-**Routing:** HAProxy SNI inspection → Nginx backends on localhost:9443-9452
-**CLI:** `familytraffic-proxy add` - Interactive wizard with DNS validation
-**Documentation:** Complete setup workflow in sequences/reverse-proxy-setup.md
+**Status:** This feature was removed in v5.33. The `familytraffic-proxy` CLI and reverse proxy nginx configs no longer exist.
+**Historical Reference:** See `docs/architecture/diagrams/sequences/reverse-proxy-setup.md` and `reverse-proxy-flow.md` (marked as pre-v5.33).
 
 ---
 
 ### 5. Automated Certificate Renewal ✅
 
-**Method:** certbot cron job (twice daily) → deploy_hook → combined.pem → HAProxy graceful reload
+**Method:** certbot-cron (inside familytraffic container, twice daily) → deploy_hook → nginx graceful reload
 **Downtime:** Zero (graceful reload)
 **Validation:** Pre-reload certificate verification with openssl
 **Documentation:** Complete automation workflow in sequences/cert-renewal.md
@@ -267,13 +267,13 @@ Architecture documentation is structurally correct!
 - **Result:** ✅ 100% coverage
 
 ### ✅ Container Coverage
-- **Claimed:** All 6 containers
-- **Actual:** 6 containers documented in docker.yaml
+- **Claimed:** v5.33 single-container architecture
+- **Actual:** 1 main container (`familytraffic`) + 1 optional (`familytraffic-mtproxy`) documented
 - **Result:** ✅ 100% coverage
 
 ### ✅ Version Accuracy
-- **Claimed:** v5.26 current implementation
-- **Actual:** All documentation references v5.26, v5.24+ features, v6.0+ planned
+- **Claimed:** v5.33 current implementation
+- **Actual:** All documentation updated to reflect v5.33 single-container architecture
 - **Result:** ✅ 100% accurate to current implementation
 
 ### ✅ Schema Validation
@@ -362,7 +362,7 @@ The familyTraffic VPN architecture is now **comprehensively documented, validate
 
 ---
 
-**Documentation Version:** 1.0
-**Project Version:** v5.26
-**Completion Date:** 2026-01-07
+**Documentation Version:** 1.1
+**Project Version:** v5.33
+**Completion Date:** 2026-02-26
 **Status:** ✅ **COMPLETE**

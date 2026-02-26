@@ -3,11 +3,11 @@
 **Purpose:** Visualize the automated Let's Encrypt certificate renewal workflow
 
 **Features:**
-- Automated renewal via certbot
-- Certificate validation (HTTP-01 challenge)
-- HAProxy graceful reload
+- Automated renewal via certbot-cron (runs inside `familytraffic` container, managed by supervisord)
+- Certificate validation (HTTP-01 webroot challenge, served by nginx on port 80)
+- nginx graceful reload (`nginx -s reload`) after renewal
 - Zero-downtime certificate update
-- Cron job automation
+- Cron job automation (inside container, no separate certbot container needed)
 
 ---
 
@@ -17,18 +17,17 @@
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Cron Job<br/>(certbot renew)
+    participant CertbotCron as certbot-cron<br/>(inside familytraffic, supervisord)
     participant Certbot as Certbot Client
     participant LetsEncrypt as Let's Encrypt<br/>ACME Server
-    participant CertbotNginx as Certbot Nginx Container<br/>(Port 80)
+    participant NginxWebroot as nginx port 80<br/>(inside familytraffic, webroot)
     participant CertStorage as /etc/letsencrypt/
-    participant CombineScript as combine_certs.sh
-    participant HAProxyConfig as HAProxy Config<br/>combined.pem
-    participant HAProxy as HAProxy Container
+    participant DeployHook as familytraffic-cert-renew<br/>(deploy hook)
+    participant Nginx as nginx<br/>(inside familytraffic)
 
-    Note over Cron: Cron triggers renewal<br/>(daily at 03:00 UTC)
+    Note over CertbotCron: certbot-cron triggers renewal<br/>(twice daily)
 
-    Cron->>Certbot: certbot renew --quiet<br/>--deploy-hook /opt/familytraffic/scripts/renew-hook.sh
+    CertbotCron->>Certbot: certbot renew --quiet<br/>--deploy-hook /usr/local/bin/familytraffic-cert-renew
 
     Note over Certbot: Phase 1: Check Certificate Expiry
 
@@ -36,26 +35,23 @@ sequenceDiagram
     CertStorage-->>Certbot: Certificate metadata:<br/>- Issued: 2025-12-01<br/>- Expires: 2026-02-28<br/>- Days remaining: 45
 
     alt Days remaining > 30
-        Certbot->>Cron: Certificate not due for renewal<br/>(> 30 days remaining)
-        Note over Cron: Exit successfully (nothing to do)
+        Certbot->>CertbotCron: Certificate not due for renewal<br/>(> 30 days remaining)
+        Note over CertbotCron: Exit successfully (nothing to do)
     else Days remaining ≤ 30
         Note over Certbot,LetsEncrypt: Phase 2: Initiate Renewal
 
-        Certbot->>LetsEncrypt: Request certificate renewal<br/>Domain: example.com, *.example.com
+        Certbot->>LetsEncrypt: Request certificate renewal<br/>Domain: example.com
 
-        LetsEncrypt->>Certbot: Challenge: HTTP-01<br/>Token: random_token_xyz
+        LetsEncrypt->>Certbot: Challenge: HTTP-01 webroot<br/>Token: random_token_xyz
 
-        Note over Certbot,CertbotNginx: Phase 3: HTTP-01 Challenge
+        Note over Certbot,NginxWebroot: Phase 3: HTTP-01 Webroot Challenge<br/>(nginx already running on port 80 — no container start needed)
 
-        Certbot->>CertbotNginx: Start certbot-nginx container<br/>(if not running)
-        CertbotNginx->>CertbotNginx: Listen on port 80<br/>Serve /.well-known/acme-challenge/
-
-        Certbot->>CertbotNginx: Write challenge file:<br/>/var/www/html/.well-known/acme-challenge/random_token_xyz
+        Certbot->>NginxWebroot: Write challenge file to webroot:<br/>/var/www/html/.well-known/acme-challenge/random_token_xyz
 
         Certbot->>LetsEncrypt: Challenge ready
 
-        LetsEncrypt->>CertbotNginx: HTTP GET<br/>http://example.com/.well-known/acme-challenge/random_token_xyz
-        CertbotNginx-->>LetsEncrypt: 200 OK<br/>Challenge response
+        LetsEncrypt->>NginxWebroot: HTTP GET<br/>http://example.com/.well-known/acme-challenge/random_token_xyz
+        NginxWebroot-->>LetsEncrypt: 200 OK<br/>Challenge response
 
         LetsEncrypt->>LetsEncrypt: Validate challenge response
 
@@ -70,32 +66,27 @@ sequenceDiagram
 
             CertStorage-->>Certbot: ✓ Certificate saved
 
-            Note over Certbot,HAProxy: Phase 5: Deploy Hook (HAProxy Reload)
+            Note over Certbot,Nginx: Phase 5: Deploy Hook (nginx reload)
 
-            Certbot->>CombineScript: Run deploy hook:<br/>/opt/familytraffic/scripts/renew-hook.sh
+            Certbot->>DeployHook: Run deploy hook:<br/>/usr/local/bin/familytraffic-cert-renew
 
-            CombineScript->>CertStorage: Read fullchain.pem
-            CombineScript->>CertStorage: Read privkey.pem
+            DeployHook->>DeployHook: Validate new certificate files
+            DeployHook->>DeployHook: Check familytraffic container health
 
-            CombineScript->>CombineScript: Combine certificates:<br/>cat fullchain.pem privkey.pem > combined.pem
+            DeployHook->>Nginx: docker exec familytraffic nginx -s reload
 
-            CombineScript->>HAProxyConfig: Write /etc/letsencrypt/live/example.com/combined.pem
-            HAProxyConfig-->>CombineScript: ✓ Combined cert created
+            Note over Nginx: Graceful reload:<br/>- nginx reloads config + new certs<br/>- Existing connections continue<br/>- Zero downtime
 
-            CombineScript->>HAProxy: docker exec familytraffic-haproxy<br/>haproxy -sf $(cat /var/run/haproxy.pid)
+            Nginx->>Nginx: Load new fullchain.pem + privkey.pem
+            Nginx-->>DeployHook: ✓ nginx reloaded
 
-            Note over HAProxy: Graceful reload:<br/>- Start new HAProxy process<br/>- Finish existing connections<br/>- Stop old HAProxy process
+            DeployHook->>Certbot: ✓ Deploy hook success
 
-            HAProxy->>HAProxy: Load new combined.pem
-            HAProxy-->>CombineScript: ✓ HAProxy reloaded
-
-            CombineScript->>Certbot: ✓ Deploy hook success
-
-            Certbot->>Cron: ✓ Certificate renewed successfully
+            Certbot->>CertbotCron: ✓ Certificate renewed successfully
 
         else Challenge validation failure
             LetsEncrypt->>Certbot: ✗ Challenge validation failed
-            Certbot->>Cron: ✗ Renewal failed (will retry tomorrow)
+            Certbot->>CertbotCron: ✗ Renewal failed (will retry)
         end
     end
 ```
@@ -112,16 +103,16 @@ sequenceDiagram
     participant CLI as vless CLI<br/>(or manual command)
     participant Certbot
     participant LetsEncrypt
-    participant HAProxy
+    participant Nginx as nginx (inside familytraffic)
 
-    Admin->>CLI: sudo familytraffic renew-cert<br/>(or: sudo certbot renew --force-renewal)
+    Admin->>CLI: sudo certbot renew --force-renewal<br/>or: RENEWED_DOMAINS="domain" sudo familytraffic-cert-renew
 
-    CLI->>Certbot: certbot renew --force-renewal<br/>--deploy-hook /opt/familytraffic/scripts/renew-hook.sh
+    CLI->>Certbot: certbot renew --force-renewal<br/>--deploy-hook /usr/local/bin/familytraffic-cert-renew
 
     Note over Certbot: Force renewal regardless of expiry date
 
     Certbot->>LetsEncrypt: Request renewal (forced)
-    LetsEncrypt->>Certbot: Challenge: HTTP-01
+    LetsEncrypt->>Certbot: Challenge: HTTP-01 webroot
 
     Note over Certbot,LetsEncrypt: (Same validation flow as automated)
 
@@ -129,41 +120,38 @@ sequenceDiagram
 
     Certbot->>Certbot: Run deploy hook
 
-    Note over Certbot,HAProxy: (Same deploy flow as automated)
+    Note over Certbot,Nginx: Deploy hook: familytraffic-cert-renew → nginx -s reload
 
-    Certbot->>HAProxy: Graceful reload
+    Certbot->>Nginx: docker exec familytraffic nginx -s reload
 
-    HAProxy-->>Certbot: ✓ Reloaded
+    Nginx-->>Certbot: ✓ nginx reloaded
 
     Certbot->>CLI: ✓ Renewal successful
 
-    CLI->>Admin: ✓ Certificate renewed and HAProxy reloaded<br/><br/>New certificate valid until: 2026-05-28<br/>HAProxy reload: ✓ Success (0 connections dropped)
+    CLI->>Admin: ✓ Certificate renewed and nginx reloaded<br/><br/>New certificate valid until: 2026-05-28<br/>nginx reload: ✓ Success (0 connections dropped)
 ```
 
 ---
 
 ## Certificate Renewal Error Scenarios
 
-### Scenario 1: Port 80 Blocked
+### Scenario 1: nginx Not Running on Port 80
 
 ```mermaid
 sequenceDiagram
     participant Certbot
-    participant CertbotNginx
+    participant NginxWebroot as nginx:80 (inside familytraffic)
     participant LetsEncrypt
 
-    Certbot->>CertbotNginx: Start container on port 80
-    CertbotNginx-->>Certbot: ✗ Error: Port 80 already in use
+    Note over Certbot: Port 80 must be served by nginx inside familytraffic
 
-    Certbot->>Certbot: Check port 80:<br/>sudo ss -tulnp | grep :80
+    Certbot->>NginxWebroot: Write challenge file to /var/www/html/
+    LetsEncrypt->>NginxWebroot: HTTP GET /.well-known/acme-challenge/token
+    NginxWebroot-->>LetsEncrypt: ✗ Connection refused (familytraffic container not running)
 
-    Note over Certbot: Conflict detected:<br/>Another process using port 80
+    Certbot->>Certbot: Error: Challenge validation failed
 
-    Certbot->>Certbot: Error: Cannot bind to port 80<br/>Renewal failed
-
-    Certbot->>Certbot: Log error:<br/>/var/log/letsencrypt/letsencrypt.log
-
-    Note over Certbot: Admin must free port 80<br/>or use DNS-01 challenge
+    Note over Certbot: Fix: ensure familytraffic container is running<br/>docker start familytraffic<br/>Then retry: sudo certbot renew --force-renewal
 ```
 
 ### Scenario 2: DNS Not Pointing to Server
@@ -211,42 +199,37 @@ sequenceDiagram
 
 ---
 
-## HAProxy Graceful Reload Mechanism
+## nginx Graceful Reload Mechanism
 
 ### Zero-Downtime Certificate Update
 
 ```mermaid
 sequenceDiagram
-    participant Renew as renew-hook.sh
-    participant OldHAProxy as HAProxy Process<br/>(Old PID: 1234)
-    participant NewHAProxy as HAProxy Process<br/>(New PID: 5678)
+    participant DeployHook as familytraffic-cert-renew
+    participant NginxMaster as nginx Master Process
+    participant NginxWorker1 as nginx Worker<br/>(Old, finishing requests)
+    participant NginxWorker2 as nginx Worker<br/>(New, with new cert)
     participant Client1 as Active Client #1
     participant Client2 as New Client #2
 
-    Note over Renew: New combined.pem created
+    Note over DeployHook: New fullchain.pem + privkey.pem available
 
-    Renew->>NewHAProxy: Start new HAProxy process:<br/>haproxy -sf 1234
+    DeployHook->>NginxMaster: docker exec familytraffic nginx -s reload
 
-    Note over NewHAProxy: Load new combined.pem
+    Note over NginxMaster: nginx graceful reload:<br/>- Fork new worker with new config<br/>- Drain old workers
 
-    NewHAProxy->>NewHAProxy: Bind to ports 443, 1080, 8118
-    NewHAProxy->>OldHAProxy: Send SIGTERM to PID 1234
+    NginxMaster->>NginxWorker2: Start new worker (loads new cert)
+    NginxMaster->>NginxWorker1: Send graceful shutdown signal
 
-    Note over OldHAProxy: Graceful shutdown:<br/>- Stop accepting new connections<br/>- Finish existing connections
+    NginxWorker1->>Client1: Continue serving existing connection
+    NginxWorker2->>Client2: Accept new connections (new cert)
 
-    OldHAProxy->>Client1: Continue serving existing connection<br/>(uses old certificate)
+    Client1->>NginxWorker1: Request completed
+    NginxWorker1->>NginxWorker1: All connections finished, exit
 
-    NewHAProxy->>Client2: Accept new connections<br/>(uses new certificate)
+    Note over NginxMaster: New workers handling<br/>all connections with new cert
 
-    Client1->>OldHAProxy: Request completed
-    OldHAProxy->>Client1: Response sent
-    OldHAProxy->>OldHAProxy: All connections finished
-
-    OldHAProxy->>OldHAProxy: Exit (PID 1234 terminated)
-
-    Note over NewHAProxy: New HAProxy now handling<br/>all connections with new cert
-
-    Renew->>Renew: ✓ Reload complete<br/>(0 connections dropped)
+    DeployHook->>DeployHook: ✓ Reload complete<br/>(0 connections dropped)
 ```
 
 ---
@@ -279,29 +262,28 @@ graph TB
     style Success fill:#fff9e1
 ```
 
-**Crontab Entry:**
+**Crontab Entry (inside familytraffic container, managed by supervisord):**
 ```bash
-# /etc/cron.d/certbot-renewal
-0 3 * * * root certbot renew --quiet --deploy-hook /opt/familytraffic/scripts/renew-hook.sh
+# certbot-cron runs twice daily inside the familytraffic container
+# Configured via supervisord in /etc/supervisor/conf.d/certbot.conf
+
+# Equivalent manual command:
+certbot renew --quiet --webroot -w /var/www/html \
+  --deploy-hook "docker exec familytraffic nginx -s reload"
 ```
 
-**renew-hook.sh Script:**
+**familytraffic-cert-renew deploy hook:**
 ```bash
 #!/bin/bash
-# /opt/familytraffic/scripts/renew-hook.sh
+# /usr/local/bin/familytraffic-cert-renew
+# Called by certbot --deploy-hook after successful renewal
 
-DOMAIN="example.com"
-CERT_PATH="/etc/letsencrypt/live/$DOMAIN"
-COMBINED_CERT="$CERT_PATH/combined.pem"
-
-# Combine fullchain and privkey
-cat "$CERT_PATH/fullchain.pem" "$CERT_PATH/privkey.pem" > "$COMBINED_CERT"
-
-# Reload HAProxy
-docker exec familytraffic-haproxy haproxy -sf $(docker exec familytraffic-haproxy cat /var/run/haproxy.pid)
+# Reload nginx to pick up new certificates
+docker exec familytraffic nginx -s reload
 
 # Log success
-echo "[$(date)] Certificate renewed and HAProxy reloaded" >> /var/log/vless/cert-renewal.log
+echo "[$(date)] Certificate renewed and nginx reloaded for: $RENEWED_DOMAINS" \
+  >> /opt/familytraffic/logs/certbot-renew.log
 ```
 
 ---
@@ -384,14 +366,14 @@ grep "Certificate not yet due for renewal" /var/log/letsencrypt/letsencrypt.log 
 - **HTTP-01 Challenge:** ~5-10 seconds
 - **Certificate Issuance:** ~10-20 seconds
 - **Deploy Hook Execution:** ~2-3 seconds
-- **HAProxy Graceful Reload:** < 1 second (no dropped connections)
+- **nginx Graceful Reload:** < 1 second (no dropped connections)
 - **Total Duration:** ~20-40 seconds
 
-**HAProxy Reload Impact:**
-- **Downtime:** 0 seconds (graceful reload)
-- **Dropped Connections:** 0 (existing connections finish on old process)
-- **Memory Usage:** Brief spike (+50MB for ~1-2 seconds during overlap)
-- **CPU Usage:** Brief spike (+20% for ~1-2 seconds)
+**nginx Reload Impact:**
+- **Downtime:** 0 seconds (graceful reload with `nginx -s reload`)
+- **Dropped Connections:** 0 (workers drain gracefully)
+- **Memory Usage:** Brief spike for ~1-2 seconds during worker overlap
+- **CPU Usage:** Negligible
 
 ---
 
@@ -413,29 +395,35 @@ grep "Certificate not yet due for renewal" /var/log/letsencrypt/letsencrypt.log 
   sudo certbot renew --force-renewal
   ```
 
-**Issue 2: HAProxy reload fails after renewal**
-- **Cause:** Invalid combined.pem or HAProxy configuration error
+**Issue 2: nginx reload fails after renewal**
+- **Cause:** Invalid certificate files or nginx configuration error
 - **Debug:**
   ```bash
-  # Check combined.pem format
-  openssl x509 -in /etc/letsencrypt/live/example.com/combined.pem -noout -text
+  # Check certificate files
+  openssl x509 -in /etc/letsencrypt/live/example.com/fullchain.pem -noout -text
 
-  # Test HAProxy config
-  docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+  # Test nginx config
+  docker exec familytraffic nginx -t
+
+  # Manual reload
+  docker exec familytraffic nginx -s reload
   ```
 
 **Issue 3: Certificate not renewed despite < 30 days**
-- **Cause:** Cron job not running or certbot timer disabled
+- **Cause:** certbot-cron not running inside familytraffic container
 - **Fix:**
   ```bash
-  # Check cron job exists
-  cat /etc/cron.d/certbot-renewal
+  # Check supervisord status inside container
+  docker exec familytraffic supervisorctl status
 
-  # Check certbot timer (if using systemd)
-  systemctl status certbot.timer
+  # Check certbot-cron is running
+  docker exec familytraffic supervisorctl status certbot-cron
+
+  # Restart certbot-cron
+  docker exec familytraffic supervisorctl restart certbot-cron
 
   # Manual renewal
-  sudo certbot renew --force-renewal
+  docker exec familytraffic certbot renew --force-renewal
   ```
 
 ---
@@ -450,5 +438,5 @@ grep "Certificate not yet due for renewal" /var/log/letsencrypt/letsencrypt.log 
 ---
 
 **Created:** 2026-01-07
-**Version:** v5.26
-**Status:** ✅ CURRENT (Automated renewal fully implemented)
+**Version:** v5.33
+**Status:** UPDATED — certbot-cron inside familytraffic, nginx deploy hook (no separate certbot container)

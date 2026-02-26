@@ -99,8 +99,8 @@
 
 ```
 Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → Internet
-         5 контейнеров: familytraffic-haproxy, familytraffic, familytraffic-nginx,
-                        familytraffic-certbot, familytraffic-fake-site
+         5 контейнеров: familytraffic, familytraffic, familytraffic-nginx,
+                        familytraffic, familytraffic
 ```
 
 **Проблема:** нет поддержки MTProto протокола
@@ -233,11 +233,11 @@ Client → HAProxy (443/1080/8118) → Xray → (External Proxy optional) → In
                  │                     │
        ┌─────────▼─────────────────┐   │
        │   EXISTING CONTAINERS     │   │
-       │  - familytraffic-haproxy          │   │
+       │  - familytraffic          │   │
        │  - familytraffic             │   │
        │  - familytraffic-nginx_reverse    │   │
-       │  - familytraffic-certbot    │   │
-       │  - familytraffic-fake-site        │   │
+       │  - familytraffic    │   │
+       │  - familytraffic        │   │
        └───────────────────────────┘   │
                                         │
                               ┌─────────▼──────────────────────────┐

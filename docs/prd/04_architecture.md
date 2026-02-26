@@ -4,6 +4,14 @@
 
 ---
 
+> ⚠️ **УСТАРЕВШИЙ ДОКУМЕНТ (Legacy, pre-v5.33)**
+> Этот файл описывает архитектуру **v3.3–v4.7** с многоконтейнерным стеком (HAProxy + отдельные Nginx-контейнеры).
+> **Актуальная архитектура v5.33:** единый контейнер `familytraffic` (nginx + xray + certbot + supervisord).
+> Текущий трафик: `Client → nginx (ssl_preread, порт 443) → Xray (127.0.0.1:8443)`.
+> HAProxy и `familytraffic-nginx` как отдельные контейнеры **удалены** в v5.33.
+
+---
+
 ## 4. Technical Architecture
 
 ### 4.1 Network Architecture (v3.3 with TLS)
@@ -260,7 +268,7 @@ version: '3.8'
 services:
   stunnel:
     image: dweomer/stunnel:latest
-    container_name: familytraffic-stunnel
+    container_name: familytraffic
     restart: unless-stopped
     ports:
       - "1080:1080"   # SOCKS5 with TLS
@@ -296,7 +304,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: familytraffic-fake-site
+    container_name: familytraffic
     restart: unless-stopped
     networks:
       - familytraffic_net
@@ -581,10 +589,10 @@ services:
 
 ---
 
-### 4.7 HAProxy Unified Architecture (v4.3)
+### 4.7 HAProxy Unified Architecture (v4.3) ⚠️ LEGACY
 
 **Version:** 4.3.0
-**Status:** Current Implementation
+**Status:** ~~Current Implementation~~ **REMOVED in v5.33** — заменён единым контейнером `familytraffic` с nginx внутри
 **Purpose:** Single HAProxy container for ALL TLS termination and routing
 
 #### 4.7.1 Architectural Shift from v4.2
@@ -617,11 +625,11 @@ Client → HAProxy (TLS Term 1080) ───→ backend xray_socks5_plaintext (X
 Client → HAProxy (TLS Term 8118) ───→ backend xray_http_plaintext (Xray:18118) → Internet
 
 Containers:
-  - familytraffic-haproxy (HAProxy 2.8-alpine) - TLS termination + SNI routing
+  - familytraffic (HAProxy 2.8-alpine) - TLS termination + SNI routing
   - familytraffic (Xray 24.11.30) - VPN core + SOCKS5/HTTP proxy
   - familytraffic-nginx (Nginx Alpine) - Reverse proxy backends
-  - familytraffic-certbot (profile: certbot) - ACME HTTP-01 challenges
-  - familytraffic-fake-site (Nginx) - VLESS Reality fallback
+  - familytraffic (profile: certbot) - ACME HTTP-01 challenges
+  - familytraffic (Nginx) - VLESS Reality fallback
 ```
 
 **Key Changes:**
@@ -766,7 +774,7 @@ list_haproxy_routes() {
 # Graceful reload (zero downtime)
 reload_haproxy() {
     local old_pid=$(cat /var/run/haproxy.pid)
-    docker exec familytraffic-haproxy haproxy -f /etc/haproxy/haproxy.cfg -sf $old_pid
+    docker exec familytraffic haproxy -f /etc/haproxy/haproxy.cfg -sf $old_pid
 }
 ```
 
@@ -874,7 +882,7 @@ reload_haproxy() {
 **fail2ban:**
 - ✅ Protects all 3 HAProxy frontends (443, 1080, 8118)
 - ✅ Filter: `/etc/fail2ban/filter.d/haproxy-sni.conf`
-- ✅ Jail: `/etc/fail2ban/jail.d/familytraffic-haproxy.conf`
+- ✅ Jail: `/etc/fail2ban/jail.d/familytraffic.conf`
 
 #### 4.7.8 Comparison: v4.2 vs v4.3
 
@@ -903,7 +911,7 @@ reload_haproxy() {
 
 **Total Containers:** 5 (familytraffic_net bridge network)
 
-**1. familytraffic-haproxy (HAProxy 2.8-alpine)**
+**1. familytraffic (HAProxy 2.8-alpine)**
 - **Purpose:** Unified TLS termination and SNI-based routing
 - **Ports:**
   - 443 (SNI Router): VLESS Reality + Reverse Proxy subdomains
@@ -925,7 +933,7 @@ reload_haproxy() {
   - 18118: HTTP proxy (plaintext, HAProxy terminates TLS)
 - **Key Features:**
   - Reality protocol (TLS 1.3 masquerading)
-  - Fallback to familytraffic-fake-site for invalid connections
+  - Fallback to familytraffic for invalid connections
   - Security: runs as user nobody, cap_drop: ALL
 - **Lifecycle:** Always running
 
@@ -943,7 +951,7 @@ reload_haproxy() {
 - **Tmpfs mounts:** `/var/cache/nginx`, `/var/run` (uid=101, gid=101)
 - **Lifecycle:** Always running
 
-**4. familytraffic-certbot (Nginx Alpine)**
+**4. familytraffic (Nginx Alpine)**
 - **Purpose:** Temporary web server for ACME HTTP-01 challenges
 - **Port:** 80 (network_mode: host)
 - **Docker Compose Profile:** `certbot` (NOT started by default)
@@ -961,7 +969,7 @@ reload_haproxy() {
   - Network mode: host (direct access to port 80 without HAProxy)
 - **Lifecycle:** On-demand only (during cert acquisition/renewal)
 
-**5. familytraffic-fake-site (Nginx Alpine)**
+**5. familytraffic (Nginx Alpine)**
 - **Purpose:** VLESS Reality fallback - shows legitimate website for invalid VPN connections
 - **Access:** Only via Xray fallback (internal, NOT public)
 - **Key Features:**
@@ -975,11 +983,11 @@ reload_haproxy() {
 
 | Container | Exposed on Host | Docker Network Only | Access Method |
 |-----------|-----------------|---------------------|---------------|
-| familytraffic-haproxy | 443, 1080, 8118, 9000 | - | Direct (public) |
+| familytraffic | 443, 1080, 8118, 9000 | - | Direct (public) |
 | familytraffic | - | 8443, 10800, 18118 | Via HAProxy |
 | familytraffic-nginx | 127.0.0.1:9443-9452 | - | Via HAProxy SNI |
-| familytraffic-certbot | 80 (on-demand) | - | Direct (temp) |
-| familytraffic-fake-site | - | Internal | Via Xray fallback |
+| familytraffic | 80 (on-demand) | - | Direct (temp) |
+| familytraffic | - | Internal | Via Xray fallback |
 
 **IMPORTANT:** Xray ports (8443, 10800, 18118) use `expose:` NOT `ports:` in docker-compose.yml, preventing direct host access. All traffic MUST go through HAProxy for TLS termination and routing.
 
@@ -1079,7 +1087,7 @@ Client → HAProxy (TLS) → Xray (VPN Core) → External SOCKS5s/HTTPS Proxy �
                      │ (HAProxy routes to Xray)
                      ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                  HAProxy Container (familytraffic-haproxy)                   │
+│                  HAProxy Container (familytraffic)                   │
 │                                                                      │
 │  Port 443:  VLESS Reality (SNI passthrough) → Xray:8443            │
 │  Port 1080: SOCKS5 TLS termination → Xray:10800 (plaintext)        │

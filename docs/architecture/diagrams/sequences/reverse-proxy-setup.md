@@ -1,8 +1,10 @@
 # Reverse Proxy Domain Setup Sequence Diagram
 
+> **Note:** Reverse proxy feature was removed in v5.33. Content below describes pre-v5.33 architecture and is preserved as historical reference only.
+
 **Purpose:** Visualize the complete workflow for adding subdomain-based reverse proxy
 
-**Feature:** Subdomain-based HTTPS reverse proxy without port numbers (v4.3+)
+**Feature:** Subdomain-based HTTPS reverse proxy without port numbers (v4.3, removed in v5.33)
 
 **Operations Covered:**
 - Interactive domain setup wizard
@@ -110,12 +112,12 @@ sequenceDiagram
 
     Note over Wizard,Nginx: Phase 5: Nginx Configuration Test & Reload
 
-    Wizard->>Nginx: docker exec familytraffic-nginx nginx -t
+    Wizard->>Nginx: docker exec familytraffic nginx -t
 
     alt Nginx config valid
         Nginx-->>Wizard: ✓ Syntax OK
 
-        Wizard->>Nginx: docker exec familytraffic-nginx nginx -s reload
+        Wizard->>Nginx: docker exec familytraffic nginx -s reload
         Nginx->>Nginx: Graceful reload<br/>(load new server block)
         Nginx-->>Wizard: ✓ Reloaded
     else Nginx config invalid
@@ -144,12 +146,12 @@ sequenceDiagram
 
     Note over Wizard,HAProxy: Phase 7: HAProxy Configuration Test & Reload
 
-    Wizard->>HAProxy: docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+    Wizard->>HAProxy: docker exec familytraffic haproxy -c -f /etc/haproxy/haproxy.cfg
 
     alt HAProxy config valid
         HAProxy-->>Wizard: ✓ Configuration valid
 
-        Wizard->>HAProxy: docker exec familytraffic-haproxy<br/>haproxy -sf $(cat /var/run/haproxy.pid)
+        Wizard->>HAProxy: docker exec familytraffic<br/>haproxy -sf $(cat /var/run/haproxy.pid)
         HAProxy->>HAProxy: Graceful reload<br/>(start new process, stop old)
         HAProxy-->>Wizard: ✓ Reloaded
     else HAProxy config invalid
@@ -203,10 +205,10 @@ sequenceDiagram
     CLI->>HTTPContext: Remove rate limit zone:<br/>Remove line: limit_req_zone ... zone=reverseproxy_app_example_com
     HTTPContext-->>CLI: ✓ Zone removed
 
-    CLI->>Nginx: docker exec familytraffic-nginx nginx -t
+    CLI->>Nginx: docker exec familytraffic nginx -t
     Nginx-->>CLI: ✓ Config valid
 
-    CLI->>Nginx: docker exec familytraffic-nginx nginx -s reload
+    CLI->>Nginx: docker exec familytraffic nginx -s reload
     Nginx->>Nginx: Graceful reload
     Nginx-->>CLI: ✓ Reloaded
 
@@ -216,7 +218,7 @@ sequenceDiagram
 
     HAProxyConfig-->>CLI: ✓ ACL and backend removed
 
-    CLI->>HAProxy: docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+    CLI->>HAProxy: docker exec familytraffic haproxy -c -f /etc/haproxy/haproxy.cfg
     HAProxy-->>CLI: ✓ Config valid
 
     CLI->>HAProxy: Graceful reload
@@ -452,13 +454,13 @@ stateDiagram-v2
 - **Debug:**
   ```bash
   # Check Nginx logs
-  docker logs familytraffic-nginx --tail 50 | grep "app.example.com"
+  docker logs familytraffic --tail 50 | grep "app.example.com"
 
   # Test backend connectivity from Nginx container
-  docker exec familytraffic-nginx curl -k https://backend.internal:8443
+  docker exec familytraffic curl -k https://backend.internal:8443
 
   # Check Nginx upstream status
-  docker exec familytraffic-nginx nginx -T | grep "proxy_pass"
+  docker exec familytraffic nginx -T | grep "proxy_pass"
   ```
 
 **Issue 2: Certificate errors (NET::ERR_CERT_COMMON_NAME_INVALID)**
@@ -483,7 +485,7 @@ stateDiagram-v2
   curl http://127.0.0.1:9000/stats | grep nginx_app
 
   # Test HAProxy config
-  docker exec familytraffic-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+  docker exec familytraffic haproxy -c -f /etc/haproxy/haproxy.cfg
   ```
 
 ---

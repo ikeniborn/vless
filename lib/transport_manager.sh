@@ -214,7 +214,7 @@ list_transports() {
 
     if [[ "$count" == "0" ]]; then
         echo "  No transports configured."
-        echo "  Use: sudo vless add-transport ws ws.subdomain.example.com"
+        echo "  Use: sudo familytraffic add-transport ws ws.subdomain.example.com"
     else
         printf "  %-8s %-35s %-6s %-8s\n" "TYPE" "SUBDOMAIN" "PORT" "STATUS"
         echo "  ────────────────────────────────────────────────────────"

@@ -1,7 +1,7 @@
 # familyTraffic VPN - Architecture Documentation
 
-**Version:** v5.26
-**Last Updated:** 2026-01-07
+**Version:** v5.33
+**Last Updated:** 2026-02-26
 **Status:** ✅ COMPREHENSIVE (Core documentation complete)
 
 ---
@@ -28,7 +28,7 @@ This directory contains **comprehensive, machine-readable architecture documenta
 ### 🔍 For Developers: Understanding the System
 
 **Start Here:**
-1. [yaml/docker.yaml](yaml/docker.yaml) - Container architecture (6 containers, networks, volumes)
+1. [yaml/docker.yaml](yaml/docker.yaml) - Container architecture (single `familytraffic` container + optional MTProxy)
 2. [yaml/data-flows.yaml](yaml/data-flows.yaml) - How data moves through the system
 3. [yaml/lib-modules.yaml](yaml/lib-modules.yaml) - Code structure (44 modules, ~26,500 lines)
 
@@ -145,32 +145,30 @@ Schemas for automated validation of YAML files:
 ## Key Concepts Documented
 
 ### Docker Architecture (yaml/docker.yaml)
-- **6 Containers:**
-  - `familytraffic-haproxy` - Unified TLS termination & SNI router
-  - `familytraffic` - VLESS Reality + SOCKS5/HTTP handler
-  - `familytraffic-nginx` - Subdomain reverse proxy
-  - `familytraffic-certbot` - Certificate validation (on-demand)
-  - `familytraffic-fake-site` - Camouflage layer (anti-detection)
-  - `familytraffic-mtproxy` - Telegram MTProxy (v6.0+ planned)
-- **Network:** familytraffic_net (bridge, 172.20.0.0/16)
+- **Single-Container Architecture (v5.33):**
+  - `familytraffic` - Main container: nginx + xray + certbot-cron + supervisord (all-in-one, `network_mode: host`)
+  - `familytraffic-mtproxy` - Telegram MTProxy (optional, separate container)
+- **Removed in v5.33:** `familytraffic-haproxy`, `familytraffic-nginx` (separate), `familytraffic-certbot` (separate), `familytraffic-fake-site`
+- **Network:** `network_mode: host` (main container shares host network stack)
 - **Port Allocation:**
-  - `443` - HTTPS/TLS (VLESS + Reverse Proxy)
-  - `1080` - SOCKS5 over TLS
-  - `8118` - HTTP proxy over TLS
-  - `8443` - MTProxy (public, NO conflict with Xray 127.0.0.1:8443)
-  - `9443-9452` - Nginx reverse proxy backends (10 slots)
+  - `443` - nginx ssl_preread SNI routing (VLESS + Tier 2)
+  - `1080` - nginx TLS termination (SOCKS5)
+  - `8118` - nginx TLS termination (HTTP proxy)
+  - `8448` - Tier 2 transports (WS/XHTTP/gRPC, loopback only)
+  - `80` - nginx webroot for certbot HTTP-01 renewal
+  - `8443` - MTProxy (optional, familytraffic-mtproxy container)
 
 ### Configuration Architecture (yaml/config.yaml)
 - **users.json** - Single source of truth for user data
 - **xray_config.json** - Generated from users.json + external_proxy.json
-- **haproxy.cfg** - Dynamic ACLs for reverse proxy domains
+- **nginx.conf** - nginx stream+http config (SNI routing, TLS termination)
 - **Atomic Operations** - File locking (flock) for concurrency control
-- **Graceful Reloads** - Zero downtime config updates
+- **Graceful Reloads** - Zero downtime config updates (`nginx -s reload`, Xray HUP)
 
 ### Data Flows (yaml/data-flows.yaml)
-- **VLESS Reality:** TLS 1.3 masquerading (DPI-resistant)
-- **SOCKS5/HTTP:** TLS termination at HAProxy
-- **Reverse Proxy:** SNI-based routing (NO port numbers!)
+- **VLESS Reality:** TLS 1.3 masquerading (DPI-resistant), port 443 via nginx ssl_preread
+- **SOCKS5/HTTP:** TLS termination at nginx (inside `familytraffic` container)
+- **Tier 2 Transports:** WS/XHTTP/gRPC via nginx http block (port 8448)
 - **External Proxy:** Per-user upstream routing (v5.24+)
 
 ### CLI Interface (yaml/cli.yaml)
@@ -183,7 +181,7 @@ Schemas for automated validation of YAML files:
 - **44 Modules** - ~26,500 lines of shell code
 - **orchestrator.sh** - Installation coordinator (1,881 lines)
 - **user_management.sh** - User CRUD + proxy assignment (3,000 lines)
-- **haproxy_config_manager.sh** - HAProxy config generation (809 lines)
+- **nginx_config_generator.sh** - nginx stream+http config generation
 - **Modular Design** - Clear separation of concerns
 
 ### Dependencies (yaml/dependencies.yaml)
@@ -454,7 +452,7 @@ If you find inaccuracies or missing information:
 
 **Maintained By:** familyTraffic VPN Project Team
 **Documentation Status:** ✅ COMPREHENSIVE (Core complete, diagrams in progress)
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-02-26
 
 ---
 

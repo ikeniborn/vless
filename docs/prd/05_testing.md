@@ -243,7 +243,7 @@ nmap -sV -p 443,1080,8118 server
 **Test Case 10: Config Validation - HAProxy TLS**
 ```bash
 # Verify HAProxy TLS configuration
-docker exec familytraffic-haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend socks5-tls"
+docker exec familytraffic cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend socks5-tls"
 
 # Expected:
 # frontend socks5-tls
@@ -251,7 +251,7 @@ docker exec familytraffic-haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep 
 #     mode tcp
 #     default_backend xray_socks5
 
-docker exec familytraffic-haproxy cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend http-tls"
+docker exec familytraffic cat /usr/local/etc/haproxy/haproxy.cfg | grep -A 5 "frontend http-tls"
 
 # Expected:
 # frontend http-tls
@@ -584,13 +584,13 @@ cat /opt/familytraffic/logs/nginx/reverse-proxy-error.log | tail -5
 **Test Case 32: Nginx Health Check**
 ```bash
 # Check container health status
-docker ps --format "{{.Names}}: {{.Status}}" | grep familytraffic-nginx
+docker ps --format "{{.Names}}: {{.Status}}" | grep familytraffic
 
 # Expected:
-# familytraffic-nginx: Up X minutes (healthy)
+# familytraffic: Up X minutes (healthy)
 
 # Manually trigger health check
-docker exec familytraffic-nginx nginx -t
+docker exec familytraffic nginx -t
 
 # Expected:
 # nginx: configuration file /etc/nginx/nginx.conf test is successful
@@ -599,13 +599,13 @@ docker exec familytraffic-nginx nginx -t
 **Test Case 33: Container Auto-Recovery**
 ```bash
 # Simulate nginx crash
-docker exec familytraffic-nginx killall nginx
+docker exec familytraffic killall nginx
 
 # Wait 10 seconds
 sleep 10
 
 # Check status
-docker ps | grep familytraffic-nginx
+docker ps | grep familytraffic
 
 # Expected:
 # - Container auto-restarted (Docker restart policy)
@@ -873,7 +873,7 @@ curl http://localhost:9000/stats
 sudo familytraffic-proxy add
 
 # Monitor active connections during reload
-watch -n 1 'docker exec familytraffic-haproxy netstat -an | grep ESTABLISHED | wc -l'
+watch -n 1 'docker exec familytraffic netstat -an | grep ESTABLISHED | wc -l'
 
 # Expected:
 # - Established connections maintained during reload
@@ -904,7 +904,7 @@ for i in {1..5}; do
 done
 
 # Check fail2ban HAProxy jail
-sudo fail2ban-client status familytraffic-haproxy
+sudo fail2ban-client status familytraffic
 
 # Expected:
 # - IP banned after 5 failures

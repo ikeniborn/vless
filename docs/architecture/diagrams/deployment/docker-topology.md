@@ -2,40 +2,48 @@
 
 **Purpose:** Visualize the complete Docker container architecture, network layout, and volume mounts
 
-**Components:** 6 Docker containers, 1 bridge network, multiple volumes
+**Components:** 1 main Docker container (single-container architecture, v5.33), optional MTProxy container
 
-**Version:** v5.26 (includes MTProxy v6.0+ planned container)
+**Version:** v5.33 (single-container architecture)
+
+> **Note:** In v5.33, the multi-container architecture (HAProxy + Xray + Nginx + Certbot + Fake Site) was replaced by a single `familytraffic` container running nginx + xray + certbot-cron + supervisord. The container uses `network_mode: host` to share the host network stack directly.
 
 ---
 
 ## Complete Docker Topology
 
-### Full System Architecture
+### Full System Architecture (v5.33)
 
 ```mermaid
 graph TB
     subgraph "Host Server (Ubuntu/Debian)"
-        subgraph "Docker Network: familytraffic_net (172.20.0.0/16)"
-            HAProxy[familytraffic-haproxy<br/>HAProxy 2.8-alpine<br/>IP: 172.20.0.2]
-            Xray[familytraffic<br/>Xray 24.11.30<br/>IP: 172.20.0.3]
-            NginxRP[familytraffic-nginx<br/>Nginx Alpine<br/>IP: 172.20.0.4]
-            Certbot[familytraffic-certbot<br/>Nginx Alpine<br/>IP: 172.20.0.5<br/>On-demand only]
-            FakeSite[familytraffic-fake-site<br/>Nginx Alpine<br/>IP: 172.20.0.6]
-            MTProxy[familytraffic-mtproxy<br/>MTProxy Alpine<br/>IP: 172.20.0.7<br/>v6.0+ planned]
+        subgraph "familytraffic container (network_mode: host)"
+            Supervisord[supervisord<br/>Process Manager]
+            Nginx[nginx<br/>Port 80/443/1080/8118/8448]
+            Xray[xray<br/>127.0.0.1:8443/10800/18118]
+            CertbotCron[certbot-cron<br/>Runs twice daily]
+
+            Supervisord --> Nginx
+            Supervisord --> Xray
+            Supervisord --> CertbotCron
         end
 
-        subgraph "Host Filesystem"
-            OptVless[/opt/familytraffic/]
+        MTProxy[familytraffic-mtproxy<br/>MTProxy Alpine<br/>Port 8443 public<br/>optional]
+
+        subgraph "Host Filesystem (volumes)"
+            NginxConf[/opt/familytraffic/config/nginx/nginx.conf]
+            XrayConf[/opt/familytraffic/config/xray_config.json]
+            UsersJSON[/opt/familytraffic/data/users.json]
             LetsEncrypt[/etc/letsencrypt/]
+            Webroot[/var/www/html/]
         end
 
         subgraph "Host Ports (Public)"
-            Port443[Port 443<br/>HTTPS/TLS]
-            Port1080[Port 1080<br/>SOCKS5 TLS]
-            Port8118[Port 8118<br/>HTTP Proxy TLS]
-            Port80[Port 80<br/>HTTP<br/>On-demand]
-            Port9000[Port 9000<br/>HAProxy Stats<br/>Localhost only]
-            Port8443MT[Port 8443<br/>MTProxy<br/>v6.0+]
+            Port443[Port 443<br/>nginx ssl_preread SNI]
+            Port1080[Port 1080<br/>nginx TLS termination SOCKS5]
+            Port8118[Port 8118<br/>nginx TLS termination HTTP]
+            Port80[Port 80<br/>nginx webroot certbot]
+            Port8443MT[Port 8443<br/>MTProxy optional]
         end
 
         Internet[Internet]
@@ -47,250 +55,79 @@ graph TB
     Internet -.-> Port80
     Internet --> Port8443MT
 
-    Port443 --> HAProxy
-    Port1080 --> HAProxy
-    Port8118 --> HAProxy
-    Port80 -.-> Certbot
-    Port9000 --> HAProxy
+    Port443 --> Nginx
+    Port1080 --> Nginx
+    Port8118 --> Nginx
+    Port80 --> Nginx
     Port8443MT --> MTProxy
 
-    HAProxy -->|TLS Passthrough<br/>Port 8443| Xray
-    HAProxy -->|TLS Passthrough<br/>Ports 9443-9452| NginxRP
-    HAProxy -.->|HTTP Fallback<br/>Port 80| FakeSite
+    Nginx -->|ssl_preread passthrough<br/>127.0.0.1:8443| Xray
+    Nginx -->|ssl_preread Tier 2<br/>127.0.0.1:8448| Xray
+    Nginx -->|TLS termination<br/>plaintext SOCKS5| Xray
+    Nginx -->|TLS termination<br/>plaintext HTTP| Xray
 
-    Xray -.->|Fallback<br/>Invalid UUID| FakeSite
-
-    OptVless --> HAProxy
-    OptVless --> Xray
-    OptVless --> NginxRP
-    OptVless --> MTProxy
-    LetsEncrypt --> HAProxy
-    LetsEncrypt --> NginxRP
+    NginxConf --> Nginx
+    XrayConf --> Xray
+    LetsEncrypt --> Nginx
+    Webroot --> Nginx
+    UsersJSON --> Xray
 
     style Internet fill:#e1f5ff,stroke:#0066cc,stroke-width:3px
-    style HAProxy fill:#fff4e1,stroke:#ff9900,stroke-width:3px
+    style Nginx fill:#fff4e1,stroke:#ff9900,stroke-width:3px
     style Xray fill:#e1ffe1,stroke:#00cc00,stroke-width:3px
-    style NginxRP fill:#e1e1f5,stroke:#0000cc,stroke-width:2px
-    style Certbot fill:#ffe1f5,stroke:#cc0099,stroke-width:2px
-    style FakeSite fill:#f5e1e1,stroke:#cc0000,stroke-width:2px
+    style CertbotCron fill:#ffe1f5,stroke:#cc0099,stroke-width:2px
     style MTProxy fill:#fff9e1,stroke:#cc9900,stroke-width:2px
-    style OptVless fill:#e1f5ff
-    style LetsEncrypt fill:#ffe1f5
+    style Supervisord fill:#e1e1f5,stroke:#0000cc,stroke-width:2px
 ```
 
 ---
 
 ## Detailed Container Specifications
 
-### Container 1: familytraffic-haproxy (Unified TLS Termination & SNI Router)
+### Container 1: familytraffic (Single Main Container)
 
 ```mermaid
 graph TB
-    HAProxyContainer[familytraffic-haproxy Container]
+    FamilyTrafficContainer[familytraffic Container]
 
-    subgraph "HAProxy Container Details"
-        Image[Image: haproxy:2.8-alpine]
-        NetworkMode[Network: familytraffic_net]
-        IP[IP: 172.20.0.2]
+    subgraph "Container Details"
+        Image[Image: custom build<br/>nginx + xray + certbot + supervisord]
+        NetworkMode[Network: network_mode: host<br/>Shares host network stack]
 
-        PublicPorts[Public Ports:<br/>443 → 443<br/>1080 → 1080<br/>8118 → 8118]
-        LocalhostPort[Localhost Port:<br/>9000 → 9000<br/>HAProxy Stats]
+        InternalProcesses[Internal Processes managed by supervisord:<br/>- nginx (stream block: port 443 SNI, port 80 webroot)<br/>- nginx (http block: port 1080/8118 TLS termination, port 8448 Tier 2)<br/>- xray (127.0.0.1:8443 VLESS, 127.0.0.1:10800 SOCKS5, 127.0.0.1:18118 HTTP)<br/>- certbot-cron (renewal twice daily)]
 
-        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/haproxy.cfg → /etc/haproxy/haproxy.cfg<br/>/etc/letsencrypt/ → /etc/letsencrypt/<br/>/opt/familytraffic/logs/haproxy/ → /var/log/haproxy/]
+        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/nginx/nginx.conf → /etc/nginx/nginx.conf<br/>/opt/familytraffic/config/xray_config.json → /etc/xray/config.json<br/>/opt/familytraffic/data/users.json → /opt/familytraffic/data/users.json<br/>/etc/letsencrypt/ → /etc/letsencrypt/ (ro)<br/>/var/www/html/ → /var/www/html/]
 
-        HealthCheck[Health Check:<br/>haproxy -c -f /etc/haproxy/haproxy.cfg]
+        HealthCheck[Health Check:<br/>supervisorctl status all]
 
         Restart[Restart: unless-stopped]
     end
 
-    HAProxyContainer --> Image
-    HAProxyContainer --> NetworkMode
-    HAProxyContainer --> IP
-    HAProxyContainer --> PublicPorts
-    HAProxyContainer --> LocalhostPort
-    HAProxyContainer --> Volumes
-    HAProxyContainer --> HealthCheck
-    HAProxyContainer --> Restart
+    FamilyTrafficContainer --> Image
+    FamilyTrafficContainer --> NetworkMode
+    FamilyTrafficContainer --> InternalProcesses
+    FamilyTrafficContainer --> Volumes
+    FamilyTrafficContainer --> HealthCheck
+    FamilyTrafficContainer --> Restart
 
-    style HAProxyContainer fill:#fff4e1,stroke:#ff9900,stroke-width:3px
+    style FamilyTrafficContainer fill:#e1ffe1,stroke:#00cc00,stroke-width:3px
 ```
 
 **Key Responsibilities:**
-- Unified TLS termination for ports 1080 (SOCKS5) and 8118 (HTTP)
-- SNI-based routing for port 443 (VLESS and reverse proxy)
-- TLS passthrough to Xray (no decryption for VLESS)
-- TLS passthrough to Nginx reverse proxy backends
-- HAProxy stats dashboard on localhost:9000
+- nginx stream block: SNI routing on port 443 (ssl_preread) → 127.0.0.1:8443 (Xray VLESS) or 127.0.0.1:8448 (Tier 2)
+- nginx http block: TLS termination on port 1080 → 127.0.0.1:10800 (SOCKS5 plaintext)
+- nginx http block: TLS termination on port 8118 → 127.0.0.1:18118 (HTTP plaintext)
+- nginx http block: port 8448 for Tier 2 (WS/XHTTP/gRPC) TLS termination → Xray
+- nginx: serves /var/www/html on port 80 for certbot webroot HTTP-01 challenge
+- xray: VLESS Reality handler (127.0.0.1:8443)
+- xray: SOCKS5 handler (127.0.0.1:10800, plaintext)
+- xray: HTTP proxy handler (127.0.0.1:18118, plaintext)
+- xray: per-user routing to external proxies (v5.24+)
+- certbot-cron: automatic certificate renewal with `--deploy-hook nginx -s reload`
 
 ---
 
-### Container 2: familytraffic (VLESS Reality + SOCKS5 + HTTP Handler)
-
-```mermaid
-graph TB
-    XrayContainer[familytraffic Container]
-
-    subgraph "Xray Container Details"
-        Image[Image: teddysun/xray:24.11.30]
-        NetworkMode[Network: familytraffic_net]
-        IP[IP: 172.20.0.3]
-
-        ExposedPorts[Exposed Ports<br/>Docker network only:<br/>8443 - VLESS Reality<br/>10800 - SOCKS5 plaintext<br/>18118 - HTTP plaintext]
-
-        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/xray_config.json → /etc/xray/config.json<br/>/opt/familytraffic/logs/xray/ → /var/log/xray/]
-
-        Environment[Environment:<br/>XRAY_VMESS_AEAD_FORCED=false]
-
-        HealthCheck[Health Check:<br/>xray -test -config /etc/xray/config.json]
-
-        Restart[Restart: unless-stopped]
-
-        DependsOn[Depends On:<br/>familytraffic-haproxy]
-    end
-
-    XrayContainer --> Image
-    XrayContainer --> NetworkMode
-    XrayContainer --> IP
-    XrayContainer --> ExposedPorts
-    XrayContainer --> Volumes
-    XrayContainer --> Environment
-    XrayContainer --> HealthCheck
-    XrayContainer --> Restart
-    XrayContainer --> DependsOn
-
-    style XrayContainer fill:#e1ffe1,stroke:#00cc00,stroke-width:3px
-```
-
-**Key Responsibilities:**
-- VLESS Reality protocol handler (port 8443, TLS passthrough from HAProxy)
-- SOCKS5 handler (port 10800, plaintext from HAProxy TLS termination)
-- HTTP proxy handler (port 18118, plaintext from HAProxy TLS termination)
-- Per-user routing to external proxies (v5.24+)
-- Fallback to fake site for invalid UUIDs
-
-**Important:** Xray binds to `127.0.0.1:8443` (Docker network only), NOT public `0.0.0.0:8443`
-
----
-
-### Container 3: familytraffic-nginx (Subdomain Reverse Proxy)
-
-```mermaid
-graph TB
-    NginxRPContainer[familytraffic-nginx Container]
-
-    subgraph "Nginx Reverse Proxy Container Details"
-        Image[Image: nginx:alpine]
-        NetworkMode[Network: familytraffic_net]
-        IP[IP: 172.20.0.4]
-
-        ExposedPorts[Exposed Ports<br/>Localhost only:<br/>9443-9452 - Reverse proxy backends<br/>10 slots total]
-
-        Volumes[Volume Mounts:<br/>/opt/familytraffic/config/reverse-proxy/ → /etc/nginx/conf.d/<br/>/etc/letsencrypt/ → /etc/letsencrypt/<br/>/opt/familytraffic/logs/nginx-rp/ → /var/log/nginx/]
-
-        HealthCheck[Health Check:<br/>nginx -t]
-
-        Restart[Restart: unless-stopped]
-
-        DependsOn[Depends On:<br/>familytraffic-haproxy]
-    end
-
-    NginxRPContainer --> Image
-    NginxRPContainer --> NetworkMode
-    NginxRPContainer --> IP
-    NginxRPContainer --> ExposedPorts
-    NginxRPContainer --> Volumes
-    NginxRPContainer --> HealthCheck
-    NginxRPContainer --> Restart
-    NginxRPContainer --> DependsOn
-
-    style NginxRPContainer fill:#e1e1f5,stroke:#0000cc,stroke-width:2px
-```
-
-**Key Responsibilities:**
-- Host subdomain-based reverse proxy server blocks
-- TLS termination for reverse proxy domains
-- Proxy requests to upstream application backends
-- Support OAuth2, WebSocket, custom headers, rate limiting
-
----
-
-### Container 4: familytraffic-certbot (Certificate Validation - On-Demand)
-
-```mermaid
-graph TB
-    CertbotContainer[familytraffic-certbot Container]
-
-    subgraph "Certbot Nginx Container Details"
-        Image[Image: nginx:alpine]
-        NetworkMode[Network: familytraffic_net]
-        IP[IP: 172.20.0.5]
-
-        PublicPort[Public Port:<br/>80 → 80<br/>On-demand only]
-
-        Volumes[Volume Mounts:<br/>/opt/familytraffic/certbot-webroot/ → /var/www/html/<br/>/etc/letsencrypt/ → /etc/letsencrypt/]
-
-        Purpose[Purpose:<br/>HTTP-01 challenge validation<br/>Serves /.well-known/acme-challenge/]
-
-        Lifecycle[Lifecycle:<br/>Stopped by default<br/>Started during cert renewal<br/>Stopped after validation]
-    end
-
-    CertbotContainer --> Image
-    CertbotContainer --> NetworkMode
-    CertbotContainer --> IP
-    CertbotContainer --> PublicPort
-    CertbotContainer --> Volumes
-    CertbotContainer --> Purpose
-    CertbotContainer --> Lifecycle
-
-    style CertbotContainer fill:#ffe1f5,stroke:#cc0099,stroke-width:2px
-```
-
-**Key Responsibilities:**
-- Serve HTTP-01 challenge files for Let's Encrypt validation
-- Only runs during certificate renewal (on-demand)
-- Automatically started/stopped by certbot
-
----
-
-### Container 5: familytraffic-fake-site (Camouflage/Anti-Detection)
-
-```mermaid
-graph TB
-    FakeSiteContainer[familytraffic-fake-site Container]
-
-    subgraph "Fake Site Container Details"
-        Image[Image: nginx:alpine]
-        NetworkMode[Network: familytraffic_net]
-        IP[IP: 172.20.0.6]
-
-        ExposedPort[Exposed Port<br/>Internal only:<br/>80]
-
-        Volumes[Volume Mounts:<br/>/opt/familytraffic/fake-site/ → /usr/share/nginx/html/]
-
-        Purpose[Purpose:<br/>Fallback for invalid traffic<br/>SNI mismatch → serve generic site<br/>Invalid UUID → serve generic site]
-
-        Restart[Restart: unless-stopped]
-    end
-
-    FakeSiteContainer --> Image
-    FakeSiteContainer --> NetworkMode
-    FakeSiteContainer --> IP
-    FakeSiteContainer --> ExposedPort
-    FakeSiteContainer --> Volumes
-    FakeSiteContainer --> Purpose
-    FakeSiteContainer --> Restart
-
-    style FakeSiteContainer fill:#f5e1e1,stroke:#cc0000,stroke-width:2px
-```
-
-**Key Responsibilities:**
-- Serve generic website for unknown SNI (anti-probing)
-- Serve generic website for invalid VLESS UUID (anti-probing)
-- Make VPN server appear as normal website to scanners
-
----
-
-### Container 6: familytraffic-mtproxy (Telegram MTProxy - v6.0+ Planned)
+### Container 2: familytraffic-mtproxy (Telegram MTProxy - Optional)
 
 ```mermaid
 graph TB
@@ -298,12 +135,10 @@ graph TB
 
     subgraph "MTProxy Container Details"
         Image[Image: Custom Build<br/>docker/mtproxy/Dockerfile]
-        NetworkMode[Network: familytraffic_net]
-        IP[IP: 172.20.0.7]
+        NetworkMode[Network: bridge<br/>Separate from familytraffic]
+        IP[Binds: 0.0.0.0:8443 public]
 
-        PublicPort[Public Port:<br/>8443 → 8443<br/>Binds to 0.0.0.0:8443]
-
-        PortNote[Port Binding Note:<br/>MTProxy: 0.0.0.0:8443 public<br/>Xray: 127.0.0.1:8443 Docker network<br/>NO conflict different interfaces]
+        PublicPort[Public Port:<br/>8443 → 8443<br/>Telegram MTProxy]
 
         Volumes[Volume Mounts:<br/>/opt/familytraffic/config/mtproxy/ → /etc/mtproxy/<br/>/opt/familytraffic/logs/mtproxy/ → /var/log/mtproxy/]
 
@@ -313,14 +148,13 @@ graph TB
 
         Restart[Restart: unless-stopped]
 
-        Status[Status:<br/>v6.0: Planned<br/>v6.1: Multi-user future]
+        Status[Status: Optional — installed separately<br/>v6.0: base, v6.1: multi-user]
     end
 
     MTProxyContainer --> Image
     MTProxyContainer --> NetworkMode
     MTProxyContainer --> IP
     MTProxyContainer --> PublicPort
-    MTProxyContainer --> PortNote
     MTProxyContainer --> Volumes
     MTProxyContainer --> Environment
     MTProxyContainer --> HealthCheck
@@ -331,65 +165,127 @@ graph TB
 ```
 
 **Key Responsibilities:**
-- Telegram MTProto proxy (v6.0+)
-- Direct public port 8443 (separate from Xray)
+- Telegram MTProto proxy (optional service)
+- Direct public port 8443 (separate Docker container, does not conflict with xray's 127.0.0.1:8443)
 - Single-user mode (v6.0), multi-user mode (v6.1 future)
 - Fake-TLS support for additional stealth
 
-**Important:** MTProxy and Xray both use port 8443 but with different binding interfaces:
-- Xray: `127.0.0.1:8443` (Docker network only, accessed via HAProxy)
-- MTProxy: `0.0.0.0:8443` (public, direct access)
+---
+
+## Removed Containers (v5.33)
+
+The following containers existed in pre-v5.33 architecture and are **no longer used**:
+
+| Container | Was Responsible For | Now Handled By |
+|-----------|--------------------|-|
+| `familytraffic-haproxy` | SNI routing (port 443), TLS termination (1080/8118) | nginx inside `familytraffic` |
+| `familytraffic-nginx` (separate) | Subdomain reverse proxy | Removed (reverse proxy feature removed in v5.33) |
+| `familytraffic-certbot` (separate) | Certificate HTTP-01 challenge (port 80) | certbot-cron inside `familytraffic` + nginx webroot |
+| `familytraffic-fake-site` | Fallback site for invalid SNI/UUID | Removed in v5.33 |
 
 ---
 
-## Docker Network Configuration
+## Traffic Flow (v5.33)
 
-### familytraffic_net Bridge Network
+### Port 443: SNI-Based Routing (nginx ssl_preread)
 
 ```mermaid
-graph LR
-    subgraph "familytraffic_net (172.20.0.0/16)"
-        Gateway[Gateway<br/>172.20.0.1]
-        HAProxy[familytraffic-haproxy<br/>172.20.0.2]
-        Xray[familytraffic<br/>172.20.0.3]
-        NginxRP[familytraffic-nginx<br/>172.20.0.4]
-        Certbot[familytraffic-certbot<br/>172.20.0.5]
-        FakeSite[familytraffic-fake-site<br/>172.20.0.6]
-        MTProxy[familytraffic-mtproxy<br/>172.20.0.7]
-    end
+graph TB
+    Client[Client<br/>TLS 1.3 ClientHello]
+    Nginx443[nginx Port 443<br/>stream block / ssl_preread]
 
-    Gateway --> HAProxy
-    Gateway --> Xray
-    Gateway --> NginxRP
-    Gateway --> Certbot
-    Gateway --> FakeSite
-    Gateway --> MTProxy
+    Decision{SNI Value}
 
-    style Gateway fill:#e1f5ff
+    VLESS[SNI: vless.example.com]
+    Tier2[SNI: ws.example.com<br/>or xhttp./grpc.]
+    Unknown[SNI: anything else]
+
+    RouteXray[ssl_preread passthrough<br/>→ 127.0.0.1:8443 Xray VLESS]
+    RouteTier2[→ 127.0.0.1:8448 nginx http block<br/>Tier 2 TLS termination]
+    RouteDrop[Connection closed<br/>or 444 response]
+
+    Client --> Nginx443
+    Nginx443 --> Decision
+
+    Decision --> VLESS
+    Decision --> Tier2
+    Decision --> Unknown
+
+    VLESS --> RouteXray
+    Tier2 --> RouteTier2
+    Unknown --> RouteDrop
+
+    style Client fill:#e1f5ff
+    style Nginx443 fill:#fff4e1,stroke:#ff9900,stroke-width:3px
+    style Decision fill:#fff9e1,stroke:#cc9900,stroke-width:2px
+    style RouteXray fill:#e1ffe1,stroke:#00cc00,stroke-width:2px
+    style RouteTier2 fill:#e1e1f5,stroke:#0000cc,stroke-width:2px
 ```
 
-**Network Configuration:**
-```yaml
-networks:
-  familytraffic_net:
-    driver: bridge
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.20.0.0/16
-          gateway: 172.20.0.1
+**nginx stream configuration (port 443):**
+```nginx
+stream {
+    map $ssl_preread_server_name $backend {
+        vless.example.com     127.0.0.1:8443;
+        ws.example.com        127.0.0.1:8448;
+        default               "";
+    }
+
+    server {
+        listen 443;
+        ssl_preread on;
+        proxy_pass $backend;
+    }
+}
 ```
 
-**IP Allocation:**
-| Container | IP Address | Purpose |
-|-----------|------------|---------|
-| Gateway | 172.20.0.1 | Docker bridge gateway |
-| familytraffic-haproxy | 172.20.0.2 | HAProxy SNI router |
-| familytraffic | 172.20.0.3 | Xray VLESS/SOCKS5/HTTP |
-| familytraffic-nginx | 172.20.0.4 | Nginx reverse proxy |
-| familytraffic-certbot | 172.20.0.5 | Certbot validation |
-| familytraffic-fake-site | 172.20.0.6 | Fake site fallback |
-| familytraffic-mtproxy | 172.20.0.7 | MTProxy (v6.0+) |
+---
+
+### Port 1080/8118: TLS Termination (nginx http block)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Nginx1080 as nginx:1080
+    participant Xray10800 as xray:10800
+
+    Client->>Nginx1080: TLS 1.3 Handshake<br/>socks5s://user:pass@server:1080
+    Nginx1080->>Client: TLS ServerHello<br/>(Let's Encrypt cert)
+    Client->>Nginx1080: Encrypted SOCKS5 request
+    Nginx1080->>Nginx1080: Decrypt TLS 1.3
+    Nginx1080->>Xray10800: Forward plaintext SOCKS5<br/>to 127.0.0.1:10800
+    Xray10800->>Xray10800: Authenticate & route
+    Xray10800->>Nginx1080: SOCKS5 response
+    Nginx1080->>Nginx1080: Encrypt with TLS 1.3
+    Nginx1080->>Client: Encrypted response
+```
+
+**nginx http block configuration (port 1080/8118):**
+```nginx
+http {
+    server {
+        listen 1080 ssl;
+        ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+        ssl_protocols TLSv1.3;
+
+        location / {
+            proxy_pass http://127.0.0.1:10800;
+        }
+    }
+
+    server {
+        listen 8118 ssl;
+        ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+        ssl_protocols TLSv1.3;
+
+        location / {
+            proxy_pass http://127.0.0.1:18118;
+        }
+    }
+}
+```
 
 ---
 
@@ -407,8 +303,6 @@ graph TB
         Logs[logs/]
         Scripts[scripts/]
         Lib[lib/]
-        CertbotWebroot[certbot-webroot/]
-        FakeSiteHTML[fake-site/]
     end
 
     subgraph "/etc/letsencrypt/"
@@ -417,16 +311,19 @@ graph TB
         Renewal[renewal/]
     end
 
+    subgraph "/var/www/html/"
+        Webroot[certbot webroot<br/>ACME challenge files]
+    end
+
     HostFS --> Config
     HostFS --> Data
     HostFS --> Logs
     HostFS --> Scripts
     HostFS --> Lib
-    HostFS --> CertbotWebroot
-    HostFS --> FakeSiteHTML
     HostFS --> Live
     HostFS --> Archive
     HostFS --> Renewal
+    HostFS --> Webroot
 
     style HostFS fill:#e1f5ff
     style Config fill:#ffe1f5
@@ -434,59 +331,17 @@ graph TB
     style Logs fill:#fff9e1
 ```
 
-**Detailed Volume Mappings:**
+**Detailed Volume Mappings (familytraffic container):**
 
-| Host Path | Container Mount | Container(s) | Purpose |
-|-----------|-----------------|--------------|---------|
-| `/opt/familytraffic/config/haproxy.cfg` | `/etc/haproxy/haproxy.cfg` | HAProxy | HAProxy configuration |
-| `/opt/familytraffic/config/xray_config.json` | `/etc/xray/config.json` | Xray | Xray configuration |
-| `/opt/familytraffic/config/reverse-proxy/` | `/etc/nginx/conf.d/` | Nginx RP | Nginx reverse proxy configs |
-| `/opt/familytraffic/config/mtproxy/` | `/etc/mtproxy/` | MTProxy | MTProxy configuration (v6.0+) |
-| `/opt/familytraffic/data/` | (not mounted) | None | User database, client configs |
-| `/opt/familytraffic/logs/haproxy/` | `/var/log/haproxy/` | HAProxy | HAProxy logs |
-| `/opt/familytraffic/logs/xray/` | `/var/log/xray/` | Xray | Xray logs |
-| `/opt/familytraffic/logs/nginx-rp/` | `/var/log/nginx/` | Nginx RP | Nginx reverse proxy logs |
-| `/opt/familytraffic/logs/mtproxy/` | `/var/log/mtproxy/` | MTProxy | MTProxy logs (v6.0+) |
-| `/opt/familytraffic/certbot-webroot/` | `/var/www/html/` | Certbot | ACME challenge files |
-| `/opt/familytraffic/fake-site/` | `/usr/share/nginx/html/` | Fake Site | Generic website HTML |
-| `/etc/letsencrypt/` | `/etc/letsencrypt/` | HAProxy, Nginx RP | TLS certificates |
-
----
-
-## Container Dependencies
-
-### Startup Order and Dependencies
-
-```mermaid
-graph TB
-    Start[Docker Compose Start]
-
-    HAProxyStart[Start familytraffic-haproxy]
-    XrayStart[Start familytraffic]
-    NginxRPStart[Start familytraffic-nginx]
-    CertbotStart[Start familytraffic-certbot<br/>On-demand only]
-    FakeSiteStart[Start familytraffic-fake-site]
-    MTProxyStart[Start familytraffic-mtproxy<br/>v6.0+]
-
-    Start --> HAProxyStart
-    Start --> FakeSiteStart
-    Start --> MTProxyStart
-
-    HAProxyStart --> XrayStart
-    HAProxyStart --> NginxRPStart
-    HAProxyStart -.-> CertbotStart
-
-    style Start fill:#e1f5ff
-    style HAProxyStart fill:#fff4e1,stroke:#ff9900,stroke-width:3px
-    style XrayStart fill:#e1ffe1,stroke:#00cc00,stroke-width:2px
-    style NginxRPStart fill:#e1e1f5,stroke:#0000cc,stroke-width:2px
-    style MTProxyStart fill:#fff9e1,stroke:#cc9900,stroke-width:2px
-```
-
-**Dependency Chain:**
-1. **Independent:** HAProxy, Fake Site, MTProxy (can start in parallel)
-2. **Depends on HAProxy:** Xray, Nginx Reverse Proxy
-3. **On-Demand:** Certbot (only during certificate renewal)
+| Host Path | Container Mount | Purpose |
+|-----------|-----------------|---------|
+| `/opt/familytraffic/config/nginx/nginx.conf` | `/etc/nginx/nginx.conf` | nginx configuration |
+| `/opt/familytraffic/config/xray_config.json` | `/etc/xray/config.json` | Xray configuration |
+| `/opt/familytraffic/data/users.json` | `/opt/familytraffic/data/users.json` | User database |
+| `/etc/letsencrypt/` | `/etc/letsencrypt/` (ro) | TLS certificates |
+| `/var/www/html/` | `/var/www/html/` | certbot webroot |
+| `/opt/familytraffic/logs/xray/` | `/var/log/xray/` | Xray logs |
+| `/opt/familytraffic/logs/nginx/` | `/var/log/nginx/` | nginx logs |
 
 ---
 
@@ -494,24 +349,10 @@ graph TB
 
 | Container | Health Check Command | Interval | Timeout | Retries |
 |-----------|---------------------|----------|---------|---------|
-| familytraffic-haproxy | `haproxy -c -f /etc/haproxy/haproxy.cfg` | 30s | 10s | 3 |
-| familytraffic | `xray -test -config /etc/xray/config.json` | 30s | 10s | 3 |
-| familytraffic-nginx | `nginx -t` | 30s | 10s | 3 |
-| familytraffic-fake-site | `curl -f http://localhost` | 30s | 5s | 3 |
+| familytraffic | `docker exec familytraffic supervisorctl status all` | 30s | 10s | 3 |
+| familytraffic | nginx: `docker exec familytraffic nginx -t` | 30s | 10s | 3 |
+| familytraffic | xray: `docker exec familytraffic xray -test -config /etc/xray/config.json` | 30s | 10s | 3 |
 | familytraffic-mtproxy | `curl http://localhost:8443/stats` | 30s | 10s | 3 |
-
----
-
-## Resource Limits (Recommended)
-
-| Container | CPU Limit | Memory Limit | Notes |
-|-----------|-----------|--------------|-------|
-| familytraffic-haproxy | 1.0 | 512MB | High traffic handling |
-| familytraffic | 2.0 | 1GB | Encryption/decryption intensive |
-| familytraffic-nginx | 1.0 | 512MB | Moderate traffic |
-| familytraffic-certbot | 0.5 | 256MB | On-demand only |
-| familytraffic-fake-site | 0.5 | 256MB | Low traffic |
-| familytraffic-mtproxy | 1.0 | 512MB | MTProto protocol handling (v6.0+) |
 
 ---
 
@@ -525,5 +366,6 @@ graph TB
 ---
 
 **Created:** 2026-01-07
-**Version:** v5.26
-**Status:** ✅ CURRENT (includes MTProxy v6.0+ container)
+**Updated:** 2026-02-26
+**Version:** v5.33
+**Status:** UPDATED — reflects single-container architecture

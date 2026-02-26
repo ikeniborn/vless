@@ -26,11 +26,11 @@
 
 ## СТАТУС ВЕРИФИКАЦИИ (SSH ikenibornvpn, 2026-02-23)
 
-**Live Server:** `ikenibornvpn` | Docker: `familytraffic-haproxy`, `familytraffic-fake-site`, `familytraffic (healthy)`, `watchtower`, `shadowbox`
+**Live Server:** `ikenibornvpn` | Docker: `familytraffic`, `familytraffic`, `familytraffic (healthy)`, `watchtower`, `shadowbox`
 
 | Проверка | Результат |
 |----------|-----------|
-| Контейнеры запущены | ✓ `familytraffic-haproxy`, `familytraffic` (healthy), `familytraffic-fake-site` — 3 недели uptime |
+| Контейнеры запущены | ✓ `familytraffic`, `familytraffic` (healthy), `familytraffic` — 3 недели uptime |
 | `familytraffic-nginx` | ✗ **НЕ ЗАПУЩЕН** — reverse proxy отключён при установке |
 | xray inbounds count | 3 (reality:8443, socks5:10800, http:18118) |
 | Users in xray_config | 7 клиентов |
@@ -61,7 +61,7 @@
 
 | Phase | Версия | Изменения | Файлы | Примечание |
 |-------|--------|-----------|-------|------------|
-| **Phase 0** | v5.30 | **Миграция HAProxy → единый Nginx.** `familytraffic-nginx` (stream+http) заменяет `familytraffic-haproxy` + `familytraffic-nginx_tier2`. Cert renewal hook упрощается. | 4 файла | Предпосылка для Phase 2 |
+| **Phase 0** | v5.30 | **Миграция HAProxy → единый Nginx.** `familytraffic-nginx` (stream+http) заменяет `familytraffic` + `familytraffic-nginx_tier2`. Cert renewal hook упрощается. | 4 файла | Предпосылка для Phase 2 |
 | **Phase 1** | v5.25 | ~~XTLS Vision~~ уже реализован. Остаток: исправить `validate_vless_uri()` (flow conditional), добавить `test_xtls_vision_enabled()` (TC-01), safety-net `migrate_xtls_vision()` | 2 файла | 95% выполнено на сервере |
 | **Phase 2** | v5.30-v5.33 | WS/XHTTP/gRPC inbounds в Xray + extend `familytraffic-nginx` (Phase 0) Tier 2 http-блоком + CLI управление. **`familytraffic-nginx_tier2` НЕ нужен** — всё в одном контейнере | 5 новых/изменённых файлов | Строится на Phase 0 |
 
@@ -129,7 +129,7 @@ local required_params=("encryption" "flow" "security" "sni" "fp" "pbk" "sid" "ty
 Client (VLESS Reality)
     │ TCP:443 (с flow=xtls-rprx-vision в новых версиях)
     ▼
-HAProxy familytraffic-haproxy (SNI passthrough, mode tcp)
+HAProxy familytraffic (SNI passthrough, mode tcp)
     │ default_backend → xray_vless (Reality не имеет server SNI)
     ▼
 Xray familytraffic:8443 (VLESS + Reality)
@@ -140,13 +140,13 @@ Internet
 
 ### Целевая архитектура (Phase 0 + Tier 2) — Вариант A: единый Nginx
 
-> **Изменение vs. исходного плана:** Phase 0 вводит `familytraffic-nginx` (nginx stream+http), который полностью заменяет `familytraffic-haproxy`. Phase 2 расширяет его Tier 2 http-блоком. `familytraffic-nginx_tier2` как отдельный контейнер НЕ нужен.
+> **Изменение vs. исходного плана:** Phase 0 вводит `familytraffic-nginx` (nginx stream+http), который полностью заменяет `familytraffic`. Phase 2 расширяет его Tier 2 http-блоком. `familytraffic-nginx_tier2` как отдельный контейнер НЕ нужен.
 
 ```
 Client → TCP:443 / TCP:1080 / TCP:8118
     │
     ▼
-familytraffic-nginx [Phase 0 — заменяет familytraffic-haproxy]
+familytraffic-nginx [Phase 0 — заменяет familytraffic]
     │
     ├─ stream: listen 443 (ssl_preread, NO TLS termination)
     │    ├─ SNI: ws.domain, xhttp.domain, grpc.domain → loopback 127.0.0.1:8448
@@ -167,11 +167,11 @@ familytraffic (внутренние порты — только plaintext, бе�
     ├─ Port 8445: VLESS XHTTP/SplitHTTP plaintext (Phase 2, new)
     └─ Port 8446: VLESS gRPC plaintext (Phase 2, new)
 
-familytraffic-fake-site — ОСТАЁТСЯ отдельным (fallback для Reality, нельзя объединять)
+familytraffic — ОСТАЁТСЯ отдельным (fallback для Reality, нельзя объединять)
 ```
 
 **Ключевые отличия от исходного плана:**
-- `familytraffic-haproxy` **удалён**, `familytraffic-nginx` его полностью заменяет
+- `familytraffic` **удалён**, `familytraffic-nginx` его полностью заменяет
 - `familytraffic-nginx_tier2` **не создаётся** — Tier 2 http-блок живёт в том же `familytraffic-nginx`
 - Loopback 127.0.0.1:8448 внутри контейнера маршрутизирует Tier 2 из stream в http
 - `combined.pem` (HAProxy-формат) **не нужен** — Nginx использует fullchain.pem + privkey.pem отдельно
@@ -433,7 +433,7 @@ EOF
 # УДАЛИТЬ (haproxy сервис):
   haproxy:
     image: haproxy:2.8-alpine
-    container_name: familytraffic-haproxy
+    container_name: familytraffic
     ...
     volumes:
       - ${VLESS_DIR}/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
@@ -510,10 +510,10 @@ generate_nginx_config "$CERT_DOMAIN" > "${VLESS_DIR}/config/nginx/nginx.conf"
 cat /etc/letsencrypt/live/${DOMAIN}/fullchain.pem \
     /etc/letsencrypt/live/${DOMAIN}/privkey.pem \
     > /etc/letsencrypt/live/${DOMAIN}/combined.pem
-docker exec familytraffic-haproxy haproxy -sf $(...)  # graceful reload
+docker exec familytraffic haproxy -sf $(...)  # graceful reload
 
 # ЗАМЕНИТЬ на:
-docker exec familytraffic-nginx nginx -s reload       # nginx graceful reload (0-downtime)
+docker exec familytraffic nginx -s reload       # nginx graceful reload (0-downtime)
 ```
 
 > Nginx поддерживает zero-downtime reload через `nginx -s reload` — рабочие процессы заменяются graceful образом.
@@ -524,7 +524,7 @@ docker exec familytraffic-nginx nginx -s reload       # nginx graceful reload (0
 
 ```bash
 # 1. Синтаксис nginx конфига
-docker exec familytraffic-nginx nginx -t
+docker exec familytraffic nginx -t
 
 # 2. Reality по-прежнему работает (SNI passthrough)
 # Подключиться клиентом через порт 443 — VLESS Reality должен работать
@@ -537,7 +537,7 @@ curl -x https://proxy:PASSWORD@SERVER:8118 https://ipinfo.io
 
 # 5. fake-site fallback
 curl -v --resolve "proxy.ikeniborn.ru:443:SERVER_IP" https://proxy.ikeniborn.ru
-# Должен вернуть yandex.ru контент (из familytraffic-fake-site через Xray fallback)
+# Должен вернуть yandex.ru контент (из familytraffic через Xray fallback)
 
 # 6. iOS-00: подключить v2rayTun с прежним URI — нулевой impact
 ```
@@ -551,7 +551,7 @@ feat(infra): replace HAProxy with unified Nginx (stream+http) — v5.30
 - Add lib/nginx_stream_generator.sh: generate nginx.conf with stream block
   (port 443 ssl_preread SNI routing, ports 1080/8118 TLS termination)
   and http block placeholder for Tier 2 transports (port 8448)
-- Update docker_compose_generator.sh: familytraffic-nginx replaces familytraffic-haproxy
+- Update docker_compose_generator.sh: familytraffic-nginx replaces familytraffic
 - Update orchestrator.sh: generate_nginx_config() replaces generate_haproxy_config()
 - Update certbot-renewal-hook: nginx -s reload, remove combined.pem generation
 - Eliminates need for separate familytraffic-nginx_tier2 container (Phase 2 reuses http block)
@@ -948,7 +948,7 @@ generate_nginx_config \
     "" \                    # $5=grpc_subdomain (пока пусто)
     > "${VLESS_DIR}/config/nginx/nginx.conf"
 
-docker exec familytraffic-nginx nginx -s reload   # zero-downtime reload
+docker exec familytraffic nginx -s reload   # zero-downtime reload
 ```
 
 **Что происходит внутри generate_nginx_config() при добавлении ws_subdomain:**
@@ -962,7 +962,7 @@ docker exec familytraffic-nginx nginx -s reload   # zero-downtime reload
 
 > **Отменён Phase 0:** Функция `generate_tier2_nginx_config()` в `lib/nginx_config_generator.sh` не создаётся — она была спроектирована для `familytraffic-nginx_tier2` контейнера с HAProxy. После Phase 0 все Tier 2 server-блоки (WS/XHTTP/gRPC) генерируются внутри `generate_nginx_config()` в `lib/nginx_stream_generator.sh` (http-блок, порт 8448).
 >
-> **Что происходит вместо этого:** Step 2.5 вызывает `generate_nginx_config "$CERT_DOMAIN" "true" "$ws_sub" "$xhttp_sub" "$grpc_sub"` → перезаписывает `/opt/familytraffic/config/nginx/nginx.conf` → `docker exec familytraffic-nginx nginx -s reload`.
+> **Что происходит вместо этого:** Step 2.5 вызывает `generate_nginx_config "$CERT_DOMAIN" "true" "$ws_sub" "$xhttp_sub" "$grpc_sub"` → перезаписывает `/opt/familytraffic/config/nginx/nginx.conf` → `docker exec familytraffic nginx -s reload`.
 
 ### Step 2.7: Расширить expose портов familytraffic в generate_docker_compose()
 
@@ -996,7 +996,7 @@ fi)
 
 > **Отменён Phase 0:** После миграции на единый `familytraffic-nginx` отдельный контейнер `familytraffic-nginx_tier2` не создаётся. Tier 2 http-блок (порт 8448) является частью основного `familytraffic-nginx`. Step 2.8 удалён из плана.
 >
-> **Что происходит вместо этого:** `add_transport()` (Step 3.1) вызывает `generate_nginx_config()` с новыми субдоменами → перезаписывает `/opt/familytraffic/config/nginx/nginx.conf` → `docker exec familytraffic-nginx nginx -s reload`.
+> **Что происходит вместо этого:** `add_transport()` (Step 3.1) вызывает `generate_nginx_config()` с новыми субдоменами → перезаписывает `/opt/familytraffic/config/nginx/nginx.conf` → `docker exec familytraffic nginx -s reload`.
 
 ---
 
@@ -1012,7 +1012,7 @@ bash -n lib/nginx_stream_generator.sh
 bash -n lib/docker_compose_generator.sh
 # После регенерации конфигов:
 jq empty /opt/familytraffic/config/xray_config.json
-docker exec familytraffic-nginx nginx -t        # проверить nginx.conf с новыми server-блоками
+docker exec familytraffic nginx -t        # проверить nginx.conf с новыми server-блоками
 ```
 
 ---
@@ -1109,7 +1109,7 @@ add_transport() {
 
     log_info "Reloading containers..."
     docker restart familytraffic
-    docker exec familytraffic-nginx nginx -s reload
+    docker exec familytraffic nginx -s reload
 
     log_success "Transport '$transport_type' is now active on $subdomain"
     return 0
@@ -1319,7 +1319,7 @@ chmod 600 /etc/letsencrypt/live/${VLESS_DOMAIN}/combined.pem
 docker compose -f /opt/familytraffic/docker-compose.yml up -d haproxy
 
 # Проверка:
-docker ps | grep -E "familytraffic-haproxy|familytraffic-nginx"
+docker ps | grep -E "familytraffic|familytraffic-nginx"
 curl -sk https://localhost:443 -o /dev/null -w "%{http_code}"  # должен быть 400 (fake-site)
 ```
 
@@ -1359,13 +1359,13 @@ docker restart familytraffic
 ### Phase 0 (v5.30) — Миграция HAProxy → Nginx — Definition of Done
 
 - [ ] `lib/nginx_stream_generator.sh` создан с `generate_nginx_config()` (stream + http блоки)
-- [ ] `docker_compose_generator.sh`: `familytraffic-haproxy` заменён на `familytraffic-nginx` (nginx:1.27-alpine)
+- [ ] `docker_compose_generator.sh`: `familytraffic` заменён на `familytraffic-nginx` (nginx:1.27-alpine)
 - [ ] `orchestrator.sh`: вызовы `generate_haproxy_config()` → `generate_nginx_config()`
 - [ ] `certbot-renewal-hook.sh`: `combined.pem` удалён, `nginx -s reload` вместо haproxy reload
 - [ ] Reality на порту 443 работает после миграции (регрессионный тест iOS-00)
 - [ ] SOCKS5 :1080 и HTTP proxy :8118 работают через Nginx stream TLS
-- [ ] `docker exec familytraffic-nginx nginx -t` без ошибок
-- [ ] `familytraffic-haproxy` контейнер удалён, `familytraffic-nginx` запущен и healthy
+- [ ] `docker exec familytraffic nginx -t` без ошибок
+- [ ] `familytraffic` контейнер удалён, `familytraffic-nginx` запущен и healthy
 
 ### Phase 1 (v5.25) — Завершение XTLS Vision — Definition of Done
 
@@ -1388,7 +1388,7 @@ docker restart familytraffic
 - [ ] `generate_transport_uri()` имеет параметр $6=username, без undefined $username в scope (P4 mitigation)
 - [ ] `lib/transport_manager.sh` создан с функциями add/list/remove
 - [ ] CLI команды `vless add-transport`, `vless list-transports`, `vless remove-transport` работают
-- [ ] `docker exec familytraffic-nginx nginx -s reload` выполняется без ошибок после добавления транспорта
+- [ ] `docker exec familytraffic nginx -s reload` выполняется без ошибок после добавления транспорта
 - [ ] Тесты TC-10 (WS), TC-20 (XHTTP), TC-30 (gRPC) пройдены
 - [ ] **iOS v2rayTun тесты** iOS-10 (WS) и iOS-30 (gRPC) пройдены
 - [ ] **iOS v2rayTun тест iOS-20 (XHTTP)** пройден или задокументировано ограничение (R11)

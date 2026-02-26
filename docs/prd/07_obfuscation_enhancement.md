@@ -78,7 +78,7 @@
     │
     │ TCP:443 → ClientHello (маскировка под HTTPS к dest-домену)
     ▼
-HAProxy (familytraffic-haproxy)
+HAProxy (familytraffic)
     │ SNI passthrough (NO TLS termination для Reality)
     │ ACL: req_ssl_sni -i vless.example.com → backend xray_vless
     ▼
@@ -102,7 +102,7 @@ Internet
     "settings": {
       "clients": [],
       "decryption": "none",
-      "fallbacks": [{ "dest": "familytraffic-fake-site:80" }]
+      "fallbacks": [{ "dest": "familytraffic:80" }]
     },
     "streamSettings": {
       "network": "tcp",
@@ -320,7 +320,7 @@ Internet
     │ UDP:443
     │ QUIC + TLS 1.3
     ▼
-familytraffic-hysteria2 (отдельный контейнер)
+familytraffic (отдельный контейнер)
     │ Декодирует Hysteria2
     ▼
 Internet
@@ -368,12 +368,12 @@ Internet
 
 **Архитектура (параллельный контейнер):**
 ```
-HAProxy (familytraffic-haproxy)
+HAProxy (familytraffic)
     ├─ SNI: vless.domain → Xray (Reality)
     ├─ SNI: singbox.domain → SingBox VLESS/Trojan/etc.
     └─ SNI: *.domain → Nginx (reverse proxy)
 
-familytraffic-singbox (новый контейнер)
+familytraffic (новый контейнер)
     ├─ VLESS over WebSocket (port 8444)
     ├─ Trojan (port 8445)
     └─ Hysteria2 (UDP:8443 — прямой exposure)
@@ -506,7 +506,7 @@ uri+="&flow=xtls-rprx-vision"
 **Текущее состояние:** Все контейнеры используют TCP. `docker-compose.yml` не содержит UDP port mapping. HAProxy работает только в `mode tcp` (TCP-level LB).
 
 **Что требуется для Hysteria2/TUIC:**
-1. Новый контейнер `familytraffic-hysteria2` (или `familytraffic-singbox`)
+1. Новый контейнер `familytraffic` (или `familytraffic`)
 2. UDP port mapping: `"443:443/udp"` или `"8443:8443/udp"`
 3. UFW правила: `ufw allow 8443/udp`
 4. Отдельный Docker network или прямой host binding
@@ -740,7 +740,7 @@ sudo familytraffic remove-transport ws
   scripts/vless-tuic              # CLI для TUIC
 
 Изменения docker-compose.yml:
-  familytraffic-hysteria2:
+  familytraffic:
     image: tobyxdd/hysteria:latest
     ports:
       - "8443:8443/udp"  # Прямой UDP, bypass HAProxy
@@ -774,10 +774,10 @@ sudo familytraffic install-hysteria2
   lib/singbox_manager.sh           # Управление SingBox контейнером
   scripts/vless-singbox            # CLI
 
-Контейнер familytraffic-singbox:
+Контейнер familytraffic:
   - VLESS+Reality (дублирует Xray, для A/B тестирования)
-  - Hysteria2 (заменяет отдельный familytraffic-hysteria2)
-  - TUIC v5 (заменяет отдельный familytraffic-tuic)
+  - Hysteria2 (заменяет отдельный familytraffic)
+  - TUIC v5 (заменяет отдельный familytraffic)
   - Trojan+WebSocket+TLS
 ```
 
@@ -810,7 +810,7 @@ sudo familytraffic install-hysteria2
         { "id": "...", "email": "torrih@vless.local",     "flow": "xtls-rprx-vision" }
       ],
       "decryption": "none",
-      "fallbacks": [{ "dest": "familytraffic-fake-site:80" }]
+      "fallbacks": [{ "dest": "familytraffic:80" }]
     },
     "streamSettings": {
       "network": "tcp",
