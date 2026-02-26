@@ -1,6 +1,11 @@
 # .github/workflows/build-and-push.yml
 # familyTraffic VPN — Test Pipeline
 #
+# NOTE: For production releases with semantic versioning use release.yml
+#   - release.yml triggers on git tags: v*.*.* (e.g. v0.1.0)
+#   - release.yml pushes :M.N.P :M.N :M :latest tags to GHCR
+#   - Convention: git tag v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0
+#
 # Triggers:
 #   - push to `test` branch (with relevant file changes)
 #   - Pull Request targeting the `test` branch (with relevant file changes)
@@ -9,7 +14,7 @@
 # Pipeline:
 #   1. build-and-push     — build image → push :test + :sha-<short> to GHCR
 #   2. deploy-test        — scp docker-compose.yml → ssh pull & up
-#   3. cleanup-registry   — keep 3 latest sha-* tags, never delete :test
+#   3. cleanup-registry   — keep 3 latest sha-* tags, protect :test and semver tags
 #   4. notify             — Telegram notification (always, even on failure)
 #
 # Path filters — what triggers CI/CD:
@@ -198,7 +203,7 @@ jobs:
           package-name: familytraffic
           package-type: container
           min-versions-to-keep: 3
-          ignore-versions: '^test$'
+          ignore-versions: '^(test|latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)$'
 
   # ============================================================
   # Job 4: Telegram notification (runs always, even on failure)
