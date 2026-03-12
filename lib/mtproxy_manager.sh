@@ -12,24 +12,20 @@
 #
 # Functions:
 #   1. mtproxy_init()                      - Initialize MTProxy directory structure
-#   2. mtproxy_start()                     - Start mtg via supervisorctl (or container fallback)
-#   3. mtproxy_stop()                      - Stop mtg via supervisorctl (or container fallback)
-#   4. mtproxy_restart()                   - Restart mtg
+#   2. mtproxy_start()                     - Start mtg via supervisorctl
+#   3. mtproxy_stop()                      - Stop mtg via supervisorctl
+#   4. mtproxy_restart()                   - Restart mtg via supervisorctl
 #   5. mtproxy_status()                    - Show MTProxy status
-#   6. mtproxy_get_stats()                 - Retrieve stats (container legacy)
-#   7. generate_mtproxy_config()           - Generate mtproxy_config.json (legacy, kept for compat)
-#   8. generate_mtproxy_secret_file()      - Generate proxy-secret file (legacy)
-#   9. generate_proxy_multi_conf()         - Generate proxy-multi.conf (legacy)
-#   10. validate_mtproxy_config()          - Validate JSON configuration (legacy)
-#   11. mtproxy_is_installed()             - Check if MTProxy is installed
-#   12. mtproxy_is_running()               - Check if mtg is running (supervisord or container)
-#   13. generate_mtg_toml()                - Generate /config/mtproxy/mtg.toml for mtg v2
-#   14. mtg_supervisord_start()            - Start mtg via docker exec supervisorctl
-#   15. mtg_supervisord_stop()             - Stop mtg via docker exec supervisorctl
-#   16. mtg_supervisord_restart()          - Restart mtg via docker exec supervisorctl
-#   17. mtg_supervisord_status()           - Show mtg supervisord status
-#   18. mtg_ufw_allow()                    - Open port 2053/tcp in UFW
-#   19. mtg_ufw_deny()                     - Close port 2053/tcp in UFW
+#   6. generate_mtproxy_secret_file()      - Generate proxy-secret file from secrets.json
+#   7. mtproxy_is_installed()              - Check if MTProxy is installed
+#   8. mtproxy_is_running()               - Check if mtg is running via supervisord
+#   9. generate_mtg_toml()                - Generate /config/mtproxy/mtg.toml for mtg v2
+#   10. mtg_supervisord_start()            - Start mtg via docker exec supervisorctl
+#   11. mtg_supervisord_stop()             - Stop mtg via docker exec supervisorctl
+#   12. mtg_supervisord_restart()          - Restart mtg via docker exec supervisorctl
+#   13. mtg_supervisord_status()           - Show mtg supervisord status
+#   14. mtg_ufw_allow()                    - Open port 2053/tcp in UFW
+#   15. mtg_ufw_deny()                     - Close port 2053/tcp in UFW
 #
 # Usage:
 #   source lib/mtproxy_manager.sh
@@ -61,23 +57,15 @@ set -euo pipefail
 [[ -z "${MTPROXY_LOGS_DIR:-}" ]] && readonly MTPROXY_LOGS_DIR="${VLESS_HOME}/logs/mtproxy"
 
 # MTProxy configuration files
-[[ -z "${MTPROXY_CONFIG_JSON:-}" ]] && readonly MTPROXY_CONFIG_JSON="${MTPROXY_CONFIG_DIR}/mtproxy_config.json"
 [[ -z "${MTPROXY_SECRETS_JSON:-}" ]] && readonly MTPROXY_SECRETS_JSON="${MTPROXY_CONFIG_DIR}/secrets.json"
 [[ -z "${MTPROXY_SECRET_FILE:-}" ]] && readonly MTPROXY_SECRET_FILE="${MTPROXY_CONFIG_DIR}/proxy-secret"
-[[ -z "${MTPROXY_MULTI_CONF:-}" ]] && readonly MTPROXY_MULTI_CONF="${MTPROXY_CONFIG_DIR}/proxy-multi.conf"
-
-# Container configuration (legacy standalone container — kept for fallback)
-[[ -z "${MTPROXY_CONTAINER:-}" ]] && readonly MTPROXY_CONTAINER="familytraffic_mtproxy"
-[[ -z "${MTPROXY_IMAGE:-}" ]] && readonly MTPROXY_IMAGE="vless/mtproxy:latest"
 
 # Main familytraffic container (supervisord-based mtg v2)
 [[ -z "${FAMILYTRAFFIC_CONTAINER:-}" ]] && readonly FAMILYTRAFFIC_CONTAINER="familytraffic"
 
 # Default ports
 # MTPROXY_PORT=2053 (public MTProxy port via mtg v2 Fake TLS)
-# Note: 8443 was the old default but CONFLICTS with xray on 127.0.0.1:8443
 [[ -z "${MTPROXY_PORT:-}" ]] && readonly MTPROXY_PORT="${MTPROXY_PORT:-2053}"
-[[ -z "${MTPROXY_STATS_PORT:-}" ]] && readonly MTPROXY_STATS_PORT="${MTPROXY_STATS_PORT:-8888}"
 
 # mtg v2 configuration
 [[ -z "${MTG_CONFIG_FILE:-}" ]] && readonly MTG_CONFIG_FILE="${MTPROXY_CONFIG_DIR}/mtg.toml"
@@ -127,9 +115,6 @@ mtproxy_log_error() {
 #   mtproxy_init 8443 2
 # ============================================================================
 mtproxy_init() {
-    local port="${1:-8443}"
-    local workers="${2:-2}"
-
     mtproxy_log_info "Initializing MTProxy directory structure..."
 
     # Create directories
@@ -153,28 +138,12 @@ mtproxy_init() {
     chmod 755 "${MTPROXY_DATA_DIR}"
     chmod 755 "${MTPROXY_LOGS_DIR}"
 
-    # Generate mtproxy_config.json
-    if ! generate_mtproxy_config "${port}" "${workers}"; then
-        mtproxy_log_error "Failed to generate MTProxy configuration"
-        return 1
-    fi
-
-    # Generate proxy-multi.conf (Telegram DC addresses)
-    if ! generate_proxy_multi_conf; then
-        mtproxy_log_error "Failed to generate proxy-multi.conf"
-        return 1
-    fi
-
-    # Initialize secrets.json (empty structure for v6.0)
+    # Initialize secrets.json (empty structure)
     if [[ ! -f "${MTPROXY_SECRETS_JSON}" ]]; then
         cat > "${MTPROXY_SECRETS_JSON}" <<'EOF'
 {
-  "secrets": [],
-  "metadata": {
-    "created": "",
-    "last_modified": "",
-    "version": "6.0"
-  }
+  "version": "1.0",
+  "secrets": []
 }
 EOF
         chmod 600 "${MTPROXY_SECRETS_JSON}"
@@ -184,94 +153,6 @@ EOF
     mtproxy_log_info "  Config: ${MTPROXY_CONFIG_DIR}"
     mtproxy_log_info "  Data:   ${MTPROXY_DATA_DIR}"
     mtproxy_log_info "  Logs:   ${MTPROXY_LOGS_DIR}"
-
-    return 0
-}
-
-# ============================================================================
-# FUNCTION: generate_mtproxy_config
-# ============================================================================
-# Description: Generate mtproxy_config.json via heredoc (v6.0)
-#
-# Parameters:
-#   $1 - port (default: 8443)
-#   $2 - workers (default: 2)
-#
-# Returns:
-#   0 on success, 1 on failure
-#
-# Example:
-#   generate_mtproxy_config 8443 2
-# ============================================================================
-generate_mtproxy_config() {
-    local port="${1:-8443}"
-    local workers="${2:-2}"
-    local created_at
-    created_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-    mtproxy_log_info "Generating MTProxy configuration..."
-
-    # Validate parameters
-    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
-        mtproxy_log_error "Invalid port: ${port} (must be 1024-65535)"
-        return 1
-    fi
-
-    if ! [[ "$workers" =~ ^[0-9]+$ ]] || [ "$workers" -lt 1 ] || [ "$workers" -gt 16 ]; then
-        mtproxy_log_error "Invalid workers count: ${workers} (must be 1-16)"
-        return 1
-    fi
-
-    # Create backup if file exists
-    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        cp "${MTPROXY_CONFIG_JSON}" "${MTPROXY_CONFIG_JSON}.bak"
-        mtproxy_log_info "  Backup created: ${MTPROXY_CONFIG_JSON}.bak"
-    fi
-
-    # Generate configuration via heredoc (PRD v4.1 compliant)
-    cat > "${MTPROXY_CONFIG_JSON}" <<EOF
-{
-  "version": "6.0",
-  "port": ${port},
-  "stats_port": ${MTPROXY_STATS_PORT},
-  "workers": ${workers},
-  "stats_endpoint": true,
-  "multi_user": false,
-  "metadata": {
-    "created": "${created_at}",
-    "last_modified": "${created_at}"
-  }
-}
-EOF
-
-    # Validate JSON syntax
-    if ! jq empty "${MTPROXY_CONFIG_JSON}" 2>/dev/null; then
-        mtproxy_log_error "Invalid JSON in ${MTPROXY_CONFIG_JSON}"
-
-        # Restore backup
-        if [[ -f "${MTPROXY_CONFIG_JSON}.bak" ]]; then
-            mv "${MTPROXY_CONFIG_JSON}.bak" "${MTPROXY_CONFIG_JSON}"
-            mtproxy_log_warning "Backup restored"
-        fi
-
-        return 1
-    fi
-
-    # Validate configuration
-    if ! validate_mtproxy_config; then
-        mtproxy_log_error "Configuration validation failed"
-        return 1
-    fi
-
-    # Set permissions
-    chmod 600 "${MTPROXY_CONFIG_JSON}"
-    chown root:root "${MTPROXY_CONFIG_JSON}" 2>/dev/null || true
-
-    mtproxy_log_success "MTProxy configuration generated"
-    mtproxy_log_info "  File: ${MTPROXY_CONFIG_JSON}"
-    mtproxy_log_info "  Port: ${port}"
-    mtproxy_log_info "  Workers: ${workers}"
-    mtproxy_log_info "  Stats port: ${MTPROXY_STATS_PORT} (localhost only)"
 
     return 0
 }
@@ -360,132 +241,9 @@ generate_mtproxy_secret_file() {
 }
 
 # ============================================================================
-# FUNCTION: generate_proxy_multi_conf
-# ============================================================================
-# Description: Generate proxy-multi.conf (Telegram Data Center addresses)
-#
-# Parameters:
-#   None
-#
-# Returns:
-#   0 on success, 1 on failure
-#
-# Example:
-#   generate_proxy_multi_conf
-#
-# Note:
-#   This file contains Telegram DC IP addresses required by MTProxy
-# ============================================================================
-generate_proxy_multi_conf() {
-    mtproxy_log_info "Generating proxy-multi.conf (Telegram DC addresses)..."
-
-    # Create backup if file exists
-    if [[ -f "${MTPROXY_MULTI_CONF}" ]]; then
-        cp "${MTPROXY_MULTI_CONF}" "${MTPROXY_MULTI_CONF}.bak"
-    fi
-
-    # Generate proxy-multi.conf via heredoc
-    # Format: proxy domain port secret
-    # These are Telegram's official DC addresses (as of 2025-11-08)
-    cat > "${MTPROXY_MULTI_CONF}" <<'EOF'
-# Telegram Data Center Addresses
-# Format: proxy <ip> <port> <secret>
-# Note: Secret is managed in proxy-secret file
-proxy 149.154.175.50 443 00000000000000000000000000000000
-proxy 149.154.167.50 443 00000000000000000000000000000000
-proxy 149.154.175.100 443 00000000000000000000000000000000
-proxy 149.154.167.91 443 00000000000000000000000000000000
-proxy 149.154.171.5 443 00000000000000000000000000000000
-proxy 91.108.56.100 443 00000000000000000000000000000000
-proxy 91.108.4.100 443 00000000000000000000000000000000
-proxy 91.108.56.149 443 00000000000000000000000000000000
-EOF
-
-    # Validate file creation
-    if [[ ! -f "${MTPROXY_MULTI_CONF}" ]]; then
-        mtproxy_log_error "Failed to create ${MTPROXY_MULTI_CONF}"
-
-        # Restore backup
-        if [[ -f "${MTPROXY_MULTI_CONF}.bak" ]]; then
-            mv "${MTPROXY_MULTI_CONF}.bak" "${MTPROXY_MULTI_CONF}"
-        fi
-
-        return 1
-    fi
-
-    # Set permissions
-    chmod 644 "${MTPROXY_MULTI_CONF}"
-    chown root:root "${MTPROXY_MULTI_CONF}" 2>/dev/null || true
-
-    mtproxy_log_success "proxy-multi.conf generated"
-    mtproxy_log_info "  File: ${MTPROXY_MULTI_CONF}"
-
-    return 0
-}
-
-# ============================================================================
-# FUNCTION: validate_mtproxy_config
-# ============================================================================
-# Description: Validate mtproxy_config.json structure
-#
-# Parameters:
-#   None (validates ${MTPROXY_CONFIG_JSON})
-#
-# Returns:
-#   0 on success, 1 on failure
-#
-# Example:
-#   validate_mtproxy_config
-# ============================================================================
-validate_mtproxy_config() {
-    if [[ ! -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        mtproxy_log_error "Configuration file not found: ${MTPROXY_CONFIG_JSON}"
-        return 1
-    fi
-
-    # Validate JSON syntax
-    if ! jq empty "${MTPROXY_CONFIG_JSON}" 2>/dev/null; then
-        mtproxy_log_error "Invalid JSON syntax in ${MTPROXY_CONFIG_JSON}"
-        return 1
-    fi
-
-    # Validate required fields
-    local port workers
-    port=$(jq -r '.port' "${MTPROXY_CONFIG_JSON}" 2>/dev/null)
-    workers=$(jq -r '.workers' "${MTPROXY_CONFIG_JSON}" 2>/dev/null)
-
-    if [[ -z "$port" ]] || [[ "$port" == "null" ]]; then
-        mtproxy_log_error "Missing required field: port"
-        return 1
-    fi
-
-    if [[ -z "$workers" ]] || [[ "$workers" == "null" ]]; then
-        mtproxy_log_error "Missing required field: workers"
-        return 1
-    fi
-
-    # Validate port range
-    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
-        mtproxy_log_error "Invalid port value: ${port} (must be 1024-65535)"
-        return 1
-    fi
-
-    # Validate workers range
-    if ! [[ "$workers" =~ ^[0-9]+$ ]] || [ "$workers" -lt 1 ] || [ "$workers" -gt 16 ]; then
-        mtproxy_log_error "Invalid workers value: ${workers} (must be 1-16)"
-        return 1
-    fi
-
-    mtproxy_log_success "Configuration validation passed"
-    return 0
-}
-
-# ============================================================================
 # FUNCTION: mtproxy_start
 # ============================================================================
-# Description: Start MTProxy. Uses supervisorctl inside familytraffic container
-#              (v7.0 mode). Falls back to legacy standalone container if the
-#              familytraffic container is not running.
+# Description: Start mtg via supervisorctl inside familytraffic container.
 #
 # Parameters:
 #   None
@@ -497,47 +255,17 @@ validate_mtproxy_config() {
 #   mtproxy_start
 # ============================================================================
 mtproxy_start() {
-    # v7.0: supervisord-based (preferred)
-    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        mtg_supervisord_start
-        return $?
-    fi
-
-    # Legacy fallback: standalone container
-    mtproxy_log_warning "familytraffic container not running — using legacy container mode"
-    mtproxy_log_info "Starting MTProxy container..."
-
-    if docker ps -a --format '{{.Names}}' | grep -q "^${MTPROXY_CONTAINER}$"; then
-        if ! docker start "${MTPROXY_CONTAINER}" >/dev/null 2>&1; then
-            mtproxy_log_error "Failed to start container: ${MTPROXY_CONTAINER}"
-            return 1
-        fi
-    else
-        mtproxy_log_error "Container not found: ${MTPROXY_CONTAINER} (run docker-compose up -d first)"
+    if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        mtproxy_log_error "Container '${FAMILYTRAFFIC_CONTAINER}' is not running (docker-compose up -d)"
         return 1
     fi
-
-    # Wait for container to be running (max 30 seconds)
-    local timeout=30
-    local elapsed=0
-    while [ $elapsed -lt $timeout ]; do
-        if docker inspect -f '{{.State.Running}}' "${MTPROXY_CONTAINER}" 2>/dev/null | grep -q "true"; then
-            mtproxy_log_success "MTProxy container started"
-            return 0
-        fi
-        sleep 1
-        ((elapsed++))
-    done
-
-    mtproxy_log_error "MTProxy container failed to start within ${timeout} seconds"
-    return 1
+    mtg_supervisord_start
 }
 
 # ============================================================================
 # FUNCTION: mtproxy_stop
 # ============================================================================
-# Description: Stop MTProxy. Uses supervisorctl inside familytraffic container
-#              (v7.0 mode). Falls back to legacy standalone container.
+# Description: Stop mtg via supervisorctl inside familytraffic container.
 #
 # Parameters:
 #   None
@@ -549,35 +277,17 @@ mtproxy_start() {
 #   mtproxy_stop
 # ============================================================================
 mtproxy_stop() {
-    # v7.0: supervisord-based (preferred)
-    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        mtg_supervisord_stop
-        return $?
-    fi
-
-    # Legacy fallback: standalone container
-    mtproxy_log_warning "familytraffic container not running — using legacy container mode"
-    mtproxy_log_info "Stopping MTProxy container..."
-
-    if ! docker ps --format '{{.Names}}' | grep -q "^${MTPROXY_CONTAINER}$"; then
-        mtproxy_log_warning "MTProxy container is not running"
-        return 0
-    fi
-
-    if ! docker stop "${MTPROXY_CONTAINER}" >/dev/null 2>&1; then
-        mtproxy_log_error "Failed to stop container: ${MTPROXY_CONTAINER}"
+    if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        mtproxy_log_error "Container '${FAMILYTRAFFIC_CONTAINER}' is not running"
         return 1
     fi
-
-    mtproxy_log_success "MTProxy container stopped"
-    return 0
+    mtg_supervisord_stop
 }
 
 # ============================================================================
 # FUNCTION: mtproxy_restart
 # ============================================================================
-# Description: Restart MTProxy. Uses supervisorctl inside familytraffic container
-#              (v7.0 mode). Falls back to stop+start legacy flow.
+# Description: Restart mtg via supervisorctl inside familytraffic container.
 #
 # Parameters:
 #   None
@@ -589,35 +299,17 @@ mtproxy_stop() {
 #   mtproxy_restart
 # ============================================================================
 mtproxy_restart() {
-    # v7.0: supervisord-based (preferred)
-    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        mtg_supervisord_restart
-        return $?
-    fi
-
-    # Legacy fallback: stop + start
-    mtproxy_log_info "Restarting MTProxy (legacy)..."
-
-    if ! mtproxy_stop; then
-        mtproxy_log_error "Failed to stop MTProxy"
+    if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        mtproxy_log_error "Container '${FAMILYTRAFFIC_CONTAINER}' is not running"
         return 1
     fi
-
-    sleep 2
-
-    if ! mtproxy_start; then
-        mtproxy_log_error "Failed to start MTProxy"
-        return 1
-    fi
-
-    mtproxy_log_success "MTProxy restarted successfully"
-    return 0
+    mtg_supervisord_restart
 }
 
 # ============================================================================
 # FUNCTION: mtproxy_status
 # ============================================================================
-# Description: Show MTProxy status (supervisord v7.0 or legacy container)
+# Description: Show MTProxy status via supervisorctl inside familytraffic container.
 #
 # Parameters:
 #   None
@@ -635,72 +327,35 @@ mtproxy_status() {
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    # v7.0: supervisord-based status (preferred)
-    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        local supervisord_status
-        supervisord_status=$(docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl status mtg 2>/dev/null || true)
-
-        if echo "$supervisord_status" | grep -q "RUNNING"; then
-            echo -e "${GREEN}Mode:${NC}   supervisord (mtg v2)"
-            echo -e "${GREEN}Status:${NC} RUNNING"
-        elif echo "$supervisord_status" | grep -q "STOPPED"; then
-            echo -e "${BLUE}Mode:${NC}   supervisord (mtg v2)"
-            echo -e "${YELLOW}Status:${NC} STOPPED"
-        else
-            echo -e "${BLUE}Mode:${NC}   supervisord (mtg v2)"
-            echo -e "${YELLOW}Status:${NC} ${supervisord_status:-UNKNOWN}"
-        fi
-
-        # Show mtg.toml config
-        if [[ -f "${MTG_CONFIG_FILE}" ]]; then
-            local secret bind_to
-            secret=$(grep '^secret' "${MTG_CONFIG_FILE}" 2>/dev/null | cut -d'"' -f2 | head -1)
-            bind_to=$(grep '^bind-to' "${MTG_CONFIG_FILE}" 2>/dev/null | cut -d'"' -f2 | head -1)
-            echo -e "${BLUE}Port:${NC}   ${bind_to:-${MTPROXY_PORT}}"
-            echo -e "${BLUE}Secret:${NC} ${secret:0:12}... (ee Fake TLS)"
-            echo -e "${BLUE}Config:${NC} ${MTG_CONFIG_FILE}"
-        fi
-
-        # Get secrets count
-        if [[ -f "${MTPROXY_SECRETS_JSON}" ]]; then
-            local secrets_count
-            secrets_count=$(jq -r '.secrets | length' "${MTPROXY_SECRETS_JSON}" 2>/dev/null || echo "0")
-            echo -e "${BLUE}Secrets:${NC} ${secrets_count}"
-        fi
-
+    if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        echo -e "${RED}Status:${NC} container '${FAMILYTRAFFIC_CONTAINER}' is not running"
         echo ""
-        return 0
-    fi
-
-    # Legacy fallback: standalone container status
-    echo -e "${YELLOW}Mode:${NC} legacy (standalone container)"
-    echo ""
-
-    if ! docker ps -a --format '{{.Names}}' | grep -q "^${MTPROXY_CONTAINER}$"; then
-        echo -e "${YELLOW}Status:${NC} NOT INSTALLED"
-        echo -e "${YELLOW}Container:${NC} ${MTPROXY_CONTAINER} not found"
-        echo ""
-        echo -e "${BLUE}To enable MTProxy:${NC} sudo mtproxy setup"
+        echo -e "${BLUE}To start:${NC} docker-compose up -d"
         return 1
     fi
 
-    local status
-    status=$(docker inspect -f '{{.State.Status}}' "${MTPROXY_CONTAINER}" 2>/dev/null)
+    local supervisord_status
+    supervisord_status=$(docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl status mtg 2>/dev/null || true)
 
-    if [[ "$status" == "running" ]]; then
+    if echo "$supervisord_status" | grep -q "RUNNING"; then
         echo -e "${GREEN}Status:${NC} RUNNING"
+    elif echo "$supervisord_status" | grep -q "STOPPED"; then
+        echo -e "${YELLOW}Status:${NC} STOPPED"
     else
-        echo -e "${RED}Status:${NC} ${status^^}"
+        echo -e "${YELLOW}Status:${NC} ${supervisord_status:-UNKNOWN}"
     fi
 
-    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        local port workers
-        port=$(jq -r '.port' "${MTPROXY_CONFIG_JSON}" 2>/dev/null || echo "N/A")
-        workers=$(jq -r '.workers' "${MTPROXY_CONFIG_JSON}" 2>/dev/null || echo "N/A")
-        echo -e "${BLUE}Port:${NC} ${port}"
-        echo -e "${BLUE}Workers:${NC} ${workers}"
+    # Show mtg.toml config
+    if [[ -f "${MTG_CONFIG_FILE}" ]]; then
+        local secret bind_to
+        secret=$(grep '^secret' "${MTG_CONFIG_FILE}" 2>/dev/null | cut -d'"' -f2 | head -1)
+        bind_to=$(grep '^bind-to' "${MTG_CONFIG_FILE}" 2>/dev/null | cut -d'"' -f2 | head -1)
+        echo -e "${BLUE}Port:${NC}   ${bind_to:-${MTPROXY_PORT}}"
+        echo -e "${BLUE}Secret:${NC} ${secret:0:12}... (ee Fake TLS)"
+        echo -e "${BLUE}Config:${NC} ${MTG_CONFIG_FILE}"
     fi
 
+    # Get secrets count
     if [[ -f "${MTPROXY_SECRETS_JSON}" ]]; then
         local secrets_count
         secrets_count=$(jq -r '.secrets | length' "${MTPROXY_SECRETS_JSON}" 2>/dev/null || echo "0")
@@ -708,51 +363,6 @@ mtproxy_status() {
     fi
 
     echo ""
-    return 0
-}
-
-# ============================================================================
-# FUNCTION: mtproxy_get_stats
-# ============================================================================
-# Description: Retrieve MTProxy statistics from endpoint
-#
-# Parameters:
-#   None
-#
-# Returns:
-#   0 on success, 1 on failure
-#
-# Example:
-#   mtproxy_get_stats
-#
-# Note:
-#   Connects to localhost:8888/stats (MTProxy stats endpoint)
-# ============================================================================
-mtproxy_get_stats() {
-    local stats_url="http://127.0.0.1:${MTPROXY_STATS_PORT}/stats"
-
-    # Check if container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "^${MTPROXY_CONTAINER}$"; then
-        mtproxy_log_error "MTProxy container is not running"
-        return 1
-    fi
-
-    # Fetch stats
-    local stats
-    stats=$(curl -s --max-time 5 "${stats_url}" 2>/dev/null)
-
-    if [[ -z "$stats" ]]; then
-        mtproxy_log_error "Failed to fetch stats from ${stats_url}"
-        return 1
-    fi
-
-    # Parse stats (MTProxy stats format: plain text)
-    # Example output:
-    #   Connections: 5
-    #   Total: 120
-    #   Uptime: 3600
-    echo "$stats"
-
     return 0
 }
 
@@ -771,21 +381,13 @@ mtproxy_get_stats() {
 #   if mtproxy_is_installed; then echo "Installed"; fi
 # ============================================================================
 mtproxy_is_installed() {
-    # v7.0: mtg.toml indicates setup was run
-    if [[ -d "${MTPROXY_CONFIG_DIR}" ]] && [[ -f "${MTG_CONFIG_FILE}" ]]; then
-        return 0
-    fi
-    # Legacy: mtproxy_config.json (old standalone container setup)
-    if [[ -d "${MTPROXY_CONFIG_DIR}" ]] && [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        return 0
-    fi
-    return 1
+    [[ -d "${MTPROXY_CONFIG_DIR}" ]] && [[ -f "${MTG_CONFIG_FILE}" ]]
 }
 
 # ============================================================================
 # FUNCTION: mtproxy_is_running
 # ============================================================================
-# Description: Check if MTProxy is running (v7.0: supervisord or legacy container)
+# Description: Check if mtg is running via supervisorctl in familytraffic container.
 #
 # Parameters:
 #   None
@@ -797,13 +399,7 @@ mtproxy_is_installed() {
 #   if mtproxy_is_running; then echo "Running"; fi
 # ============================================================================
 mtproxy_is_running() {
-    # v7.0: check via supervisorctl in familytraffic container
-    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl status mtg 2>/dev/null | grep -q "RUNNING"
-        return $?
-    fi
-    # Legacy fallback: standalone container
-    docker ps --format '{{.Names}}' | grep -q "^${MTPROXY_CONTAINER}$"
+    docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl status mtg 2>/dev/null | grep -q "RUNNING"
 }
 
 # ============================================================================
@@ -909,11 +505,7 @@ generate_mtproxy_deeplink() {
         fi
     fi
 
-    # Get MTProxy port from config
-    local mtproxy_port="8443"  # Default
-    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        mtproxy_port=$(jq -r '.port // 8443' "${MTPROXY_CONFIG_JSON}" 2>/dev/null)
-    fi
+    local mtproxy_port="${MTPROXY_PORT}"
 
     # Generate deep link
     local deeplink="tg://proxy?server=${server_ip}&port=${mtproxy_port}&secret=${mtproxy_secret}"
@@ -1043,11 +635,7 @@ show_mtproxy_config() {
     local server_ip
     server_ip=$(get_server_ip)
 
-    # Get MTProxy port
-    local mtproxy_port="8443"
-    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        mtproxy_port=$(jq -r '.port // 8443' "${MTPROXY_CONFIG_JSON}" 2>/dev/null)
-    fi
+    local mtproxy_port="${MTPROXY_PORT}"
 
     # Generate deep link
     local deeplink
@@ -1155,26 +743,6 @@ regenerate_mtproxy_secret_file_from_users() {
     # Set strict permissions
     chmod 600 "${MTPROXY_SECRET_FILE}"
     chown root:root "${MTPROXY_SECRET_FILE}" 2>/dev/null || true
-
-    # Update mtproxy_config.json: multi_user = true if > 1 secret
-    if [[ -f "${MTPROXY_CONFIG_JSON}" ]]; then
-        local multi_user_mode="false"
-        if [[ "$secrets_count" -gt 1 ]]; then
-            multi_user_mode="true"
-        fi
-
-        # Update multi_user field
-        local temp_config="${MTPROXY_CONFIG_JSON}.tmp.$$"
-        jq ".multi_user = ${multi_user_mode}" "${MTPROXY_CONFIG_JSON}" > "$temp_config"
-
-        if jq empty "$temp_config" 2>/dev/null; then
-            mv "$temp_config" "${MTPROXY_CONFIG_JSON}"
-            mtproxy_log_info "Updated mtproxy_config.json: multi_user = $multi_user_mode"
-        else
-            rm -f "$temp_config"
-            mtproxy_log_warning "Failed to update mtproxy_config.json (invalid JSON)"
-        fi
-    fi
 
     mtproxy_log_success "MTProxy secret file regenerated"
     mtproxy_log_info "  File: ${MTPROXY_SECRET_FILE}"

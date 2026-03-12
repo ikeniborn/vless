@@ -3,10 +3,10 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="test_dns_detection" href="test_dns_detection.html"><link rel="prev" title="API Reference" href="../index.html">
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="test_mtproxy_manager" href="test_mtproxy_manager.html"><link rel="prev" title="test_external_proxy" href="test_external_proxy.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Module: tests - vless Documentation</title>
+        <title>test_mtproxy_integration - vless Documentation</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
@@ -195,13 +195,13 @@
   <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
 <li class="toctree-l1 current has-children"><a class="reference internal" href="../index.html">API Reference</a><input aria-label="Toggle navigation of API Reference" checked="" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="current">
-<li class="toctree-l2 current has-children current-page"><a class="current reference internal" href="#">Module: tests</a><input aria-label="Toggle navigation of Module: tests" checked="" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2 current has-children"><a class="reference internal" href="index.html">Module: tests</a><input aria-label="Toggle navigation of Module: tests" checked="" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="test_dns_detection.html">test_dns_detection</a></li>
 <li class="toctree-l3"><a class="reference internal" href="test_external_proxy.html">test_external_proxy</a></li>
-<li class="toctree-l3"><a class="reference internal" href="test_mtproxy_integration.html">test_mtproxy_integration</a></li>
-<li class="toctree-l3"><a class="reference internal" href="test_mtproxy_integration.html#dev-mode-no-docker-required">DEV_MODE (no Docker required):</a></li>
-<li class="toctree-l3"><a class="reference internal" href="test_mtproxy_integration.html#full-integration-requires-running-familytraffic-container">Full integration (requires running familytraffic container):</a></li>
-<li class="toctree-l3"><a class="reference internal" href="test_mtproxy_integration.html#sudo-bash-lib-tests-test-mtproxy-integration-sh-version-1-0-0-date-2026-03-12">sudo bash lib/tests/test_mtproxy_integration.sh
+<li class="toctree-l3 current current-page"><a class="current reference internal" href="#">test_mtproxy_integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#dev-mode-no-docker-required">DEV_MODE (no Docker required):</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#full-integration-requires-running-familytraffic-container">Full integration (requires running familytraffic container):</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#sudo-bash-lib-tests-test-mtproxy-integration-sh-version-1-0-0-date-2026-03-12">sudo bash lib/tests/test_mtproxy_integration.sh
 Version: 1.0.0
 Date: 2026-03-12</a></li>
 <li class="toctree-l3"><a class="reference internal" href="test_mtproxy_manager.html">test_mtproxy_manager</a></li>
@@ -239,7 +239,7 @@ Date: 2026-03-12</a></li>
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="../../_sources/api-reference/tests/index.md.txt" title="View this page">
+  <a class="muted-link" href="../../_sources/api-reference/tests/test_mtproxy_integration.md.txt" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
@@ -257,19 +257,33 @@ Date: 2026-03-12</a></li>
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="module-tests">
-<h1>Module: tests<a class="headerlink" href="#module-tests" title="Link to this heading">¶</a></h1>
+          <section id="test-mtproxy-integration">
+<h1>test_mtproxy_integration<a class="headerlink" href="#test-mtproxy-integration" title="Link to this heading">¶</a></h1>
 <blockquote>
-<div><p>Source: <code class="docutils literal notranslate"><span class="pre">lib/tests/</span></code></p>
+<div><p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">tests</span></code> | <strong>File:</strong> <code class="docutils literal notranslate"><span class="pre">lib/tests/test_mtproxy_integration.sh</span></code></p>
 </div></blockquote>
-<ul class="simple">
-<li><p><a class="reference internal" href="test_dns_detection.html"><span class="std std-doc">test_dns_detection</span></a> — 0 functions</p></li>
-<li><p><a class="reference internal" href="test_external_proxy.html"><span class="std std-doc">test_external_proxy</span></a> — 0 functions</p></li>
-<li><p><a class="reference internal" href="test_mtproxy_integration.html"><span class="std std-doc">test_mtproxy_integration</span></a> — 0 functions</p></li>
-<li><p><a class="reference internal" href="test_mtproxy_manager.html"><span class="std std-doc">test_mtproxy_manager</span></a> — 0 functions</p></li>
-</ul>
-<div class="toctree-wrapper compound">
-</div>
+<p>============================================================================
+MTProxy Integration Test Suite
+Part of familyTraffic VPN Deployment System (v5.33)
+Purpose: Integration tests for MTProxy supervisord lifecycle, port 2053,
+cloak-port 4443, and UFW rules.
+DEV_MODE: auto-detected when /opt/familytraffic/ is absent or DEV_MODE=true.
+Container-dependent tests are skipped in DEV_MODE.
+Static checks (supervisord.conf content) always run.
+Usage:</p>
+</section>
+<section id="dev-mode-no-docker-required">
+<h1>DEV_MODE (no Docker required):<a class="headerlink" href="#dev-mode-no-docker-required" title="Link to this heading">¶</a></h1>
+<p>DEV_MODE=true sudo bash lib/tests/test_mtproxy_integration.sh</p>
+</section>
+<section id="full-integration-requires-running-familytraffic-container">
+<h1>Full integration (requires running familytraffic container):<a class="headerlink" href="#full-integration-requires-running-familytraffic-container" title="Link to this heading">¶</a></h1>
+</section>
+<section id="sudo-bash-lib-tests-test-mtproxy-integration-sh-version-1-0-0-date-2026-03-12">
+<h1>sudo bash lib/tests/test_mtproxy_integration.sh
+Version: 1.0.0
+Date: 2026-03-12<a class="headerlink" href="#sudo-bash-lib-tests-test-mtproxy-integration-sh-version-1-0-0-date-2026-03-12" title="Link to this heading">¶</a></h1>
+<hr class="docutils" />
 </section>
 
         </article>
@@ -277,23 +291,23 @@ Date: 2026-03-12</a></li>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="test_dns_detection.html">
+          <a class="next-page" href="test_mtproxy_manager.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">test_dns_detection</div>
+                <div class="title">test_mtproxy_manager</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../index.html">
+          <a class="prev-page" href="test_external_proxy.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">API Reference</div>
+                <div class="title">test_external_proxy</div>
                 
               </div>
             </a>

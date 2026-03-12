@@ -1099,9 +1099,9 @@ mtproxy_data_flow:
         - "Client secret (40 hex chars)"
 
     - stage: "MTProxy Authentication"
-      component: "familytraffic-mtproxy"
-      port: 8443
-      binding: "0.0.0.0:8443 (public, NO conflict with Xray 127.0.0.1:8443)"
+      component: "familytraffic (mtg v2 via supervisord)"
+      port: 2053
+      binding: "0.0.0.0:2053 (public, Fake TLS via mtg v2)"
       action: "Validate client secret and establish connection"
 
       authentication:
@@ -1119,7 +1119,7 @@ mtproxy_data_flow:
         response: "Invalid secret"
 
     - stage: "Transport Obfuscation"
-      component: "familytraffic-mtproxy"
+      component: "familytraffic (mtg v2 via supervisord)"
       action: "Apply MTProto transport obfuscation"
 
       obfuscation:
@@ -1134,7 +1134,7 @@ mtproxy_data_flow:
         purpose: "Appear as HTTPS traffic to DPI systems"
 
     - stage: "Telegram DC Connection"
-      component: "familytraffic-mtproxy → Telegram Data Centers"
+      component: "familytraffic (mtg v2) → Telegram Data Centers"
       action: "Proxy traffic to Telegram servers"
 
       dc_addresses:
@@ -1169,7 +1169,7 @@ mtproxy_data_flow:
       command: "sudo mtproxy add-secret [--with-padding]"
       affected_files:
         - "/opt/familytraffic/config/mtproxy/proxy-secret (append secret)"
-      service_restart: "docker restart familytraffic-mtproxy (~2-5s downtime)"
+      service_restart: "docker exec familytraffic supervisorctl restart mtg (graceful)"
 
     add_user_v6_1:
       command: "sudo mtproxy add-user <username> [--fake-tls <domain>]"
@@ -1177,7 +1177,7 @@ mtproxy_data_flow:
         - "/opt/familytraffic/data/users.json (add mtproxy_secret field)"
         - "/opt/familytraffic/config/mtproxy/proxy-secret (append user secret)"
         - "/opt/familytraffic/data/clients/<username>/mtproxy_config.txt (generate config)"
-      service_restart: "docker restart familytraffic-mtproxy (~2-5s downtime)"
+      service_restart: "docker exec familytraffic supervisorctl restart mtg (graceful)"
 
   performance:
     latency_overhead: "< 5ms (obfuscation)"

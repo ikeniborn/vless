@@ -760,10 +760,10 @@ configurations:
     critical: true
     feature_version: "v6.0+ (planned)"
     implementation_status: "PLANNED (not yet implemented)"
-    reload_method: "Docker restart (full restart required)"
-    reload_command: "docker restart familytraffic-mtproxy"
+    reload_method: "supervisorctl restart inside container (graceful)"
+    reload_command: "docker exec familytraffic supervisorctl restart mtg"
     generator_module: "lib/mtproxy_manager.sh"
-    generator_function: "generate_mtproxy_config()"
+    generator_function: "generate_mtg_toml()"
 
     schema:
       port:
@@ -1079,7 +1079,7 @@ propagation_paths:
       - "/opt/familytraffic/config/mtproxy/proxy-secret (append secret)"
       - "/opt/familytraffic/data/clients/<username>/mtproxy_config.txt (generate config)"
     services_reloaded:
-      - "familytraffic-mtproxy (restart - secret reload)"
+      - "familytraffic (supervisorctl restart mtg - secret reload)"
     duration: "~5-10 seconds"
     downtime: "~2-5s"
 

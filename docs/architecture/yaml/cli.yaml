@@ -1301,10 +1301,10 @@ cli_tools:
             file: "/opt/familytraffic/config/mtproxy/proxy-secret"
             format: "One secret per line"
 
-          - step: "Restart MTProxy container"
-            command: "docker restart familytraffic-mtproxy"
-            downtime: "~2-5s"
-            reason: "MTProxy requires restart to load new secrets"
+          - step: "Reload mtg config via supervisorctl"
+            command: "docker exec familytraffic supervisorctl restart mtg"
+            downtime: "none (graceful)"
+            reason: "supervisorctl restarts mtg process inside running container"
 
           - step: "Generate client config"
             output: "Deep link + QR code"

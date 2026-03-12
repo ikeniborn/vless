@@ -199,7 +199,6 @@ initialization_order:
           - "familytraffic"
           - "familytraffic-nginx"
           - "familytraffic-fake-site"
-          - "familytraffic-mtproxy (v6.0+, conditional)"
         validation:
           - check: "All containers running"
           - check: "Health checks passing (wait up to 30s)"
@@ -733,12 +732,6 @@ service_dependencies:
       health_check: "wget --spider http://localhost/"
       restart_policy: "unless-stopped"
 
-    familytraffic-mtproxy:
-      depends_on: []
-      health_check: "curl http://localhost:8443/stats"
-      restart_policy: "unless-stopped"
-      feature_version: "v6.0+ (planned)"
-
   service_start_order:
     - order: 1
       services: ["familytraffic", "familytraffic-fake-site"]
@@ -751,10 +744,6 @@ service_dependencies:
     - order: 3
       services: ["familytraffic-haproxy"]
       reason: "Depends on all backends being ready"
-
-    - order: 4
-      services: ["familytraffic-mtproxy"]
-      reason: "Independent, can start anytime"
 
 performance_impact:
   config_generation:
