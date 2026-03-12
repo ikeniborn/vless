@@ -3,7 +3,7 @@
 > **Module:** `tests` | **File:** `lib/tests/test_external_proxy.sh`
 
 External Proxy Test Suite
-Part of VLESS+Reality VPN Deployment System (v5.23)
+Part of familyTraffic VPN Deployment System (v5.33)
 Purpose: Test external proxy management functionality
 Usage: sudo bash test_external_proxy.sh
 Version: 5.23.0

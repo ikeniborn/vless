@@ -7,8 +7,8 @@
 #   DOMAIN       — your domain name                   (set during install)
 #
 # This file is synced to /opt/familytraffic/docker-compose.yml by CI/CD (rsync).
-# MTProxy section is managed separately by: sudo familytraffic-mtproxy-setup
-# If MTProxy is enabled it appends its service block — do not edit that section manually.
+# MTProxy (mtg v2) is integrated into the single familytraffic container via supervisord.
+# Enable MTProxy: sudo mtproxy setup
 #
 # Usage:
 #   cd /opt/familytraffic && docker compose pull && docker compose up -d
@@ -35,6 +35,8 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt
       # ACME webroot for certbot --webroot renewal
       - /var/www/html:/var/www/html
+      # MTProxy config (mtg.toml + secrets.json) — read-only
+      - /opt/familytraffic/config/mtproxy:/opt/familytraffic/config/mtproxy:ro
     env_file:
       - /opt/familytraffic/.env
     logging:
@@ -53,5 +55,6 @@ services:
       retries: 3
       start_period: 20s
 
-# MTProxy service block is appended here by familytraffic-mtproxy-setup
-# Do not add anything below this line manually
+# MTProxy is integrated into familytraffic container via supervisord (mtg v2).
+# Use: sudo mtproxy setup   — to enable MTProxy
+# Use: sudo mtproxy disable — to disable MTProxy

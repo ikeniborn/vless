@@ -213,4 +213,4 @@ docs/sphinx/_build/.doctrees/
 
 # Claude Code Agent Workspace
 .claude/workspace/
-.claude/sessions/
+.claude/plans/

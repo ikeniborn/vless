@@ -2,9 +2,10 @@
 # familyTraffic VPN Server - Single Container Image
 # nginx + xray + certbot + supervisord
 #
-# 2-stage build:
+# 3-stage build:
 #   Stage 1: xray-src — extract xray binary from teddysun image
-#   Stage 2: final    — nginx:alpine + supervisor + certbot (apk) + xray
+#   Stage 2: mtg-src  — download mtg v2 static binary (nineseconds/mtg)
+#   Stage 3: final    — nginx:alpine + supervisor + certbot (apk) + xray + mtg
 #
 # Override base image versions at build time:
 #   docker build --build-arg NGINX_IMAGE=nginx:1.27-alpine .
@@ -16,6 +17,8 @@
 # All FROM-referenced ARGs must be declared before the first FROM.
 ARG XRAY_IMAGE=teddysun/xray:24.11.30
 ARG NGINX_IMAGE=nginx:1.27-alpine
+ARG MTG_VERSION=2.1.7
+ARG MTG_ARCH=amd64
 
 # =============================================================================
 # Stage 1: Extract Xray binary
@@ -23,7 +26,19 @@ ARG NGINX_IMAGE=nginx:1.27-alpine
 FROM ${XRAY_IMAGE} AS xray-src
 
 # =============================================================================
-# Stage 2: Final image
+# Stage 2: Download mtg static binary (no compilation)
+# =============================================================================
+FROM alpine:latest AS mtg-src
+ARG MTG_VERSION
+ARG MTG_ARCH
+RUN apk add --no-cache curl && \
+    curl -fL \
+    "https://github.com/9seconds/mtg/releases/download/v${MTG_VERSION}/mtg-${MTG_VERSION}-linux-${MTG_ARCH}.tar.gz" \
+    | tar -xz -C /tmp && \
+    install -m 755 /tmp/mtg /usr/bin/mtg
+
+# =============================================================================
+# Stage 3: Final image
 # =============================================================================
 FROM ${NGINX_IMAGE} AS final
 
@@ -43,6 +58,9 @@ RUN apk add --no-cache \
 # Copy xray binary from Stage 1
 COPY --from=xray-src /usr/bin/xray /usr/bin/xray
 
+# Copy mtg binary from Stage 2
+COPY --from=mtg-src /usr/bin/mtg /usr/bin/mtg
+
 # Config file (644 — no --chmod needed)
 COPY docker/familytraffic/supervisord.conf /etc/familytraffic/supervisord.conf
 
@@ -55,7 +73,7 @@ COPY --chmod=755 \
 ENV INSTALL_PATH=/opt/familytraffic
 
 # Documentation only — actual binding controlled by network_mode:host in compose
-EXPOSE 443 1080 8118
+EXPOSE 443 1080 8118 2053
 
 # Fallback healthcheck — overridden by docker-compose.yml when run via compose
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=20s \
