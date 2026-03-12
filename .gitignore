@@ -59,6 +59,9 @@ qr_codes/
 # Exception: Docker container scripts (part of source code, not generated)
 !docker/familytraffic/*.sh
 !lib/migrate_rename.sh
+!lib/tests/test_mtproxy_manager.sh
+!lib/tests/test_mtproxy_integration.sh
+!tests/integration/test_mtproxy_cloak.sh
 
 # Backup files
 data/backups/

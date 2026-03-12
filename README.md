@@ -104,6 +104,55 @@ familytraffic restart                            Перезапуск
 familytraffic test-security [--quick]            Тесты безопасности
 ```
 
+### MTProxy (Telegram proxy)
+
+MTProxy — встроенный Telegram-прокси на основе mtg v2 (Fake TLS, порт 2053).
+Работает как supervisord-процесс внутри контейнера `familytraffic`. Защита от
+active probing: nginx на порту 4443 возвращает легитимный HTTPS (cloak-port).
+
+#### Быстрый старт
+
+```
+sudo mtproxy setup                                  Настроить MTProxy
+sudo mtproxy setup --domain proxy.example.com       С явным доменом (Fake TLS)
+```
+
+#### Секреты
+
+```
+sudo mtproxy add-secret                             Добавить ee-секрет (Fake TLS, рекомендовано)
+sudo mtproxy add-secret --type ee --domain ...      С явным типом и доменом
+sudo mtproxy list-secrets                           Список всех секретов
+sudo mtproxy remove-secret <SECRET_OR_USER>         Удалить секрет
+```
+
+#### Управление процессом
+
+```
+sudo mtproxy start                                  Запустить mtg
+sudo mtproxy stop                                   Остановить mtg
+sudo mtproxy restart                                Перезапустить mtg
+sudo mtproxy status                                 Статус MTProxy
+sudo mtproxy logs [--tail N] [--follow]             Логи mtg
+sudo mtproxy disable                                Отключить MTProxy + UFW + nginx
+```
+
+#### Конфигурация клиента
+
+```
+sudo mtproxy show-config <username>                 Deep link + параметры подключения
+sudo mtproxy generate-qr <username>                 QR-код для Telegram
+```
+
+#### Архитектура MTProxy
+
+```
+Telegram → TCP:2053 → mtg v2 (Fake TLS) → Telegram DCs
+Сканер   → TCP:4443 → nginx (LE-сертификат + реальный HTML, cloak-port)
+```
+
+> Порт 4443 — только loopback, никогда не открывать в UFW.
+
 ---
 
 ## Клиентские приложения
