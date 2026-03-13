@@ -968,11 +968,10 @@ EOF
 
     chmod 644 "${MTG_SUPERVISORD_CONF}"
 
-    # Apply to running supervisord without container restart
+    # Notify running supervisord: reread detects new conf, update starts mtg (autostart=true)
     if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
         docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl reread 2>/dev/null || true
         docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl update 2>/dev/null || true
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl start mtg 2>/dev/null || true
     fi
 
     mtproxy_log_success "mtg enabled (autostart=true on container restarts)"
@@ -994,16 +993,20 @@ mtg_supervisord_disable_config() {
     # Stop running mtg first
     if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
         docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl stop mtg 2>/dev/null || true
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl reread 2>/dev/null || true
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl update 2>/dev/null || true
     fi
 
-    # Remove autostart config
+    # Remove autostart config BEFORE reread so supervisord sees the file is gone
     if [[ -f "${MTG_SUPERVISORD_CONF}" ]]; then
         rm -f "${MTG_SUPERVISORD_CONF}"
         mtproxy_log_success "mtg autostart config removed"
     else
         mtproxy_log_info "mtg autostart config not found (already disabled)"
+    fi
+
+    # Notify running supervisord that mtg program is no longer configured
+    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl reread 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl update 2>/dev/null || true
     fi
 
     return 0

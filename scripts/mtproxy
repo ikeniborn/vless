@@ -341,7 +341,7 @@ cmd_setup() {
 # Command: disable
 # ============================================================================
 # Disables MTProxy:
-#   1. Stops mtg via supervisorctl
+#   1. Stops mtg + removes supervisord.d/mtg.conf (disables autostart)
 #   2. Closes UFW port 2053/tcp
 #   3. Regenerates nginx.conf without cloak-port
 #   4. Reloads nginx
