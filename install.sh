@@ -476,6 +476,48 @@ LOGROTATE_EOF
     chmod 644 "${INSTALL_ROOT}/.version"
     print_message "${COLOR_CYAN}" "Version file saved: v${FT_VERSION}"
 
+    # Step 9.6: Optional MTProxy setup
+    local enable_mtproxy="no"
+    if [[ -n "${FT_ENABLE_MTPROXY:-}" ]]; then
+        enable_mtproxy="${FT_ENABLE_MTPROXY}"
+        print_message "${COLOR_CYAN}" "Non-interactive mode: FT_ENABLE_MTPROXY=${enable_mtproxy}"
+    else
+        echo ""
+        print_message "${COLOR_CYAN}" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_message "${COLOR_CYAN}" "  OPTIONAL: MTProxy for Telegram"
+        print_message "${COLOR_CYAN}" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_message "${COLOR_YELLOW}" "  MTProxy (mtg v2, Fake TLS) — built-in Telegram proxy on port 2053"
+        print_message "${COLOR_YELLOW}" "  Active probing protection via nginx cloak-port (4443, loopback-only)"
+        echo ""
+        if ! read -t 30 -rp "Enable MTProxy now? [y/N] (30s timeout, default=N): " mtproxy_answer; then
+            mtproxy_answer="n"
+            echo ""
+        fi
+        [[ "${mtproxy_answer,,}" == "y" || "${mtproxy_answer,,}" == "yes" ]] && enable_mtproxy="yes"
+    fi
+
+    if [[ "${enable_mtproxy,,}" == "yes" ]]; then
+        print_message "${COLOR_BLUE}" "\nSetting up MTProxy..."
+        local mtproxy_cmd="/usr/local/sbin/mtproxy"
+        if [[ ! -x "${mtproxy_cmd}" ]]; then
+            mtproxy_cmd="${INSTALL_ROOT}/scripts/mtproxy"
+        fi
+
+        if [[ -x "${mtproxy_cmd}" ]]; then
+            if [[ -n "${DOMAIN:-}" ]]; then
+                "${mtproxy_cmd}" setup --domain "${DOMAIN}" || \
+                    print_warning "MTProxy setup failed — run 'sudo mtproxy setup' later"
+            else
+                "${mtproxy_cmd}" setup || \
+                    print_warning "MTProxy setup failed — run 'sudo mtproxy setup' later"
+            fi
+        else
+            print_warning "mtproxy command not found — run 'sudo mtproxy setup' after installation"
+        fi
+    else
+        print_message "${COLOR_YELLOW}" "MTProxy skipped — enable later with: sudo mtproxy setup"
+    fi
+
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"
     display_sudoers_instructions

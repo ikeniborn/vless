@@ -24,8 +24,10 @@
 #   11. mtg_supervisord_stop()             - Stop mtg via docker exec supervisorctl
 #   12. mtg_supervisord_restart()          - Restart mtg via docker exec supervisorctl
 #   13. mtg_supervisord_status()           - Show mtg supervisord status
-#   14. mtg_ufw_allow()                    - Open port 2053/tcp in UFW
-#   15. mtg_ufw_deny()                     - Close port 2053/tcp in UFW
+#   14. mtg_supervisord_enable()           - Create supervisord.d/mtg.conf (autostart=true)
+#   15. mtg_supervisord_disable_config()   - Remove supervisord.d/mtg.conf (disable autostart)
+#   16. mtg_ufw_allow()                    - Open port 2053/tcp in UFW
+#   17. mtg_ufw_deny()                     - Close port 2053/tcp in UFW
 #
 # Usage:
 #   source lib/mtproxy_manager.sh
@@ -70,6 +72,11 @@ set -euo pipefail
 # mtg v2 configuration
 [[ -z "${MTG_CONFIG_FILE:-}" ]] && readonly MTG_CONFIG_FILE="${MTPROXY_CONFIG_DIR}/mtg.toml"
 [[ -z "${MTG_CLOAK_PORT:-}" ]] && readonly MTG_CLOAK_PORT="${MTG_CLOAK_PORT:-4443}"
+
+# supervisord dynamic programs directory (host-side, mounted :ro into container)
+# mtg.conf placed here enables autostart=true for mtg on container restarts
+[[ -z "${SUPERVISORD_D_DIR:-}" ]] && readonly SUPERVISORD_D_DIR="${VLESS_HOME}/config/supervisord.d"
+[[ -z "${MTG_SUPERVISORD_CONF:-}" ]] && readonly MTG_SUPERVISORD_CONF="${SUPERVISORD_D_DIR}/mtg.conf"
 
 # Colors for output (only define if not already set to avoid conflicts)
 [[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
@@ -924,6 +931,82 @@ mtg_supervisord_restart() {
 # ============================================================================
 mtg_supervisord_status() {
     docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl status mtg 2>/dev/null
+}
+
+# ============================================================================
+# FUNCTION: mtg_supervisord_enable (v7.1)
+# ============================================================================
+# Description: Enable mtg autostart by creating supervisord.d/mtg.conf on host.
+#              supervisord reads this file on container start → mtg autostarts.
+#              Also calls supervisorctl reread+update to activate immediately.
+#
+# Called from: scripts/mtproxy cmd_setup()
+# Returns: 0 on success, 1 on failure
+# ============================================================================
+mtg_supervisord_enable() {
+    mtproxy_log_info "Enabling mtg autostart (supervisord.d/mtg.conf)..."
+
+    mkdir -p "${SUPERVISORD_D_DIR}"
+
+    cat > "${MTG_SUPERVISORD_CONF}" << 'EOF'
+; MTProxy (mtg v2) — managed by supervisord
+; Created by: sudo mtproxy setup
+; Removed by: sudo mtproxy disable
+; autostart=true ensures mtg starts automatically on container restarts
+[program:mtg]
+command=/usr/bin/mtg run /opt/familytraffic/config/mtproxy/mtg.toml
+priority=4
+autostart=true
+autorestart=true
+startsecs=3
+startretries=3
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+EOF
+
+    chmod 644 "${MTG_SUPERVISORD_CONF}"
+
+    # Apply to running supervisord without container restart
+    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl reread 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl update 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl start mtg 2>/dev/null || true
+    fi
+
+    mtproxy_log_success "mtg enabled (autostart=true on container restarts)"
+    return 0
+}
+
+# ============================================================================
+# FUNCTION: mtg_supervisord_disable_config (v7.1)
+# ============================================================================
+# Description: Disable mtg autostart by removing supervisord.d/mtg.conf.
+#              Also stops mtg in the running container via supervisorctl.
+#
+# Called from: scripts/mtproxy cmd_disable()
+# Returns: 0 on success, 1 on failure
+# ============================================================================
+mtg_supervisord_disable_config() {
+    mtproxy_log_info "Disabling mtg autostart (removing supervisord.d/mtg.conf)..."
+
+    # Stop running mtg first
+    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl stop mtg 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl reread 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl update 2>/dev/null || true
+    fi
+
+    # Remove autostart config
+    if [[ -f "${MTG_SUPERVISORD_CONF}" ]]; then
+        rm -f "${MTG_SUPERVISORD_CONF}"
+        mtproxy_log_success "mtg autostart config removed"
+    else
+        mtproxy_log_info "mtg autostart config not found (already disabled)"
+    fi
+
+    return 0
 }
 
 # ============================================================================

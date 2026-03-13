@@ -40,7 +40,7 @@ Client
 | xray | 1 | VLESS Reality, Tier 2, SOCKS5, HTTP proxy |
 | nginx | 2 | SNI routing (443), TLS termination, cloak-port (4443) |
 | certbot-cron | 3 | Авторенew Let's Encrypt каждые 12 часов |
-| mtg | 4 | MTProxy (Fake TLS, порт 2053) — `autostart=false`, включается командой `mtproxy setup` |
+| mtg | 4 | MTProxy (Fake TLS, порт 2053) — `autostart=true` если включён при установке или `mtproxy setup` |
 
 ---
 
@@ -118,7 +118,7 @@ familytraffic test-security [--quick]            Тесты безопаснос
 ### MTProxy (Telegram proxy)
 
 Встроенный Telegram-прокси на базе [mtg v2](https://github.com/9seconds/mtg) (Fake TLS).
-По умолчанию отключён (`autostart=false`), включается командой `mtproxy setup`.
+Можно включить при установке (`install.sh` задаёт вопрос) или позже командой `mtproxy setup`. При включении создаётся `config/supervisord.d/mtg.conf` с `autostart=true` — mtg стартует автоматически при перезапуске контейнера.
 
 **Защита от active probing:** nginx на порту 4443 обслуживает легитимный HTTPS с LE-сертификатом — сканеры видят обычный сайт, а не прокси.
 

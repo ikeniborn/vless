@@ -37,6 +37,8 @@ services:
       - /var/www/html:/var/www/html
       # MTProxy config (mtg.toml + secrets.json) — read-only
       - /opt/familytraffic/config/mtproxy:/opt/familytraffic/config/mtproxy:ro
+      # supervisord optional programs (mtg.conf created by mtproxy setup) — read-only
+      - /opt/familytraffic/config/supervisord.d:/opt/familytraffic/config/supervisord.d:ro
     env_file:
       - /opt/familytraffic/.env
     logging:
