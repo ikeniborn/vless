@@ -8,6 +8,7 @@ VLESS + Reality — самодостаточный VPN-сервер с защи�
 - VLESS Reality с XTLS Vision (Tier 1) — основной транспорт, обход DPI
 - WebSocket / XHTTP / gRPC (Tier 2) — альтернативные транспорты через CDN
 - SOCKS5 + HTTP прокси с TLS — доступ без VPN-клиента
+- MTProxy (mtg v2, Fake TLS) — встроенный Telegram-прокси, порт 2053
 - Per-user external proxy — индивидуальные цепочки прокси для пользователей
 - Let's Encrypt — автоматическое обновление сертификатов
 
@@ -18,18 +19,28 @@ VLESS + Reality — самодостаточный VPN-сервер с защи�
 ```
 Client
   │
-  ├─ TCP:443 ──► familytraffic (ssl_preread SNI)
-  │                 ├─ Reality clients  ──► 127.0.0.1:8443  (VLESS Reality)
-  │                 └─ Tier 2 subdomains ─► port 8448 (http block)
-  │                                           ├─► 127.0.0.1:8444 (WebSocket)
-  │                                           ├─► 127.0.0.1:8445 (XHTTP)
-  │                                           └─► 127.0.0.1:8446 (gRPC)
+  ├─ TCP:443  ──► familytraffic (ssl_preread SNI)
+  │                  ├─ Reality clients   ──► 127.0.0.1:8443  (VLESS Reality)
+  │                  └─ Tier 2 subdomains ──► port 8448 (http block)
+  │                                             ├─► 127.0.0.1:8444 (WebSocket)
+  │                                             ├─► 127.0.0.1:8445 (XHTTP)
+  │                                             └─► 127.0.0.1:8446 (gRPC)
   │
-  ├─ TCP:1080 ─► familytraffic (TLS termination) ──► 127.0.0.1:10800 (SOCKS5)
-  └─ TCP:8118 ─► familytraffic (TLS termination) ──► 127.0.0.1:18118 (HTTP proxy)
+  ├─ TCP:1080 ──► familytraffic (TLS termination) ──► 127.0.0.1:10800 (SOCKS5)
+  ├─ TCP:8118 ──► familytraffic (TLS termination) ──► 127.0.0.1:18118 (HTTP proxy)
+  │
+  ├─ TCP:2053 ──► familytraffic / mtg v2 (Fake TLS) ──► Telegram DCs  [MTProxy]
+  └─ TCP:4443 ──► familytraffic / nginx (LE-cert, cloak) ──► реальный HTTPS [active probing protection]
 ```
 
-**Контейнер:** `familytraffic` (единый контейнер: nginx + xray + certbot + supervisord)
+**Контейнер:** `familytraffic` — единый, supervisord управляет процессами:
+
+| Процесс | Приоритет | Описание |
+|---|---|---|
+| xray | 1 | VLESS Reality, Tier 2, SOCKS5, HTTP proxy |
+| nginx | 2 | SNI routing (443), TLS termination, cloak-port (4443) |
+| certbot-cron | 3 | Авторенew Let's Encrypt каждые 12 часов |
+| mtg | 4 | MTProxy (Fake TLS, порт 2053) — `autostart=false`, включается командой `mtproxy setup` |
 
 ---
 
@@ -106,52 +117,45 @@ familytraffic test-security [--quick]            Тесты безопаснос
 
 ### MTProxy (Telegram proxy)
 
-MTProxy — встроенный Telegram-прокси на основе mtg v2 (Fake TLS, порт 2053).
-Работает как supervisord-процесс внутри контейнера `familytraffic`. Защита от
-active probing: nginx на порту 4443 возвращает легитимный HTTPS (cloak-port).
+Встроенный Telegram-прокси на базе [mtg v2](https://github.com/9seconds/mtg) (Fake TLS).
+По умолчанию отключён (`autostart=false`), включается командой `mtproxy setup`.
 
-#### Быстрый старт
+**Защита от active probing:** nginx на порту 4443 обслуживает легитимный HTTPS с LE-сертификатом — сканеры видят обычный сайт, а не прокси.
+
+#### Первый запуск
 
 ```
-sudo mtproxy setup                                  Настроить MTProxy
-sudo mtproxy setup --domain proxy.example.com       С явным доменом (Fake TLS)
+sudo mtproxy setup                             Настроить и включить MTProxy (Fake TLS)
+sudo mtproxy setup --domain proxy.example.com  С явным доменом для TLS-маскировки
 ```
 
 #### Секреты
 
 ```
-sudo mtproxy add-secret                             Добавить ee-секрет (Fake TLS, рекомендовано)
-sudo mtproxy add-secret --type ee --domain ...      С явным типом и доменом
-sudo mtproxy list-secrets                           Список всех секретов
-sudo mtproxy remove-secret <SECRET_OR_USER>         Удалить секрет
+sudo mtproxy add-secret                        Добавить ee-секрет (Fake TLS, рекомендуется)
+sudo mtproxy list-secrets                      Список секретов
+sudo mtproxy remove-secret <SECRET>            Удалить секрет
 ```
 
-#### Управление процессом
+#### Управление
 
 ```
-sudo mtproxy start                                  Запустить mtg
-sudo mtproxy stop                                   Остановить mtg
-sudo mtproxy restart                                Перезапустить mtg
-sudo mtproxy status                                 Статус MTProxy
-sudo mtproxy logs [--tail N] [--follow]             Логи mtg
-sudo mtproxy disable                                Отключить MTProxy + UFW + nginx
+sudo mtproxy status                            Статус (supervisorctl status mtg)
+sudo mtproxy start                             Запустить mtg
+sudo mtproxy stop                              Остановить mtg
+sudo mtproxy restart                           Перезапустить mtg
+sudo mtproxy logs [--tail N] [--follow]        Логи mtg
+sudo mtproxy disable                           Отключить MTProxy + закрыть UFW + убрать nginx
 ```
 
 #### Конфигурация клиента
 
 ```
-sudo mtproxy show-config <username>                 Deep link + параметры подключения
-sudo mtproxy generate-qr <username>                 QR-код для Telegram
+sudo mtproxy show-config <username>            Deep link + параметры подключения
+sudo mtproxy generate-qr <username>            QR-код для Telegram
 ```
 
-#### Архитектура MTProxy
-
-```
-Telegram → TCP:2053 → mtg v2 (Fake TLS) → Telegram DCs
-Сканер   → TCP:4443 → nginx (LE-сертификат + реальный HTML, cloak-port)
-```
-
-> Порт 4443 — только loopback, никогда не открывать в UFW.
+> **Порт 4443 (cloak-port)** слушает только на loopback — никогда не открывать в UFW.
 
 ---
 
