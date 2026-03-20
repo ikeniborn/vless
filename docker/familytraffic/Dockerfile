@@ -34,7 +34,7 @@ ARG MTG_ARCH
 RUN apk add --no-cache curl && \
     curl -fL \
     "https://github.com/9seconds/mtg/releases/download/v${MTG_VERSION}/mtg-${MTG_VERSION}-linux-${MTG_ARCH}.tar.gz" \
-    | tar -xz -C /tmp && \
+    | tar -xz --strip-components=1 -C /tmp && \
     install -m 755 /tmp/mtg /usr/bin/mtg
 
 # =============================================================================
