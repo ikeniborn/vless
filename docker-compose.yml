@@ -3,7 +3,7 @@
 #
 # Dynamic values come from /opt/familytraffic/.env:
 #   GHCR_IMAGE   — e.g. ghcr.io/owner/familytraffic  (set during install)
-#   VERSION      — image tag: test | sha-abc1234 | latest (updated by CI/CD)
+#   FT_IMAGE_TAG — image tag: test | sha-abc1234 | latest (updated by CI/CD)
 #   DOMAIN       — your domain name                   (set during install)
 #
 # This file is synced to /opt/familytraffic/docker-compose.yml by CI/CD (rsync).
@@ -20,7 +20,7 @@ services:
   # network_mode: host — all processes share host network stack
   # ==========================================================================
   familytraffic:
-    image: ${GHCR_IMAGE:-ghcr.io/OWNER/familytraffic}:${VERSION:-latest}
+    image: ${GHCR_IMAGE:-ghcr.io/OWNER/familytraffic}:${FT_IMAGE_TAG:-latest}
     container_name: familytraffic
     network_mode: host
     restart: unless-stopped

@@ -53,22 +53,17 @@ detect_os() {
 
     # Parse os-release using grep/cut to avoid readonly variable conflicts
     # (sourcing /etc/os-release in a subshell that inherits readonly vars like VERSION fails)
-    local os_name os_version_id os_version_codename os_id
-    os_name=$(grep "^NAME=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
-    os_version_id=$(grep "^VERSION_ID=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
-    os_version_codename=$(grep "^VERSION_CODENAME=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
-    os_id=$(grep "^ID=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
-    local os_info="${os_name}|${os_version_id}|${os_version_codename}|${os_id}"
+    OS_NAME=$(grep "^NAME=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
+    OS_VERSION=$(grep "^VERSION_ID=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
+    OS_VERSION_CODENAME=$(grep "^VERSION_CODENAME=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
+    OS_ID=$(grep "^ID=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
 
     # Check if we got valid output
-    if [[ -z "${os_name}" ]] && [[ -z "${os_version_id}" ]] && [[ -z "${os_id}" ]]; then
+    if [[ -z "${OS_NAME}" ]] && [[ -z "${OS_VERSION}" ]] && [[ -z "${OS_ID}" ]]; then
         echo -e "${RED}ERROR: Failed to parse ${os_release_file}${NC}" >&2
         echo -e "${RED}File may be malformed or empty${NC}" >&2
         return 1
     fi
-
-    # Split the output into variables
-    IFS='|' read -r OS_NAME OS_VERSION OS_VERSION_CODENAME OS_ID <<< "${os_info}"
 
     # Validate that we got all required fields
     if [[ -z "${OS_NAME}" ]] || [[ -z "${OS_VERSION}" ]] || [[ -z "${OS_ID}" ]]; then
