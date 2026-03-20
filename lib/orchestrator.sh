@@ -50,6 +50,7 @@ SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Installation paths
 readonly INSTALL_ROOT="/opt/familytraffic"
+readonly VLESS_DIR="${INSTALL_ROOT}"
 readonly CONFIG_DIR="${INSTALL_ROOT}/config"
 readonly DATA_DIR="${INSTALL_ROOT}/data"
 readonly LOGS_DIR="${INSTALL_ROOT}/logs"
