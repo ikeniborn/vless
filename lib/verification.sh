@@ -170,8 +170,8 @@ verify_directory_structure() {
         "$VLESS_HOME/docker-compose.yml"
         "$VLESS_HOME/.env"
         "$VLESS_HOME/config/xray_config.json"
+        "$VLESS_HOME/config/nginx/nginx.conf"
         "$VLESS_HOME/data/users.json"
-        "$VLESS_HOME/fake-site/default.conf"
         "$VLESS_HOME/keys/private.key"
         "$VLESS_HOME/keys/public.key"
     )
@@ -272,35 +272,18 @@ verify_file_permissions() {
 # ============================================================================
 
 verify_docker_network() {
-    log_info "Verification 3/8: Checking Docker network..."
+    log_info "Verification 3/8: Checking Docker network mode..."
 
-    # Check if network exists
-    if ! docker network inspect familytraffic_reality_net &>/dev/null; then
-        log_error "Docker network 'familytraffic_reality_net' does not exist"
-        echo ""
-        return 1
-    fi
+    # v5.33: single container uses network_mode: host (no bridge network needed)
+    local net_mode
+    net_mode=$(docker inspect familytraffic -f '{{.HostConfig.NetworkMode}}' 2>/dev/null || echo "")
 
-    # Verify network configuration
-    local subnet=$(docker network inspect familytraffic_reality_net -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || echo "")
-    local driver=$(docker network inspect familytraffic_reality_net -f '{{.Driver}}' 2>/dev/null || echo "")
-
-    if [[ -z "$subnet" ]]; then
-        log_error "Could not determine network subnet"
+    if [[ "$net_mode" == "host" ]]; then
+        log_success "Container 'familytraffic' uses network_mode: host (v5.33 architecture)"
+    elif [[ -z "$net_mode" ]]; then
+        log_error "Container 'familytraffic' not found or not running"
     else
-        log_success "Network subnet: $subnet"
-    fi
-
-    if [[ "$driver" != "bridge" ]]; then
-        log_error "Network driver is '$driver' (expected 'bridge')"
-    else
-        log_success "Network driver: bridge"
-    fi
-
-    # Verify network is isolated
-    local network_id=$(docker network inspect familytraffic_reality_net -f '{{.Id}}' 2>/dev/null | cut -c1-12)
-    if [[ -n "$network_id" ]]; then
-        log_success "Network ID: $network_id"
+        log_error "Container 'familytraffic' unexpected network mode: $net_mode (expected: host)"
     fi
 
     echo ""
@@ -367,21 +350,6 @@ verify_containers() {
         log_error "Container 'familytraffic' not found"
     else
         log_error "Container 'familytraffic' exists but status is: $nginx_status"
-    fi
-
-    # Check if containers are on the correct network
-    local xray_networks=$(docker inspect familytraffic -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
-    if [[ "$xray_networks" =~ familytraffic_reality_net ]]; then
-        log_success "Container 'familytraffic' is connected to familytraffic_reality_net"
-    else
-        log_error "Container 'familytraffic' is not connected to familytraffic_reality_net (networks: $xray_networks)"
-    fi
-
-    local nginx_networks=$(docker inspect familytraffic -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "")
-    if [[ "$nginx_networks" =~ familytraffic_reality_net ]]; then
-        log_success "Container 'familytraffic' is connected to familytraffic_reality_net"
-    else
-        log_error "Container 'familytraffic' is not connected to familytraffic_reality_net (networks: $nginx_networks)"
     fi
 
     # Check restart policy
