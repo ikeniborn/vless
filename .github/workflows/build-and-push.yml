@@ -83,6 +83,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=test
+            type=raw,value=latest
             type=sha,prefix=sha-,format=short
             type=raw,value=${{ steps.version.outputs.version }}
 
