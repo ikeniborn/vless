@@ -316,6 +316,7 @@ create_directory_structure() {
     # Create subdirectories
     local directories=(
         "${CONFIG_DIR}"
+        "${CONFIG_DIR}/nginx"
         "${CONFIG_DIR}/supervisord.d"
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
