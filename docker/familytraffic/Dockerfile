@@ -53,6 +53,7 @@ RUN apk add --no-cache \
     iproute2 \
     netcat-openbsd \
     && mkdir -p /etc/familytraffic \
+    && mkdir -p /var/log/xray \
     && mkdir -p /var/www/html/.well-known/acme-challenge
 
 # Copy xray binary from Stage 1

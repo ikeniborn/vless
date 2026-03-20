@@ -116,7 +116,6 @@ fi)
         ssl_certificate     ${cert_path}/fullchain.pem;
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
-        ssl_ciphers         TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384;
         proxy_pass          127.0.0.1:10800;
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
@@ -131,7 +130,6 @@ fi)
         ssl_certificate     ${cert_path}/fullchain.pem;
         ssl_certificate_key ${cert_path}/privkey.pem;
         ssl_protocols       TLSv1.3;
-        ssl_ciphers         TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384;
         proxy_pass          127.0.0.1:18118;
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
