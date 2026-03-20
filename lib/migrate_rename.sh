@@ -1,10 +1,10 @@
 #!/bin/bash
 # lib/migrate_rename.sh
-# Migration script: /opt/familytraffic → /opt/familytraffic (project rename v5.33)
+# Migration script: /opt/vless → /opt/familytraffic (project rename v5.33)
 # Part of familyTraffic VPN v5.33
 #
 # Handles upgrade path from old vless installations:
-#   - Moves /opt/familytraffic/ → /opt/familytraffic/ (atomic mv + backwards-compat symlink)
+#   - Moves /opt/vless/ → /opt/familytraffic/ (atomic mv + backwards-compat symlink)
 #
 # WARN-7 fix: uses mv (atomic on same filesystem) instead of cp -a + rm -rf
 # Usage: source lib/migrate_rename.sh  (or execute directly)
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 # Literal old/new paths — must NOT be substituted by rename sed passes
-OLD_INSTALL="/opt/familytraffic"
+OLD_INSTALL="/opt/vless"
 NEW_INSTALL="/opt/familytraffic"
 
 migrate_rename() {

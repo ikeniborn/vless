@@ -50,8 +50,8 @@ readonly FT_VERSION="5.33.0"
 # GHCR_IMAGE: auto-detected from git remote URL, can be overridden via environment
 GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/$(git config --get remote.origin.url 2>/dev/null | sed 's|.*github.com[:/]\(.*\)\.git|\1|; s|.*github.com[:/]\(.*\)|\1|' | cut -d/ -f1)/familytraffic}"
 readonly GHCR_IMAGE
-VERSION="${VERSION:-latest}"
-readonly VERSION
+FT_IMAGE_TAG="${FT_IMAGE_TAG:-latest}"
+readonly FT_IMAGE_TAG
 
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

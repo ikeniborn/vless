@@ -79,7 +79,7 @@ if [[ -z "${GHCR_IMAGE:-}" ]]; then
         echo "[WARN] GHCR_IMAGE not set and git remote not found. Set GHCR_IMAGE env var before install." >&2
     fi
 fi
-[[ -z "${VERSION:-}" ]] && VERSION="latest"
+[[ -z "${FT_IMAGE_TAG:-}" ]] && FT_IMAGE_TAG="latest"
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
@@ -1191,7 +1191,7 @@ EMAIL=${EMAIL:-}
 
 # Container Image Configuration (v5.33 familyTraffic)
 GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/OWNER/familytraffic}
-VERSION=${VERSION:-latest}
+FT_IMAGE_TAG=${FT_IMAGE_TAG:-latest}
 ACME_EMAIL=${EMAIL:-}
 EOF
 
