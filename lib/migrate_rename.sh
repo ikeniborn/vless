@@ -28,10 +28,11 @@ migrate_rename() {
     elif [ -L "${OLD_INSTALL}" ]; then
         echo "  [migrate] ${OLD_INSTALL} is already a symlink — migration previously completed"
 
-    # Case 3: both exist as real directories → skip, warn
+    # Case 3: both exist as real directories → skip, warn with remediation hint
     elif [ -d "${OLD_INSTALL}" ] && [ -d "${NEW_INSTALL}" ]; then
         echo "  [migrate] WARNING: Both ${OLD_INSTALL} and ${NEW_INSTALL} exist as directories" >&2
-        echo "  [migrate] Skipping automatic migration — review manually" >&2
+        echo "  [migrate] Skipping automatic migration — remove the old directory to continue:" >&2
+        echo "  [migrate]   sudo rm -rf ${OLD_INSTALL}" >&2
 
     # Case 4: neither exists → fresh install, nothing to migrate
     else
