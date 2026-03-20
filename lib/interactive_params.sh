@@ -1192,14 +1192,13 @@ prompt_dns_selection() {
         if [[ -z "$choice" ]]; then
             echo ""
             echo -e "${CYAN}Auto-selecting top 3 fastest DNS servers...${NC}"
-            local count=0
-            for i in "${!menu_options[@]}"; do
-                if [[ $count -lt 3 ]]; then
-                    selected_ips+=("${menu_options[$i]}")
-                    selected_names+=("${menu_names[$i]}")
-                    selected_times+=("${menu_times[$i]}")
-                    ((count++))
-                fi
+            # Iterate by numeric key 1..3 — associative array keys are unordered,
+            # so "${!menu_options[@]}" would give arbitrary (non-sorted) results
+            for i in 1 2 3; do
+                [[ -n "${menu_options[$i]:-}" ]] || break
+                selected_ips+=("${menu_options[$i]}")
+                selected_names+=("${menu_names[$i]}")
+                selected_times+=("${menu_times[$i]}")
             done
             break
         fi
