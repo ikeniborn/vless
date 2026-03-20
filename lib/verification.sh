@@ -15,7 +15,7 @@
 #   1. verify_installation()       - Main verification orchestrator
 #   2. verify_directory_structure() - Check /opt/familytraffic filesystem
 #   3. verify_file_permissions()   - Validate security permissions
-#   4. verify_docker_network()     - Check Docker bridge network
+#   4. verify_network_mode()     - Check Docker bridge network
 #   5. verify_containers()         - Health check containers
 #   6. verify_xray_config()        - Validate Xray configuration
 #   7. verify_ufw_rules()          - Check firewall rules
@@ -105,8 +105,8 @@ verify_installation() {
     # Run all verification checks
     verify_directory_structure
     verify_file_permissions
-    verify_docker_network
     verify_containers
+    verify_network_mode
     verify_xray_config
     test_xray_config
     validate_mandatory_tls
@@ -271,8 +271,8 @@ verify_file_permissions() {
 # Check 3: Docker Network
 # ============================================================================
 
-verify_docker_network() {
-    log_info "Verification 3/8: Checking Docker network mode..."
+verify_network_mode() {
+    log_info "Verification 4/8: Checking Docker network mode..."
 
     # v5.33: single container uses network_mode: host (no bridge network needed)
     local net_mode
@@ -294,7 +294,7 @@ verify_docker_network() {
 # ============================================================================
 
 verify_containers() {
-    log_info "Verification 4/8: Checking container health..."
+    log_info "Verification 3/8: Checking container health..."
 
     # Check xray container using docker inspect (more reliable)
     local xray_status=$(docker inspect familytraffic -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
@@ -859,7 +859,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f verify_installation
     export -f verify_directory_structure
     export -f verify_file_permissions
-    export -f verify_docker_network
+    export -f verify_network_mode
     export -f verify_containers
     export -f verify_xray_config
     export -f verify_ufw_rules
