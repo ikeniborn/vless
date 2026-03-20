@@ -1616,6 +1616,14 @@ install_cli_tools() {
 set_permissions() {
     echo -e "${CYAN}[11/14] Setting file permissions...${NC}"
 
+    # Ensure INSTALL_ROOT and all subdirectories are owned by root
+    # (directory may have been pre-created by a non-root CI/CD step or SSH user)
+    chown -R root:root "${INSTALL_ROOT}" 2>/dev/null || {
+        echo -e "${RED}Failed to set ownership of ${INSTALL_ROOT} to root${NC}" >&2
+        return 1
+    }
+    echo "  ✓ Ownership: ${INSTALL_ROOT} → root:root"
+
     # Sensitive directories: 700 (root only)
     # EXCEPTION: CONFIG_DIR must be 755 to allow container users to read files inside
     # Set permissions on each directory individually to ensure all exist
