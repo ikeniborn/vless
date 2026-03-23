@@ -725,7 +725,7 @@ cleanup_old_installation() {
         echo ""
     fi
 
-    if [[ "$confirmation" != "yes" ]]; then
+    if [[ "$confirmation" != "yes" ]] && [[ "$confirmation" != "y" ]]; then
         echo -e "${CYAN}Cleanup cancelled by user${NC}"
         return 1
     fi
@@ -955,7 +955,7 @@ restore_from_backup() {
         echo ""
     fi
 
-    if [[ "$confirmation" != "yes" ]]; then
+    if [[ "$confirmation" != "yes" ]] && [[ "$confirmation" != "y" ]]; then
         echo -e "${CYAN}Restoration cancelled by user${NC}"
         return 1
     fi

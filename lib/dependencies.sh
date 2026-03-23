@@ -787,7 +787,7 @@ install_dependencies() {
                         continue
                     fi
 
-                    if [[ "${confirm,,}" != "yes" ]]; then
+                    if [[ "${confirm,,}" != "yes" ]] && [[ "${confirm,,}" != "y" ]]; then
                         echo -e "${YELLOW}Force kill cancelled${NC}"
                         continue
                     fi
