@@ -848,6 +848,11 @@ bind-to = "0.0.0.0:${MTPROXY_PORT}"
 # NOTE: prefer-ip must be at top level, NOT under [network].
 prefer-ip = "prefer-ipv4"
 
+# Accept connections from clients whose clock differs from server clock.
+# Default 5s is too strict; 3m covers typical Telegram retry cycles and
+# environments where the server NTP port (UDP 123) is blocked by the ISP.
+tolerate-time-skewness = "3m"
+
 [network]
   # Use plain UDP DNS instead of DoH (requires mtg >= 2.1.12).
   # DoH in older versions may fail to parse responses in some environments.
