@@ -342,7 +342,7 @@ mtproxy_status() {
     fi
 
     local supervisord_status
-    supervisord_status=$(docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confstatus mtg 2>/dev/null || true)
+    supervisord_status=$(docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf status mtg 2>/dev/null || true)
 
     if echo "$supervisord_status" | grep -q "RUNNING"; then
         echo -e "${GREEN}Status:${NC} RUNNING"
@@ -406,7 +406,7 @@ mtproxy_is_installed() {
 #   if mtproxy_is_running; then echo "Running"; fi
 # ============================================================================
 mtproxy_is_running() {
-    docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confstatus mtg 2>/dev/null | grep -q "RUNNING"
+    docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf status mtg 2>/dev/null | grep -q "RUNNING"
 }
 
 # ============================================================================
@@ -875,7 +875,7 @@ TOML
 mtg_supervisord_start() {
     mtproxy_log_info "Starting mtg via supervisorctl..."
 
-    if ! docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confstart mtg 2>/dev/null; then
+    if ! docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf start mtg 2>/dev/null; then
         mtproxy_log_error "Failed to start mtg via supervisorctl in ${FAMILYTRAFFIC_CONTAINER}"
         return 1
     fi
@@ -894,7 +894,7 @@ mtg_supervisord_start() {
 mtg_supervisord_stop() {
     mtproxy_log_info "Stopping mtg via supervisorctl..."
 
-    if ! docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confstop mtg 2>/dev/null; then
+    if ! docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf stop mtg 2>/dev/null; then
         mtproxy_log_error "Failed to stop mtg via supervisorctl in ${FAMILYTRAFFIC_CONTAINER}"
         return 1
     fi
@@ -913,7 +913,7 @@ mtg_supervisord_stop() {
 mtg_supervisord_restart() {
     mtproxy_log_info "Restarting mtg via supervisorctl..."
 
-    if ! docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confrestart mtg 2>/dev/null; then
+    if ! docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf restart mtg 2>/dev/null; then
         mtproxy_log_error "Failed to restart mtg via supervisorctl in ${FAMILYTRAFFIC_CONTAINER}"
         return 1
     fi
@@ -930,7 +930,7 @@ mtg_supervisord_restart() {
 # Returns: 0 on success, 1 on failure
 # ============================================================================
 mtg_supervisord_status() {
-    docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confstatus mtg 2>/dev/null
+    docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf status mtg 2>/dev/null
 }
 
 # ============================================================================
@@ -970,8 +970,8 @@ EOF
 
     # Notify running supervisord: reread detects new conf, update starts mtg (autostart=true)
     if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confreread 2>/dev/null || true
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confupdate 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf reread 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf update 2>/dev/null || true
     fi
 
     mtproxy_log_success "mtg enabled (autostart=true on container restarts)"
@@ -992,7 +992,7 @@ mtg_supervisord_disable_config() {
 
     # Stop running mtg first
     if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confstop mtg 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf stop mtg 2>/dev/null || true
     fi
 
     # Remove autostart config BEFORE reread so supervisord sees the file is gone
@@ -1005,8 +1005,8 @@ mtg_supervisord_disable_config() {
 
     # Notify running supervisord that mtg program is no longer configured
     if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confreread 2>/dev/null || true
-        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.confupdate 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf reread 2>/dev/null || true
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf update 2>/dev/null || true
     fi
 
     return 0
