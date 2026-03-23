@@ -84,7 +84,7 @@ The `secret` field encodes both the FakeTLS domain and the authentication secret
 
 **Show current link:**
 ```bash
-sudo familytraffic-mtproxy show-link
+sudo familytraffic-mtproxy show-config
 ```
 
 ---
@@ -98,15 +98,19 @@ sudo familytraffic-mtproxy setup
 # Show status
 sudo familytraffic-mtproxy status
 
-# Show connection link
-sudo familytraffic-mtproxy show-link
+# List secrets (shows active secret and deep link format)
+sudo familytraffic-mtproxy list-secrets
 
 # View logs
-sudo familytraffic-mtproxy logs
+sudo familytraffic-mtproxy logs [--tail N] [--follow]
 
 # Reload (after TOML changes)
 docker exec familytraffic supervisorctl restart mtg
 ```
+
+> **Note:** `show-config <username>` and `generate-qr <username>` are v6.1 commands
+> for planned per-user multi-secret support. They currently fail because per-user
+> secrets are not stored in `users.json`. All users share one secret (from `mtg.toml`).
 
 ---
 

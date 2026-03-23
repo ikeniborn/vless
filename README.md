@@ -154,10 +154,15 @@ sudo familytraffic-mtproxy disable                           Отключить 
 
 #### Конфигурация клиента
 
+В текущей реализации все пользователи используют **один общий секрет**. Ссылка для подключения показывается при `add-secret` или в `list-secrets`:
+
 ```
-sudo familytraffic-mtproxy show-config <username>            Deep link + параметры подключения
-sudo familytraffic-mtproxy generate-qr <username>            QR-код для Telegram
+sudo familytraffic-mtproxy list-secrets                      Список секретов (type/secret/domain)
 ```
+
+Ссылка формата: `tg://proxy?server=<IP>&port=2053&secret=<SECRET>`
+
+> `show-config <username>` и `generate-qr <username>` — команды для будущей поддержки нескольких пользователей (v6.1), пока не работают.
 
 > **Порт 4443 (cloak-port)** слушает только на loopback — никогда не открывать в UFW.
 
