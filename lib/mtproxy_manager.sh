@@ -843,10 +843,15 @@ secret = "${secret}"
 
 bind-to = "0.0.0.0:${MTPROXY_PORT}"
 
+# Force IPv4 — servers without global IPv6 connectivity fail to reach
+# the fake-TLS domain via IPv6 (mtg v2 defaults to prefer-ipv6).
+# NOTE: prefer-ip must be at top level, NOT under [network].
+prefer-ip = "prefer-ipv4"
+
 [network]
-  # Force IPv4 — servers without global IPv6 connectivity will fail to reach
-  # the fake-TLS domain via IPv6 (mtg v2 defaults to prefer-ipv6).
-  prefer-ip = "prefer-ipv4"
+  # Use plain UDP DNS instead of DoH (requires mtg >= 2.1.12).
+  # DoH in older versions may fail to parse responses in some environments.
+  dns = "udp://8.8.8.8"
 
 [network.timeout]
   tcp = "5s"

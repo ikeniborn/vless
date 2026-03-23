@@ -17,7 +17,7 @@
 # All FROM-referenced ARGs must be declared before the first FROM.
 ARG XRAY_IMAGE=teddysun/xray:24.11.30
 ARG NGINX_IMAGE=nginx:1.27-alpine
-ARG MTG_VERSION=2.1.7
+ARG MTG_VERSION=2.2.3
 ARG MTG_ARCH=amd64
 
 # =============================================================================
