@@ -841,7 +841,7 @@ open_port_80_for_acme() {
         echo ""
         read -p "Continue anyway and try to open port 80? (yes/no): " confirm
 
-        if [[ "$confirm" != "yes" ]]; then
+        if [[ "$confirm" != "yes" ]] && [[ "$confirm" != "y" ]]; then
             log_info "Aborted by user"
             return 1
         fi
