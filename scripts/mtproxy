@@ -209,18 +209,21 @@ _regen_nginx() {
 # ============================================================================
 cmd_setup() {
     local domain=""
+    local domain_explicit=false  # true when --fake-domain was passed explicitly
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --fake-domain)
                 domain="$2"
+                domain_explicit=true
                 shift 2
                 ;;
             --domain)
                 # Deprecated alias for --fake-domain
                 log_warning "--domain is deprecated, use --fake-domain"
                 domain="$2"
+                domain_explicit=true
                 shift 2
                 ;;
             *)
@@ -262,14 +265,37 @@ cmd_setup() {
         return 1
     fi
 
-    # Check secrets.json has an ee-secret
-    if [[ ! -f "${MTPROXY_SECRETS_JSON}" ]] || \
-       ! jq -e '.secrets[] | select(.type == "ee" or (.secret | startswith("ee")))' \
-           "${MTPROXY_SECRETS_JSON}" &>/dev/null; then
+    # Decide whether to (re)generate the ee-secret:
+    #   - always regenerate when --fake-domain was given explicitly (domain changed)
+    #   - generate only if no ee-secret exists otherwise
+    local need_new_secret=false
+    if [[ "$domain_explicit" == "true" ]]; then
+        # Check if existing secret already encodes this exact domain
+        local existing_domain
+        existing_domain=$(jq -r \
+            '.secrets[] | select(.type == "ee" or (.secret | startswith("ee"))) | .domain' \
+            "${MTPROXY_SECRETS_JSON}" 2>/dev/null | head -1)
+        if [[ "$existing_domain" != "$domain" ]]; then
+            need_new_secret=true
+        fi
+    elif [[ ! -f "${MTPROXY_SECRETS_JSON}" ]] || \
+         ! jq -e '.secrets[] | select(.type == "ee" or (.secret | startswith("ee")))' \
+             "${MTPROXY_SECRETS_JSON}" &>/dev/null; then
+        need_new_secret=true
+    fi
+
+    if [[ "$need_new_secret" == "true" ]]; then
         echo ""
-        log_warning "No ee-type secret found in secrets.json"
-        log_info "Generating one automatically for domain: ${domain}"
+        log_info "Generating ee-secret for fake-TLS domain: ${domain}"
         echo ""
+
+        # Remove old ee-secrets so only the new one is active
+        if [[ -f "${MTPROXY_SECRETS_JSON}" ]]; then
+            local tmp_json
+            tmp_json=$(jq 'del(.secrets[] | select(.type == "ee" or (.secret | startswith("ee"))))' \
+                "${MTPROXY_SECRETS_JSON}" 2>/dev/null)
+            echo "$tmp_json" > "${MTPROXY_SECRETS_JSON}"
+        fi
 
         local new_secret
         if ! new_secret=$(generate_mtproxy_secret "ee" "$domain" 2>/dev/null); then

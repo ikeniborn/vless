@@ -972,6 +972,9 @@ EOF
     if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
         docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf reread 2>/dev/null || true
         docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf update 2>/dev/null || true
+        # Always restart mtg so it picks up the latest mtg.toml from disk.
+        # reread+update only starts stopped processes — a running mtg keeps the old config in memory.
+        docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl -c /etc/familytraffic/supervisord.conf restart mtg 2>/dev/null || true
     fi
 
     mtproxy_log_success "mtg enabled (autostart=true on container restarts)"
