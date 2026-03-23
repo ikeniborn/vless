@@ -427,16 +427,40 @@ list_secrets() {
         return 0
     fi
 
+    # Resolve server IP once for all deep links
+    local server_ip
+    server_ip=$(get_server_ip 2>/dev/null || echo "")
+    local port="${MTPROXY_PORT:-2053}"
+
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║              MTProxy Secrets Database                        ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    jq -r '.secrets[] | "Type: \(.type)\nSecret: \(.secret)\nUser: \(.username // "N/A")\nDomain: \(.domain // "N/A")\nCreated: \(.created_at)\n"' \
-        "${MTPROXY_SECRETS_JSON}"
+    local i secret secret_type username domain created_at deeplink
+    for (( i=0; i<count; i++ )); do
+        secret=$(jq -r ".secrets[${i}].secret"      "${MTPROXY_SECRETS_JSON}")
+        secret_type=$(jq -r ".secrets[${i}].type"   "${MTPROXY_SECRETS_JSON}")
+        username=$(jq -r ".secrets[${i}].username // \"\"" "${MTPROXY_SECRETS_JSON}")
+        domain=$(jq -r ".secrets[${i}].domain // \"\""     "${MTPROXY_SECRETS_JSON}")
+        created_at=$(jq -r ".secrets[${i}].created_at"     "${MTPROXY_SECRETS_JSON}")
 
-    echo -e "${BLUE}Total secrets: ${count}${NC}"
+        echo -e "${BLUE}#$((i+1))${NC}"
+        echo -e "  Type:    ${secret_type}"
+        echo -e "  Secret:  ${secret}"
+        [[ -n "$username" ]] && echo -e "  User:    ${username}"
+        [[ -n "$domain"   ]] && echo -e "  Domain:  ${domain} (fake-TLS)"
+        echo -e "  Created: ${created_at}"
+
+        if [[ -n "$server_ip" ]]; then
+            deeplink="tg://proxy?server=${server_ip}&port=${port}&secret=${secret}"
+            echo -e "  ${YELLOW}Link:${NC}    ${deeplink}"
+        fi
+        echo ""
+    done
+
+    echo -e "${BLUE}Total: ${count} secret(s)${NC}"
     return 0
 }
 
