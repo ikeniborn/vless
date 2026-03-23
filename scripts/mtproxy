@@ -250,8 +250,11 @@ cmd_setup() {
         return 1
     fi
 
-    # Ensure config dir exists
-    mkdir -p "${MTPROXY_CONFIG_DIR}"
+    # Ensure config dir and secrets.json are initialized
+    if ! mtproxy_init; then
+        log_error "Failed to initialize MTProxy directory structure"
+        return 1
+    fi
 
     # Check secrets.json has an ee-secret
     if [[ ! -f "${MTPROXY_SECRETS_JSON}" ]] || \
@@ -409,6 +412,12 @@ cmd_add_secret() {
                 ;;
         esac
     done
+
+    # Ensure config dir and secrets.json are initialized
+    if ! mtproxy_init; then
+        log_error "Failed to initialize MTProxy directory structure"
+        return 1
+    fi
 
     # Validate secret type
     if [[ ! "$secret_type" =~ ^(standard|dd|ee)$ ]]; then
