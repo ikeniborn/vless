@@ -289,7 +289,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # Twice daily renewal check (v5.33: deploy-hook sends SIGHUP to nginx via supervisorctl)
-0 0,12 * * * root certbot renew --quiet --deploy-hook "docker exec familytraffic supervisorctl signal SIGHUP nginx" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
+0 0,12 * * * root certbot renew --quiet --deploy-hook "docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf signal SIGHUP nginx" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
 EOF
 
     # Set correct permissions

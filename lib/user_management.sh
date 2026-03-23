@@ -782,15 +782,23 @@ reload_xray() {
 
     # v5.33 single-container: send SIGHUP to the xray process managed by supervisord.
     # This reloads only xray — nginx and certbot are not affected.
-    if docker exec "${XRAY_CONTAINER}" supervisorctl signal SIGHUP xray 2>/dev/null; then
+    local supervisord_conf="/etc/familytraffic/supervisord.conf"
+    if docker exec "${XRAY_CONTAINER}" supervisorctl -c "${supervisord_conf}" signal SIGHUP xray 2>/dev/null; then
         log_success "Xray configuration reloaded (SIGHUP via supervisorctl)"
         return 0
     fi
 
-    # Fallback: restart only the xray process inside the container (not the container itself)
+    # Fallback 1: restart only the xray process inside the container (not the container itself)
     log_warning "SIGHUP failed, restarting xray process via supervisorctl..."
-    if docker exec "${XRAY_CONTAINER}" supervisorctl restart xray 2>/dev/null; then
+    if docker exec "${XRAY_CONTAINER}" supervisorctl -c "${supervisord_conf}" restart xray 2>/dev/null; then
         log_success "Xray process restarted (supervisorctl)"
+        return 0
+    fi
+
+    # Fallback 2: send SIGHUP directly via pkill (no supervisord dependency)
+    log_warning "supervisorctl failed, sending SIGHUP directly to xray process..."
+    if docker exec "${XRAY_CONTAINER}" pkill -HUP -x xray 2>/dev/null; then
+        log_success "Xray configuration reloaded (SIGHUP via pkill)"
         return 0
     fi
 
@@ -1966,7 +1974,7 @@ migrate_xtls_vision() {
     log_warning "Use 'vless list-users' to regenerate QR codes/URIs for affected users"
 
     # Reload Xray to apply changes
-    docker exec familytraffic supervisorctl restart xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
+    docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf restart xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
 
     return 0
 }

@@ -646,8 +646,8 @@ reload_xray() {
     # Fallback for v5.33 single-container: restart only the xray process
     # inside the container via supervisorctl (nginx/certbot are not affected).
     if docker ps --format '{{.Names}}' | grep -q "^familytraffic$"; then
-        docker exec familytraffic supervisorctl signal SIGHUP xray 2>/dev/null && return 0
-        docker exec familytraffic supervisorctl restart xray 2>/dev/null
+        docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf signal SIGHUP xray 2>/dev/null && return 0
+        docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf restart xray 2>/dev/null
         return $?
     fi
     return 0
