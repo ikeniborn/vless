@@ -843,6 +843,11 @@ secret = "${secret}"
 
 bind-to = "0.0.0.0:${MTPROXY_PORT}"
 
+[network]
+  # Force IPv4 — servers without global IPv6 connectivity will fail to reach
+  # the fake-TLS domain via IPv6 (mtg v2 defaults to prefer-ipv6).
+  prefer-ip = "prefer-ipv4"
+
 [network.timeout]
   tcp = "5s"
 
