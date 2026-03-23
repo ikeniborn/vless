@@ -125,16 +125,20 @@ familytraffic test-security [--quick]            Тесты безопаснос
 #### Первый запуск
 
 ```
-sudo mtproxy setup                             Настроить и включить MTProxy (Fake TLS)
-sudo mtproxy setup --domain proxy.example.com  С явным доменом для TLS-маскировки
+sudo mtproxy setup                                    Настроить и включить MTProxy (Fake TLS)
+sudo mtproxy setup --fake-domain www.google.com       С явным fake-TLS доменом для маскировки
 ```
+
+> **`--fake-domain`** — это домен для маскировки трафика, а не домен вашего сервера. mtg притворяется, что устанавливает TLS-соединение с указанным сайтом. Лучше указывать популярный HTTPS-сайт, доступный без ограничений (`www.google.com`, `telegram.org`). Если не указан — используется домен сертификата сервера.
 
 #### Секреты
 
+Секрет типа `ee` содержит: `ee` + 32 hex (случайный ключ) + hex-кодировка fake-домена. Передаётся клиентам через deep link.
+
 ```
-sudo mtproxy add-secret                        Добавить ee-секрет (Fake TLS, рекомендуется)
-sudo mtproxy list-secrets                      Список секретов
-sudo mtproxy remove-secret <SECRET>            Удалить секрет
+sudo mtproxy add-secret --fake-domain www.google.com  Добавить ee-секрет с fake-TLS доменом
+sudo mtproxy list-secrets                             Список секретов
+sudo mtproxy remove-secret <SECRET>                   Удалить секрет
 ```
 
 #### Управление
