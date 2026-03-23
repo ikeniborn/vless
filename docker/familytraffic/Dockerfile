@@ -78,8 +78,6 @@ EXPOSE 443 1080 8118 2053
 
 # Fallback healthcheck — overridden by docker-compose.yml when run via compose
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=20s \
-    CMD pgrep -x xray > /dev/null \
-     && pgrep -x nginx > /dev/null \
-     && nc -z -w 3 127.0.0.1 8443
+    CMD nc -z -w 3 127.0.0.1 8443 && nc -z -w 3 127.0.0.1 443
 
 ENTRYPOINT ["/etc/familytraffic/entrypoint.sh"]
