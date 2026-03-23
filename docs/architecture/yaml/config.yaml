@@ -754,63 +754,75 @@ configurations:
     critical_note: "Missing rate limit zone definition causes Nginx crash loop"
 
   mtproxy_config:
-    path: "/opt/familytraffic/config/mtproxy/mtproxy_config.json"
-    format: "JSON"
-    purpose: "MTProxy server configuration (v6.0+)"
+    path: "/opt/familytraffic/config/mtproxy/mtg.toml"
+    format: "TOML"
+    purpose: "mtg v2 (nineseconds/mtg) configuration"
     critical: true
-    feature_version: "v6.0+ (planned)"
-    implementation_status: "PLANNED (not yet implemented)"
+    feature_version: "v5.33+"
+    implementation_status: "IMPLEMENTED"
     reload_method: "supervisorctl restart inside container (graceful)"
     reload_command: "docker exec familytraffic supervisorctl restart mtg"
     generator_module: "lib/mtproxy_manager.sh"
     generator_function: "generate_mtg_toml()"
 
     schema:
-      port:
-        type: "integer"
-        default: 8443
-        description: "Public port for MTProxy traffic"
-
-      workers:
-        type: "integer"
-        default: 2
-        description: "Number of worker processes"
-
-      stats_port:
-        type: "integer"
-        default: 8443
-        description: "Statistics endpoint port"
-
-      stats_path:
+      bind_to:
         type: "string"
-        default: "/stats"
-        description: "Statistics endpoint path"
+        default: "0.0.0.0:2053"
+        description: "Public listen address and port"
 
-      secrets_file:
+      secret:
         type: "string"
-        default: "/etc/mtproxy/proxy-secret"
-        description: "Path to secrets file"
+        format: "ee<38 hex chars> (FakeTLS) or dd<30 hex chars> (standard)"
+        description: "MTProxy authentication secret"
 
-      multi_conf_file:
+      prefer_ip:
         type: "string"
-        default: "/etc/mtproxy/proxy-multi.conf"
-        description: "Path to Telegram DC addresses file"
+        default: "prefer-ipv4"
+        description: "IP version preference (top-level, NOT under [network])"
+        note: "IPv4-only VPS must use prefer-ipv4; default prefer-ipv6 causes connection failures"
 
-    example_config:
-      port: 8443
-      workers: 2
-      stats_port: 8443
-      stats_path: "/stats"
-      secrets_file: "/etc/mtproxy/proxy-secret"
-      multi_conf_file: "/etc/mtproxy/proxy-multi.conf"
+      tolerate_time_skewness:
+        type: "string"
+        default: "3m"
+        description: "Max tolerated clock skew between client and server"
+        note: "Default 5s is too strict when ISP blocks UDP/123 (NTP)"
+
+      network_dns:
+        type: "string"
+        default: "udp://8.8.8.8"
+        section: "[network]"
+        description: "DNS resolver; UDP avoids HTTP/2 requirement of DoH (requires mtg >= 2.1.12)"
+
+      cloak_port:
+        type: "integer"
+        section: "[cloak]"
+        description: "Port to forward active-probing connections (Nginx on 443 with LE cert)"
+
+    example_config: |
+      debug = false
+      secret = "ee<38-hex-chars>"
+      bind-to = "0.0.0.0:2053"
+      prefer-ip = "prefer-ipv4"
+      tolerate-time-skewness = "3m"
+
+      [network]
+        dns = "udp://8.8.8.8"
+
+      [network.timeout]
+        tcp = "5s"
+
+      [cloak]
+        port = <nginx_cloak_port>
 
   mtproxy_secrets:
     path: "/opt/familytraffic/config/mtproxy/proxy-secret"
     format: "Plain text (one secret per line)"
-    purpose: "MTProxy authentication secrets"
+    purpose: "MTProxy authentication secrets (multi-user mode, v6.1+ future)"
     critical: true
-    feature_version: "v6.0+ (planned)"
-    implementation_status: "PLANNED (not yet implemented)"
+    feature_version: "v6.1+ (future enhancement)"
+    implementation_status: "NOT IMPLEMENTED (v5.33 uses single secret in mtg.toml)"
+    note: "v5.33 stores secret directly in mtg.toml; this file is for planned multi-user support"
 
     format_description:
       v6_0_single_user:
@@ -872,9 +884,10 @@ configurations:
   mtproxy_multi_conf:
     path: "/opt/familytraffic/config/mtproxy/proxy-multi.conf"
     format: "MTProxy multi.conf format"
-    purpose: "Telegram Data Center addresses"
-    critical: true
-    feature_version: "v6.0+ (planned)"
+    purpose: "Telegram Data Center addresses (official MTProxy binary only)"
+    critical: false
+    feature_version: "N/A"
+    implementation_status: "NOT USED — mtg v2 resolves Telegram DCs internally"
     source: "Official Telegram MTProxy repository"
     update_frequency: "Rarely (only when Telegram adds new DCs)"
 
@@ -1196,7 +1209,7 @@ references:
     - "lib/reverseproxy_db.sh::add_reverse_proxy_domain()"
     - "lib/user_management.sh::add_user_to_json()"
     - "lib/external_proxy_manager.sh::add_external_proxy()"
-    - "lib/mtproxy_manager.sh::generate_mtproxy_config() (v6.0+)"
+    - "lib/mtproxy_manager.sh::generate_mtg_toml() (v5.33+)"
 
 notes:
   - "All configuration changes use atomic writes (temp file → rename)"
@@ -1205,6 +1218,6 @@ notes:
   - "Graceful reloads preferred (HAProxy, Xray, Nginx) to minimize downtime"
   - "users.json is single source of truth for all user-related configs"
   - "external_proxy.json is optional (v5.24+ feature)"
-  - "MTProxy configs are planned (v6.0+), not yet implemented"
+  - "MTProxy (mtg v2.2.3) implemented in v5.33: single secret in mtg.toml, port 2053, FakeTLS"
   - "Rate limit zones MUST be in http_context.conf, not server blocks"
   - "Missing rate limit zone causes Nginx crash loop (common issue)"

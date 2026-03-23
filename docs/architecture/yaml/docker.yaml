@@ -1,10 +1,10 @@
 version: "1.0"
-documentation_version: "v5.26"
-last_updated: "2026-01-07"
+documentation_version: "v5.33"
+last_updated: "2026-03-23"
 
 project:
   name: "familyTraffic VPN"
-  version: "v5.26"
+  version: "v5.33"
   description: "Production-ready VPN with DPI-resistant Reality protocol, dual proxy support, and subdomain-based reverse proxy"
   target_scale: "10-50 concurrent users"
   deployment_platforms:
@@ -18,7 +18,7 @@ project:
     - "HAProxy 2.8+"
     - "Nginx"
     - "Certbot (Let's Encrypt)"
-    - "MTProxy (v6.0+ planned)"
+    - "MTProxy (mtg v2.2.3, via supervisord)"
 
 architecture_overview:
   container_count: 6
@@ -757,7 +757,7 @@ deployment_topology:
       - "443/tcp (HTTPS/TLS)"
       - "1080/tcp (SOCKS5)"
       - "8118/tcp (HTTP proxy)"
-      - "8443/tcp (MTProxy, v6.0+)"
+      - "2053/tcp (MTProxy / mtg v2)"
 
   docker_setup:
     compose_version: "v2+"
@@ -778,7 +778,7 @@ deployment_topology:
       - "User without external_proxy_id → Direct to internet"
       - "User with external_proxy_id → External SOCKS5/HTTPS proxy → Internet"
     mtproxy_flow:
-      - "Client → MTProxy:8443 (public) → Telegram DCs (v6.0+)"
+      - "Client → MTProxy:2053 (public, FakeTLS) → Telegram DCs"
 
 port_allocation:
   public_ports:
@@ -797,11 +797,11 @@ port_allocation:
       purpose: "HTTP proxy over TLS"
       binding: "0.0.0.0"
 
-    - port: 8443
-      service: "MTProxy"
-      purpose: "Telegram MTProxy traffic (v6.0+)"
+    - port: 2053
+      service: "MTProxy (mtg v2)"
+      purpose: "Telegram MTProxy traffic (FakeTLS, via mtg v2.2.3)"
       binding: "0.0.0.0"
-      note: "Different from Xray 8443 (which binds to 127.0.0.1)"
+      note: "mtg v2 runs inside familytraffic container via supervisord"
 
     - port: 80
       service: "Certbot Nginx / Nginx Reverse Proxy"
@@ -937,30 +937,31 @@ operational_notes:
     restore_procedure: "Documented in docs/prd/06_appendix.md"
 
 version_history:
-  current_version: "v5.26"
+  current_version: "v5.33"
   mtproxy_versions:
-    v6_0:
-      status: "PLANNED (implementation in progress)"
+    v5_33:
+      status: "IMPLEMENTED"
+      implementation: "mtg v2.2.3 (nineseconds/mtg) via supervisord inside familytraffic container"
+      public_port: 2053
       features:
-        - "MTProxy Docker container"
-        - "Single-user mode (basic secret management)"
-        - "fail2ban integration"
-        - "UFW firewall rules"
-        - "Basic statistics endpoint"
-        - "CLI commands (add-secret, list-secrets, stats)"
-      timeline: "ETA: +6 weeks from approval"
+        - "FakeTLS secret (ee-prefix, mirrors www.google.com TLS cert)"
+        - "UDP DNS via 8.8.8.8 (bypasses DoH, requires mtg >= 2.1.12)"
+        - "prefer-ipv4 for IPv4-only VPS environments"
+        - "tolerate-time-skewness = 3m (handles ISP-blocked UDP/123 NTP)"
+        - "CLI commands: familytraffic-mtproxy setup/status/logs/show-link"
+        - "Active probing protection via cloak port (Nginx TLS)"
+      config_file: "/opt/familytraffic/config/mtproxy/mtg.toml"
+      binary: "/usr/bin/mtg (v2.2.3)"
 
     v6_1:
       status: "FUTURE ENHANCEMENT"
       features:
         - "Multi-user support (up to 50 users)"
         - "Per-user unique secrets"
-        - "Fake-TLS support (ee prefix)"
         - "Promoted channel integration"
-        - "Advanced analytics (HAProxy logging)"
+        - "Advanced analytics"
         - "Per-user secret management"
-      timeline: "ETA: +9 weeks from approval"
-      dependencies: "Requires v6.0 base implementation"
+      dependencies: "Built on v5.33 mtg v2 base"
 
 references:
   documentation:
