@@ -1077,9 +1077,6 @@ detect_optimal_dns() {
         ["77.88.8.2"]="Yandex Safe (Secondary)"
         ["77.88.8.7"]="Yandex Family"
         ["77.88.8.3"]="Yandex Family (Secondary)"
-        # ISP DNS providers
-        ["194.67.2.114"]="Beeline"
-        ["194.67.1.154"]="Beeline (Secondary)"
     )
 
     # Add system DNS if available and not already in list
