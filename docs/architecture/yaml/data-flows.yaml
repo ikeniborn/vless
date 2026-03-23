@@ -1166,13 +1166,13 @@ mtproxy_data_flow:
 
   configuration_management:
     add_secret_v6_0:
-      command: "sudo mtproxy add-secret [--with-padding]"
+      command: "sudo familytraffic-mtproxy add-secret [--with-padding]"
       affected_files:
         - "/opt/familytraffic/config/mtproxy/proxy-secret (append secret)"
       service_restart: "docker exec familytraffic supervisorctl restart mtg (graceful)"
 
     add_user_v6_1:
-      command: "sudo mtproxy add-user <username> [--fake-tls <domain>]"
+      command: "sudo familytraffic-mtproxy add-user <username> [--fake-tls <domain>]"
       affected_files:
         - "/opt/familytraffic/data/users.json (add mtproxy_secret field)"
         - "/opt/familytraffic/config/mtproxy/proxy-secret (append user secret)"

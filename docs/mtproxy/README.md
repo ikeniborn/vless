@@ -144,35 +144,35 @@ sudo mtproxy-uninstall          # Complete removal
 
 **Secret Management (v6.0 - Single-user mode):**
 ```bash
-sudo mtproxy add-secret [--with-padding]
-sudo mtproxy list-secrets
-sudo mtproxy remove-secret <secret>
-sudo mtproxy regenerate-secret <old-secret>
-sudo mtproxy show-config [<secret>]
+sudo familytraffic-mtproxy add-secret [--with-padding]
+sudo familytraffic-mtproxy list-secrets
+sudo familytraffic-mtproxy remove-secret <secret>
+sudo familytraffic-mtproxy regenerate-secret <old-secret>
+sudo familytraffic-mtproxy show-config [<secret>]
 ```
 
 **Multi-User Support (v6.1 - Advanced):**
 ```bash
 # User-based secret management
-sudo mtproxy add-user <username> [--fake-tls <domain>]
-sudo mtproxy remove-user <username>
-sudo mtproxy list-users
-sudo mtproxy show-user-config <username>
+sudo familytraffic-mtproxy add-user <username> [--fake-tls <domain>]
+sudo familytraffic-mtproxy remove-user <username>
+sudo familytraffic-mtproxy list-users
+sudo familytraffic-mtproxy show-user-config <username>
 
 # Promoted channel integration
-sudo mtproxy set-promoted-channel <channel_id>
-sudo mtproxy remove-promoted-channel
+sudo familytraffic-mtproxy set-promoted-channel <channel_id>
+sudo familytraffic-mtproxy remove-promoted-channel
 ```
 
 **Configuration:**
 ```bash
-sudo mtproxy set-port <port>
-sudo mtproxy set-workers <count>
+sudo familytraffic-mtproxy set-port <port>
+sudo familytraffic-mtproxy set-workers <count>
 ```
 
 **Monitoring:**
 ```bash
-sudo mtproxy stats [--live]
+sudo familytraffic-mtproxy stats [--live]
 sudo familytraffic status                     # Shows MTProxy section
 ```
 

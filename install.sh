@@ -498,24 +498,24 @@ LOGROTATE_EOF
 
     if [[ "${enable_mtproxy,,}" == "yes" ]]; then
         print_message "${COLOR_BLUE}" "\nSetting up MTProxy..."
-        local mtproxy_cmd="/usr/local/sbin/mtproxy"
+        local mtproxy_cmd="/usr/local/sbin/familytraffic-mtproxy"
         if [[ ! -x "${mtproxy_cmd}" ]]; then
-            mtproxy_cmd="${INSTALL_ROOT}/scripts/mtproxy"
+            mtproxy_cmd="${INSTALL_ROOT}/scripts/familytraffic-mtproxy"
         fi
 
         if [[ -x "${mtproxy_cmd}" ]]; then
             if [[ -n "${DOMAIN:-}" ]]; then
                 "${mtproxy_cmd}" setup --domain "${DOMAIN}" || \
-                    print_warning "MTProxy setup failed — run 'sudo mtproxy setup' later"
+                    print_warning "MTProxy setup failed — run 'sudo familytraffic-mtproxy setup' later"
             else
                 "${mtproxy_cmd}" setup || \
-                    print_warning "MTProxy setup failed — run 'sudo mtproxy setup' later"
+                    print_warning "MTProxy setup failed — run 'sudo familytraffic-mtproxy setup' later"
             fi
         else
-            print_warning "mtproxy command not found — run 'sudo mtproxy setup' after installation"
+            print_warning "familytraffic-mtproxy command not found — run 'sudo familytraffic-mtproxy setup' after installation"
         fi
     else
-        print_message "${COLOR_YELLOW}" "MTProxy skipped — enable later with: sudo mtproxy setup"
+        print_message "${COLOR_YELLOW}" "MTProxy skipped — enable later with: sudo familytraffic-mtproxy setup"
     fi
 
     # Step 10: Display sudoers instructions

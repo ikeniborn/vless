@@ -8,7 +8,7 @@
 #
 # This file is synced to /opt/familytraffic/docker-compose.yml by CI/CD (rsync).
 # MTProxy (mtg v2) is integrated into the single familytraffic container via supervisord.
-# Enable MTProxy: sudo mtproxy setup
+# Enable MTProxy: sudo familytraffic-mtproxy setup
 #
 # Usage:
 #   cd /opt/familytraffic && docker compose pull && docker compose up -d
@@ -58,5 +58,5 @@ services:
       start_period: 20s
 
 # MTProxy is integrated into familytraffic container via supervisord (mtg v2).
-# Use: sudo mtproxy setup   — to enable MTProxy
-# Use: sudo mtproxy disable — to disable MTProxy
+# Use: sudo familytraffic-mtproxy setup   — to enable MTProxy
+# Use: sudo familytraffic-mtproxy disable — to disable MTProxy

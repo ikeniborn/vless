@@ -1072,7 +1072,7 @@ propagation_paths:
     frequency: "Every 60 days (automated)"
 
   mtproxy_add_user_flow:
-    trigger: "sudo mtproxy add-user <username>"
+    trigger: "sudo familytraffic-mtproxy add-user <username>"
     feature_version: "v6.1+ (future enhancement)"
     affected_files:
       - "/opt/familytraffic/data/users.json (add mtproxy_secret field)"

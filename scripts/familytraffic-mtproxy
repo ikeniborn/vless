@@ -21,15 +21,15 @@
 #   logs            - Show mtg logs from familytraffic container
 #
 # Usage:
-#   mtproxy <command> [options]
+#   familytraffic-mtproxy <command> [options]
 #
 # Examples:
-#   mtproxy setup
-#   mtproxy setup --fake-domain www.google.com
-#   mtproxy add-secret --type ee --fake-domain www.google.com
-#   mtproxy list-secrets
-#   mtproxy status
-#   mtproxy disable
+#   familytraffic-mtproxy setup
+#   familytraffic-mtproxy setup --fake-domain www.google.com
+#   familytraffic-mtproxy add-secret --type ee --fake-domain www.google.com
+#   familytraffic-mtproxy list-secrets
+#   familytraffic-mtproxy status
+#   familytraffic-mtproxy disable
 #
 # Author: familyTraffic Development Team
 # Date: 2025-11-08 / Updated: 2026-03-12
@@ -246,7 +246,7 @@ cmd_setup() {
 
     if [[ -z "$domain" ]]; then
         log_error "Cannot detect fake-TLS domain automatically"
-        log_error "Usage: mtproxy setup --fake-domain www.google.com"
+        log_error "Usage: familytraffic-mtproxy setup --fake-domain www.google.com"
         return 1
     fi
 
@@ -335,7 +335,7 @@ cmd_setup() {
     log_info "Step 4/5: Enabling mtg (autostart=true on container restarts)..."
     if ! mtg_supervisord_enable; then
         log_error "Failed to enable mtg"
-        log_info "Check logs: mtproxy logs"
+        log_info "Check logs: familytraffic-mtproxy logs"
         return 1
     fi
 
@@ -364,9 +364,9 @@ cmd_setup() {
     echo -e "${YELLOW}Active probing protection:${NC}"
     echo "  Port 4443 (nginx cloak) — internal only, do NOT open in UFW"
     echo ""
-    echo -e "${BLUE}To add more secrets:${NC} mtproxy add-secret --type ee --fake-domain ${domain}"
-    echo -e "${BLUE}To check status:${NC}     mtproxy status"
-    echo -e "${BLUE}To disable:${NC}          mtproxy disable"
+    echo -e "${BLUE}To add more secrets:${NC} familytraffic-mtproxy add-secret --type ee --fake-domain ${domain}"
+    echo -e "${BLUE}To check status:${NC}     familytraffic-mtproxy status"
+    echo -e "${BLUE}To disable:${NC}          familytraffic-mtproxy disable"
     echo ""
 
     return 0
@@ -409,7 +409,7 @@ cmd_disable() {
     log_success "MTProxy disabled"
     echo ""
     echo -e "${BLUE}Port 2053 is now closed.${NC}"
-    echo -e "${BLUE}To re-enable:${NC} mtproxy setup"
+    echo -e "${BLUE}To re-enable:${NC} familytraffic-mtproxy setup"
     echo ""
 
     return 0
@@ -470,7 +470,7 @@ cmd_add_secret() {
         domain=$(_get_cert_domain)
         if [[ -z "$domain" ]]; then
             log_error "Fake-TLS domain required for ee-type secret"
-            log_error "Usage: mtproxy add-secret --type ee --fake-domain www.google.com"
+            log_error "Usage: familytraffic-mtproxy add-secret --type ee --fake-domain www.google.com"
             return 1
         fi
         log_info "Using detected domain: ${domain}"
@@ -526,7 +526,7 @@ cmd_add_secret() {
             fi
         fi
     elif [[ -f "${MTG_CONFIG_FILE}" ]]; then
-        echo -e "${YELLOW}⚠  Restart MTProxy to apply changes:${NC} mtproxy restart"
+        echo -e "${YELLOW}⚠  Restart MTProxy to apply changes:${NC} familytraffic-mtproxy restart"
     fi
     echo ""
 
@@ -548,7 +548,7 @@ cmd_remove_secret() {
 
     if [[ -z "$identifier" ]]; then
         log_error "Secret or username required"
-        log_error "Usage: mtproxy remove-secret <SECRET_OR_USER>"
+        log_error "Usage: familytraffic-mtproxy remove-secret <SECRET_OR_USER>"
         return 1
     fi
 
@@ -580,7 +580,7 @@ cmd_remove_secret() {
                 fi
             else
                 log_warning "Could not update mtg.toml — no ee-secret remaining"
-                log_warning "MTProxy may stop working. Add an ee-secret: mtproxy add-secret --type ee"
+                log_warning "MTProxy may stop working. Add an ee-secret: familytraffic-mtproxy add-secret --type ee"
             fi
         fi
     fi
@@ -595,7 +595,7 @@ cmd_start() {
     # Verify mtg.toml exists before starting
     if [[ ! -f "${MTG_CONFIG_FILE}" ]]; then
         log_error "mtg.toml not found: ${MTG_CONFIG_FILE}"
-        log_error "Run setup first: sudo mtproxy setup"
+        log_error "Run setup first: sudo familytraffic-mtproxy setup"
         return 1
     fi
 
@@ -746,8 +746,8 @@ cmd_generate_qr() {
 # ============================================================================
 cmd_stats() {
     log_info "mtg v2 does not expose an HTTP stats endpoint by default."
-    log_info "Use: mtproxy status — to see supervisord process state"
-    log_info "Use: mtproxy logs   — to see connection traffic in logs"
+    log_info "Use: familytraffic-mtproxy status — to see supervisord process state"
+    log_info "Use: familytraffic-mtproxy logs   — to see connection traffic in logs"
 }
 
 # ============================================================================
@@ -791,22 +791,22 @@ ${BLUE}COMMANDS:${NC}
 
 ${BLUE}TYPICAL WORKFLOW:${NC}
     ${YELLOW}# First time setup (fake-TLS domain = any real HTTPS site for DPI masquerade)${NC}
-    mtproxy setup
+    familytraffic-mtproxy setup
     # or with explicit fake-TLS domain (recommended — use a popular site):
-    mtproxy setup --fake-domain www.google.com
+    familytraffic-mtproxy setup --fake-domain www.google.com
 
     ${YELLOW}# Add another secret${NC}
-    mtproxy add-secret --type ee --fake-domain www.google.com
+    familytraffic-mtproxy add-secret --type ee --fake-domain www.google.com
 
     ${YELLOW}# Check status${NC}
-    mtproxy status
+    familytraffic-mtproxy status
 
     ${YELLOW}# View logs${NC}
-    mtproxy logs
-    mtproxy logs --follow
+    familytraffic-mtproxy logs
+    familytraffic-mtproxy logs --follow
 
     ${YELLOW}# Disable MTProxy${NC}
-    mtproxy disable
+    familytraffic-mtproxy disable
 
 ${BLUE}SECRET TYPES:${NC}
     ${GREEN}ee${NC}  - "ee" + 32 hex + domain hex (fake-TLS, recommended — DPI masquerade + active probing protection)
@@ -839,7 +839,7 @@ main() {
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root"
-        log_error "Use: sudo mtproxy <command>"
+        log_error "Use: sudo familytraffic-mtproxy <command>"
         exit 1
     fi
 
@@ -854,7 +854,7 @@ main() {
             # All other commands require MTProxy to be installed (config dir + mtg.toml or legacy)
             if ! mtproxy_is_installed; then
                 log_error "MTProxy is not configured"
-                log_error "Run: sudo mtproxy setup"
+                log_error "Run: sudo familytraffic-mtproxy setup"
                 exit 1
             fi
             ;;

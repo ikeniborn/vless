@@ -1520,24 +1520,24 @@ install_cli_tools() {
         echo "  ℹ familytraffic-external-proxy installation skipped (v5.23 feature)"
     fi
 
-    # Install mtproxy CLI tool
-    local mtproxy_cli_source="${project_root}/scripts/mtproxy"
+    # Install familytraffic-mtproxy CLI tool
+    local mtproxy_cli_source="${project_root}/scripts/familytraffic-mtproxy"
     if [[ -f "$mtproxy_cli_source" ]]; then
-        cp "$mtproxy_cli_source" "${SCRIPTS_DIR}/mtproxy" || {
-            echo -e "${RED}Failed to copy mtproxy script${NC}" >&2
+        cp "$mtproxy_cli_source" "${SCRIPTS_DIR}/familytraffic-mtproxy" || {
+            echo -e "${RED}Failed to copy familytraffic-mtproxy script${NC}" >&2
             return 1
         }
-        chmod 755 "${SCRIPTS_DIR}/mtproxy" || {
-            echo -e "${RED}Failed to set execute permission on mtproxy${NC}" >&2
+        chmod 755 "${SCRIPTS_DIR}/familytraffic-mtproxy" || {
+            echo -e "${RED}Failed to set execute permission on familytraffic-mtproxy${NC}" >&2
             return 1
         }
-        ln -sf "${SCRIPTS_DIR}/mtproxy" /usr/local/sbin/mtproxy || {
-            echo -e "${RED}Failed to create mtproxy symlink${NC}" >&2
+        ln -sf "${SCRIPTS_DIR}/familytraffic-mtproxy" /usr/local/sbin/familytraffic-mtproxy || {
+            echo -e "${RED}Failed to create familytraffic-mtproxy symlink${NC}" >&2
             return 1
         }
-        echo "  ✓ mtproxy installed"
+        echo "  ✓ familytraffic-mtproxy installed"
     else
-        echo -e "${YELLOW}  ⚠ mtproxy script not found: $mtproxy_cli_source${NC}"
+        echo -e "${YELLOW}  ⚠ familytraffic-mtproxy script not found: $mtproxy_cli_source${NC}"
     fi
 
     # v5.20: Copy ALL lib modules automatically (except installation-only modules)
@@ -1619,7 +1619,7 @@ install_cli_tools() {
 
     echo "  ✓ CLI scripts installed in ${SCRIPTS_DIR}"
     echo "  ✓ Symlinks created in /usr/local/bin and /usr/local/sbin"
-    echo "  ✓ Commands available: familytraffic, familytraffic-external-proxy, mtproxy"
+    echo "  ✓ Commands available: familytraffic, familytraffic-external-proxy, familytraffic-mtproxy"
 
     echo -e "${GREEN}✓ CLI tools installed${NC}"
     return 0

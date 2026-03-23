@@ -550,7 +550,7 @@ sudo familytraffic test-security --quick
 - ✅ **YAML-aware:** Skills auto-load `docs/architecture/yaml/` для контекста
 - ✅ **Hybrid automation:** Read-only операции автоматически, write operations с approval gates
 - ✅ **Safety enforced:** Обязательное логирование, YAML updates, validation перед changes
-- ✅ **Integrated:** Используют существующие CLI tools (`familytraffic`, `mtproxy`, etc.)
+- ✅ **Integrated:** Используют существующие CLI tools (`familytraffic`, `familytraffic-mtproxy`, etc.)
 
 #### Skill Structure
 

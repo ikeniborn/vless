@@ -1268,9 +1268,9 @@ cli_tools:
         example_usage: |
           sudo familytraffic-proxy test claude.example.com
 
-  - name: "mtproxy"
-    path: "/usr/local/bin/mtproxy"
-    symlink_target: "/opt/familytraffic/scripts/mtproxy"
+  - name: "familytraffic-mtproxy"
+    path: "/usr/local/sbin/familytraffic-mtproxy"
+    symlink_target: "/opt/familytraffic/scripts/familytraffic-mtproxy"
     purpose: "MTProxy Telegram server management (v6.0+ planned)"
     feature_version: "v6.0+ (planned implementation)"
     implementation_status: "PLANNED (not yet implemented)"
@@ -1326,8 +1326,8 @@ cli_tools:
           MTProxy container restarted
 
         example_usage: |
-          sudo mtproxy add-secret
-          sudo mtproxy add-secret --with-padding
+          sudo familytraffic-mtproxy add-secret
+          sudo familytraffic-mtproxy add-secret --with-padding
 
       - name: "list-secrets"
         syntax: "mtproxy list-secrets"
@@ -1347,7 +1347,7 @@ cli_tools:
           Total: 2 secrets
 
         example_usage: |
-          sudo mtproxy list-secrets
+          sudo familytraffic-mtproxy list-secrets
 
       - name: "remove-secret"
         syntax: "mtproxy remove-secret <secret>"
@@ -1373,7 +1373,7 @@ cli_tools:
           Warning: Clients using this secret can no longer connect
 
         example_usage: |
-          sudo mtproxy remove-secret dd1234567890abcdef1234567890abcdef
+          sudo familytraffic-mtproxy remove-secret dd1234567890abcdef1234567890abcdef
 
       - name: "show-config"
         syntax: "mtproxy show-config [<secret>]"
@@ -1401,8 +1401,8 @@ cli_tools:
           Secret: dd1234567890abcdef1234567890abcdef
 
         example_usage: |
-          sudo mtproxy show-config
-          sudo mtproxy show-config dd1234567890abcdef1234567890abcdef
+          sudo familytraffic-mtproxy show-config
+          sudo familytraffic-mtproxy show-config dd1234567890abcdef1234567890abcdef
 
       - name: "stats"
         syntax: "mtproxy stats [--live]"
@@ -1439,8 +1439,8 @@ cli_tools:
           Uptime: 7 days, 3 hours
 
         example_usage: |
-          sudo mtproxy stats
-          sudo mtproxy stats --live
+          sudo familytraffic-mtproxy stats
+          sudo familytraffic-mtproxy stats --live
 
     commands_v6_1:
       - name: "add-user"
@@ -1505,8 +1505,8 @@ cli_tools:
           [QR CODE]
 
         example_usage: |
-          sudo mtproxy add-user alice
-          sudo mtproxy add-user bob --fake-tls www.google.com
+          sudo familytraffic-mtproxy add-user alice
+          sudo familytraffic-mtproxy add-user bob --fake-tls www.google.com
 
       - name: "remove-user"
         syntax: "mtproxy remove-user <username>"
@@ -1536,7 +1536,7 @@ cli_tools:
           Client config deleted
 
         example_usage: |
-          sudo mtproxy remove-user alice
+          sudo familytraffic-mtproxy remove-user alice
 
       - name: "list-users"
         syntax: "mtproxy list-users"
@@ -1552,7 +1552,7 @@ cli_tools:
           Total: 2 users with MTProxy access
 
         example_usage: |
-          sudo mtproxy list-users
+          sudo familytraffic-mtproxy list-users
 
       - name: "show-user-config"
         syntax: "mtproxy show-user-config <username>"
@@ -1577,7 +1577,7 @@ cli_tools:
           [QR CODE]
 
         example_usage: |
-          sudo mtproxy show-user-config alice
+          sudo familytraffic-mtproxy show-user-config alice
 
       - name: "set-promoted-channel"
         syntax: "mtproxy set-promoted-channel <channel_id>"
@@ -1594,7 +1594,7 @@ cli_tools:
         note: "Requires registration with @MTProxybot first"
 
         example_usage: |
-          sudo mtproxy set-promoted-channel -1001234567890
+          sudo familytraffic-mtproxy set-promoted-channel -1001234567890
 
     configuration_commands:
       - name: "set-port"
@@ -1609,7 +1609,7 @@ cli_tools:
             note: "Avoid conflict with Xray 8443 (127.0.0.1 binding)"
 
         example_usage: |
-          sudo mtproxy set-port 8444
+          sudo familytraffic-mtproxy set-port 8444
 
       - name: "set-workers"
         syntax: "mtproxy set-workers <count>"
@@ -1623,7 +1623,7 @@ cli_tools:
             recommended: "2-4 (depends on CPU cores)"
 
         example_usage: |
-          sudo mtproxy set-workers 4
+          sudo familytraffic-mtproxy set-workers 4
 
 command_groups:
   user_management:
@@ -1738,7 +1738,7 @@ references:
     - "scripts/vless - Main CLI entry point"
     - "scripts/familytraffic-external-proxy - External proxy CLI"
     - "scripts/familytraffic-proxy - Reverse proxy CLI"
-    - "scripts/mtproxy - MTProxy CLI (v6.0+, planned)"
+    - "scripts/familytraffic-mtproxy - MTProxy CLI (v6.0+, planned)"
     - "lib/user_management.sh - User operations"
     - "lib/external_proxy_manager.sh - Proxy operations"
     - "lib/reverseproxy_db.sh - Reverse proxy operations"

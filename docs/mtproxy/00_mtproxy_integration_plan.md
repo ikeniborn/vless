@@ -333,8 +333,8 @@ CMD ["/usr/local/bin/mtproto-proxy", "-u", "nobody", "-p", "8888", "-H", "8443",
 Отдельный wizard для установки MTProxy (не включен в основной `vless-install`).
 
 **Acceptance Criteria:**
-- ✅ Скрипт: `/opt/familytraffic/scripts/mtproxy-setup`
-- ✅ Symlink: `/usr/local/bin/mtproxy-setup`
+- ✅ Скрипт: `/opt/familytraffic/scripts/familytraffic-mtproxy-setup`
+- ✅ Symlink: `/usr/local/sbin/familytraffic-mtproxy-setup`
 - ✅ Interactive prompts:
   1. "Install MTProxy? [y/N]"
   2. "MTProxy port [8443]:"
@@ -458,7 +458,7 @@ CLI команды для управления MTProxy секретами.
 
 **User Flow:**
 ```bash
-$ sudo mtproxy add-secret --with-padding
+$ sudo familytraffic-mtproxy add-secret --with-padding
 
 ✓ Secret generated: dd1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c
 
@@ -467,7 +467,7 @@ Client configuration saved:
   QR code: /opt/familytraffic/data/mtproxy/mtproxy_qr.png
 
 To view configuration:
-  sudo mtproxy show-config
+  sudo familytraffic-mtproxy show-config
 ```
 
 ---
@@ -995,7 +995,7 @@ curl http://localhost:8888/stats
    - Валидация через `jq`
    - Atomic writes (temp file + mv)
 
-3. ✅ Создать CLI: `scripts/mtproxy`
+3. ✅ Создать CLI: `scripts/familytraffic-mtproxy`
    - Subcommands: add-secret, list-secrets, remove-secret, regenerate-secret
    - Symlink в `/usr/local/bin/`
 
@@ -1008,13 +1008,13 @@ curl http://localhost:8888/stats
 **Testing:**
 ```bash
 # Test secret generation
-sudo mtproxy add-secret --with-padding
+sudo familytraffic-mtproxy add-secret --with-padding
 
 # Test list
-sudo mtproxy list-secrets
+sudo familytraffic-mtproxy list-secrets
 
 # Test remove
-sudo mtproxy remove-secret <secret>
+sudo familytraffic-mtproxy remove-secret <secret>
 
 # Verify container restart
 docker logs familytraffic-mtproxy | grep "secret"
@@ -1050,14 +1050,14 @@ docker logs familytraffic-mtproxy | grep "secret"
 **Testing:**
 ```bash
 # Test config generation
-sudo mtproxy add-secret --with-padding
+sudo familytraffic-mtproxy add-secret --with-padding
 
 # Verify files created
 ls -la /opt/familytraffic/data/mtproxy/
 # Should see: mtproxy_link.txt, mtproxy_qr.png
 
 # Test show-config
-sudo mtproxy show-config
+sudo familytraffic-mtproxy show-config
 ```
 
 ---
@@ -1067,7 +1067,7 @@ sudo mtproxy show-config
 **Goal:** Opt-in установка через wizard
 
 **Tasks:**
-1. ✅ Создать `scripts/mtproxy-setup`
+1. ✅ Создать `scripts/familytraffic-mtproxy-setup`
    - Interactive prompts
    - Валидация ввода
    - Port conflict check
@@ -1084,7 +1084,7 @@ sudo mtproxy show-config
    - Generate client configs
    - Display results
 
-3. ✅ Создать `scripts/mtproxy-uninstall`
+3. ✅ Создать `scripts/familytraffic-mtproxy-uninstall`
    - Stop container
    - Remove UFW rule
    - Remove fail2ban jail
@@ -1190,10 +1190,10 @@ sudo familytraffic status
 # Should show MTProxy section with metrics
 
 # Test stats command
-sudo mtproxy stats
+sudo familytraffic-mtproxy stats
 
 # Test live mode
-sudo mtproxy stats --live
+sudo familytraffic-mtproxy stats --live
 # Should refresh every 5 seconds
 ```
 
@@ -2000,8 +2000,8 @@ sudo ufw delete limit 8443/tcp
 └── filter.d/mtproxy.conf
 
 /usr/local/bin/
-├── mtproxy-setup -> /opt/familytraffic/scripts/mtproxy-setup
-└── mtproxy -> /opt/familytraffic/scripts/mtproxy
+├── mtproxy-setup -> /opt/familytraffic/scripts/familytraffic-mtproxy-setup
+└── mtproxy -> /opt/familytraffic/scripts/familytraffic-mtproxy
 ```
 
 ---
