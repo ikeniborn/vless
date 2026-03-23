@@ -206,6 +206,19 @@ obtain_certificate() {
         echo "Email:  $email"
         echo ""
 
+        # Remove stale certbot lock file if no certbot process is running
+        local certbot_lock="/var/lib/letsencrypt/.certbot.lock"
+        if [[ -f "$certbot_lock" ]]; then
+            if ! pgrep -x certbot &>/dev/null; then
+                echo "Removing stale certbot lock file..."
+                rm -f "$certbot_lock"
+            else
+                echo -e "${RED}❌ Certbot is already running (PID: $(pgrep -x certbot))${NC}"
+                echo "Wait for the existing process to finish, then retry."
+                return 1
+            fi
+        fi
+
         # Run certbot in standalone mode
         certbot certonly \
             --standalone \
