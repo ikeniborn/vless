@@ -25,8 +25,8 @@
 #
 # Examples:
 #   mtproxy setup
-#   mtproxy setup --domain proxy.example.com
-#   mtproxy add-secret --type ee --domain proxy.example.com
+#   mtproxy setup --fake-domain www.google.com
+#   mtproxy add-secret --type ee --fake-domain www.google.com
 #   mtproxy list-secrets
 #   mtproxy status
 #   mtproxy disable
@@ -213,7 +213,13 @@ cmd_setup() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --fake-domain)
+                domain="$2"
+                shift 2
+                ;;
             --domain)
+                # Deprecated alias for --fake-domain
+                log_warning "--domain is deprecated, use --fake-domain"
                 domain="$2"
                 shift 2
                 ;;
@@ -236,12 +242,12 @@ cmd_setup() {
     fi
 
     if [[ -z "$domain" ]]; then
-        log_error "Cannot detect domain automatically"
-        log_error "Usage: mtproxy setup --domain proxy.example.com"
+        log_error "Cannot detect fake-TLS domain automatically"
+        log_error "Usage: mtproxy setup --fake-domain www.google.com"
         return 1
     fi
 
-    log_info "Domain: ${domain}"
+    log_info "Fake-TLS domain: ${domain}"
 
     # Check familytraffic container is running
     if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
@@ -332,7 +338,7 @@ cmd_setup() {
     echo -e "${YELLOW}Active probing protection:${NC}"
     echo "  Port 4443 (nginx cloak) — internal only, do NOT open in UFW"
     echo ""
-    echo -e "${BLUE}To add more secrets:${NC} mtproxy add-secret --type ee --domain ${domain}"
+    echo -e "${BLUE}To add more secrets:${NC} mtproxy add-secret --type ee --fake-domain ${domain}"
     echo -e "${BLUE}To check status:${NC}     mtproxy status"
     echo -e "${BLUE}To disable:${NC}          mtproxy disable"
     echo ""
@@ -398,7 +404,13 @@ cmd_add_secret() {
                 secret_type="$2"
                 shift 2
                 ;;
+            --fake-domain)
+                domain="$2"
+                shift 2
+                ;;
             --domain)
+                # Deprecated alias for --fake-domain
+                log_warning "--domain is deprecated, use --fake-domain"
                 domain="$2"
                 shift 2
                 ;;
@@ -431,8 +443,8 @@ cmd_add_secret() {
         # Try to auto-detect domain
         domain=$(_get_cert_domain)
         if [[ -z "$domain" ]]; then
-            log_error "Domain required for ee-type secret (fake-TLS)"
-            log_error "Usage: mtproxy add-secret --type ee --domain www.google.com"
+            log_error "Fake-TLS domain required for ee-type secret"
+            log_error "Usage: mtproxy add-secret --type ee --fake-domain www.google.com"
             return 1
         fi
         log_info "Using detected domain: ${domain}"
@@ -752,13 +764,13 @@ ${BLUE}COMMANDS:${NC}
         help            Show this help message
 
 ${BLUE}TYPICAL WORKFLOW:${NC}
-    ${YELLOW}# First time setup${NC}
+    ${YELLOW}# First time setup (fake-TLS domain = any real HTTPS site for DPI masquerade)${NC}
     mtproxy setup
-    # or with explicit domain:
-    mtproxy setup --domain proxy.example.com
+    # or with explicit fake-TLS domain (recommended — use a popular site):
+    mtproxy setup --fake-domain www.google.com
 
     ${YELLOW}# Add another secret${NC}
-    mtproxy add-secret --type ee --domain proxy.example.com
+    mtproxy add-secret --type ee --fake-domain www.google.com
 
     ${YELLOW}# Check status${NC}
     mtproxy status
@@ -771,9 +783,15 @@ ${BLUE}TYPICAL WORKFLOW:${NC}
     mtproxy disable
 
 ${BLUE}SECRET TYPES:${NC}
-    ${GREEN}ee${NC}  - "ee" + 32 hex (fake-TLS, recommended — active probing protection)
-    ${GREEN}dd${NC}  - "dd" + 32 hex (random padding)
-    ${GREEN}standard${NC} - 32 hex characters (basic MTProxy secret)
+    ${GREEN}ee${NC}  - "ee" + 32 hex + domain hex (fake-TLS, recommended — DPI masquerade + active probing protection)
+         Use --fake-domain <any-real-https-site>  e.g. www.google.com, telegram.org
+    ${GREEN}dd${NC}  - "dd" + 32 hex (random padding, basic obfuscation)
+    ${GREEN}standard${NC} - 32 hex characters (no obfuscation)
+
+${BLUE}FAKE-TLS DOMAIN:${NC}
+    The --fake-domain value is embedded into the ee-type secret and used by mtg
+    to masquerade traffic as TLS to that site. It does NOT have to be your server
+    domain. Best to use a popular, unblocked HTTPS site (e.g. www.google.com).
 
 ${BLUE}ARCHITECTURE (v7.0):${NC}
     MTProxy runs as mtg v2 inside the familytraffic container via supervisord.
