@@ -584,9 +584,9 @@ add_client_to_xray() {
         fi
     fi
 
-    # Apply configuration
-    mv "$temp_file" "$XRAY_CONFIG"
-    rm -f "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
+    cp "$temp_file" "$XRAY_CONFIG"
+    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client added to Xray configuration"
     return 0
@@ -666,9 +666,9 @@ remove_client_from_xray() {
         fi
     fi
 
-    # Apply configuration
-    mv "$temp_file" "$XRAY_CONFIG"
-    rm -f "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
+    cp "$temp_file" "$XRAY_CONFIG"
+    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client removed from Xray configuration"
     return 0
@@ -757,9 +757,9 @@ apply_per_user_routing() {
         return 1
     fi
 
-    # Apply changes
-    mv "$temp_file" "$XRAY_CONFIG"
-    rm -f "$routing_tmp"
+    # Apply changes — use cp+rm to preserve inode (required for Docker bind mounts)
+    cp "$temp_file" "$XRAY_CONFIG"
+    rm -f "$temp_file" "$routing_tmp"
 
     log_success "Per-user routing applied successfully"
 
