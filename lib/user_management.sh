@@ -1012,6 +1012,61 @@ update_proxy_accounts() {
     fi
 }
 
+# =============================================================================
+# FUNCTION: remove_proxy_accounts
+# =============================================================================
+# Description: Remove user from SOCKS5 and HTTP proxy accounts in Xray config
+# Arguments:
+#   $1 - username
+# Returns:
+#   0 on success, 1 on failure
+# =============================================================================
+remove_proxy_accounts() {
+    local username="$1"
+
+    # Check if SOCKS5 proxy inbound exists
+    if ! jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_info "Proxy support not enabled, skipping proxy account removal"
+        return 0
+    fi
+
+    log_info "Removing user from proxy accounts..."
+
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Remove account from SOCKS5 and HTTP inbounds in a single jq pass.
+    # map(select(.user != $user)) is a no-op if the user doesn't exist (idempotent).
+    # (. // []) on the right side of |= guards against a null accounts key;
+    # using // [] on the left side of |= causes "Invalid path expression" when null.
+    if ! jq --arg user "$username" '
+        (.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts) |= (. // [] | map(select(.user != $user))) |
+        (.inbounds[] | select(.tag == "http-proxy")   | .settings.accounts) |= (. // [] | map(select(.user != $user)))
+      ' "${XRAY_CONFIG}" > "$temp_file"; then
+        log_error "Failed to update proxy accounts"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Atomic replace
+    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+        log_error "Failed to save updated Xray config"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Verify removal
+    if jq -e --arg user "$username" \
+       '.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts[] | select(.user == $user)' \
+       "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_error "Failed to verify proxy account removal for '$username'"
+        return 1
+    fi
+
+    log_success "User removed from proxy accounts"
+    return 0
+}
+
 # ============================================================================
 # TASK-11.3: Proxy Password Management
 # ============================================================================
@@ -2543,7 +2598,8 @@ remove_user() {
     uuid=$(jq -r ".users[] | select(.username == \"$username\") | .uuid" "$USERS_JSON" 2>/dev/null)
     connection_type=$(jq -r ".users[] | select(.username == \"$username\") | .connection_type // \"both\"" "$USERS_JSON" 2>/dev/null)
 
-    if [[ -z "$uuid" ]]; then
+    # UUID is only required for vpn/both users; proxy-only users have uuid=""
+    if [[ -z "$uuid" && "$connection_type" != "proxy" ]]; then
         log_error "Failed to retrieve UUID for user '$username'"
         return 1
     fi
@@ -2554,6 +2610,14 @@ remove_user() {
     if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
         if ! remove_client_from_xray "$uuid" "$username"; then
             log_error "Failed to remove client from Xray configuration"
+            return 1
+        fi
+    fi
+
+    # Step 4.5: Remove SOCKS5/HTTP proxy accounts (only for proxy or both)
+    if [[ "$connection_type" == "proxy" || "$connection_type" == "both" ]]; then
+        if ! remove_proxy_accounts "$username"; then
+            log_error "Failed to remove proxy accounts"
             return 1
         fi
     fi
@@ -2962,6 +3026,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_user_from_json
     export -f add_client_to_xray
     export -f remove_client_from_xray
+    export -f remove_proxy_accounts
     export -f apply_per_user_routing
     export -f reload_xray
     export -f cmd_set_user_proxy
