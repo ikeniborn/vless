@@ -17,6 +17,7 @@
 9. [Обновление сертификатов](#9-обновление-сертификатов)
 10. [Диагностика](#10-диагностика)
 11. [Удаление](#11-удаление)
+12. [Обновление версии](#12-обновление-версии)
 
 ---
 
@@ -457,3 +458,73 @@ sudo /opt/familytraffic/scripts/vless-uninstall
 - Docker-контейнеры и volumes
 - UFW-правила
 - Симлинки в `/usr/local/bin/`
+
+---
+
+## 12. Обновление версии
+
+### Как устроено версионирование
+
+CI собирает и публикует образ в GHCR с двумя тегами:
+- `:latest` — всегда указывает на последний билд
+- `:<version>` — зафиксированная версия (например, `1.1.4`)
+
+Версия читается из файла `VERSION` в корне репозитория. Изменение `VERSION` является **единственным триггером** для запуска сборки при пуше в ветку `test`.
+
+### Как выпустить новую версию
+
+**1. Обновить файл VERSION:**
+
+```bash
+echo "1.2.0" > VERSION
+```
+
+Формат: `MAJOR.MINOR.PATCH` (например, `1.1.4`, `1.2.0`, `2.0.0`).
+
+**2. Зафиксировать и запушить в ветку `test`:**
+
+```bash
+git add VERSION
+git commit -m "chore: bump version to 1.2.0"
+git push origin test
+```
+
+После пуша CI автоматически:
+- Собирает Docker-образ
+- Публикует `ghcr.io/<owner>/familytraffic:latest` и `ghcr.io/<owner>/familytraffic:1.2.0`
+- Отправляет уведомление в Telegram
+
+**3. Обновить сервер:**
+
+```bash
+cd /opt/familytraffic
+docker compose pull
+docker compose up -d
+```
+
+Контейнер поднимется с тегом, указанным в `/opt/familytraffic/.env` → `FT_IMAGE_TAG` (по умолчанию `latest`).
+
+### Установка конкретной версии
+
+Если нужно зафиксировать сервер на определённой версии вместо `latest`:
+
+```bash
+# При первичной установке
+FT_IMAGE_TAG=1.2.0 sudo ./install.sh
+
+# На уже установленном сервере
+sed -i 's/^FT_IMAGE_TAG=.*/FT_IMAGE_TAG=1.2.0/' /opt/familytraffic/.env
+cd /opt/familytraffic && docker compose pull && docker compose up -d
+```
+
+### Откат на предыдущую версию
+
+```bash
+sed -i 's/^FT_IMAGE_TAG=.*/FT_IMAGE_TAG=1.1.4/' /opt/familytraffic/.env
+cd /opt/familytraffic && docker compose pull && docker compose up -d
+```
+
+Убедиться, что образ с нужным тегом существует в реестре:
+```bash
+docker manifest inspect ghcr.io/<owner>/familytraffic:1.1.4
+```

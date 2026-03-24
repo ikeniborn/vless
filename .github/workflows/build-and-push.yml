@@ -7,10 +7,9 @@
 #   - Manual via workflow_dispatch
 #
 # Pipeline:
-#   1. build-and-push     — build image → push :test + :sha-<short> to GHCR
-#   2. deploy-test        — scp docker-compose.yml → ssh pull & up
-#   3. cleanup-registry   — keep 3 latest sha-* tags, protect :test and semver tags
-#   4. notify             — Telegram notification (always, even on failure)
+#   1. build-and-push     — build image → push :latest + :<version> to GHCR
+#   2. cleanup-registry   — keep 3 latest versioned tags, protect :latest and semver tags
+#   3. notify             — Telegram notification (always, even on failure)
 #
 # Path filters — what triggers CI/CD:
 #   VERSION  — единственный триггер: сборка запускается только при смене версии.
@@ -18,17 +17,11 @@
 #
 # Чтобы запустить сборку вручную без смены версии — используй workflow_dispatch.
 #
-# Secrets — Environment (Settings → Environments → test):
-#   TEST_SSH_HOST    — IP or hostname of the test server
-#   TEST_SSH_USER    — SSH username (e.g. root)
-#   TEST_SSH_KEY     — SSH private key, PEM format (ED25519 or RSA)
-#   TEST_GHCR_TOKEN  — GitHub PAT with read:packages scope (for docker pull on server)
-#
 # Secrets — Repository (Settings → Secrets and variables → Actions):
 #   TELEGRAM_BOT_TOKEN — token from @BotFather (format: 123456:ABC-xxx)
 #   TELEGRAM_CHAT_ID   — chat/channel ID (negative for channels, e.g. -1001234567890)
 
-name: Test — Build, Push and Deploy
+name: Test — Build and Push
 
 on:
   push:
@@ -82,9 +75,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=test
             type=raw,value=latest
-            type=sha,prefix=sha-,format=short
             type=raw,value=${{ steps.version.outputs.version }}
 
       - name: Build and push image
@@ -100,85 +91,7 @@ jobs:
           platforms:  linux/amd64
 
   # ============================================================
-  # Job 2: Sync compose + deploy :test image on test server
-  # ============================================================
-  deploy-test:
-    name: Deploy to Test Server
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    environment: test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Ensure /opt/familytraffic exists before scp-action tries to write into it.
-      # scp-action runs mkdir via the SSH user, which may lack write access to /opt/.
-      - name: Ensure /opt/familytraffic exists on test server
-        uses: appleboy/ssh-action@v1
-        with:
-          host:     ${{ secrets.TEST_SSH_HOST }}
-          username: ${{ secrets.TEST_SSH_USER }}
-          key:      ${{ secrets.TEST_SSH_KEY }}
-          script: |
-            sudo mkdir -p /opt/familytraffic
-            sudo chown "$(whoami):$(whoami)" /opt/familytraffic
-
-      # Sync the base service definition from the repo to the test server.
-      # MTProxy block (if appended by familytraffic-mtproxy-setup) will be
-      # overwritten — re-run `familytraffic-mtproxy-setup` once if needed.
-      - name: Sync docker-compose.yml to test server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host:      ${{ secrets.TEST_SSH_HOST }}
-          username:  ${{ secrets.TEST_SSH_USER }}
-          key:       ${{ secrets.TEST_SSH_KEY }}
-          source:    "docker-compose.yml"
-          target:    "/opt/familytraffic/"
-          overwrite: true
-
-      - name: Pull & restart familytraffic:test
-        uses: appleboy/ssh-action@v1
-        env:
-          GHCR_TOKEN: ${{ secrets.TEST_GHCR_TOKEN }}
-          GH_ACTOR:   ${{ github.actor }}
-          # Pass GHCR_IMAGE explicitly so compose image ref is always correct
-          # regardless of what GHCR_IMAGE is set to in the server's .env
-          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/familytraffic
-          IMAGE:      ghcr.io/${{ github.repository_owner }}/familytraffic:test
-        with:
-          host:     ${{ secrets.TEST_SSH_HOST }}
-          username: ${{ secrets.TEST_SSH_USER }}
-          key:      ${{ secrets.TEST_SSH_KEY }}
-          envs:     GHCR_TOKEN,GH_ACTOR,GHCR_IMAGE,IMAGE
-          script: |
-            set -e
-
-            # Authenticate and pull the new :test image
-            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
-            docker pull "${IMAGE}"
-
-            # GHCR_IMAGE and VERSION override .env so the server file is never modified.
-            # --remove-orphans cleans up containers from removed compose services.
-            # Image already pulled above — no second pull attempt after logout.
-            cd /opt/familytraffic
-            GHCR_IMAGE="${GHCR_IMAGE}" VERSION=test docker compose up -d --remove-orphans
-
-            docker logout ghcr.io
-
-            # Wait for container to initialise, then verify it is running
-            sleep 10
-            STATUS=$(docker inspect familytraffic --format '{{.State.Status}}' 2>/dev/null || echo "missing")
-            if [ "${STATUS}" != "running" ]; then
-              echo "ERROR: container status is '${STATUS}' after deploy"
-              docker logs familytraffic --tail 50 || true
-              exit 1
-            fi
-
-            echo "Deploy complete: ${IMAGE}"
-
-  # ============================================================
-  # Job 3: Clean up old GHCR versions (keep 3 latest sha-* tags)
+  # Job 2: Clean up old GHCR versions (keep 3 latest sha-* tags)
   # ============================================================
   cleanup-registry:
     name: Cleanup Old Images (keep 3)
@@ -188,21 +101,21 @@ jobs:
       packages: write
 
     steps:
-      - name: Delete old versions (keep 3 latest sha-* tags)
+      - name: Delete old versions (keep 3 latest, protect semver tags)
         uses: actions/delete-package-versions@v5
         with:
           package-name: familytraffic
           package-type: container
           min-versions-to-keep: 3
-          ignore-versions: '^(test|latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+-test)$'
+          ignore-versions: '^(latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)$'
 
   # ============================================================
-  # Job 4: Telegram notification (runs always, even on failure)
+  # Job 3: Telegram notification (runs always, even on failure)
   # ============================================================
   notify:
     name: Notify Telegram
     runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-test]
+    needs: [build-and-push]
     if: always()
 
     steps:
@@ -210,8 +123,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          BUILD_RESULT:  ${{ needs.build-and-push.result }}
-          DEPLOY_RESULT: ${{ needs.deploy-test.result }}
+          BUILD_RESULT: ${{ needs.build-and-push.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}
           ACTOR: ${{ github.actor }}
@@ -229,22 +141,19 @@ jobs:
             esac
           }
 
-          BUILD_ICON=$(result_icon  "${BUILD_RESULT}")
-          DEPLOY_ICON=$(result_icon "${DEPLOY_RESULT}")
+          BUILD_ICON=$(result_icon "${BUILD_RESULT}")
 
-          # Overall status: failed if any critical job did not succeed
-          if [ "${BUILD_RESULT}" = "success" ] && [ "${DEPLOY_RESULT}" = "success" ]; then
-            HEADER="✅ Deploy OK"
+          if [ "${BUILD_RESULT}" = "success" ]; then
+            HEADER="✅ Build & Push OK"
           else
-            HEADER="❌ Deploy FAILED"
+            HEADER="❌ Build FAILED"
           fi
 
           SHORT_SHA="${COMMIT_SHA:0:7}"
 
-          TEXT=$(printf '%s\n\n%s Build: <b>%s</b>\n%s Deploy: <b>%s</b>\n\nBranch: <code>%s</code>\nCommit: <code>%s</code>\nActor: %s\nEvent: %s\n\n<a href="%s">View run #%s</a>' \
+          TEXT=$(printf '%s\n\n%s Build: <b>%s</b>\n\nBranch: <code>%s</code>\nCommit: <code>%s</code>\nActor: %s\nEvent: %s\n\n<a href="%s">View run #%s</a>' \
             "${HEADER}" \
-            "${BUILD_ICON}"  "${BUILD_RESULT}" \
-            "${DEPLOY_ICON}" "${DEPLOY_RESULT}" \
+            "${BUILD_ICON}" "${BUILD_RESULT}" \
             "${REF}" "${SHORT_SHA}" "${ACTOR}" "${EVENT}" \
             "${RUN_URL}" "${{ github.run_number }}")
 
