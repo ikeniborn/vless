@@ -20,13 +20,12 @@
 set -euo pipefail
 
 # =============================================================================
-# IMPORT v4.3 MODULES
+# IMPORT MODULES
 # =============================================================================
-# Source HAProxy and docker-compose generators (v4.3 unified architecture)
-# These modules are required for HAProxy configuration and docker-compose generation
+# Source Nginx and docker-compose generators
+# v5.30: nginx_stream_generator.sh (stream+http) replaced haproxy_config_manager.sh
 SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[[ -f "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh" ]] && source "${SCRIPT_DIR_LIB}/haproxy_config_manager.sh"
-[[ -f "${SCRIPT_DIR_LIB}/docker_compose_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/docker_compose_generator.sh"
+[[ -f "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh" ]] && source "${SCRIPT_DIR_LIB}/nginx_stream_generator.sh"
 
 # =============================================================================
 # IMPORT v5.23 MODULES (External Proxy Support)
@@ -50,7 +49,8 @@ SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Installation paths
-readonly INSTALL_ROOT="/opt/vless"
+readonly INSTALL_ROOT="/opt/familytraffic"
+readonly VLESS_DIR="${INSTALL_ROOT}"
 readonly CONFIG_DIR="${INSTALL_ROOT}/config"
 readonly DATA_DIR="${INSTALL_ROOT}/data"
 readonly LOGS_DIR="${INSTALL_ROOT}/logs"
@@ -61,18 +61,32 @@ readonly DOCS_DIR="${INSTALL_ROOT}/docs"
 readonly TESTS_DIR="${INSTALL_ROOT}/tests"
 
 # Docker configuration
-readonly DOCKER_NETWORK_NAME="vless_reality_net"
+readonly DOCKER_NETWORK_NAME="familytraffic_reality_net"
 readonly XRAY_IMAGE="teddysun/xray:24.11.30"
 readonly NGINX_IMAGE="nginx:alpine"
-readonly XRAY_CONTAINER_NAME="vless_xray"
-readonly NGINX_CONTAINER_NAME="vless_nginx_reverseproxy"  # v4.3: Full container name
-readonly HAPROXY_CONTAINER_NAME="vless_haproxy"  # v4.3: HAProxy unified TLS termination
+readonly XRAY_CONTAINER_NAME="familytraffic"
+readonly NGINX_MAIN_CONTAINER_NAME="familytraffic"         # v5.33: single container (nginx+xray+certbot)
+
+# familyTraffic container image (v5.33 single-container)
+# INFO-3 fix: warn on literal OWNER placeholder instead of silently writing wrong value to .env
+if [[ -z "${GHCR_IMAGE:-}" ]]; then
+    if [[ -n "$(git -C "${INSTALL_ROOT}" config --get remote.origin.url 2>/dev/null)" ]]; then
+        _git_owner=$(git -C "${INSTALL_ROOT}" config --get remote.origin.url \
+            | sed 's|.*github.com[:/]\([^/]*\)/.*|\1|' 2>/dev/null || true)
+        [[ -n "${_git_owner}" ]] && GHCR_IMAGE="ghcr.io/${_git_owner}/familytraffic" \
+            || GHCR_IMAGE="ghcr.io/OWNER/familytraffic"
+    else
+        GHCR_IMAGE="ghcr.io/OWNER/familytraffic"
+        echo "[WARN] GHCR_IMAGE not set and git remote not found. Set GHCR_IMAGE env var before install." >&2
+    fi
+fi
+[[ -z "${FT_IMAGE_TAG:-}" ]] && FT_IMAGE_TAG="latest"
 
 # Configuration files (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${CONFIG_DIR}/xray_config.json"
 [[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${DATA_DIR}/users.json"
 readonly DOCKER_COMPOSE_FILE="${INSTALL_ROOT}/docker-compose.yml"
-readonly NGINX_CONFIG="${FAKESITE_DIR}/default.conf"
+readonly NGINX_CONFIG="${CONFIG_DIR}/nginx/nginx.conf"
 [[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${INSTALL_ROOT}/.env"
 
 # UFW configuration
@@ -128,16 +142,9 @@ orchestrate_installation() {
         }
         chmod 755 "${LOGS_DIR}/fake-site"
     fi
-    if [[ -d "${LOGS_DIR}/haproxy" ]]; then
-        chown -R root:root "${LOGS_DIR}/haproxy" || {
-            echo -e "${RED}Failed to set haproxy logs ownership${NC}" >&2
-            return 1
-        }
-        chmod 755 "${LOGS_DIR}/haproxy"
-    fi
 
-    # Set permissions on Let's Encrypt live directory for HAProxy access
-    # HAProxy (host network mode, non-root) needs rx to traverse path
+    # Set permissions on Let's Encrypt live directory for container access
+    # familytraffic_nginx (nginx:1.27-alpine) needs rx to traverse path
     if [[ -d "/etc/letsencrypt/live" ]]; then
         chmod 755 /etc/letsencrypt/live || {
             echo -e "${YELLOW}Warning: Failed to set permissions on /etc/letsencrypt/live${NC}" >&2
@@ -180,7 +187,7 @@ orchestrate_installation() {
 
     # Step 5.6: Initialize external_proxy.json (v5.23 - external proxy support)
     # Create empty database for external proxy configuration
-    # Users can add proxies later via vless-external-proxy CLI
+    # Users can add proxies later via familytraffic-external-proxy CLI
     if declare -f init_external_proxy_db >/dev/null 2>&1; then
         init_external_proxy_db || {
             echo -e "${YELLOW}Warning: Failed to initialize external proxy database${NC}"
@@ -196,23 +203,10 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 6.3: Generate Nginx reverse proxy HTTP context (v5.26) - only if reverse proxy enabled
-    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        # Source nginx_config_generator.sh if not already loaded
-        if [[ -f "${SCRIPT_DIR_LIB}/nginx_config_generator.sh" ]]; then
-            source "${SCRIPT_DIR_LIB}/nginx_config_generator.sh"
-            if ! generate_reverseproxy_http_context; then
-                echo -e "${YELLOW}Warning: Failed to generate nginx HTTP context${NC}"
-                # Non-critical: Continue installation
-            fi
-        fi
-    else
-        echo "  ℹ️  Reverse proxy disabled, skipping nginx HTTP context generation"
-    fi
 
-    # Step 6.5: Generate HAProxy configuration (v4.3 unified TLS termination)
-    generate_haproxy_config_wrapper || {
-        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+    # Step 6.5: Generate Nginx configuration (v5.30 unified stream+http, replaces HAProxy)
+    generate_nginx_config_wrapper || {
+        echo -e "${RED}Failed to generate Nginx configuration${NC}" >&2
         return 1
     }
 
@@ -228,11 +222,8 @@ orchestrate_installation() {
         return 1
     }
 
-    # Step 9: Create Docker network
-    create_docker_network || {
-        echo -e "${RED}Failed to create Docker network${NC}" >&2
-        return 1
-    }
+    # Step 9: Docker network — SKIPPED (v5.33: single container uses network_mode: host)
+    echo -e "${CYAN}[9/12] Docker network: skipped (single container, network_mode: host)${NC}"
 
     # Step 9.5: Setup fail2ban (v3.3 - for all proxy modes: localhost + public)
     if [[ "${ENABLE_PROXY:-false}" == "true" ]]; then
@@ -306,7 +297,7 @@ orchestrate_installation() {
 # =============================================================================
 # FUNCTION: create_directory_structure
 # =============================================================================
-# Description: Create /opt/vless directory structure with proper permissions
+# Description: Create /opt/familytraffic directory structure with proper permissions
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_directory_structure() {
@@ -326,6 +317,8 @@ create_directory_structure() {
     # Create subdirectories
     local directories=(
         "${CONFIG_DIR}"
+        "${CONFIG_DIR}/nginx"
+        "${CONFIG_DIR}/supervisord.d"
         "${DATA_DIR}"
         "${DATA_DIR}/clients"
         "${DATA_DIR}/backups"
@@ -333,7 +326,6 @@ create_directory_structure() {
         "${INSTALL_ROOT}/lib"
         "${LOGS_DIR}"
         "${LOGS_DIR}/xray"
-        "${LOGS_DIR}/haproxy"
         "${LOGS_DIR}/nginx"
         "${LOGS_DIR}/fake-site"
         "${KEYS_DIR}"
@@ -345,10 +337,6 @@ create_directory_structure() {
         "${TESTS_DIR}/integration"
     )
 
-    # v5.26: Conditionally add reverse-proxy directory
-    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        directories+=("${CONFIG_DIR}/reverse-proxy")
-    fi
 
     for dir in "${directories[@]}"; do
         # Always ensure directory exists (mkdir -p is idempotent)
@@ -449,12 +437,12 @@ generate_short_id() {
 # Note: NO per-user IP filtering (user field doesn't work for HTTP/SOCKS5)
 # =============================================================================
 generate_routing_json() {
-    local proxy_ips_file="/opt/vless/config/proxy_allowed_ips.json"
+    local proxy_ips_file="/opt/familytraffic/config/proxy_allowed_ips.json"
     local allowed_ips='["127.0.0.1"]'  # Default: localhost only
     local docker_subnet=""
 
-    # v4.3: HAProxy runs in host network mode, no need for Docker subnet
-    # All traffic from HAProxy to Xray uses 127.0.0.1 (localhost)
+    # v5.30: familytraffic_nginx (stream block) connects to Xray via Docker network (not localhost)
+    # Ports 10800/18118 NOT exposed to host — Docker network provides isolation
 
     # Check if proxy_allowed_ips.json exists (user-defined overrides)
     if [[ -f "$proxy_ips_file" ]]; then
@@ -471,11 +459,11 @@ generate_routing_json() {
     fi
 
     # Generate routing configuration with server-level IP whitelist
-    # v4.3+ HAProxy Architecture: Blocking rule removed because:
-    #   - Ports 10800/18118 NOT exposed publicly (HAProxy terminates TLS on 1080/8118)
+    # v5.30+ Nginx Architecture: Blocking rule removed because:
+    #   - Ports 10800/18118 NOT exposed publicly (Nginx terminates TLS on 1080/8118)
     #   - Docker network provides isolation
-    #   - HAProxy connects from Docker network IP (not whitelisted 127.0.0.1)
-    #   - Blocking rule would break HAProxy → Xray proxy connections
+    #   - familytraffic_nginx connects from Docker network IP (not whitelisted 127.0.0.1)
+    #   - Blocking rule would break Nginx → Xray proxy connections
     # Rule 1: Allow whitelisted IPs to access proxy ports (legacy, kept for future use)
     # v5.31: Changed to AsIs for mobile network compatibility
     cat <<EOF
@@ -500,21 +488,23 @@ EOF
 # Description: Generate SOCKS5 proxy inbound configuration for Xray
 # Returns: JSON string for SOCKS5 inbound (to be appended to inbounds array)
 # Related: TASK-11.1 (SOCKS5 Proxy Inbound Configuration)
-# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
+# Note: v5.30 - TLS handled by Nginx stream block, Xray uses plaintext inbound
 # =============================================================================
 generate_socks5_inbound_json() {
-    # v4.3: HAProxy unified TLS termination
-    # Architecture: Client → HAProxy (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
+    # v5.33: Single-container architecture with host networking
+    # Architecture: Client → familytraffic nginx (TLS, 0.0.0.0:1080) → Xray (plaintext, 127.0.0.1:10800)
     #
-    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:10800)
-    # - HAProxy handles TLS termination on public port 1080
+    # BUG-3 fix: listen on 127.0.0.1 (loopback only), NOT 0.0.0.0
+    # With network_mode:host, 0.0.0.0:10800 would be exposed on all interfaces.
+    # 127.0.0.1 ensures only local nginx (same host) can reach the plaintext inbound.
+    # - Nginx handles TLS termination on public port 1080
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by HAProxy)
+    # - No TLS streamSettings in Xray config (handled by Nginx)
 
     cat <<'EOF'
   ,{
     "tag": "socks5-proxy",
-    "listen": "0.0.0.0",
+    "listen": "127.0.0.1",
     "port": 10800,
     "protocol": "socks",
     "settings": {
@@ -537,21 +527,23 @@ EOF
 # Description: Generate HTTP proxy inbound configuration for Xray
 # Returns: JSON string for HTTP inbound (to be appended to inbounds array)
 # Related: TASK-11.2 (HTTP Proxy Inbound Configuration)
-# Note: v4.3 - TLS handled by HAProxy, Xray uses plaintext localhost inbound
+# Note: v5.30 - TLS handled by Nginx stream block, Xray uses plaintext inbound
 # =============================================================================
 generate_http_inbound_json() {
-    # v4.3: HAProxy unified TLS termination
-    # Architecture: Client → HAProxy (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
+    # v5.33: Single-container architecture with host networking
+    # Architecture: Client → familytraffic nginx (TLS, 0.0.0.0:8118) → Xray (plaintext, 127.0.0.1:18118)
     #
-    # IMPORTANT: Xray ALWAYS listens on localhost (127.0.0.1:18118)
-    # - HAProxy handles TLS termination on public port 8118
+    # BUG-3 fix: listen on 127.0.0.1 (loopback only), NOT 0.0.0.0
+    # With network_mode:host, 0.0.0.0:18118 would be exposed on all interfaces.
+    # 127.0.0.1 ensures only local nginx (same host) can reach the plaintext inbound.
+    # - Nginx handles TLS termination on public port 8118
     # - Xray handles authentication (username/password MANDATORY)
-    # - No TLS streamSettings in Xray config (handled by HAProxy)
+    # - No TLS streamSettings in Xray config (handled by Nginx)
 
     cat <<'EOF'
   ,{
     "tag": "http-proxy",
-    "listen": "0.0.0.0",
+    "listen": "127.0.0.1",
     "port": 18118,
     "protocol": "http",
     "settings": {
@@ -568,6 +560,93 @@ EOF
 }
 
 # =============================================================================
+# FUNCTION: generate_websocket_inbound_json (v5.30)
+# =============================================================================
+# Description: Returns JSON for VLESS WebSocket inbound (no TLS — Nginx terminates)
+# Port: 8444 (internal Docker network only — familytraffic_nginx proxies from 443 SNI)
+# =============================================================================
+generate_websocket_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "port": 8444,
+    "protocol": "vless",
+    "tag": "vless-websocket",
+    "settings": {
+      "clients": [],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "ws",
+      "wsSettings": {
+        "path": "/vless-ws",
+        "headers": {}
+      }
+    }
+  }
+EOF
+}
+
+# =============================================================================
+# FUNCTION: generate_xhttp_inbound_json (v5.31)
+# =============================================================================
+# Description: Returns JSON for VLESS XHTTP/SplitHTTP inbound (no TLS — Nginx terminates)
+# Port: 8445 (internal Docker network only)
+# Requires: Xray-core >= 24.9 (satisfied by teddysun/xray:24.11.30)
+# =============================================================================
+generate_xhttp_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "port": 8445,
+    "protocol": "vless",
+    "tag": "vless-xhttp",
+    "settings": {
+      "clients": [],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "splithttp",
+      "splithttpSettings": {
+        "path": "/api/v2",
+        "maxUploadSize": 1000000,
+        "maxConcurrentUploads": 10,
+        "minUploadIntervalMs": 0
+      }
+    }
+  }
+EOF
+}
+
+# =============================================================================
+# FUNCTION: generate_grpc_inbound_json (v5.32)
+# =============================================================================
+# Description: Returns JSON for VLESS gRPC inbound (TLS terminated by Nginx http block)
+# Port: 8446 (internal Docker network only)
+# =============================================================================
+generate_grpc_inbound_json() {
+    cat <<'EOF'
+  ,{
+    "port": 8446,
+    "protocol": "vless",
+    "tag": "vless-grpc",
+    "settings": {
+      "clients": [],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "grpc",
+      "grpcSettings": {
+        "serviceName": "GunService",
+        "multiMode": false,
+        "idle_timeout": 60,
+        "health_check_timeout": 20
+      },
+      "security": "none"
+    }
+  }
+EOF
+}
+
+# =============================================================================
 # FUNCTION: create_xray_config
 # =============================================================================
 # Description: Create Xray configuration file (xray_config.json)
@@ -575,6 +654,8 @@ EOF
 # Arguments:
 #   $1 - enable_proxy (optional): "true" to enable SOCKS5/HTTP proxy support
 #                                 "false" (default) for VLESS only
+#   $2 - enable_tier2 (optional): "true" to add WS/XHTTP/gRPC Tier 2 inbounds
+#                                 "false" (default) — only Reality inbound
 # Returns: 0 on success, 1 on failure
 # Updated: TASK-11.1 - Added proxy support parameter
 # Updated: v5.33 - Added policy section with increased limits for proxy usage
@@ -584,6 +665,7 @@ EOF
 # =============================================================================
 create_xray_config() {
     local enable_proxy="${1:-false}"
+    local enable_tier2="${2:-false}"   # v5.30: Tier 2 transports (WS/XHTTP/gRPC) flag
     echo -e "${CYAN}[4/12] Creating Xray configuration...${NC}"
 
     # Validate required variables
@@ -619,7 +701,7 @@ create_xray_config() {
       "decryption": "none",
       "fallbacks": [
         {
-          "dest": "vless_fake_site:80"
+          "dest": "127.0.0.1:80"
         }
       ]
     },
@@ -650,6 +732,10 @@ create_xray_config() {
   }$(if [[ "$enable_proxy" == "true" ]]; then
     generate_socks5_inbound_json
     generate_http_inbound_json
+fi)$(if [[ "$enable_tier2" == "true" ]]; then
+    generate_websocket_inbound_json
+    generate_xhttp_inbound_json
+    generate_grpc_inbound_json
 fi)],
   "outbounds": [
     {
@@ -732,6 +818,13 @@ EOF
             echo "  ✓ HTTP Proxy (127.0.0.1:8118) - LOCALHOST ONLY"
             echo "  ℹ️  Access via VPN connection only"
         fi
+    fi
+
+    # Repopulate proxy accounts from users.json to prevent open proxy access.
+    # xray HTTP inbound has no "auth" flag — empty accounts = no auth required.
+    # This sync ensures accounts survive config regeneration (reinstall, setup).
+    if [[ "$enable_proxy" == "true" ]] && declare -f rebuild_proxy_accounts_from_users_json >/dev/null 2>&1; then
+        rebuild_proxy_accounts_from_users_json || log_warning "Proxy accounts rebuild failed (non-critical, re-run 'familytraffic setup' if proxy auth is broken)"
     fi
 
     echo -e "${GREEN}✓ Xray configuration created${NC}"
@@ -856,8 +949,8 @@ init_proxy_allowed_ips() {
     local proxy_ips_file="${CONFIG_DIR}/proxy_allowed_ips.json"
     local default_ips='["127.0.0.1"]'
 
-    # v4.3: HAProxy runs in host network mode, only localhost needed
-    # All traffic from HAProxy to Xray uses 127.0.0.1
+    # v5.30: familytraffic_nginx connects via Docker network; default "localhost only"
+    # is a conservative starting point — override via proxy_allowed_ips.json
 
     # Create proxy_allowed_ips.json with appropriate defaults
     cat > "$proxy_ips_file" <<EOF
@@ -984,100 +1077,71 @@ EOF
 }
 
 # =============================================================================
-# FUNCTION: generate_haproxy_config_wrapper
+# FUNCTION: generate_nginx_config_wrapper (v5.30)
 # =============================================================================
-# Description: Wrapper for lib/haproxy_config_manager.sh::generate_haproxy_config()
-# Uses: DOMAIN, ENABLE_PUBLIC_PROXY (from interactive_params.sh)
+# Description: Wrapper for lib/nginx_stream_generator.sh::generate_nginx_config()
+#              Replaces generate_haproxy_config_wrapper() from v4.3-v5.29
+# Uses: DOMAIN, CERT_DOMAIN, VLESS_DIR (from environment / interactive_params.sh)
 # Returns: 0 on success, 1 on failure
-#
-# v5.26 Changes:
-#   - Pass ENABLE_PUBLIC_PROXY and ENABLE_REVERSE_PROXY parameters
-#   - Conditional output for public proxy ports and reverse proxy
 # =============================================================================
-generate_haproxy_config_wrapper() {
-    echo -e "${CYAN}[6.5/12] Generating HAProxy configuration (v5.26 conditional features)...${NC}"
+generate_nginx_config_wrapper() {
+    echo -e "${CYAN}[6.5/12] Generating Nginx configuration (v5.30, stream+http blocks)...${NC}"
 
-    # Extract main domain from DOMAIN (remove subdomain if present)
-    local main_domain="${DOMAIN}"
-    local vless_domain="${DOMAIN}"
+    local cert_domain="${CERT_DOMAIN:-${DOMAIN}}"
 
-    # Generate random stats password
-    local stats_password
-    stats_password=$(openssl rand -hex 8)
+    # Create nginx config directory
+    mkdir -p "${VLESS_DIR}/config/nginx" || {
+        echo -e "${RED}Failed to create ${VLESS_DIR}/config/nginx directory${NC}" >&2
+        return 1
+    }
 
-    # Call the imported function from haproxy_config_manager.sh (v5.26: pass ENABLE_PUBLIC_PROXY + ENABLE_REVERSE_PROXY)
-    if ! generate_haproxy_config "${vless_domain}" "${main_domain}" "${stats_password}" "${ENABLE_PUBLIC_PROXY}" "${ENABLE_REVERSE_PROXY:-false}"; then
-        echo -e "${RED}Failed to generate HAProxy configuration${NC}" >&2
+    # Create nginx logs directory
+    mkdir -p "${VLESS_DIR}/logs/nginx" || {
+        echo -e "${YELLOW}Warning: Failed to create ${VLESS_DIR}/logs/nginx directory${NC}"
+    }
+
+    # Generate nginx.conf (Phase 0: no Tier 2 subdomains yet; they are added by transport_manager.sh)
+    if ! generate_nginx_config "${cert_domain}" "false" > "${VLESS_DIR}/config/nginx/nginx.conf"; then
+        echo -e "${RED}Failed to generate Nginx configuration${NC}" >&2
         return 1
     fi
 
-    echo "  ✓ HAProxy config: ${CONFIG_DIR}/haproxy.cfg"
+    echo "  ✓ Nginx config: ${VLESS_DIR}/config/nginx/nginx.conf"
+    echo "  ✓ Stream ports: 443 (SNI ssl_preread), 1080 (SOCKS5 TLS), 8118 (HTTP TLS)"
+    echo "  ✓ HTTP block: port 8448 (Tier 2 loopback placeholder)"
+    echo "  ✓ Cert domain: ${cert_domain}"
 
-    # Conditional output based on public proxy mode (v5.25)
-    if [[ "${ENABLE_PUBLIC_PROXY}" == "true" ]]; then
-        echo "  ✓ Frontend ports: 443 (SNI), 1080 (SOCKS5), 8118 (HTTP)"
-        echo "  ✓ TLS certificates: /etc/letsencrypt (mounted)"
-    else
-        echo "  ✓ Frontend ports: 443 (VLESS Reality via SNI passthrough)"
-        echo "  ✓ Mode: VLESS-only (no public proxy)"
-    fi
-
-    echo "  ✓ Stats URL: http://127.0.0.1:9000/stats"
-    echo "  ✓ Stats password: ${stats_password}"
-
-    echo -e "${GREEN}✓ HAProxy configuration created${NC}"
+    echo -e "${GREEN}✓ Nginx configuration created${NC}"
     return 0
 }
 
 # =============================================================================
 # FUNCTION: create_docker_compose
 # =============================================================================
-# Description: Wrapper for lib/docker_compose_generator.sh::generate_docker_compose()
-# Uses: XRAY_IMAGE, NGINX_IMAGE, VLESS_PORT, DOCKER_NETWORK_NAME (via env)
+# Description: Copy docker-compose.yml from the repo root to INSTALL_ROOT.
 # Returns: 0 on success, 1 on failure
 # =============================================================================
 create_docker_compose() {
-    echo -e "${CYAN}[7/12] Creating Docker Compose configuration (v4.3 unified HAProxy)...${NC}"
+    echo -e "${CYAN}[7/12] Copying Docker Compose configuration from repo...${NC}"
 
-    # Set required environment variables for the external generator
-    # Note: VLESS_DIR already set in docker_compose_generator.sh (sourced at top)
-    export DOCKER_SUBNET="${DOCKER_SUBNET}"
-    export VLESS_PORT="${VLESS_PORT}"
-
-    # Call external generator with empty nginx_ports array (managed dynamically)
-    # nginx_ports will be added later by lib/docker_compose_manager.sh when reverse proxies are configured
-    if ! generate_docker_compose; then
-        echo -e "${RED}Failed to generate docker-compose.yml${NC}" >&2
+    local compose_src="${SCRIPT_DIR_LIB}/../docker-compose.yml"
+    if [[ ! -f "${compose_src}" ]]; then
+        echo -e "${RED}Source docker-compose.yml not found: ${compose_src}${NC}" >&2
+        return 1
+    fi
+    # SEC: refuse to follow symlinks (CWE-61 symlink following)
+    if [[ -L "${compose_src}" ]]; then
+        echo -e "${RED}Symlink detected for docker-compose.yml source — refusing to copy${NC}" >&2
         return 1
     fi
 
-    # Verify file was created
-    if [[ ! -f "${DOCKER_COMPOSE_FILE}" ]]; then
-        echo -e "${RED}Docker compose file not found after generation${NC}" >&2
+    cp "${compose_src}" "${DOCKER_COMPOSE_FILE}" || {
+        echo -e "${RED}Failed to copy docker-compose.yml${NC}" >&2
         return 1
-    fi
+    }
 
-    echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE}"
-    echo "  ✓ HAProxy image: haproxy:2.8-alpine (NEW in v4.3)"
-    echo "  ✓ Xray image: ${XRAY_IMAGE}"
-    echo "  ✓ Nginx image: ${NGINX_IMAGE}"
-    echo "  ✓ Network: ${DOCKER_NETWORK_NAME}"
-    echo "  ✓ Security: hardened containers with minimal capabilities"
-
-    # v4.3: HAProxy unified architecture
-    if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        echo "  ✓ Mode: PUBLIC PROXY with HAProxy unified TLS (v4.3)"
-        echo "  ✓ HAProxy: Handles ALL ports (443, 1080, 8118) with TLS/passthrough"
-        echo "  ✓ Xray: Localhost ports 8443 (VLESS), 10800 (SOCKS5), 18118 (HTTP)"
-        echo "  ✓ TLS certificates: /etc/letsencrypt mounted to HAProxy"
-        echo "  ✓ Architecture: Client → HAProxy (TLS) → Xray (auth) → Internet"
-    else
-        echo "  ✓ Mode: VLESS-only with HAProxy passthrough (v4.3)"
-        echo "  ✓ Exposed ports: 443 (VLESS Reality via HAProxy)"
-        echo "  ✓ Xray: Localhost 8443 (HAProxy forwards from port 443)"
-    fi
-
-    echo -e "${GREEN}✓ Docker Compose configuration created${NC}"
+    echo "  ✓ Docker Compose file: ${DOCKER_COMPOSE_FILE} (from repo)"
+    echo -e "${GREEN}✓ Docker Compose configuration copied${NC}"
     return 0
 }
 
@@ -1114,8 +1178,6 @@ ENABLE_PROXY=${ENABLE_PROXY:-false}
 ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
 ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
 
-# Reverse Proxy Configuration (v5.26)
-ENABLE_REVERSE_PROXY=${ENABLE_REVERSE_PROXY:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
@@ -1128,12 +1190,18 @@ NGINX_IMAGE=${NGINX_IMAGE}
 
 # Paths
 INSTALL_ROOT=${INSTALL_ROOT}
+VLESS_DIR=${INSTALL_ROOT}
 CONFIG_DIR=${CONFIG_DIR}
 DATA_DIR=${DATA_DIR}
 
 # TLS Certificate Configuration (v3.3 - for public proxy mode)
 DOMAIN=${DOMAIN:-}
 EMAIL=${EMAIL:-}
+
+# Container Image Configuration (v5.33 familyTraffic)
+GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/OWNER/familytraffic}
+FT_IMAGE_TAG=${FT_IMAGE_TAG:-latest}
+ACME_EMAIL=${EMAIL:-}
 EOF
 
     if [[ ! -f "${ENV_FILE}" ]]; then
@@ -1210,18 +1278,17 @@ configure_ufw() {
 
         cat >> "${UFW_AFTER_RULES}" <<EOF
 
-# BEGIN VLESS REALITY DOCKER FORWARDING RULES
+# BEGIN FAMILYTRAFFIC DOCKER FORWARDING RULES
 # Added: $(date -Iseconds)
+# v5.33: familytraffic uses network_mode:host — no bridge network, no MASQUERADE needed.
+# DOCKER-USER chain kept for Docker daemon compatibility.
 *filter
 :DOCKER-USER - [0:0]
 -A DOCKER-USER -j RETURN
 COMMIT
-
-*nat
-:POSTROUTING ACCEPT [0:0]
--A POSTROUTING -s ${DOCKER_SUBNET} -j MASQUERADE
-COMMIT
-# END VLESS REALITY DOCKER FORWARDING RULES
+# WARN-5 fix: *nat POSTROUTING MASQUERADE removed — host networking does not use NAT.
+# If MTProxy is enabled as a separate bridge container, its subnet is managed separately.
+# END FAMILYTRAFFIC DOCKER FORWARDING RULES
 EOF
         echo "  ✓ Docker forwarding rules added"
     else
@@ -1249,17 +1316,17 @@ EOF
         echo "  ✓ No old reverse proxy port rules found"
     fi
 
-    # v5.1: Allow HAProxy external port 443 (NOT VLESS_PORT which is internal 8443)
-    # HAProxy listens on 443 externally, forwards to Xray on 8443 internally
-    local haproxy_external_port=443
-    echo "  Allowing port ${haproxy_external_port} (HAProxy external frontend)..."
-    if ufw status numbered | grep -q "${haproxy_external_port}/tcp.*ALLOW"; then
-        echo "  ✓ Port ${haproxy_external_port}/tcp already allowed"
+    # v5.30: Allow Nginx external port 443 (NOT VLESS_PORT which is internal 8443)
+    # Nginx stream listens on 443 externally via ssl_preread SNI routing, forwards Reality to Xray on 8443
+    local nginx_external_port=443
+    echo "  Allowing port ${nginx_external_port} (Nginx external SNI frontend)..."
+    if ufw status numbered | grep -q "${nginx_external_port}/tcp.*ALLOW"; then
+        echo "  ✓ Port ${nginx_external_port}/tcp already allowed"
     else
-        ufw allow "${haproxy_external_port}/tcp" comment 'HAProxy VLESS+Reverse Proxy (v4.3)' || {
+        ufw allow "${nginx_external_port}/tcp" comment 'Nginx VLESS+Reverse Proxy (v5.30)' || {
             echo -e "${YELLOW}Warning: Failed to add UFW rule${NC}"
         }
-        echo "  ✓ Port ${haproxy_external_port}/tcp allowed"
+        echo "  ✓ Port ${nginx_external_port}/tcp allowed"
     fi
 
     # v4.3: Ensure ports 9443-9452 are NOT exposed (localhost-only nginx backends)
@@ -1319,7 +1386,7 @@ deploy_containers() {
     [[ ! -f "${KEYS_DIR}/private.key" ]] && missing_files+=("${KEYS_DIR}/private.key")
     [[ ! -f "${KEYS_DIR}/public.key" ]] && missing_files+=("${KEYS_DIR}/public.key")
 
-    # v4.3: HAProxy config checked via docker-compose generator (lib/haproxy_config_manager.sh)
+    # v5.30: nginx config generated via lib/nginx_stream_generator.sh (called from create_nginx_config)
 
     if [[ ${#missing_files[@]} -gt 0 ]]; then
         echo -e "${RED}✗ Pre-flight check failed: Missing critical files (${#missing_files[@]})${NC}" >&2
@@ -1356,78 +1423,39 @@ deploy_containers() {
     echo "  Waiting for containers to start..."
     sleep 5
 
-    # Check container status using docker inspect (more reliable than grep)
-    local xray_status=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$xray_status" == "running" ]]; then
-        echo "  ✓ Xray container running"
+    # v5.33: Check single familytraffic container (nginx + xray + supervisord)
+    local ft_status
+    ft_status=$(docker inspect "familytraffic" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
+    if [[ "$ft_status" == "running" ]]; then
+        echo "  ✓ familytraffic container running"
 
-        # Check healthcheck status (if available)
-        local xray_health=$(docker inspect "${XRAY_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-        if [[ "$xray_health" == "healthy" ]]; then
-            echo "  ✓ Xray container healthy"
-        elif [[ "$xray_health" == "starting" ]]; then
-            echo "  ℹ Xray container health: starting (will be checked later)"
-        elif [[ "$xray_health" != "no-healthcheck" ]]; then
-            echo -e "${YELLOW}  ⚠ Xray container health: $xray_health${NC}"
+        # Check healthcheck status
+        local ft_health
+        ft_health=$(docker inspect "familytraffic" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
+        if [[ "$ft_health" == "healthy" ]]; then
+            echo "  ✓ familytraffic container healthy"
+        elif [[ "$ft_health" == "starting" ]]; then
+            echo "  ℹ familytraffic health: starting (will be checked later)"
+        elif [[ "$ft_health" != "no-healthcheck" ]]; then
+            echo -e "${YELLOW}  ⚠ familytraffic health: $ft_health${NC}"
         fi
-    else
-        echo -e "${RED}Xray container failed to start (status: $xray_status)${NC}" >&2
-        docker compose logs xray
-        return 1
-    fi
 
-    # v5.26.1: Check nginx only if reverse proxy is enabled
-    # Use docker compose config to check if nginx service exists in docker-compose.yml
-    if docker compose config --services 2>/dev/null | grep -q '^nginx$'; then
-        local nginx_status=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-        if [[ "$nginx_status" == "running" ]]; then
-            echo "  ✓ Nginx container running"
-
-            # Check healthcheck status (added in v4.1.1)
-            local nginx_health=$(docker inspect "${NGINX_CONTAINER_NAME}" -f '{{.State.Health.Status}}' 2>/dev/null || echo "no-healthcheck")
-            if [[ "$nginx_health" == "healthy" ]]; then
-                echo "  ✓ Nginx container healthy"
-            elif [[ "$nginx_health" == "starting" ]]; then
-                echo "  ℹ Nginx container health: starting (will be checked later)"
-            elif [[ "$nginx_health" != "no-healthcheck" ]]; then
-                echo -e "${YELLOW}  ⚠ Nginx container health: $nginx_health${NC}"
-            fi
-
-            # Check Nginx logs for critical errors (ignore informational messages)
-            local nginx_logs=$(docker logs "${NGINX_CONTAINER_NAME}" 2>&1 | tail -20)
-            if echo "$nginx_logs" | grep -q "nginx: \[emerg\]"; then
-                echo -e "${RED}Nginx has critical errors in logs${NC}" >&2
-                docker compose logs nginx
-                return 1
-            fi
-            # Ignore read-only warnings - these are expected with security-hardened containers
-            if echo "$nginx_logs" | grep -qE "(can not modify|read-only file system)"; then
-                echo "  ℹ Nginx running in read-only mode (expected for security)"
-            fi
-        else
-            echo -e "${RED}Nginx container failed to start (status: $nginx_status)${NC}" >&2
-            docker compose logs nginx
+        # Check for bind errors in logs
+        local ft_logs
+        ft_logs=$(docker logs "familytraffic" 2>&1 | tail -20)
+        if echo "$ft_logs" | grep -q "bind() to.*failed"; then
+            echo -e "${RED}familytraffic has bind errors (check logs)${NC}" >&2
+            docker compose logs familytraffic
+            return 1
+        fi
+        if echo "$ft_logs" | grep -q "nginx: \[emerg\]"; then
+            echo -e "${RED}familytraffic nginx has critical errors${NC}" >&2
+            docker compose logs familytraffic
             return 1
         fi
     else
-        echo "  ℹ Nginx reverse proxy container skipped (feature disabled)"
-    fi
-
-    # v4.3: Check HAProxy container (unified TLS termination in bridge network)
-    local haproxy_status=$(docker inspect "${HAPROXY_CONTAINER_NAME}" -f '{{.State.Status}}' 2>/dev/null || echo "not-found")
-    if [[ "$haproxy_status" == "running" ]]; then
-        echo "  ✓ HAProxy container running"
-
-        # Check for bind errors in logs (common issue: Permission denied on ports)
-        local haproxy_logs=$(docker logs "${HAPROXY_CONTAINER_NAME}" 2>&1 | tail -20)
-        if echo "$haproxy_logs" | grep -q "cannot bind socket"; then
-            echo -e "${RED}HAProxy has bind errors (check logs)${NC}" >&2
-            docker compose logs haproxy
-            return 1
-        fi
-    else
-        echo -e "${RED}HAProxy container failed to start (status: $haproxy_status)${NC}" >&2
-        docker compose logs haproxy
+        echo -e "${RED}familytraffic container failed to start (status: $ft_status)${NC}" >&2
+        docker compose logs familytraffic
         return 1
     fi
 
@@ -1446,7 +1474,7 @@ install_cli_tools() {
 
     # Get the project root (assuming script is in lib/ subdirectory)
     local project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    local cli_source="${project_root}/scripts/vless"
+    local cli_source="${project_root}/scripts/familytraffic"
 
     # Check if CLI script exists in project
     if [[ ! -f "$cli_source" ]]; then
@@ -1456,97 +1484,67 @@ install_cli_tools() {
     fi
 
     # Copy CLI script to installation directory
-    cp "$cli_source" "${SCRIPTS_DIR}/vless" || {
+    cp "$cli_source" "${SCRIPTS_DIR}/familytraffic" || {
         echo -e "${RED}Failed to copy CLI script${NC}" >&2
         return 1
     }
 
     # Make it executable
-    chmod 755 "${SCRIPTS_DIR}/vless" || {
+    chmod 755 "${SCRIPTS_DIR}/familytraffic" || {
         echo -e "${RED}Failed to set execute permission${NC}" >&2
         return 1
     }
 
     # Create symlink in /usr/local/bin
-    ln -sf "${SCRIPTS_DIR}/vless" /usr/local/bin/vless || {
+    ln -sf "${SCRIPTS_DIR}/familytraffic" /usr/local/bin/familytraffic || {
         echo -e "${RED}Failed to create symlink${NC}" >&2
         return 1
     }
 
-    # Install vless-proxy CLI tool (v5.26: only if reverse proxy enabled)
-    if [[ "${ENABLE_REVERSE_PROXY:-false}" == "true" ]]; then
-        local proxy_cli_source="${project_root}/scripts/vless-proxy"
-        if [[ -f "$proxy_cli_source" ]]; then
-            # Copy vless-proxy script
-            cp "$proxy_cli_source" "${SCRIPTS_DIR}/vless-proxy" || {
-                echo -e "${RED}Failed to copy vless-proxy script${NC}" >&2
-                return 1
-            }
-
-            # Make it executable
-            chmod 755 "${SCRIPTS_DIR}/vless-proxy" || {
-                echo -e "${RED}Failed to set execute permission on vless-proxy${NC}" >&2
-                return 1
-            }
-
-            # Create symlink in /usr/local/bin
-            ln -sf "${SCRIPTS_DIR}/vless-proxy" /usr/local/bin/vless-proxy || {
-                echo -e "${RED}Failed to create vless-proxy symlink${NC}" >&2
-                return 1
-            }
-
-            echo "  ✓ vless-proxy installed"
-        else
-            echo -e "${YELLOW}  ⚠ vless-proxy script not found: $proxy_cli_source${NC}"
-            echo "  ℹ vless-proxy installation skipped"
-        fi
-
-        # Install vless-setup-proxy helper script
-        local setup_proxy_source="${project_root}/scripts/vless-setup-proxy"
-        if [[ -f "$setup_proxy_source" ]]; then
-            cp "$setup_proxy_source" "${SCRIPTS_DIR}/vless-setup-proxy" || {
-                echo -e "${RED}Failed to copy vless-setup-proxy script${NC}" >&2
-                return 1
-            }
-
-            chmod 755 "${SCRIPTS_DIR}/vless-setup-proxy" || {
-                echo -e "${RED}Failed to set execute permission on vless-setup-proxy${NC}" >&2
-                return 1
-            }
-
-            echo "  ✓ vless-setup-proxy installed"
-        else
-            echo -e "${YELLOW}  ⚠ vless-setup-proxy script not found: $setup_proxy_source${NC}"
-            echo "  ℹ vless-setup-proxy installation skipped"
-        fi
-    else
-        echo "  ℹ️  Reverse proxy disabled, skipping vless-proxy/vless-setup-proxy installation"
-    fi
-
-    # v5.23: Install vless-external-proxy CLI tool
-    local external_proxy_cli_source="${project_root}/scripts/vless-external-proxy"
+    # v5.23: Install familytraffic-external-proxy CLI tool
+    local external_proxy_cli_source="${project_root}/scripts/familytraffic-external-proxy"
     if [[ -f "$external_proxy_cli_source" ]]; then
-        cp "$external_proxy_cli_source" "${SCRIPTS_DIR}/vless-external-proxy" || {
-            echo -e "${RED}Failed to copy vless-external-proxy script${NC}" >&2
+        cp "$external_proxy_cli_source" "${SCRIPTS_DIR}/familytraffic-external-proxy" || {
+            echo -e "${RED}Failed to copy familytraffic-external-proxy script${NC}" >&2
             return 1
         }
 
         # Make it executable
-        chmod 755 "${SCRIPTS_DIR}/vless-external-proxy" || {
-            echo -e "${RED}Failed to set execute permission on vless-external-proxy${NC}" >&2
+        chmod 755 "${SCRIPTS_DIR}/familytraffic-external-proxy" || {
+            echo -e "${RED}Failed to set execute permission on familytraffic-external-proxy${NC}" >&2
             return 1
         }
 
         # Create symlink in /usr/local/bin
-        ln -sf "${SCRIPTS_DIR}/vless-external-proxy" /usr/local/bin/vless-external-proxy || {
-            echo -e "${RED}Failed to create vless-external-proxy symlink${NC}" >&2
+        ln -sf "${SCRIPTS_DIR}/familytraffic-external-proxy" /usr/local/bin/familytraffic-external-proxy || {
+            echo -e "${RED}Failed to create familytraffic-external-proxy symlink${NC}" >&2
             return 1
         }
 
-        echo "  ✓ vless-external-proxy installed"
+        echo "  ✓ familytraffic-external-proxy installed"
     else
-        echo -e "${YELLOW}  ⚠ vless-external-proxy script not found: $external_proxy_cli_source${NC}"
-        echo "  ℹ vless-external-proxy installation skipped (v5.23 feature)"
+        echo -e "${YELLOW}  ⚠ familytraffic-external-proxy script not found: $external_proxy_cli_source${NC}"
+        echo "  ℹ familytraffic-external-proxy installation skipped (v5.23 feature)"
+    fi
+
+    # Install familytraffic-mtproxy CLI tool
+    local mtproxy_cli_source="${project_root}/scripts/familytraffic-mtproxy"
+    if [[ -f "$mtproxy_cli_source" ]]; then
+        cp "$mtproxy_cli_source" "${SCRIPTS_DIR}/familytraffic-mtproxy" || {
+            echo -e "${RED}Failed to copy familytraffic-mtproxy script${NC}" >&2
+            return 1
+        }
+        chmod 755 "${SCRIPTS_DIR}/familytraffic-mtproxy" || {
+            echo -e "${RED}Failed to set execute permission on familytraffic-mtproxy${NC}" >&2
+            return 1
+        }
+        ln -sf "${SCRIPTS_DIR}/familytraffic-mtproxy" /usr/local/sbin/familytraffic-mtproxy || {
+            echo -e "${RED}Failed to create familytraffic-mtproxy symlink${NC}" >&2
+            return 1
+        }
+        echo "  ✓ familytraffic-mtproxy installed"
+    else
+        echo -e "${YELLOW}  ⚠ familytraffic-mtproxy script not found: $mtproxy_cli_source${NC}"
     fi
 
     # v5.20: Copy ALL lib modules automatically (except installation-only modules)
@@ -1626,13 +1624,9 @@ install_cli_tools() {
 
     echo "  📊 Summary: ${copied_count} modules copied, ${skipped_count} skipped"
 
-    echo "  ✓ CLI scripts installed:"
-    echo "    - ${SCRIPTS_DIR}/vless"
-    echo "    - ${SCRIPTS_DIR}/vless-proxy"
-    echo "  ✓ Symlinks created:"
-    echo "    - /usr/local/bin/vless"
-    echo "    - /usr/local/bin/vless-proxy"
-    echo "  ✓ Commands available: vless, vless-proxy"
+    echo "  ✓ CLI scripts installed in ${SCRIPTS_DIR}"
+    echo "  ✓ Symlinks created in /usr/local/bin and /usr/local/sbin"
+    echo "  ✓ Commands available: familytraffic, familytraffic-external-proxy, familytraffic-mtproxy"
 
     echo -e "${GREEN}✓ CLI tools installed${NC}"
     return 0
@@ -1647,6 +1641,14 @@ install_cli_tools() {
 set_permissions() {
     echo -e "${CYAN}[11/14] Setting file permissions...${NC}"
 
+    # Ensure INSTALL_ROOT and all subdirectories are owned by root
+    # (directory may have been pre-created by a non-root CI/CD step or SSH user)
+    chown -R root:root "${INSTALL_ROOT}" 2>/dev/null || {
+        echo -e "${RED}Failed to set ownership of ${INSTALL_ROOT} to root${NC}" >&2
+        return 1
+    }
+    echo "  ✓ Ownership: ${INSTALL_ROOT} → root:root"
+
     # Sensitive directories: 700 (root only)
     # EXCEPTION: CONFIG_DIR must be 755 to allow container users to read files inside
     # Set permissions on each directory individually to ensure all exist
@@ -1657,12 +1659,9 @@ set_permissions() {
     done
 
     # CONFIG_DIR and subdirectories: 755 (readable by container users)
-    # This allows Xray (root) and HAProxy (uid=99) containers to read config files
+    # This allows Xray (root) and Nginx containers to read config files
     if [[ -d "${CONFIG_DIR}" ]]; then
         chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
-    fi
-    if [[ -d "${CONFIG_DIR}/reverse-proxy" ]]; then
-        chmod 755 "${CONFIG_DIR}/reverse-proxy" 2>/dev/null || true
     fi
 
     # Sensitive files: 600 (root read/write only)
@@ -1670,21 +1669,20 @@ set_permissions() {
     find "${KEYS_DIR}" -type f -exec chmod 600 {} \; 2>/dev/null || true
     chmod 600 "${ENV_FILE}" 2>/dev/null || true
 
-    # EXCEPTION: HAProxy config must be world-readable for haproxy user (uid=99 in container)
-    # HAProxy container runs as non-root user and needs to read this file
-    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
-        chmod 644 "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || {
-            echo -e "  ${YELLOW}⚠ WARNING: Failed to set permissions on haproxy.cfg${NC}" >&2
+    # v5.30: Nginx config must be readable by nginx container user
+    if [[ -f "${CONFIG_DIR}/nginx/nginx.conf" ]]; then
+        chmod 644 "${CONFIG_DIR}/nginx/nginx.conf" 2>/dev/null || {
+            echo -e "  ${YELLOW}⚠ WARNING: Failed to set permissions on nginx.conf${NC}" >&2
         }
-        # Verify permissions were set correctly
-        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
-        if [[ "$haproxy_perms" == "644" ]]; then
-            echo "  ✓ haproxy.cfg: 644 (readable by container uid=99)"
+        local nginx_conf_perms
+        nginx_conf_perms=$(stat -c '%a' "${CONFIG_DIR}/nginx/nginx.conf" 2>/dev/null || echo "000")
+        if [[ "$nginx_conf_perms" == "644" ]]; then
+            echo "  ✓ nginx.conf: 644 (readable by nginx container)"
         else
-            echo -e "  ${RED}✗ haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}" >&2
+            echo -e "  ${RED}✗ nginx.conf: $nginx_conf_perms (EXPECTED 644)${NC}" >&2
         fi
     else
-        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found at ${CONFIG_DIR}/haproxy.cfg${NC}" >&2
+        echo -e "  ${YELLOW}⚠ WARNING: nginx.conf not found at ${CONFIG_DIR}/nginx/nginx.conf${NC}" >&2
     fi
 
     # EXCEPTION: Xray config must be world-readable (chmod 644)
@@ -1693,7 +1691,7 @@ set_permissions() {
         echo "  → Setting permissions on ${XRAY_CONFIG}..."
         chmod 644 "${XRAY_CONFIG}" 2>/dev/null || {
             echo -e "  ${RED}✗ CRITICAL: Failed to chmod 644 ${XRAY_CONFIG}${NC}" >&2
-            echo -e "  ${RED}  This will cause vless_xray container to fail!${NC}" >&2
+            echo -e "  ${RED}  This will cause familytraffic_xray container to fail!${NC}" >&2
             return 1
         }
         # Verify permissions were set correctly
@@ -1702,7 +1700,7 @@ set_permissions() {
             echo -e "  ${GREEN}✓ xray_config.json: 644 (readable by container)${NC}"
         else
             echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}" >&2
-            echo -e "  ${RED}  vless_xray container will fail to start!${NC}" >&2
+            echo -e "  ${RED}  familytraffic_xray container will fail to start!${NC}" >&2
             return 1
         fi
     else
@@ -1787,7 +1785,7 @@ verify_file_permissions() {
             echo -e "  ${GREEN}✓ xray_config.json: 644 (OK)${NC}"
         else
             echo -e "  ${RED}✗ CRITICAL: xray_config.json: $xray_perms (EXPECTED 644)${NC}"
-            echo -e "  ${RED}  → vless_xray container will fail to start!${NC}"
+            echo -e "  ${RED}  → familytraffic_xray container will fail to start!${NC}"
             echo -e "  ${YELLOW}  → Manual fix: sudo chmod 644 ${XRAY_CONFIG}${NC}"
             ((ISSUES++))
         fi
@@ -1796,18 +1794,19 @@ verify_file_permissions() {
         ((ISSUES++))
     fi
 
-    # Check haproxy.cfg (CRITICAL)
-    if [[ -f "${CONFIG_DIR}/haproxy.cfg" ]]; then
-        local haproxy_perms=$(stat -c '%a' "${CONFIG_DIR}/haproxy.cfg" 2>/dev/null || echo "000")
-        if [[ "$haproxy_perms" == "644" ]]; then
-            echo -e "  ${GREEN}✓ haproxy.cfg: 644 (OK)${NC}"
+    # Check nginx/nginx.conf (CRITICAL — v5.30: replaces haproxy.cfg)
+    if [[ -f "${CONFIG_DIR}/nginx/nginx.conf" ]]; then
+        local nginx_perms
+        nginx_perms=$(stat -c '%a' "${CONFIG_DIR}/nginx/nginx.conf" 2>/dev/null || echo "000")
+        if [[ "$nginx_perms" == "644" ]]; then
+            echo -e "  ${GREEN}✓ nginx/nginx.conf: 644 (OK)${NC}"
         else
-            echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg: $haproxy_perms (EXPECTED 644)${NC}"
-            echo -e "  ${YELLOW}  → HAProxy container may fail to start${NC}"
+            echo -e "  ${YELLOW}⚠ WARNING: nginx/nginx.conf: $nginx_perms (EXPECTED 644)${NC}"
+            echo -e "  ${YELLOW}  → familytraffic_nginx container may fail to load config${NC}"
             ((WARNINGS++))
         fi
     else
-        echo -e "  ${YELLOW}⚠ WARNING: haproxy.cfg not found${NC}"
+        echo -e "  ${YELLOW}⚠ WARNING: nginx/nginx.conf not found${NC}"
         ((WARNINGS++))
     fi
 
@@ -1847,9 +1846,11 @@ verify_file_permissions() {
         echo -e "${RED}✗ Verification FAILED with $ISSUES critical issue(s) and $WARNINGS warning(s)${NC}"
         echo -e "${RED}  Installation may not work correctly!${NC}"
         echo ""
-        echo -e "${YELLOW}Run manual fixes above, then:${NC}"
-        echo -e "${YELLOW}  docker restart vless_xray${NC}"
-        echo -e "${YELLOW}  docker restart vless_haproxy${NC}"
+        echo -e "${YELLOW}Run manual fixes above, then restart processes inside the container:${NC}"
+        echo -e "${YELLOW}  docker exec familytraffic supervisorctl restart xray${NC}"
+        echo -e "${YELLOW}  docker exec familytraffic supervisorctl restart nginx${NC}"
+        echo -e "${YELLOW}  # Or restart the entire container:${NC}"
+        echo -e "${YELLOW}  docker restart familytraffic${NC}"
         return 1
     fi
 }

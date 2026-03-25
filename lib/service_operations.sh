@@ -487,8 +487,7 @@ display_network_info() {
     local server_ip
     server_ip=$(grep "^SERVER_IP=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2 || echo "N/A")
 
-    # v5.1: Show external port 443 (HAProxy) for clients, internal port for reference
-    echo "  Client Port:  443 (HAProxy → Xray:$vless_port_internal)"
+    echo "  Client Port:  443 (Nginx stream → Xray:$vless_port_internal)"
     echo "  Subnet:       $docker_subnet"
     echo "  Server IP:    $server_ip"
 

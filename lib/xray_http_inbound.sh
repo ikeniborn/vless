@@ -13,7 +13,7 @@
 #   - Hot-reload Xray configuration
 #
 # Xray Config Location:
-#   /opt/vless/config/xray_config.json
+#   /opt/familytraffic/config/xray_config.json
 #
 # Inbound Format:
 #   {
@@ -27,7 +27,7 @@
 #   }
 #
 # Version: 4.3.0
-# Author: VLESS Development Team
+# Author: familyTraffic Development Team
 # Date: 2025-10-20
 # ==============================================================================
 
@@ -37,8 +37,8 @@ set -euo pipefail
 # Configuration
 # ==============================================================================
 
-readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
-readonly XRAY_CONTAINER="vless_xray"
+readonly XRAY_CONFIG="/opt/familytraffic/config/xray_config.json"
+readonly XRAY_CONTAINER="familytraffic"
 
 # ==============================================================================
 # Function: get_next_xray_reverseproxy_port

@@ -1,9 +1,9 @@
 #!/bin/bash
 ################################################################################
-# VLESS + Reality VPN Server - Installation Entry Point
+# familyTraffic VPN Server - Installation Entry Point
 #
 # Description:
-#   Main entry point for VLESS Reality VPN installation system.
+#   Main entry point for familyTraffic VPN installation system.
 #   Orchestrates the complete installation process by calling modular functions
 #   from the lib/ directory.
 #
@@ -11,11 +11,11 @@
 #   sudo ./install.sh
 #
 #   Non-Interactive Mode (for automation):
-#     VLESS_AUTO_CLEANUP=1 sudo ./install.sh          # Auto backup+cleanup old installation
-#     VLESS_AUTO_CLEANUP=2 sudo ./install.sh          # Auto cleanup without backup
-#     VLESS_AUTO_CLEANUP=3 sudo ./install.sh          # Auto skip and exit
-#     VLESS_CONFIRM_CLEANUP=yes sudo ./install.sh     # Auto-confirm cleanup prompts
-#     VLESS_AUTO_INSTALL_DEPS=yes sudo ./install.sh   # Auto-install missing dependencies
+#     FT_AUTO_CLEANUP=1 sudo ./install.sh          # Auto backup+cleanup old installation
+#     FT_AUTO_CLEANUP=2 sudo ./install.sh          # Auto cleanup without backup
+#     FT_AUTO_CLEANUP=3 sudo ./install.sh          # Auto skip and exit
+#     FT_CONFIRM_CLEANUP=yes sudo ./install.sh     # Auto-confirm cleanup prompts
+#     FT_AUTO_INSTALL_DEPS=yes sudo ./install.sh   # Auto-install missing dependencies
 #
 # Requirements:
 #   - Must be run as root
@@ -28,8 +28,8 @@
 #   2 - Permission error (not root)
 #   3 - Dependency error
 #
-# Version: 5.26.1
-# Date: 2025-10-27
+# Version: 5.33.0
+# Date: 2026-02-23
 ################################################################################
 
 set -euo pipefail
@@ -43,8 +43,15 @@ readonly COLOR_CYAN='\033[0;36m'
 readonly COLOR_RESET='\033[0m'
 
 # Version tracking (matches CHANGELOG.md)
-# Note: renamed from VERSION to VLESS_VERSION to avoid conflict with /etc/os-release
-readonly VLESS_VERSION="5.26.1"
+# Note: renamed from VERSION to FT_VERSION to avoid conflict with /etc/os-release
+readonly FT_VERSION="5.33.0"
+
+# Container image configuration (v5.33 familyTraffic)
+# GHCR_IMAGE: auto-detected from git remote URL, can be overridden via environment
+GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/$(git config --get remote.origin.url 2>/dev/null | sed 's|.*github.com[:/]\(.*\)\.git|\1|; s|.*github.com[:/]\(.*\)|\1|' | cut -d/ -f1)/familytraffic}"
+readonly GHCR_IMAGE
+FT_IMAGE_TAG="${FT_IMAGE_TAG:-latest}"
+readonly FT_IMAGE_TAG
 
 # Get script directory (works even if script is symlinked)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -134,10 +141,10 @@ print_banner() {
     cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║          VLESS + Reality VPN Server Installation            ║
+║           familyTraffic VPN Server Installation             ║
 ║                                                              ║
 ║  Production-grade CLI-based Reality protocol deployment     ║
-║  Version: 5.26.1 (Conditional nginx validation)            ║
+║  Version: 5.33.0                                           ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 EOF
@@ -180,7 +187,7 @@ source_libraries() {
     if [[ ! -d "${lib_dir}" ]]; then
         print_error "Library directory not found: ${lib_dir}"
         print_message "${COLOR_YELLOW}" "Make sure you are running this script from the project directory:"
-        print_message "${COLOR_YELLOW}" "  cd /path/to/vless"
+        print_message "${COLOR_YELLOW}" "  cd /path/to/familytraffic"
         print_message "${COLOR_YELLOW}" "  sudo ./install.sh"
         exit 1
     fi
@@ -223,7 +230,7 @@ source_libraries() {
 #   5. Install missing dependencies
 #   6. Detect old installations
 #   7. Collect installation parameters interactively
-#   8. Orchestrate the installation process (creates /opt/vless)
+#   8. Orchestrate the installation process (creates /opt/familytraffic)
 #   9. Verify installation success
 #   10. Display sudoers configuration instructions
 ################################################################################
@@ -235,6 +242,13 @@ main() {
     print_step 1 "Checking root privileges"
     check_root
     print_success "Running with root privileges"
+
+    # Run migration (upgrade path: /opt/familytraffic → /opt/familytraffic)
+    if [[ -d /opt/familytraffic ]] && [[ ! -L /opt/familytraffic ]]; then
+        print_message "${COLOR_YELLOW}" "\nDetected legacy /opt/familytraffic installation, running migration..."
+        source "${SCRIPT_DIR}/lib/migrate_rename.sh"
+        migrate_rename
+    fi
 
     # Source all library modules
     print_message "${COLOR_BLUE}" "\nLoading installation modules..."
@@ -276,9 +290,9 @@ main() {
         display_detection_summary
 
         # Check for non-interactive mode via environment variable
-        if [[ -n "${VLESS_AUTO_CLEANUP:-}" ]]; then
-            cleanup_choice="${VLESS_AUTO_CLEANUP}"
-            print_message "${COLOR_CYAN}" "Non-interactive mode: Using VLESS_AUTO_CLEANUP=$cleanup_choice"
+        if [[ -n "${FT_AUTO_CLEANUP:-}" ]]; then
+            cleanup_choice="${FT_AUTO_CLEANUP}"
+            print_message "${COLOR_CYAN}" "Non-interactive mode: Using FT_AUTO_CLEANUP=$cleanup_choice"
         else
             echo ""
             print_message "${COLOR_YELLOW}" "Would you like to:"
@@ -393,9 +407,9 @@ main() {
 
         # Install deploy hook script
         print_message "${COLOR_CYAN}" "Installing certificate renewal deploy hook..."
-        if [[ -f "${SCRIPT_DIR}/scripts/vless-cert-renew" ]]; then
-            cp "${SCRIPT_DIR}/scripts/vless-cert-renew" /usr/local/bin/vless-cert-renew
-            chmod 755 /usr/local/bin/vless-cert-renew
+        if [[ -f "${SCRIPT_DIR}/scripts/familytraffic-cert-renew" ]]; then
+            cp "${SCRIPT_DIR}/scripts/familytraffic-cert-renew" /usr/local/bin/familytraffic-cert-renew
+            chmod 755 /usr/local/bin/familytraffic-cert-renew
             print_success "Deploy hook installed"
         else
             print_warning "Deploy hook script not found, skipping"
@@ -403,11 +417,11 @@ main() {
 
         # Install logrotate configuration for renewal logs (v5.25)
         print_message "${COLOR_CYAN}" "Installing logrotate configuration..."
-        cat > /etc/logrotate.d/vless-certbot-renew <<'LOGROTATE_EOF'
-# VLESS Certificate Renewal Logs Rotation
-# Part of VLESS + Reality VPN v5.25
+        cat > /etc/logrotate.d/familytraffic-certbot-renew <<'LOGROTATE_EOF'
+# familyTraffic Certificate Renewal Logs Rotation
+# Part of familyTraffic VPN v5.33
 
-/opt/vless/logs/certbot-renew.log {
+/opt/familytraffic/logs/certbot-renew.log {
     daily
     rotate 30
     compress
@@ -417,7 +431,7 @@ main() {
     create 0644 root root
 }
 
-/opt/vless/logs/certbot-renew-metrics.json {
+/opt/familytraffic/logs/certbot-renew-metrics.json {
     weekly
     rotate 12
     compress
@@ -427,8 +441,8 @@ main() {
 }
 LOGROTATE_EOF
 
-        if [[ -f /etc/logrotate.d/vless-certbot-renew ]]; then
-            chmod 644 /etc/logrotate.d/vless-certbot-renew
+        if [[ -f /etc/logrotate.d/familytraffic-certbot-renew ]]; then
+            chmod 644 /etc/logrotate.d/familytraffic-certbot-renew
             print_success "Logrotate configuration installed"
             print_message "${COLOR_GREEN}" "  Logs: 30 days retention"
             print_message "${COLOR_GREEN}" "  Metrics: 12 weeks retention"
@@ -442,10 +456,10 @@ LOGROTATE_EOF
         echo ""
     fi
 
-    # Step 8: Orchestrate installation (THIS creates /opt/vless and copies files)
+    # Step 8: Orchestrate installation (THIS creates /opt/familytraffic and copies files)
     print_step 8 "Orchestrating installation"
-    print_message "${COLOR_BLUE}" "  → Creating /opt/vless directory structure"
-    print_message "${COLOR_BLUE}" "  → Copying files from project to /opt/vless"
+    print_message "${COLOR_BLUE}" "  → Creating /opt/familytraffic directory structure"
+    print_message "${COLOR_BLUE}" "  → Copying files from project to /opt/familytraffic"
     print_message "${COLOR_BLUE}" "  → Configuring Docker network"
     print_message "${COLOR_BLUE}" "  → Setting up Xray configuration"
     print_message "${COLOR_BLUE}" "  → Deploying containers"
@@ -458,9 +472,51 @@ LOGROTATE_EOF
     print_success "Installation verified"
 
     # Step 9.5: Save version file
-    echo "${VLESS_VERSION}" > "${INSTALL_ROOT}/.version"
+    echo "${FT_VERSION}" > "${INSTALL_ROOT}/.version"
     chmod 644 "${INSTALL_ROOT}/.version"
-    print_message "${COLOR_CYAN}" "Version file saved: v${VLESS_VERSION}"
+    print_message "${COLOR_CYAN}" "Version file saved: v${FT_VERSION}"
+
+    # Step 9.6: Optional MTProxy setup
+    local enable_mtproxy="no"
+    if [[ -n "${FT_ENABLE_MTPROXY:-}" ]]; then
+        enable_mtproxy="${FT_ENABLE_MTPROXY}"
+        print_message "${COLOR_CYAN}" "Non-interactive mode: FT_ENABLE_MTPROXY=${enable_mtproxy}"
+    else
+        echo ""
+        print_message "${COLOR_CYAN}" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_message "${COLOR_CYAN}" "  OPTIONAL: MTProxy for Telegram"
+        print_message "${COLOR_CYAN}" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_message "${COLOR_YELLOW}" "  MTProxy (mtg v2, Fake TLS) — built-in Telegram proxy on port 2053"
+        print_message "${COLOR_YELLOW}" "  Active probing protection via nginx cloak-port (4443, loopback-only)"
+        echo ""
+        if ! read -t 30 -rp "Enable MTProxy now? [y/N] (30s timeout, default=N): " mtproxy_answer; then
+            mtproxy_answer="n"
+            echo ""
+        fi
+        [[ "${mtproxy_answer,,}" == "y" || "${mtproxy_answer,,}" == "yes" ]] && enable_mtproxy="yes"
+    fi
+
+    if [[ "${enable_mtproxy,,}" == "yes" ]]; then
+        print_message "${COLOR_BLUE}" "\nSetting up MTProxy..."
+        local mtproxy_cmd="/usr/local/sbin/familytraffic-mtproxy"
+        if [[ ! -x "${mtproxy_cmd}" ]]; then
+            mtproxy_cmd="${INSTALL_ROOT}/scripts/familytraffic-mtproxy"
+        fi
+
+        if [[ -x "${mtproxy_cmd}" ]]; then
+            if [[ -n "${DOMAIN:-}" ]]; then
+                "${mtproxy_cmd}" setup --domain "${DOMAIN}" || \
+                    print_warning "MTProxy setup failed — run 'sudo familytraffic-mtproxy setup' later"
+            else
+                "${mtproxy_cmd}" setup || \
+                    print_warning "MTProxy setup failed — run 'sudo familytraffic-mtproxy setup' later"
+            fi
+        else
+            print_warning "familytraffic-mtproxy command not found — run 'sudo familytraffic-mtproxy setup' after installation"
+        fi
+    else
+        print_message "${COLOR_YELLOW}" "MTProxy skipped — enable later with: sudo familytraffic-mtproxy setup"
+    fi
 
     # Step 10: Display sudoers instructions
     print_step 10 "Displaying sudoers configuration"
@@ -476,12 +532,12 @@ LOGROTATE_EOF
     echo ""
     print_message "${COLOR_CYAN}" "Next Steps:"
     print_message "${COLOR_YELLOW}" "  1. Configure sudoers (see instructions above)"
-    print_message "${COLOR_YELLOW}" "  2. Add your first user: vless add-user <username>"
-    print_message "${COLOR_YELLOW}" "  3. Check service status: vless status"
-    print_message "${COLOR_YELLOW}" "  4. View logs: vless logs"
+    print_message "${COLOR_YELLOW}" "  2. Add your first user: familytraffic add-user <username>"
+    print_message "${COLOR_YELLOW}" "  3. Check service status: familytraffic status"
+    print_message "${COLOR_YELLOW}" "  4. View logs: familytraffic logs"
     echo ""
-    print_message "${COLOR_CYAN}" "Installation directory: /opt/vless"
-    print_message "${COLOR_CYAN}" "Management command: vless"
+    print_message "${COLOR_CYAN}" "Installation directory: /opt/familytraffic"
+    print_message "${COLOR_CYAN}" "Management command: familytraffic"
     echo ""
 
     # Clear error trap on success

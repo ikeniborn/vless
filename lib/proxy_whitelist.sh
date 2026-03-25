@@ -11,7 +11,7 @@
 #
 # Architecture:
 #   - Single whitelist for ALL proxy users (server-level, not per-user)
-#   - Stored in: /opt/vless/config/proxy_allowed_ips.json
+#   - Stored in: /opt/familytraffic/config/proxy_allowed_ips.json
 #   - Applied via Xray routing rules (source field only, no user field)
 #   - Works for HTTP/SOCKS5/VLESS protocols
 #
@@ -39,9 +39,9 @@ set -euo pipefail
 # Global Variables (conditional to avoid conflicts when sourced by CLI)
 # ============================================================================
 
-readonly PROXY_IPS_FILE="/opt/vless/config/proxy_allowed_ips.json"
-[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/vless/config/xray_config.json"
-[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_proxy_ips.lock"
+readonly PROXY_IPS_FILE="/opt/familytraffic/config/proxy_allowed_ips.json"
+[[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="/opt/familytraffic/config/xray_config.json"
+[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/familytraffic_proxy_ips.lock"
 
 # Colors for output (conditional to avoid conflicts when sourced by CLI)
 [[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
@@ -642,18 +642,15 @@ regenerate_proxy_routing() {
 # FUNCTION: reload_xray (stub - expects function from user_management.sh)
 # ============================================================================
 reload_xray() {
-    # This function should be provided by user_management.sh
-    # If not available, provide basic implementation
-    if ! type reload_xray_container &>/dev/null; then
-        local compose_dir="/opt/vless"
-        if docker ps --format '{{.Names}}' | grep -q "^vless_xray$"; then
-            (cd "$compose_dir" && docker compose restart xray) 2>/dev/null
-            return $?
-        fi
-        return 0
+    # This function should be provided by user_management.sh.
+    # Fallback for v5.33 single-container: restart only the xray process
+    # inside the container via supervisorctl (nginx/certbot are not affected).
+    if docker ps --format '{{.Names}}' | grep -q "^familytraffic$"; then
+        docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf signal SIGHUP xray 2>/dev/null && return 0
+        docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf restart xray 2>/dev/null
+        return $?
     fi
-
-    reload_xray_container
+    return 0
 }
 
 # ============================================================================

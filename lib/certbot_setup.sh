@@ -185,10 +185,9 @@ obtain_certificate() {
     local domain="$1"
     local email="$2"
 
-    # v4.3: Use Certbot Nginx service (webroot mode) via certbot_manager.sh
-    if command -v acquire_certificate &>/dev/null; then
-        # Use new certbot_manager.sh workflow
-        if acquire_certificate "$domain" "$email"; then
+    # v5.33: Use unified acquisition workflow via certificate_manager.sh
+    if command -v acquire_certificate_for_domain &>/dev/null; then
+        if acquire_certificate_for_domain "$domain" "$email"; then
             return 0
         else
             return 1
@@ -196,7 +195,7 @@ obtain_certificate() {
     else
         # Fallback to standalone mode (legacy v3.3)
         echo ""
-        echo -e "${YELLOW}WARNING: certbot_manager.sh not found, using standalone mode${NC}"
+        echo -e "${YELLOW}WARNING: certificate_manager.sh not loaded, using standalone mode${NC}"
         echo ""
 
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -205,6 +204,19 @@ obtain_certificate() {
         echo "Domain: $domain"
         echo "Email:  $email"
         echo ""
+
+        # Remove stale certbot lock file if no certbot process is running
+        local certbot_lock="/var/lib/letsencrypt/.certbot.lock"
+        if [[ -f "$certbot_lock" ]]; then
+            if ! pgrep -x certbot &>/dev/null; then
+                echo "Removing stale certbot lock file..."
+                rm -f "$certbot_lock"
+            else
+                echo -e "${RED}❌ Certbot is already running (PID: $(pgrep -x certbot))${NC}"
+                echo "Wait for the existing process to finish, then retry."
+                return 1
+            fi
+        fi
 
         # Run certbot in standalone mode
         certbot certonly \
@@ -243,10 +255,8 @@ obtain_certificate() {
         echo -e "${GREEN}✅ CERTIFICATE OBTAINED SUCCESSFULLY!${NC}"
         echo ""
 
-        # Create HAProxy combined.pem
-        if command -v create_haproxy_combined_cert &>/dev/null; then
-            create_haproxy_combined_cert "$domain"
-        fi
+        # v5.33: HAProxy combined.pem removed (single container, nginx reads LE certs directly)
+        # Nginx reload via supervisorctl SIGHUP is handled inside the container by certbot-renew.sh
 
         return 0
     fi
@@ -259,7 +269,7 @@ obtain_certificate() {
 # RETURNS: 0 on success, 1 on failure
 #==============================================================================
 setup_renewal_cron() {
-    local cron_file="/etc/cron.d/certbot-vless-renew"
+    local cron_file="/etc/cron.d/certbot-familytraffic-renew"
 
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -277,8 +287,8 @@ setup_renewal_cron() {
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
-# Twice daily renewal check
-0 0,12 * * * root certbot renew --quiet --deploy-hook "/usr/local/bin/vless-cert-renew" >> /opt/vless/logs/certbot-renew.log 2>&1
+# Twice daily renewal check (v5.33: deploy-hook sends SIGHUP to nginx via supervisorctl)
+0 0,12 * * * root certbot renew --quiet --deploy-hook "docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf signal SIGHUP nginx" >> /opt/familytraffic/logs/certbot-renew.log 2>&1
 EOF
 
     # Set correct permissions
@@ -288,8 +298,8 @@ EOF
     echo ""
     echo "Cron file: $cron_file"
     echo "Schedule:  Twice daily (00:00 and 12:00 UTC)"
-    echo "Command:   certbot renew --quiet --deploy-hook '/usr/local/bin/vless-cert-renew'"
-    echo "Log file:  /opt/vless/logs/certbot-renew.log"
+    echo "Command:   certbot renew --quiet --deploy-hook '/usr/local/bin/familytraffic-cert-renew'"
+    echo "Log file:  /opt/familytraffic/logs/certbot-renew.log"
     echo ""
     echo "RENEWAL BEHAVIOR:"
     echo "  - Certbot checks twice daily if renewal needed"
@@ -300,7 +310,7 @@ EOF
     echo "MANUAL OPERATIONS:"
     echo "  - Dry-run test: sudo certbot renew --dry-run"
     echo "  - Force renewal: sudo certbot renew --force-renewal"
-    echo "  - Check logs:    cat /opt/vless/logs/certbot-renew.log"
+    echo "  - Check logs:    cat /opt/familytraffic/logs/certbot-renew.log"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
@@ -326,7 +336,7 @@ cleanup_certificates() {
     echo ""
 
     # Step 1: Remove cron job
-    local cron_file="/etc/cron.d/certbot-vless-renew"
+    local cron_file="/etc/cron.d/certbot-familytraffic-renew"
     if [[ -f "$cron_file" ]]; then
         echo "Removing auto-renewal cron job..."
         rm -f "$cron_file"

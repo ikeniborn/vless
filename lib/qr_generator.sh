@@ -39,7 +39,7 @@ set -euo pipefail
 # ============================================================================
 
 # Installation paths (only define if not already set)
-[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/familytraffic"
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
 [[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
 [[ -z "${KEYS_DIR:-}" ]] && readonly KEYS_DIR="${VLESS_HOME}/keys"
@@ -91,14 +91,25 @@ validate_vless_uri() {
         return 1
     fi
 
-    # Check for required parameters
-    local required_params=("encryption" "flow" "security" "sni" "fp" "pbk" "sid" "type")
+    # Check for universally required parameters
+    local required_params=("encryption" "security" "sni" "fp" "type")
     for param in "${required_params[@]}"; do
         if ! [[ "$uri" =~ $param= ]]; then
             log_error "Invalid URI: Missing parameter '$param'"
             return 1
         fi
     done
+
+    # Reality-specific parameters: flow, pbk, sid — only required when security=reality
+    # Tier 2 transports (WS/XHTTP/gRPC) use security=tls and do not carry these params
+    if [[ "$uri" =~ security=reality ]]; then
+        for param in flow pbk sid; do
+            if ! [[ "$uri" =~ $param= ]]; then
+                log_error "Invalid URI: Reality transport requires '$param' parameter"
+                return 1
+            fi
+        done
+    fi
 
     # Validate UUID format
     if ! [[ "$uri" =~ vless://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@ ]]; then

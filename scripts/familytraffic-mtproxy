@@ -1,0 +1,928 @@
+#!/bin/bash
+# ============================================================================
+# familyTraffic VPN - MTProxy Management CLI
+# Version: 7.0.0 (mtg v2 + supervisord integration)
+# ============================================================================
+#
+# Purpose:
+#   Command-line interface for managing MTProxy Telegram proxy service
+#   via mtg v2 (nineseconds/mtg) integrated in the familytraffic container.
+#
+# Commands:
+#   setup           - Configure MTProxy: generate mtg.toml, open UFW, start mtg
+#   disable         - Disable MTProxy: stop mtg, close UFW, remove cloak-port
+#   add-secret      - Add new MTProxy secret (ee-type for Fake TLS)
+#   list-secrets    - List all secrets
+#   remove-secret   - Remove secret
+#   start           - Start mtg via supervisorctl
+#   stop            - Stop mtg via supervisorctl
+#   restart         - Restart mtg via supervisorctl
+#   status          - Show MTProxy status
+#   logs            - Show mtg logs from familytraffic container
+#
+# Usage:
+#   familytraffic-mtproxy <command> [options]
+#
+# Examples:
+#   familytraffic-mtproxy setup
+#   familytraffic-mtproxy setup --fake-domain www.google.com
+#   familytraffic-mtproxy add-secret --type ee --fake-domain www.google.com
+#   familytraffic-mtproxy list-secrets
+#   familytraffic-mtproxy status
+#   familytraffic-mtproxy disable
+#
+# Author: familyTraffic Development Team
+# Date: 2025-11-08 / Updated: 2026-03-12
+# ============================================================================
+
+set -euo pipefail
+
+# ============================================================================
+# Global Variables
+# ============================================================================
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly FAMILYTRAFFIC_HOME="/opt/familytraffic"
+readonly LIB_DIR="${FAMILYTRAFFIC_HOME}/lib"
+readonly NGINX_CONF_PATH="${FAMILYTRAFFIC_HOME}/config/nginx/nginx.conf"
+
+# Colors
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m'
+
+# ============================================================================
+# Source Required Modules
+# ============================================================================
+
+if [[ -f "${LIB_DIR}/mtproxy_manager.sh" ]]; then
+    # shellcheck source=/opt/familytraffic/lib/mtproxy_manager.sh
+    source "${LIB_DIR}/mtproxy_manager.sh"
+else
+    echo -e "${RED}Error: mtproxy_manager.sh not found${NC}" >&2
+    echo "Expected location: ${LIB_DIR}/mtproxy_manager.sh" >&2
+    exit 1
+fi
+
+if [[ -f "${LIB_DIR}/mtproxy_secret_manager.sh" ]]; then
+    # shellcheck source=/opt/familytraffic/lib/mtproxy_secret_manager.sh
+    source "${LIB_DIR}/mtproxy_secret_manager.sh"
+else
+    echo -e "${RED}Error: mtproxy_secret_manager.sh not found${NC}" >&2
+    exit 1
+fi
+
+if [[ -f "${LIB_DIR}/nginx_stream_generator.sh" ]]; then
+    # shellcheck source=/opt/familytraffic/lib/nginx_stream_generator.sh
+    source "${LIB_DIR}/nginx_stream_generator.sh"
+else
+    echo -e "${RED}Error: nginx_stream_generator.sh not found${NC}" >&2
+    exit 1
+fi
+
+# ============================================================================
+# Logging Functions
+# ============================================================================
+
+log_info() {
+    echo -e "${BLUE}[mtproxy]${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}[mtproxy ✓]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[mtproxy ✗]${NC} $*" >&2
+}
+
+log_warning() {
+    echo -e "${YELLOW}[mtproxy ⚠]${NC} $*"
+}
+
+# ============================================================================
+# Helper: detect current nginx.conf parameters
+# ============================================================================
+# Reads the existing nginx.conf to extract active Tier 2 subdomain settings.
+# Returns space-separated: "enable_tier2 ws_sub xhttp_sub grpc_sub"
+# ============================================================================
+_detect_nginx_params() {
+    local ws_sub="" xhttp_sub="" grpc_sub="" enable_tier2="false"
+
+    if [[ -f "${NGINX_CONF_PATH}" ]]; then
+        # Extract server_name values from Tier 2 comment-annotated server blocks
+        ws_sub=$(awk '/WebSocket Transport/,/^    \}/' "${NGINX_CONF_PATH}" 2>/dev/null \
+            | grep "server_name" | awk '{print $2}' | tr -d ';' | head -1)
+        xhttp_sub=$(awk '/XHTTP\/SplitHTTP Transport/,/^    \}/' "${NGINX_CONF_PATH}" 2>/dev/null \
+            | grep "server_name" | awk '{print $2}' | tr -d ';' | head -1)
+        grpc_sub=$(awk '/gRPC Transport/,/^    \}/' "${NGINX_CONF_PATH}" 2>/dev/null \
+            | grep "server_name" | awk '{print $2}' | tr -d ';' | head -1)
+
+        if [[ -n "$ws_sub" ]] || [[ -n "$xhttp_sub" ]] || [[ -n "$grpc_sub" ]]; then
+            enable_tier2="true"
+        fi
+    fi
+
+    echo "${enable_tier2} ${ws_sub} ${xhttp_sub} ${grpc_sub}"
+}
+
+# ============================================================================
+# Helper: get cert domain from .env or existing nginx.conf
+# ============================================================================
+_get_cert_domain() {
+    local domain=""
+
+    # Try .env first
+    local env_file="${FAMILYTRAFFIC_HOME}/.env"
+    if [[ -f "$env_file" ]]; then
+        domain=$(grep -E '^DOMAIN=' "$env_file" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | head -1)
+    fi
+
+    # Fallback: extract from nginx.conf ssl_certificate path
+    if [[ -z "$domain" ]] && [[ -f "${NGINX_CONF_PATH}" ]]; then
+        domain=$(grep "ssl_certificate " "${NGINX_CONF_PATH}" 2>/dev/null \
+            | grep -oP '/live/\K[^/]+' | head -1)
+    fi
+
+    echo "$domain"
+}
+
+# ============================================================================
+# Helper: reload nginx inside familytraffic container
+# ============================================================================
+_nginx_reload() {
+    log_info "Reloading nginx (zero-downtime)..."
+    if docker exec "${FAMILYTRAFFIC_CONTAINER}" nginx -s reload 2>/dev/null; then
+        log_success "nginx reloaded"
+        return 0
+    else
+        log_error "Failed to reload nginx"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Helper: regenerate nginx.conf and reload (with or without cloak-port)
+# ============================================================================
+_regen_nginx() {
+    local enable_mtproxy_cloak="${1:-false}"
+
+    local cert_domain
+    cert_domain=$(_get_cert_domain)
+
+    if [[ -z "$cert_domain" ]]; then
+        log_error "Cannot detect cert domain — set DOMAIN in ${FAMILYTRAFFIC_HOME}/.env"
+        return 1
+    fi
+
+    # Detect current Tier 2 state
+    read -r enable_tier2 ws_sub xhttp_sub grpc_sub <<< "$(_detect_nginx_params)"
+
+    log_info "Regenerating nginx.conf (cloak-port: ${enable_mtproxy_cloak})..."
+
+    # Write new config
+    generate_nginx_config \
+        "${cert_domain}" \
+        "${enable_tier2}" \
+        "${ws_sub}" \
+        "${xhttp_sub}" \
+        "${grpc_sub}" \
+        "${enable_mtproxy_cloak}" \
+        > "${NGINX_CONF_PATH}"
+
+    log_success "nginx.conf regenerated"
+    _nginx_reload
+}
+
+# ============================================================================
+# Command: setup
+# ============================================================================
+# Sets up MTProxy for the first time (or reconfigures):
+#   1. Generates mtg.toml (reads ee-secret from secrets.json)
+#   2. Opens UFW port 2053/tcp
+#   3. Regenerates nginx.conf with cloak-port 4443
+#   4. Reloads nginx
+#   5. Starts mtg via supervisorctl
+# ============================================================================
+cmd_setup() {
+    local domain=""
+    local domain_explicit=false  # true when --fake-domain was passed explicitly
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --fake-domain)
+                domain="$2"
+                domain_explicit=true
+                shift 2
+                ;;
+            --domain)
+                # Deprecated alias for --fake-domain
+                log_warning "--domain is deprecated, use --fake-domain"
+                domain="$2"
+                domain_explicit=true
+                shift 2
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║            MTProxy Setup (mtg v2 + supervisord)              ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Resolve domain
+    if [[ -z "$domain" ]]; then
+        domain=$(_get_cert_domain)
+    fi
+
+    if [[ -z "$domain" ]]; then
+        log_error "Cannot detect fake-TLS domain automatically"
+        log_error "Usage: familytraffic-mtproxy setup --fake-domain www.google.com"
+        return 1
+    fi
+
+    log_info "Fake-TLS domain: ${domain}"
+
+    # Check familytraffic container is running
+    if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        log_error "${FAMILYTRAFFIC_CONTAINER} container is not running"
+        log_error "Start it first: cd /opt/familytraffic && docker compose up -d"
+        return 1
+    fi
+
+    # Ensure config dir and secrets.json are initialized
+    if ! mtproxy_init; then
+        log_error "Failed to initialize MTProxy directory structure"
+        return 1
+    fi
+
+    # Decide whether to (re)generate the ee-secret:
+    #   - always regenerate when --fake-domain was given explicitly (domain changed)
+    #   - generate only if no ee-secret exists otherwise
+    local need_new_secret=false
+    if [[ "$domain_explicit" == "true" ]]; then
+        # Check if existing secret already encodes this exact domain
+        local existing_domain
+        existing_domain=$(jq -r \
+            '.secrets[] | select(.type == "ee" or (.secret | startswith("ee"))) | .domain' \
+            "${MTPROXY_SECRETS_JSON}" 2>/dev/null | head -1)
+        if [[ "$existing_domain" != "$domain" ]]; then
+            need_new_secret=true
+        fi
+    elif [[ ! -f "${MTPROXY_SECRETS_JSON}" ]] || \
+         ! jq -e '.secrets[] | select(.type == "ee" or (.secret | startswith("ee")))' \
+             "${MTPROXY_SECRETS_JSON}" &>/dev/null; then
+        need_new_secret=true
+    fi
+
+    if [[ "$need_new_secret" == "true" ]]; then
+        echo ""
+        log_info "Generating ee-secret for fake-TLS domain: ${domain}"
+        echo ""
+
+        # Remove old ee-secrets so only the new one is active
+        if [[ -f "${MTPROXY_SECRETS_JSON}" ]]; then
+            local tmp_json
+            tmp_json=$(jq 'del(.secrets[] | select(.type == "ee" or (.secret | startswith("ee"))))' \
+                "${MTPROXY_SECRETS_JSON}" 2>/dev/null)
+            echo "$tmp_json" > "${MTPROXY_SECRETS_JSON}"
+        fi
+
+        local new_secret
+        if ! new_secret=$(generate_mtproxy_secret "ee" "$domain" 2>/dev/null); then
+            log_error "Failed to generate ee-secret"
+            return 1
+        fi
+
+        if ! add_secret_to_db "$new_secret" "ee" "" "$domain"; then
+            log_error "Failed to add secret to database"
+            return 1
+        fi
+
+        log_success "ee-secret generated: ${new_secret:0:12}..."
+    fi
+
+    # Step 1: Generate mtg.toml
+    log_info "Step 1/5: Generating mtg.toml..."
+    if ! generate_mtg_toml "$domain"; then
+        log_error "Failed to generate mtg.toml"
+        return 1
+    fi
+
+    # Step 2: Open UFW port 2053
+    log_info "Step 2/5: Configuring UFW..."
+    if ! mtg_ufw_allow; then
+        log_warning "UFW configuration failed (non-fatal) — open port 2053 manually if needed"
+    fi
+
+    # Step 3: Regenerate nginx.conf with cloak-port 4443
+    log_info "Step 3/5: Updating nginx.conf (cloak-port 4443)..."
+    if ! _regen_nginx "true"; then
+        log_error "Failed to update nginx.conf"
+        return 1
+    fi
+
+    # Step 4: Enable mtg autostart + start immediately
+    log_info "Step 4/5: Enabling mtg (autostart=true on container restarts)..."
+    if ! mtg_supervisord_enable; then
+        log_error "Failed to enable mtg"
+        log_info "Check logs: familytraffic-mtproxy logs"
+        return 1
+    fi
+
+    # Step 5: Show connection info
+    log_info "Step 5/5: MTProxy active"
+    echo ""
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║              MTProxy Setup Complete!                         ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Show Telegram deep link
+    local secret
+    secret=$(jq -r '.secrets[] | select(.type == "ee" or (.secret | startswith("ee"))) | .secret' \
+        "${MTPROXY_SECRETS_JSON}" 2>/dev/null | head -1)
+    local server_ip
+    server_ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[^ ]+' | head -1 || hostname -I | awk '{print $1}')
+
+    echo -e "${BLUE}Server:${NC}  ${server_ip}"
+    echo -e "${BLUE}Port:${NC}    ${MTPROXY_PORT}"
+    echo -e "${BLUE}Secret:${NC}  ${secret}"
+    echo ""
+    echo -e "${YELLOW}Telegram deep link:${NC}"
+    echo "tg://proxy?server=${server_ip}&port=${MTPROXY_PORT}&secret=${secret}"
+    echo ""
+    echo -e "${YELLOW}Active probing protection:${NC}"
+    echo "  Port 4443 (nginx cloak) — internal only, do NOT open in UFW"
+    echo ""
+    echo -e "${BLUE}To add more secrets:${NC} familytraffic-mtproxy add-secret --type ee --fake-domain ${domain}"
+    echo -e "${BLUE}To check status:${NC}     familytraffic-mtproxy status"
+    echo -e "${BLUE}To disable:${NC}          familytraffic-mtproxy disable"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# Command: disable
+# ============================================================================
+# Disables MTProxy:
+#   1. Stops mtg + removes supervisord.d/mtg.conf (disables autostart)
+#   2. Closes UFW port 2053/tcp
+#   3. Regenerates nginx.conf without cloak-port
+#   4. Reloads nginx
+# ============================================================================
+cmd_disable() {
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              Disabling MTProxy                               ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Step 1: Disable mtg autostart + stop immediately
+    log_info "Step 1/3: Disabling mtg (removing autostart config)..."
+    mtg_supervisord_disable_config
+    log_success "mtg stopped and autostart disabled"
+
+    # Step 2: Close UFW port 2053
+    log_info "Step 2/3: Closing UFW port ${MTPROXY_PORT}/tcp..."
+    if ! mtg_ufw_deny; then
+        log_warning "UFW rule removal failed (non-fatal)"
+    fi
+
+    # Step 3: Regenerate nginx.conf without cloak-port
+    log_info "Step 3/3: Removing cloak-port from nginx.conf..."
+    if ! _regen_nginx "false"; then
+        log_warning "Failed to update nginx.conf (non-fatal)"
+    fi
+
+    echo ""
+    log_success "MTProxy disabled"
+    echo ""
+    echo -e "${BLUE}Port 2053 is now closed.${NC}"
+    echo -e "${BLUE}To re-enable:${NC} familytraffic-mtproxy setup"
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# Command: add-secret
+# ============================================================================
+cmd_add_secret() {
+    local secret_type="ee"
+    local domain=""
+    local username=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)
+                secret_type="$2"
+                shift 2
+                ;;
+            --fake-domain)
+                domain="$2"
+                shift 2
+                ;;
+            --domain)
+                # Deprecated alias for --fake-domain
+                log_warning "--domain is deprecated, use --fake-domain"
+                domain="$2"
+                shift 2
+                ;;
+            --user)
+                username="$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Ensure config dir and secrets.json are initialized
+    if ! mtproxy_init; then
+        log_error "Failed to initialize MTProxy directory structure"
+        return 1
+    fi
+
+    # Validate secret type
+    if [[ ! "$secret_type" =~ ^(standard|dd|ee)$ ]]; then
+        log_error "Invalid secret type: ${secret_type}"
+        log_error "Allowed types: standard, dd, ee"
+        return 1
+    fi
+
+    # For ee type, domain is required
+    if [[ "$secret_type" == "ee" ]] && [[ -z "$domain" ]]; then
+        # Try to auto-detect domain
+        domain=$(_get_cert_domain)
+        if [[ -z "$domain" ]]; then
+            log_error "Fake-TLS domain required for ee-type secret"
+            log_error "Usage: familytraffic-mtproxy add-secret --type ee --fake-domain www.google.com"
+            return 1
+        fi
+        log_info "Using detected domain: ${domain}"
+    fi
+
+    log_info "Generating MTProxy secret..."
+    log_info "  Type: ${secret_type}"
+    [[ -n "$domain" ]] && log_info "  Domain: ${domain}"
+    [[ -n "$username" ]] && log_info "  User: ${username}"
+
+    # Generate secret
+    local secret
+    if ! secret=$(generate_mtproxy_secret "$secret_type" "$domain"); then
+        log_error "Failed to generate secret"
+        return 1
+    fi
+
+    # Add to database
+    if ! add_secret_to_db "$secret" "$secret_type" "$username" "$domain"; then
+        log_error "Failed to add secret to database"
+        return 1
+    fi
+
+    # Regenerate proxy-secret file
+    if ! regenerate_proxy_secret_file; then
+        log_error "Failed to regenerate proxy-secret file"
+        return 1
+    fi
+
+    log_success "Secret added successfully"
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              MTProxy Secret Generated                        ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}Type:${NC}   ${secret_type}"
+    echo -e "${BLUE}Secret:${NC} ${secret}"
+    [[ -n "$domain" ]] && echo -e "${BLUE}Domain:${NC} ${domain}"
+    [[ -n "$username" ]] && echo -e "${BLUE}User:${NC}   ${username}"
+    echo ""
+
+    # Regenerate mtg.toml if MTProxy is set up (mtg.toml exists)
+    if [[ -f "${MTG_CONFIG_FILE}" ]] && [[ "$secret_type" == "ee" ]]; then
+        local masquerade_domain="${domain:-$(_get_cert_domain)}"
+        if [[ -n "$masquerade_domain" ]]; then
+            log_info "Updating mtg.toml with new ee-secret..."
+            if generate_mtg_toml "$masquerade_domain"; then
+                # Restart mtg if it's running
+                if mtproxy_is_running; then
+                    log_info "Restarting mtg to apply new secret..."
+                    mtg_supervisord_restart || log_warning "Failed to restart mtg (apply manually)"
+                fi
+            fi
+        fi
+    elif [[ -f "${MTG_CONFIG_FILE}" ]]; then
+        echo -e "${YELLOW}⚠  Restart MTProxy to apply changes:${NC} familytraffic-mtproxy restart"
+    fi
+    echo ""
+
+    return 0
+}
+
+# ============================================================================
+# Command: list-secrets
+# ============================================================================
+cmd_list_secrets() {
+    list_secrets
+}
+
+# ============================================================================
+# Command: remove-secret
+# ============================================================================
+cmd_remove_secret() {
+    local identifier="$1"
+
+    if [[ -z "$identifier" ]]; then
+        log_error "Secret or username required"
+        log_error "Usage: familytraffic-mtproxy remove-secret <SECRET_OR_USER>"
+        return 1
+    fi
+
+    log_info "Removing secret: ${identifier}"
+
+    if ! remove_secret_from_db "$identifier"; then
+        log_error "Failed to remove secret"
+        return 1
+    fi
+
+    # Regenerate proxy-secret file
+    if ! regenerate_proxy_secret_file; then
+        log_error "Failed to regenerate proxy-secret file"
+        return 1
+    fi
+
+    log_success "Secret removed successfully"
+
+    # Update mtg.toml if MTProxy is active (a remaining ee-secret may be different)
+    if [[ -f "${MTG_CONFIG_FILE}" ]]; then
+        local masquerade_domain
+        masquerade_domain=$(_get_cert_domain)
+        if [[ -n "$masquerade_domain" ]]; then
+            log_info "Updating mtg.toml after secret removal..."
+            if generate_mtg_toml "$masquerade_domain" 2>/dev/null; then
+                if mtproxy_is_running; then
+                    log_info "Restarting mtg to apply changes..."
+                    mtg_supervisord_restart || log_warning "Failed to restart mtg (apply manually)"
+                fi
+            else
+                log_warning "Could not update mtg.toml — no ee-secret remaining"
+                log_warning "MTProxy may stop working. Add an ee-secret: familytraffic-mtproxy add-secret --type ee"
+            fi
+        fi
+    fi
+
+    return 0
+}
+
+# ============================================================================
+# Command: start
+# ============================================================================
+cmd_start() {
+    # Verify mtg.toml exists before starting
+    if [[ ! -f "${MTG_CONFIG_FILE}" ]]; then
+        log_error "mtg.toml not found: ${MTG_CONFIG_FILE}"
+        log_error "Run setup first: sudo familytraffic-mtproxy setup"
+        return 1
+    fi
+
+    log_info "Starting MTProxy (mtg)..."
+    if mtproxy_start; then
+        log_success "MTProxy started"
+    else
+        log_error "Failed to start MTProxy"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: stop
+# ============================================================================
+cmd_stop() {
+    log_info "Stopping MTProxy..."
+    if mtproxy_stop; then
+        log_success "MTProxy stopped"
+    else
+        log_error "Failed to stop MTProxy"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: restart
+# ============================================================================
+cmd_restart() {
+    log_info "Restarting MTProxy..."
+    if mtproxy_restart; then
+        log_success "MTProxy restarted"
+    else
+        log_error "Failed to restart MTProxy"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: status
+# ============================================================================
+cmd_status() {
+    mtproxy_status
+}
+
+# ============================================================================
+# Command: logs
+# ============================================================================
+cmd_logs() {
+    local tail_lines=50
+    local follow=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tail)
+                tail_lines="$2"
+                shift 2
+                ;;
+            --follow|-f)
+                follow=true
+                shift
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # v7.0: show mtg logs via supervisord tail inside familytraffic container
+    if docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
+        log_info "Showing mtg logs from familytraffic container (last ${tail_lines} lines)"
+        echo ""
+        if [[ "$follow" == "true" ]]; then
+            # supervisorctl tail [-f] <name> [stdout|stderr]
+            docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl tail -f mtg
+        else
+            # supervisorctl tail has no line-count param; fall back to docker logs filtering
+            docker exec "${FAMILYTRAFFIC_CONTAINER}" supervisorctl tail mtg 2>/dev/null || \
+                docker logs --tail "${tail_lines}" "${FAMILYTRAFFIC_CONTAINER}" 2>&1 | grep -i "mtg" || \
+                echo -e "${YELLOW}No mtg log output found${NC}"
+        fi
+        return 0
+    fi
+
+    # Legacy fallback: standalone container logs
+    local container_name="${MTPROXY_CONTAINER}"
+
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        log_error "MTProxy container not found: ${container_name}"
+        return 1
+    fi
+
+    log_info "Showing MTProxy logs (last ${tail_lines} lines)"
+    echo ""
+
+    if [[ "$follow" == "true" ]]; then
+        docker logs -f --tail "$tail_lines" "$container_name"
+    else
+        docker logs --tail "$tail_lines" "$container_name"
+    fi
+}
+
+# ============================================================================
+# Command: show-config (v6.1 — kept for compatibility)
+# ============================================================================
+cmd_show_config() {
+    local username="$1"
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        log_error "Usage: mtproxy show-config <USERNAME>"
+        return 1
+    fi
+
+    show_mtproxy_config "$username"
+}
+
+# ============================================================================
+# Command: generate-qr (v6.1 — kept for compatibility)
+# ============================================================================
+cmd_generate_qr() {
+    local username="$1"
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        log_error "Usage: mtproxy generate-qr <USERNAME>"
+        return 1
+    fi
+
+    log_info "Generating QR code for: ${username}"
+
+    if generate_mtproxy_qrcode "$username"; then
+        log_success "QR code generated successfully"
+        echo ""
+        echo "Location: /opt/familytraffic/data/clients/${username}/mtproxy_qr.png"
+        echo ""
+        echo "Download the QR code and scan it with Telegram on your device"
+    else
+        log_error "Failed to generate QR code"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Command: stats (legacy — mtg v2 doesn't expose HTTP stats endpoint by default)
+# ============================================================================
+cmd_stats() {
+    log_info "mtg v2 does not expose an HTTP stats endpoint by default."
+    log_info "Use: familytraffic-mtproxy status — to see supervisord process state"
+    log_info "Use: familytraffic-mtproxy logs   — to see connection traffic in logs"
+}
+
+# ============================================================================
+# Help Message
+# ============================================================================
+show_help() {
+    cat <<EOF
+${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}
+${CYAN}║          MTProxy Management CLI (v7.0 - mtg v2)              ║${NC}
+${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}
+
+${BLUE}USAGE:${NC}
+    mtproxy <command> [options]
+
+${BLUE}COMMANDS:${NC}
+    ${GREEN}Setup & Control:${NC}
+        setup           Configure MTProxy (generate config, UFW, nginx cloak, start)
+        disable         Disable MTProxy (stop, close UFW, remove nginx cloak)
+
+    ${GREEN}Secret Management:${NC}
+        add-secret      Add new MTProxy secret (default: ee/Fake TLS)
+        list-secrets    List all secrets
+        remove-secret   Remove secret by ID or username
+
+    ${GREEN}Process Management:${NC}
+        start           Start mtg via supervisorctl
+        stop            Stop mtg via supervisorctl
+        restart         Restart mtg via supervisorctl
+        status          Show MTProxy status
+
+    ${GREEN}Monitoring:${NC}
+        logs            Show mtg logs
+        stats           Stats info
+
+    ${GREEN}Client Configuration:${NC}
+        show-config     Show MTProxy configuration for user
+        generate-qr     Generate QR code for user
+
+    ${GREEN}Help:${NC}
+        help            Show this help message
+
+${BLUE}TYPICAL WORKFLOW:${NC}
+    ${YELLOW}# First time setup (fake-TLS domain = any real HTTPS site for DPI masquerade)${NC}
+    familytraffic-mtproxy setup
+    # or with explicit fake-TLS domain (recommended — use a popular site):
+    familytraffic-mtproxy setup --fake-domain www.google.com
+
+    ${YELLOW}# Add another secret${NC}
+    familytraffic-mtproxy add-secret --type ee --fake-domain www.google.com
+
+    ${YELLOW}# Check status${NC}
+    familytraffic-mtproxy status
+
+    ${YELLOW}# View logs${NC}
+    familytraffic-mtproxy logs
+    familytraffic-mtproxy logs --follow
+
+    ${YELLOW}# Disable MTProxy${NC}
+    familytraffic-mtproxy disable
+
+${BLUE}SECRET TYPES:${NC}
+    ${GREEN}ee${NC}  - "ee" + 32 hex + domain hex (fake-TLS, recommended — DPI masquerade + active probing protection)
+         Use --fake-domain <any-real-https-site>  e.g. www.google.com, telegram.org
+    ${GREEN}dd${NC}  - "dd" + 32 hex (random padding, basic obfuscation)
+    ${GREEN}standard${NC} - 32 hex characters (no obfuscation)
+
+${BLUE}FAKE-TLS DOMAIN:${NC}
+    The --fake-domain value is embedded into the ee-type secret and used by mtg
+    to masquerade traffic as TLS to that site. It does NOT have to be your server
+    domain. Best to use a popular, unblocked HTTPS site (e.g. www.google.com).
+
+${BLUE}ARCHITECTURE (v7.0):${NC}
+    MTProxy runs as mtg v2 inside the familytraffic container via supervisord.
+    Port 2053 (public) → mtg Fake TLS → Telegram DCs
+    Invalid/probe      → nginx:4443 (cloak-port, LE-cert, real content)
+    No separate container needed.
+
+${BLUE}MORE INFO:${NC}
+    Documentation: /opt/familytraffic/docs/
+    mtg project:   https://github.com/9seconds/mtg
+
+EOF
+}
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+main() {
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        log_error "This script must be run as root"
+        log_error "Use: sudo familytraffic-mtproxy <command>"
+        exit 1
+    fi
+
+    local command="${1:-help}"
+    shift || true
+
+    # setup and help commands do NOT require prior installation
+    case "$command" in
+        setup|help|--help|-h)
+            ;;
+        *)
+            # All other commands require MTProxy to be installed (config dir + mtg.toml or legacy)
+            if ! mtproxy_is_installed; then
+                log_error "MTProxy is not configured"
+                log_error "Run: sudo familytraffic-mtproxy setup"
+                exit 1
+            fi
+            ;;
+    esac
+
+    case "$command" in
+        setup)
+            cmd_setup "$@"
+            ;;
+        disable)
+            cmd_disable "$@"
+            ;;
+        add-secret)
+            cmd_add_secret "$@"
+            ;;
+        list-secrets)
+            cmd_list_secrets "$@"
+            ;;
+        remove-secret)
+            if [[ $# -eq 0 ]]; then
+                log_error "Secret or username required"
+                exit 1
+            fi
+            cmd_remove_secret "$@"
+            ;;
+        start)
+            cmd_start "$@"
+            ;;
+        stop)
+            cmd_stop "$@"
+            ;;
+        restart)
+            cmd_restart "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        stats)
+            cmd_stats "$@"
+            ;;
+        logs)
+            cmd_logs "$@"
+            ;;
+        show-config)
+            if [[ $# -eq 0 ]]; then
+                log_error "Username required"
+                exit 1
+            fi
+            cmd_show_config "$@"
+            ;;
+        generate-qr)
+            if [[ $# -eq 0 ]]; then
+                log_error "Username required"
+                exit 1
+            fi
+            cmd_generate_qr "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            log_error "Unknown command: ${command}"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# Execute main
+main "$@"

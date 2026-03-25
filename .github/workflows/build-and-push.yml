@@ -1,0 +1,166 @@
+# .github/workflows/build-and-push.yml
+# familyTraffic VPN — Test Pipeline
+#
+# Triggers:
+#   - push to `test` branch (with relevant file changes)
+#   - Pull Request targeting the `test` branch (with relevant file changes)
+#   - Manual via workflow_dispatch
+#
+# Pipeline:
+#   1. build-and-push     — build image → push :latest + :<version> to GHCR
+#   2. cleanup-registry   — keep 3 latest versioned tags, protect :latest and semver tags
+#   3. notify             — Telegram notification (always, even on failure)
+#
+# Path filters — what triggers CI/CD:
+#   VERSION  — единственный триггер: сборка запускается только при смене версии.
+#              Любые изменения в коде/конфиге требуют бампа VERSION.
+#
+# Чтобы запустить сборку вручную без смены версии — используй workflow_dispatch.
+#
+# Secrets — Repository (Settings → Secrets and variables → Actions):
+#   TELEGRAM_BOT_TOKEN — token from @BotFather (format: 123456:ABC-xxx)
+#   TELEGRAM_CHAT_ID   — chat/channel ID (negative for channels, e.g. -1001234567890)
+
+name: Test — Build and Push
+
+on:
+  push:
+    branches:
+      - test
+    paths:
+      - "VERSION"
+  pull_request:
+    branches:
+      - test
+    paths:
+      - "VERSION"
+  workflow_dispatch:
+
+env:
+  REGISTRY:   ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/familytraffic
+
+jobs:
+  # ============================================================
+  # Job 1: Build image and push :test + :sha-<short> to GHCR
+  # ============================================================
+  build-and-push:
+    name: Build & Push [:test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read VERSION file
+        id: version
+        run: echo "version=$(cat VERSION)" >> "${GITHUB_OUTPUT}"
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/familytraffic/Dockerfile
+          push: true
+          tags:       ${{ steps.meta.outputs.tags }}
+          labels:     ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          platforms:  linux/amd64
+
+  # ============================================================
+  # Job 2: Clean up old GHCR versions (keep 3 latest sha-* tags)
+  # ============================================================
+  cleanup-registry:
+    name: Cleanup Old Images (keep 3)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete old versions (keep 3 latest, protect semver tags)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: familytraffic
+          package-type: container
+          min-versions-to-keep: 3
+          ignore-versions: '^(latest|[0-9]+|[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+)$'
+
+  # ============================================================
+  # Job 3: Telegram notification (runs always, even on failure)
+  # ============================================================
+  notify:
+    name: Notify Telegram
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: always()
+
+    steps:
+      - name: Send Telegram notification
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          BUILD_RESULT: ${{ needs.build-and-push.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          REF:   ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # Map result to emoji
+          result_icon() {
+            case "$1" in
+              success)   echo "✅" ;;
+              failure)   echo "❌" ;;
+              skipped)   echo "⏭️" ;;
+              cancelled) echo "🚫" ;;
+              *)         echo "❓" ;;
+            esac
+          }
+
+          BUILD_ICON=$(result_icon "${BUILD_RESULT}")
+
+          if [ "${BUILD_RESULT}" = "success" ]; then
+            HEADER="✅ Build & Push OK"
+          else
+            HEADER="❌ Build FAILED"
+          fi
+
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+
+          TEXT=$(printf '%s\n\n%s Build: <b>%s</b>\n\nBranch: <code>%s</code>\nCommit: <code>%s</code>\nActor: %s\nEvent: %s\n\n<a href="%s">View run #%s</a>' \
+            "${HEADER}" \
+            "${BUILD_ICON}" "${BUILD_RESULT}" \
+            "${REF}" "${SHORT_SHA}" "${ACTOR}" "${EVENT}" \
+            "${RUN_URL}" "${{ github.run_number }}")
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXT}" \
+            -o /dev/null \
+            -w "Telegram API: %{http_code}\n"

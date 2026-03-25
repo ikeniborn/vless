@@ -5,9 +5,9 @@
 **Protocol:** HTTP CONNECT over TLS 1.3 (https://)
 
 **Features:**
-- TLS termination at HAProxy (Let's Encrypt certificate)
+- TLS termination at nginx (inside `familytraffic` container, Let's Encrypt certificate)
 - HTTP CONNECT tunneling method
-- Port 8118 unified endpoint
+- Port 8118 unified endpoint (nginx http block listens on 8118, forwards plaintext to xray:18118)
 - Basic authentication (username:password)
 - Optional external proxy routing (v5.24+)
 
@@ -18,16 +18,16 @@
 ```mermaid
 graph TB
     Client[Client Device<br/>HTTP Proxy Client]
-    HAProxy[HAProxy<br/>Port 8118 TLS Terminator]
-    Xray[Xray<br/>Port 18118 HTTP Proxy]
+    Nginx[nginx http block<br/>Port 8118 TLS Terminator<br/>inside familytraffic]
+    Xray[xray<br/>Port 18118 HTTP Proxy<br/>127.0.0.1]
     RoutingDecision{Routing<br/>Decision}
     ExtProxy[External Proxy<br/>SOCKS5s/HTTPS]
     Internet[Internet<br/>Target Site]
 
-    Client -->|TLS 1.3 Handshake<br/>https://user:pass@server:8118| HAProxy
+    Client -->|TLS 1.3 Handshake<br/>https://user:pass@server:8118| Nginx
 
-    HAProxy -->|TLS Decryption<br/>Let's Encrypt Cert<br/>Extract HTTP CONNECT| HAProxy
-    HAProxy -->|Forward Plaintext HTTP<br/>to Internal Port| Xray
+    Nginx -->|TLS Decryption<br/>Let's Encrypt Cert<br/>Extract HTTP CONNECT| Nginx
+    Nginx -->|Forward Plaintext HTTP<br/>to 127.0.0.1:18118| Xray
 
     Xray -->|Basic Auth<br/>Validation<br/>Success| RoutingDecision
     Xray -.->|Auth Failed| Client
@@ -339,7 +339,7 @@ graph TB
 
 ## Key Configuration Files
 
-**HAProxy Configuration** (`/opt/vless/config/haproxy.cfg`):
+**HAProxy Configuration** (`/opt/familytraffic/config/haproxy.cfg`):
 ```haproxy
 frontend http_proxy_tls_frontend
     bind *:8118 ssl crt /etc/letsencrypt/live/${DOMAIN}/combined.pem alpn h2,http/1.1
@@ -351,7 +351,7 @@ backend xray_http_plaintext
     server xray 127.0.0.1:18118 check
 ```
 
-**Xray Configuration** (`/opt/vless/config/xray_config.json`):
+**Xray Configuration** (`/opt/familytraffic/config/xray_config.json`):
 ```json
 {
   "inbounds": [
@@ -389,7 +389,7 @@ backend xray_http_plaintext
 }
 ```
 
-**Users Database** (`/opt/vless/data/users.json`):
+**Users Database** (`/opt/familytraffic/data/users.json`):
 ```json
 {
   "users": [
@@ -556,8 +556,8 @@ sequenceDiagram
 - **Cause:** HAProxy not forwarding to Xray, or Xray not listening on 18118
 - **Debug:**
   ```bash
-  docker logs vless_haproxy --tail 50 | grep 8118
-  docker exec vless_xray ss -tulnp | grep 18118
+  docker logs familytraffic --tail 50 | grep 8118
+  docker exec familytraffic ss -tulnp | grep 18118
   ```
 
 **Issue 3: HTTPS sites work, HTTP sites don't**
@@ -568,8 +568,8 @@ sequenceDiagram
 - **Cause:** External proxy routing misconfigured
 - **Debug:**
   ```bash
-  sudo vless show-proxy <username>
-  jq '.routing.rules[] | select(.inboundTag[] == "http-in")' /opt/vless/config/xray_config.json
+  sudo familytraffic show-proxy <username>
+  jq '.routing.rules[] | select(.inboundTag[] == "http-in")' /opt/familytraffic/config/xray_config.json
   ```
 
 ---
@@ -586,5 +586,5 @@ sequenceDiagram
 ---
 
 **Created:** 2026-01-07
-**Version:** v5.26
+**Version:** v5.33
 **Status:** ✅ CURRENT (v5.24+ per-user external proxy supported)

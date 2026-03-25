@@ -2,6 +2,8 @@
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
 
+> **Примечание:** NFR актуальны. Там где упоминается HAProxy — компонент заменён на nginx (ssl_preread). Функциональность идентична.
+
 ---
 
 ## 3. Non-Functional Requirements
@@ -21,7 +23,7 @@
 #!/bin/bash
 # Validate mandatory TLS for public proxies
 
-CONFIG="/opt/vless/config/xray_config.json"
+CONFIG="/opt/familytraffic/config/xray_config.json"
 
 # Check each public inbound has TLS
 jq -r '.inbounds[] | select(.listen=="0.0.0.0") | "\(.tag): \(.streamSettings.security // "NONE")"' "$CONFIG" | while read line; do
@@ -211,14 +213,14 @@ time curl -s -u user:pass https://myproxy.example.com > /dev/null
 - [ ] Each domain: localhost-only port (9443-9452 range) **v4.3: changed from 8443-8452**
 - [ ] Each domain: separate Nginx backend (binds to 127.0.0.1)
 - [ ] **Subdomain-based access:** https://domain (NO port number!) **v4.3**
-- [ ] **HAProxy SNI routing:** Frontend 443 → Nginx backends **v4.3**
+- [ ] **nginx SNI routing (ssl_preread):** Port 443 → Xray/Nginx backends **v1.1.0**
 - [ ] Port allocation: sequential 9443-9452
 - [ ] Port reuse after domain removal
 
 **Constraints:**
 - Internal port range: 9443-9452 (localhost-only, NOT publicly exposed)
-- Public access: HAProxy frontend 443 (SNI routing to all reverse proxies)
-- Reserved ports: 443 (HAProxy SNI/TLS), 1080 (SOCKS5 TLS), 8118 (HTTP TLS), 8443 (Xray Reality) **v4.3**
+- Public access: nginx port 443 (ssl_preread SNI routing to all reverse proxies)
+- Reserved ports: 443 (nginx SNI/TLS), 1080 (SOCKS5 TLS), 8118 (HTTP TLS), 8443 (Xray Reality), 2053 (MTProxy) **v1.1.0**
 - Max domains: 10 per server (architectural limit)
 
 **Recommendation:** For > 10 domains, use multiple independent servers.
@@ -268,8 +270,21 @@ openssl s_client -connect myproxy.example.com:443 -servername myproxy.example.co
 curl -I -u user:pass https://myproxy.example.com | grep Strict-Transport-Security
 
 # Check no access log
-ls -la /opt/vless/logs/nginx/reverse-proxy-access.log  # Should NOT exist
+ls -la /opt/familytraffic/logs/nginx/reverse-proxy-access.log  # Should NOT exist
 ```
+
+---
+
+## NFR-MTPROXY-001 (v1.1.0) — MTProxy Reliability
+
+**Target:** MTProxy uptime > 99% при активации; автоперезапуск через supervisord.
+**Status:** IMPLEMENTED
+
+## NFR-SINGLECONTAINER-001 (v1.1.0) — Single-Container Architecture
+
+**Target:** Все VPN-процессы в одном контейнере (network_mode: host), управляемые supervisord.
+**Deployment:** `docker compose up -d` -> единый контейнер `familytraffic`.
+**Status:** IMPLEMENTED
 
 ---
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # External Proxy Test Suite
-# Part of VLESS+Reality VPN Deployment System (v5.23)
+# Part of familyTraffic VPN Deployment System (v5.33)
 #
 # Purpose: Test external proxy management functionality
 #
@@ -17,7 +17,7 @@ set -euo pipefail
 # =============================================================================
 
 # Test directory (use temp location to avoid affecting production)
-readonly TEST_ROOT="/tmp/vless_test_$$"
+readonly TEST_ROOT="/tmp/familytraffic_test_$$"
 readonly TEST_CONFIG_DIR="${TEST_ROOT}/config"
 readonly TEST_LIB_DIR="${TEST_ROOT}/lib"
 
@@ -46,9 +46,9 @@ setup_test_environment() {
     mkdir -p "$TEST_LIB_DIR"
 
     # Copy required modules
-    if [[ -d "/opt/vless/lib" ]]; then
-        cp /opt/vless/lib/external_proxy_manager.sh "$TEST_LIB_DIR/" 2>/dev/null || true
-        cp /opt/vless/lib/xray_routing_manager.sh "$TEST_LIB_DIR/" 2>/dev/null || true
+    if [[ -d "/opt/familytraffic/lib" ]]; then
+        cp /opt/familytraffic/lib/external_proxy_manager.sh "$TEST_LIB_DIR/" 2>/dev/null || true
+        cp /opt/familytraffic/lib/xray_routing_manager.sh "$TEST_LIB_DIR/" 2>/dev/null || true
     elif [[ -d "$(dirname "${BASH_SOURCE[0]}")/../" ]]; then
         # Development mode - copy from project lib/
         local project_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")/../" && pwd)"

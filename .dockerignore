@@ -1,0 +1,11 @@
+# .dockerignore
+# Build context: repo root — only docker/familytraffic/ is needed by the Dockerfile.
+# Excluding everything else reduces context from ~3MB+ to ~15KB.
+
+# Exclude everything by default
+*
+
+# Re-include only the Dockerfile's COPY sources
+!docker/
+!docker/familytraffic/
+!docker/familytraffic/**

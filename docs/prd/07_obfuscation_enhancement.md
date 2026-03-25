@@ -46,19 +46,19 @@
 
 | Приоритет | Технология | Усилия | DPI-стойкость | Статус |
 |-----------|-----------|--------|---------------|--------|
-| **Немедленно** | XTLS Vision | Низкие | Высокая | Доступно в Xray, не включено |
-| **Краткосрочно** | XHTTP/SplitHTTP | Средние | Высокая (CDN) | Новый транспорт Xray >= 24.9 |
-| **Краткосрочно** | WebSocket + TLS | Средние | Средняя | CDN-совместимо |
-| **Среднесрочно** | gRPC Transport | Средние | Средняя | HTTP/2 требует TLS termination |
-| **Долгосрочно** | Hysteria2 | Высокие | Высокая | UDP, отдельный контейнер |
-| **Долгосрочно** | TUIC v5 | Высокие | Высокая | UDP, отдельный контейнер |
-| **Стратегически** | SingBox | Высокие | Протокол-зависимо | Параллельный рантайм |
+| ~~**Немедленно**~~ | ~~XTLS Vision~~ | ~~Низкие~~ | ~~Высокая~~ | ✅ **РЕАЛИЗОВАНО** — все 7 пользователей, v5.24+ (подтверждено SSH 2026-02-23) |
+| **Следующий приоритет** | XHTTP/SplitHTTP | Средние | Высокая (CDN) | Не реализован (Tier 2, v5.3x) |
+| **Следующий приоритет** | WebSocket + TLS | Средние | Средняя | Не реализован (Tier 2, v5.3x) |
+| **Среднесрочно** | gRPC Transport | Средние | Средняя | Не реализован (Tier 2, v5.3x) |
+| **Долгосрочно** | Hysteria2 | Высокие | Высокая | UDP, отдельный контейнер (Tier 3) |
+| **Долгосрочно** | TUIC v5 | Высокие | Высокая | UDP, отдельный контейнер (Tier 3) |
+| **Стратегически** | SingBox | Высокие | Протокол-зависимо | Параллельный рантайм (Tier 4) |
 
 ### Рекомендация
 
 Реализовать **четырёхуровневый подход**:
-1. **Tier 1 (v5.25):** XTLS Vision — одно JSON-поле, максимальная отдача
-2. **Tier 2 (v5.3x):** WebSocket+TLS, gRPC, XHTTP как дополнительные inbound-ы
+1. ✅ **Tier 1 (v5.25): XTLS Vision** — РЕАЛИЗОВАНО. `flow: "xtls-rprx-vision"` активен у всех пользователей (подтверждено SSH на ikenibornvpn, 2026-02-23)
+2. **Tier 2 (v5.3x):** WebSocket+TLS, gRPC, XHTTP как дополнительные inbound-ы — **ТЕКУЩИЙ ПРИОРИТЕТ**
 3. **Tier 3 (v6.x):** Hysteria2 + TUIC как opt-in контейнеры (по образцу MTProxy)
 4. **Tier 4 (v7.x):** SingBox как параллельный рантайм
 
@@ -71,18 +71,18 @@
 **Версия:** v5.24
 **Протокол:** VLESS + Reality (Xray-core 24.11.30)
 **Транспорт:** TCP only
-**Порт:** 443 (через HAProxy SNI passthrough)
+**Порт:** 443 (через nginx ssl_preread SNI passthrough)
 
 ```
 Клиент (Reality Client)
     │
     │ TCP:443 → ClientHello (маскировка под HTTPS к dest-домену)
     ▼
-HAProxy (vless_haproxy)
+nginx (familytraffic, ssl_preread)
     │ SNI passthrough (NO TLS termination для Reality)
-    │ ACL: req_ssl_sni -i vless.example.com → backend xray_vless
+    │ ssl_preread_server_name = vless.example.com → 127.0.0.1:8443
     ▼
-Xray (vless_xray, port 8443)
+Xray (familytraffic, port 8443)
     │ Reality handshake: X25519 ECDH + uTLS fingerprint
     │ Decrypts VLESS payload
     ▼
@@ -102,7 +102,7 @@ Internet
     "settings": {
       "clients": [],
       "decryption": "none",
-      "fallbacks": [{ "dest": "vless_fake_site:80" }]
+      "fallbacks": [{ "dest": "familytraffic:80" }]
     },
     "streamSettings": {
       "network": "tcp",
@@ -139,13 +139,16 @@ Reality — это эволюция TLS-камуфляжа, разработан
 
 ### 2.4 Текущие ограничения
 
-| Ограничение | Описание | Критичность |
-|-------------|---------|-------------|
-| TCP-only transport | `streamSettings.network` = "tcp" жёстко задан | Средняя |
-| XTLS Vision не включён | `flow: "xtls-rprx-vision"` отсутствует у клиентов | Низкая |
-| Нет CDN-совместимости | Reality не работает через Cloudflare и большинство CDN | Средняя |
-| UDP не поддерживается | HAProxy и текущая архитектура — TCP only | Высокая |
-| Единственный inbound | Один режим подключения — точка отказа | Средняя |
+> **Актуальность:** Проверено SSH на живом сервере `ikenibornvpn` 2026-02-23. Xray `teddysun/xray:24.11.30`. Обновлено 2026-03-25 с учётом v1.1.0 (nginx single-container architecture, Tier 2 implemented).
+
+| Ограничение | Описание | Критичность | Статус |
+|-------------|---------|-------------|--------|
+| ~~TCP-only transport~~ | ~~`streamSettings.network` = "tcp" — единственный транспорт Reality~~ | ~~Средняя~~ | ✅ **ЗАКРЫТО** — Tier 2 (WS/XHTTP/gRPC) реализован в v1.1.0 (порты 8444-8446) |
+| ~~XTLS Vision не включён~~ | ~~`flow: "xtls-rprx-vision"` отсутствует у клиентов~~ | ~~Низкая~~ | ✅ **ЗАКРЫТО** — `flow: "xtls-rprx-vision"` активен у ВСЕХ пользователей (v5.24+) |
+| Нет CDN-совместимости | Reality не работает через Cloudflare и большинство CDN | Средняя | Частично закрыто — Tier 2 (WS/XHTTP/gRPC) добавляет CDN-совместимость (v1.1.0) |
+| UDP не поддерживается | nginx stream module и текущая архитектура — TCP only | Высокая | 🔴 Актуально (Tier 3) |
+| ~~Единственный inbound~~ | ~~Один режим подключения — точка отказа при блокировке Reality~~ | ~~Средняя~~ | ✅ **ЗАКРЫТО** — Tier 2 транспорты добавлены в v1.1.0 (WS/XHTTP/gRPC) |
+| ~~Нет Nginx-контейнера~~ | ~~`familytraffic-nginx` не задеплоен~~ | ~~Средняя~~ | ✅ **ЗАКРЫТО** — nginx интегрирован в единый контейнер `familytraffic` (v1.1.0) |
 
 ---
 
@@ -317,7 +320,7 @@ Internet
     │ UDP:443
     │ QUIC + TLS 1.3
     ▼
-vless_hysteria2 (отдельный контейнер)
+familytraffic (отдельный контейнер)
     │ Декодирует Hysteria2
     ▼
 Internet
@@ -365,12 +368,12 @@ Internet
 
 **Архитектура (параллельный контейнер):**
 ```
-HAProxy (vless_haproxy)
+HAProxy (familytraffic)
     ├─ SNI: vless.domain → Xray (Reality)
     ├─ SNI: singbox.domain → SingBox VLESS/Trojan/etc.
     └─ SNI: *.domain → Nginx (reverse proxy)
 
-vless_singbox (новый контейнер)
+familytraffic (новый контейнер)
     ├─ VLESS over WebSocket (port 8444)
     ├─ Trojan (port 8445)
     └─ Hysteria2 (UDP:8443 — прямой exposure)
@@ -416,7 +419,7 @@ vless_singbox (новый контейнер)
 | Протокол/Transport | DPI-стойкость | CDN-совместимость | UDP | Усилия интеграции | Статус в проекте |
 |-------------------|--------------|------------------|-----|------------------|-----------------|
 | **VLESS+Reality (текущий)** | ★★★★★ | ✗ | ✗ | — | РЕАЛИЗОВАН |
-| **XTLS Vision** | ★★★★★ | ✗ | ✗ | Низкие | Доступен, не включён |
+| **XTLS Vision** | ★★★★★ | ✗ | ✗ | — | ✅ **РЕАЛИЗОВАН** (все 7 пользователей, v5.24+) |
 | **VLESS+WebSocket+TLS** | ★★★ | ✓ | ✗ | Средние | Не реализован |
 | **VLESS+gRPC** | ★★★★ | ✓ | ✗ | Средние | Не реализован |
 | **VLESS+XHTTP/SplitHTTP** | ★★★★ | ✓✓ | ✗ | Средние | Не реализован |
@@ -466,32 +469,44 @@ vless_singbox (новый контейнер)
 - XHTTP transport (`network: "splithttp"`)
 - Механизм выбора транспорта пользователем
 
-### 5.2 XTLS Vision gap
+### 5.2 XTLS Vision gap — ✅ ЗАКРЫТ
 
-**Текущее состояние:** Clients в `xray_config.json`:
+> **Статус на 2026-02-23:** Подтверждено SSH. Все 7 пользователей в `xray_config.json` имеют `flow: "xtls-rprx-vision"`. GAP УСТРАНЁН.
+
+**Текущее состояние** (подтверждено SSH ikenibornvpn, 2026-02-23):
 ```json
-"clients": [{
-  "id": "uuid",
-  "level": 0
-  // ← отсутствует поле "flow"
-}]
+"clients": [
+  { "id": "uuid-1", "email": "ikeniborn@vless.local",  "flow": "xtls-rprx-vision" },
+  { "id": "uuid-2", "email": "feanor666@vless.local",  "flow": "xtls-rprx-vision" },
+  { "id": "uuid-3", "email": "oksigen86@vless.local",  "flow": "xtls-rprx-vision" },
+  { "id": "uuid-4", "email": "sevruka@vless.local",    "flow": "xtls-rprx-vision" },
+  { "id": "uuid-5", "email": "sevrukn@vless.local",    "flow": "xtls-rprx-vision" },
+  { "id": "uuid-6", "email": "sevrukm@vless.local",    "flow": "xtls-rprx-vision" },
+  { "id": "uuid-7", "email": "torrih@vless.local",     "flow": "xtls-rprx-vision" }
+]
 ```
 
-**Что нужно добавить:**
-```json
-"clients": [{
-  "id": "uuid",
-  "flow": "xtls-rprx-vision",  // ← единственное изменение
-  "level": 0
-}]
+**Как реализовано в коде (`lib/user_management.sh`):**
+```bash
+# add_user_to_json() строка 521-525 — новые пользователи:
+jq ".inbounds[0].settings.clients += [{
+    \"id\": \"$uuid\",
+    \"email\": \"${username}@vless.local\",
+    \"flow\": \"xtls-rprx-vision\"   # ← добавляется автоматически
+}]" "$XRAY_CONFIG" > "$temp_file"
+
+# generate_vless_uri() строка 834 — URI включает flow:
+uri+="&flow=xtls-rprx-vision"
 ```
+
+**Остаток:**  `validate_vless_uri()` в `lib/qr_generator.sh` (строка 95) по-прежнему требует `flow` как обязательный параметр для ВСЕХ URI — это нужно исправить перед Tier 2 (Tier 2 URI не имеют `flow`).
 
 ### 5.3 UDP/QUIC gap
 
 **Текущее состояние:** Все контейнеры используют TCP. `docker-compose.yml` не содержит UDP port mapping. HAProxy работает только в `mode tcp` (TCP-level LB).
 
 **Что требуется для Hysteria2/TUIC:**
-1. Новый контейнер `vless_hysteria2` (или `vless_singbox`)
+1. Новый контейнер `familytraffic` (или `familytraffic`)
 2. UDP port mapping: `"443:443/udp"` или `"8443:8443/udp"`
 3. UFW правила: `ufw allow 8443/udp`
 4. Отдельный Docker network или прямой host binding
@@ -506,19 +521,20 @@ vless_singbox (новый контейнер)
 ### 5.5 Архитектурные ограничения
 
 ```
-ТЕКУЩАЯ АРХИТЕКТУРА:
+ТЕКУЩАЯ АРХИТЕКТУРА (v1.1.0+):
 ┌─────────────────────────────────────────────────────────┐
-│ HAProxy (TCP only, mode tcp)                            │
+│ nginx (ssl_preread, stream module)                      │
 │  Port 443: SNI passthrough → Xray Reality (TCP:8443)   │
+│            SNI routing → Tier 2 nginx proxy (8448)     │
 │  Port 1080: TLS term → Xray SOCKS5 (TCP:10800)         │
 │  Port 8118: TLS term → Xray HTTP (TCP:18118)           │
 └─────────────────────────────────────────────────────────┘
 
 ОГРАНИЧЕНИЯ:
-  ✗ HAProxy не маршрутизирует UDP → Hysteria2/TUIC невозможен без bypass
-  ✗ mode tcp на порту 443 конфликтует с mode http (нужен для gRPC)
+  ✗ nginx stream module не маршрутизирует UDP → Hysteria2/TUIC невозможен без bypass
   ✗ Все инбаунды share порт 443 через SNI → новые транспорты нужны на новых портах
      (или отдельные subdomains через SNI)
+  ✓ Tier 2 (WS/XHTTP/gRPC) — реализовано через nginx ssl_preread → Tier 2 nginx proxy
 ```
 
 ---
@@ -529,12 +545,12 @@ vless_singbox (новый контейнер)
 
 | ID | Риск | Severity | Mitigation |
 |----|------|----------|-----------|
-| **R1** | Новые инбаунды (WS, gRPC) требуют новых Docker-портов и HAProxy изменений | Medium | Использовать SNI-subdomain routing: `ws.domain → Xray WebSocket backend`. Один HAProxy frontend на порту 443 маршрутизирует по SNI к разным backends. |
-| **R2** | Hysteria2/TUIC требуют UDP — несовместимы с HAProxy TCP-архитектурой | High | Отдельный контейнер с прямым UDP port exposure (bypass HAProxy). Аналогично MTProxy pattern (`lib/mtproxy_manager.sh`). |
+| **R1** | Новые инбаунды (WS, gRPC) требуют nginx конфигурационных изменений | Medium | Использовать SNI-subdomain routing: `ws.domain → Xray WebSocket backend`. nginx ssl_preread на порту 443 маршрутизирует по SNI к разным backends. Реализовано в v1.1.0 через nginx Tier 2 proxy. |
+| **R2** | Hysteria2/TUIC требуют UDP — несовместимы с nginx stream (TCP-only) | High | Отдельный процесс/контейнер с прямым UDP port exposure (bypass nginx). Аналогично MTProxy pattern (`lib/mtproxy_manager.sh`) — **MTProxy уже реализован** как opt-in в v1.1.0. |
 | **R3** | SingBox как замена Xray потребует полной переработки конфигурационных модулей | High | Реализовывать SingBox как **параллельный** контейнер, не замену. Пользователь выбирает: Xray (Reality) ИЛИ SingBox (multi-protocol). |
-| **R4** | WebSocket на порту 443 конфликтует с Reality SNI passthrough | Medium | Subdomain routing: `vless.domain → Reality/Xray`, `ws.domain → WebSocket/Xray`. Оба через HAProxy SNI ACL. |
-| **R5** | gRPC требует HTTP/2 и HAProxy `mode http`, несовместимо с текущим `mode tcp` на порту 443 | Medium | gRPC inbound на отдельном порту (8444) с отдельным HAProxy frontend в `mode http`. ИЛИ gRPC через Nginx reverse proxy (добавить backend в `vless_nginx_reverseproxy`). |
-| **R6** | GFW детектирует VLESS+Reality по timing analysis (без XTLS Vision) | Low | Включить `flow: "xtls-rprx-vision"` в server и client конфигурациях — минимальные изменения, максимальный эффект. |
+| **R4** | WebSocket на порту 443 конфликтует с Reality SNI passthrough | Medium | Subdomain routing: `vless.domain → Reality/Xray`, `ws.domain → WebSocket/Xray`. Оба через nginx ssl_preread SNI. Реализовано в v1.1.0. |
+| **R5** | gRPC требует HTTP/2, несовместимо с режимом ssl_preread на порту 443 | Medium | gRPC inbound на отдельном порту (8446), nginx Tier 2 proxy терминирует TLS и передаёт plaintext gRPC в xray. Реализовано в v1.1.0. |
+| ~~**R6**~~ | ~~GFW детектирует VLESS+Reality по timing analysis (без XTLS Vision)~~ | ~~Low~~ | ✅ **ЗАКРЫТ** — `flow: "xtls-rprx-vision"` активен у всех пользователей (подтверждено SSH 2026-02-23) |
 
 ### 6.2 Операционные риски
 
@@ -549,34 +565,96 @@ vless_singbox (новый контейнер)
 
 | Протокол | iOS | Android | Windows | macOS | Linux |
 |----------|-----|---------|---------|-------|-------|
-| VLESS+Reality | Shadowrocket, Sing-Box | v2rayNG, Sing-Box | v2rayN, Xray | ClashX, Sing-Box | Xray CLI |
-| VLESS+WebSocket | То же | То же | То же | То же | То же |
-| VLESS+gRPC | То же | То же | То же | То же | То же |
+| VLESS+Reality+Vision | **v2rayTun** ✅, Shadowrocket, Sing-Box | v2rayNG, Sing-Box | v2rayN, Xray | ClashX, Sing-Box | Xray CLI |
+| VLESS+WebSocket | **v2rayTun** ✅, Shadowrocket, Sing-Box | v2rayNG, Sing-Box | v2rayN, Xray | ClashX, Sing-Box | Xray CLI |
+| VLESS+gRPC | **v2rayTun** ✅, Shadowrocket, Sing-Box | v2rayNG, Sing-Box | v2rayN, Xray | ClashX, Sing-Box | Xray CLI |
+| VLESS+XHTTP | **v2rayTun** ⚠️ (вероятно), Sing-Box | v2rayNG, Sing-Box | v2rayN, Xray | Sing-Box | Xray CLI |
 | Hysteria2 | Sing-Box | Sing-Box, NekoBox | v2rayN, Hysteria | Sing-Box | Hysteria CLI |
 | TUIC v5 | Sing-Box | Sing-Box | Sing-Box | Sing-Box | tuic-client |
+
+> **Примечание:** Фактические iOS-пользователи проекта используют **v2rayTun** (v2.4.4, февраль 2026). Анализ совместимости v2rayTun с конкретными транспортами см. в разделе **6.4**.
+
+### 6.4 iOS v2rayTun — детальный анализ совместимости
+
+> **Исследование:** App Store changelog + GitHub releases (DigneZzZ/v2raytun) + docs.v2raytun.com. Дата: 2026-02-22.
+
+| Параметр | Значение |
+|---|---|
+| Текущая iOS версия | **2.4.4** (4 февраля 2026) |
+| Bundled Xray-core | **25.10.15** (v2.4.1, декабрь 2025; v2.4.4 вероятно новее) |
+| Разработчик | DATABRIDGES TECHNOLOGIES LTD |
+| App Store ID | 6476628951 |
+| Минимальная iOS | 16.0+ |
+
+**Совместимость с планируемыми изменениями:**
+
+| Функция | Поддержка | Уверенность | Источник |
+|---------|-----------|-------------|---------|
+| XTLS Vision (`flow=xtls-rprx-vision`) | ✅ **Да** | Высокая | Официальный пример URI в docs.v2raytun.com |
+| VLESS URI импорт (`flow=`, `fp=`, `pbk=`, `sid=`) | ✅ **Да** | Высокая | Официальный URI пример + user guides |
+| uTLS fingerprint: chrome, firefox, safari, ios, android, edge, 360, qq | ✅ **Полный набор** | Высокая | Наследуется от Xray-core |
+| uTLS fingerprint: random, randomized | ✅ **Да** | Высокая | Xray-core uTLS |
+| WebSocket transport | ✅ **Да** | Высокая | App Store changelog v1.8.9 (явное упоминание) |
+| gRPC transport | ✅ **Да** | Высокая | App Store changelog v1.8.9 (явное упоминание) |
+| XHTTP/SplitHTTP transport | ⚠️ **Вероятно** | Средняя | Android v3.9.34 (август 2024) подтверждён; iOS — не задокументирован явно |
+| HAProxy → Nginx migration | ✅ **Нулевой impact** | Высокая | Прозрачное изменение на L4; порт/хост/cert не меняются |
+
+**XTLS Vision — как работает с v2rayTun:**
+
+Официальная документация (docs.v2raytun.com) содержит пример URI именно с XTLS Vision:
+```
+vless://<uuid>@<server>:443?type=tcp&security=reality&fp=chrome&pbk=<key>&sni=google.com&flow=xtls-rprx-vision#name
+```
+v2rayTun парсит параметр `flow=xtls-rprx-vision` из URI при импорте и передаёт его в Xray-core. Поскольку Xray-core >= 1.8.0 поддерживает XTLS Vision, функция работает полностью.
+
+**uTLS fingerprints в v2rayTun:**
+
+v2rayTun использует Xray-core uTLS — полный набор fingerprints идентичен эталонному:
+
+| Значение | Что эмулирует |
+|---|---|
+| `chrome` | Chrome (актуальный) |
+| `firefox` | Firefox |
+| `safari` | Safari desktop |
+| `ios` | iOS Safari |
+| `android` | Android Chrome |
+| `edge` | Microsoft Edge |
+| `360` | 360 Browser (Китай) |
+| `qq` | QQ Browser (Китай) |
+| `random` | Случайный из именованных |
+| `randomized` | Уникальный сгенерированный (100% TLS 1.3 + X25519) |
+
+**XHTTP на iOS — риск и митигация:**
+
+XHTTP подтверждён на Android с августа 2024 (v3.9.34). iOS-версия обычно выходит с задержкой в 1-4 недели. При Tier 2 реализации (v5.31):
+- **Обязательное ручное тестирование** XHTTP на реальном iOS-устройстве с v2rayTun
+- Если XHTTP не поддерживается — пользователи iOS переходят на WebSocket (полная поддержка)
+- Reality (основной транспорт) не затрагивается в любом случае
 
 ---
 
 ## 7. Четырёхуровневый план доработки
 
-### 7.1 Tier 1: Немедленные улучшения (XTLS Vision)
+### 7.1 Tier 1: Немедленные улучшения (XTLS Vision) — ✅ РЕАЛИЗОВАНО
 
-**Версия:** v5.25
-**Усилия:** Низкие (1-2 дня)
-**Риск:** Низкий
-**Влияние:** Высокое (улучшение DPI-стойкости для всех пользователей Reality)
+**Версия:** v5.25 (фактически реализовано в v5.24+)
+**Усилия:** ~~Низкие (1-2 дня)~~ → ВЫПОЛНЕНО
+**Риск:** Низкий → ЗАКРЫТ
+**Влияние:** Высокое (улучшение DPI-стойкости для всех пользователей Reality) → ДОСТИГНУТО
 
-**Изменения:**
+> **SSH-подтверждение (ikenibornvpn, 2026-02-23):** Все 7 пользователей в xray_config.json имеют `flow: "xtls-rprx-vision"`. Xray образ `teddysun/xray:24.11.30` подтверждён.
 
-1. **`lib/orchestrator.sh` (generate_xray_config_json):** Добавить `"flow": "xtls-rprx-vision"` в client объекты внутри inbound settings.
+**Статус изменений:**
 
-2. **`lib/user_management.sh` (add_user):** Добавить `"flow"` в пользовательский объект при создании.
+| # | Изменение | Статус |
+|---|-----------|--------|
+| 1 | `lib/orchestrator.sh` (create_xray_config): начальный `clients: []` — flow добавляется при create_user | ✅ OK (flow добавляется через add_user_to_json, не через шаблон) |
+| 2 | `lib/user_management.sh` (add_user_to_json, строка 524): `"flow": "xtls-rprx-vision"` | ✅ РЕАЛИЗОВАНО |
+| 3 | `lib/user_management.sh` (generate_vless_uri, строка 834): `uri+="&flow=xtls-rprx-vision"` | ✅ РЕАЛИЗОВАНО |
+| 4 | Xray `teddysun/xray:24.11.30` поддерживает XTLS Vision | ✅ ПОДТВЕРЖДЕНО (Xray-core >= 1.8.0) |
 
-3. **Клиентские конфигурации:** Обновить шаблоны VLESS-ссылок — добавить параметр `flow=xtls-rprx-vision` в URI.
-
-4. **Проверка:** Убедиться что Xray образ `teddysun/xray:24.11.30` поддерживает XTLS Vision (поддерживает начиная с Xray-core 1.8.0).
-
-**Ожидаемый результат:** Уменьшение энтропийных аномалий в первых пакетах сессии → лучшее прохождение через ML-classifiers GFW.
+**Остаток Tier 1 (единственное незакрытое):**
+- `lib/qr_generator.sh` строка 95: `validate_vless_uri()` требует `flow` как обязательный параметр у ВСЕХ URI → нужно исправить до Tier 2 (WS/XHTTP/gRPC URI не имеют `flow`)
 
 ---
 
@@ -587,33 +665,59 @@ vless_singbox (новый контейнер)
 **Риск:** Средний (архитектурные изменения HAProxy)
 **Влияние:** Высокое (CDN-совместимость)
 
+> **Архитектурное уточнение (на основе анализа живого сервера):**
+> HAProxy на порту 443 работает в `mode tcp` (SNI passthrough). TLS-терминация для Tier 2 транспортов **невозможна в HAProxy на порту 443** без нарушения Reality. Решение: отдельный контейнер **`familytraffic-nginx_tier2`** принимает трафик от HAProxy и терминирует TLS для WS/XHTTP/gRPC.
+>
+> На живом сервере **нет ни одного Nginx-контейнера** (reverse proxy был отключён при установке) — `familytraffic-nginx_tier2` нужно создать с нуля.
+
+**Правильная архитектура Tier 2:**
+```
+HAProxy :443 (mode tcp, SNI routing)
+  ├── SNI ws.domain    → backend nginx_tier2:8448
+  ├── SNI xhttp.domain → backend nginx_tier2:8448
+  ├── SNI grpc.domain  → backend nginx_tier2:8448
+  └── (default)        → backend xray_vless:8443 (Reality — без изменений)
+
+familytraffic-nginx_tier2 (НОВЫЙ контейнер, listen 8448 ssl http2)
+  ├── server_name ws.domain    → proxy_pass http://familytraffic:8444
+  ├── server_name xhttp.domain → proxy_pass http://familytraffic:8445
+  └── server_name grpc.domain  → grpc_pass grpc://familytraffic:8446
+
+familytraffic (plaintext inbounds — без TLS, Nginx терминирует)
+  ├── :8443 Reality (существующий)
+  ├── :8444 VLESS WS plaintext (новый)
+  ├── :8445 VLESS XHTTP plaintext (новый)
+  └── :8446 VLESS gRPC plaintext (новый)
+```
+
 **Подэтап 2a: WebSocket + TLS (приоритет)**
 
-1. Новый Xray inbound на внутреннем порту (8444) с `network: "ws"`
-2. HAProxy SNI routing: `ws.example.com → xray_websocket backend (8444)`
-3. HAProxy TLS termination для WS inbound (не passthrough как Reality)
-4. Генератор клиентских конфигов для WS transport
+1. Новый Xray inbound на порту 8444 с `network: "ws"`, **без TLS** (Nginx терминирует)
+2. HAProxy SNI routing: `ws.example.com → nginx_tier2 backend (:8448)`
+3. Nginx `server_name ws.example.com` → `proxy_pass http://familytraffic:8444` + WebSocket upgrade headers
+4. Генератор клиентских конфигов для WS transport (`generate_transport_uri ws`)
 5. CLI команда: `vless add-transport ws <subdomain>`
 
 **Подэтап 2b: XHTTP/SplitHTTP (высокий приоритет)**
 
-1. Новый Xray inbound с `network: "splithttp"` (требует Xray >= 24.9 — уже используется 24.11.30)
-2. Nginx конфигурация для проксирования XHTTP (или HAProxy в http mode)
-3. CDN-инструкция: как настроить Cloudflare для XHTTP
+1. Новый Xray inbound на порту 8445 с `network: "splithttp"` (Xray >= 24.9 — уже используется 24.11.30 ✓)
+2. HAProxy SNI routing: `xhttp.example.com → nginx_tier2 backend`
+3. Nginx `server_name xhttp.example.com` → `proxy_pass http://familytraffic:8445` + chunked streaming
+4. CDN-инструкция: как настроить Cloudflare для XHTTP
 
 **Подэтап 2c: gRPC (средний приоритет)**
 
-1. Новый Xray inbound с `network: "grpc"` на внутреннем порту (8445)
-2. HAProxy frontend в `mode http` с `h2` ALPN support
-3. Или: Nginx с gRPC proxy (`grpc_pass`)
+1. Новый Xray inbound на порту 8446 с `network: "grpc"`, **без TLS** (Nginx терминирует)
+2. HAProxy SNI routing: `grpc.example.com → nginx_tier2 backend`
+3. Nginx `server_name grpc.example.com` → `grpc_pass grpc://familytraffic:8446` (http2 required)
 
 **Новые CLI-команды:**
 ```bash
-sudo vless add-transport ws subdomain.example.com
-sudo vless add-transport xhttp subdomain.example.com
-sudo vless add-transport grpc subdomain.example.com
-sudo vless list-transports
-sudo vless remove-transport ws
+sudo familytraffic add-transport ws subdomain.example.com
+sudo familytraffic add-transport xhttp subdomain.example.com
+sudo familytraffic add-transport grpc subdomain.example.com
+sudo familytraffic list-transports
+sudo familytraffic remove-transport ws
 ```
 
 ---
@@ -625,23 +729,19 @@ sudo vless remove-transport ws
 **Риск:** Высокий (новая архитектура, UDP exposure)
 **Влияние:** Очень высокое (плохие сети, Китай)
 
-**Архитектура:** По образцу MTProxy (`lib/mtproxy_manager.sh` + `docker/mtproxy/`):
+**Архитектура:** По образцу MTProxy — ✅ **РЕАЛИЗОВАН** в v1.1.0 как opt-in supervisord процесс (`lib/mtproxy_manager.sh`, mtg v2.2.3, порт 2053).
+Hysteria2/TUIC реализовать аналогично: opt-in supervisord процесс с прямым UDP exposure (bypass nginx stream).
 
 ```
 Новые файлы:
-  lib/hysteria2_manager.sh        # Управление Hysteria2 контейнером
-  lib/tuic_manager.sh             # Управление TUIC контейнером
-  docker/hysteria2/               # Dockerfile + entrypoint
-  docker/tuic/                    # Dockerfile + entrypoint
-  scripts/vless-hysteria2         # CLI для Hysteria2
-  scripts/vless-tuic              # CLI для TUIC
+  lib/hysteria2_manager.sh        # Управление Hysteria2 процессом (как mtproxy_manager.sh)
+  lib/tuic_manager.sh             # Управление TUIC процессом
+  scripts/familytraffic-hysteria2 # CLI для Hysteria2 (как familytraffic-mtproxy)
+  scripts/familytraffic-tuic      # CLI для TUIC
 
-Изменения docker-compose.yml:
-  vless_hysteria2:
-    image: tobyxdd/hysteria:latest
-    ports:
-      - "8443:8443/udp"  # Прямой UDP, bypass HAProxy
-    profiles: ["hysteria2"]  # Opt-in, не стартует по умолчанию
+Интеграция через supervisord (аналогично MTProxy):
+  /opt/familytraffic/config/supervisord.d/hysteria2.conf  # создаётся при установке
+  # UDP port — прямой exposure, bypass nginx
 
 UFW правила:
   ufw allow 8443/udp comment 'Hysteria2'
@@ -649,7 +749,7 @@ UFW правила:
 
 **Установка (opt-in wizard):**
 ```bash
-sudo vless install-hysteria2
+sudo familytraffic install-hysteria2
 # Wizard: выбор порта, SSL cert, bandwidth limits
 # Генерация клиентских конфигов (Sing-Box format)
 ```
@@ -671,10 +771,10 @@ sudo vless install-hysteria2
   lib/singbox_manager.sh           # Управление SingBox контейнером
   scripts/vless-singbox            # CLI
 
-Контейнер vless_singbox:
+Контейнер familytraffic:
   - VLESS+Reality (дублирует Xray, для A/B тестирования)
-  - Hysteria2 (заменяет отдельный vless_hysteria2)
-  - TUIC v5 (заменяет отдельный vless_tuic)
+  - Hysteria2 (заменяет отдельный familytraffic)
+  - TUIC v5 (заменяет отдельный familytraffic)
   - Trojan+WebSocket+TLS
 ```
 
@@ -684,9 +784,11 @@ sudo vless install-hysteria2
 
 ## 8. Технические спецификации Tier 1-2
 
-### 8.1 XTLS Vision: изменения конфигурации
+### 8.1 XTLS Vision: изменения конфигурации — ✅ РЕАЛИЗОВАНО
 
-**Изменение в Xray inbound** (функция `generate_xray_config_json()` в `lib/orchestrator.sh`):
+> **Статус:** Подтверждено SSH на ikenibornvpn. Все 7 пользователей имеют `flow: "xtls-rprx-vision"`.
+
+**Текущая конфигурация Xray inbound** (реальное состояние сервера, 2026-02-23):
 
 ```json
 {
@@ -695,30 +797,32 @@ sudo vless install-hysteria2
     "protocol": "vless",
     "tag": "vless-reality",
     "settings": {
-      "clients": [{
-        "id": "${USER_UUID}",
-        "flow": "xtls-rprx-vision",
-        "level": 0
-      }],
-      "decryption": "none"
+      "clients": [
+        { "id": "...", "email": "ikeniborn@vless.local",  "flow": "xtls-rprx-vision" },
+        { "id": "...", "email": "feanor666@vless.local",  "flow": "xtls-rprx-vision" },
+        { "id": "...", "email": "oksigen86@vless.local",  "flow": "xtls-rprx-vision" },
+        { "id": "...", "email": "sevruka@vless.local",    "flow": "xtls-rprx-vision" },
+        { "id": "...", "email": "sevrukn@vless.local",    "flow": "xtls-rprx-vision" },
+        { "id": "...", "email": "sevrukm@vless.local",    "flow": "xtls-rprx-vision" },
+        { "id": "...", "email": "torrih@vless.local",     "flow": "xtls-rprx-vision" }
+      ],
+      "decryption": "none",
+      "fallbacks": [{ "dest": "familytraffic:80" }]
     },
     "streamSettings": {
       "network": "tcp",
       "security": "reality",
-      "realitySettings": { ... }
+      "realitySettings": { "show": false, "...": "..." }
     }
   }]
 }
 ```
 
-**Изменение в client URI** (функция генерации VLESS-ссылки в `lib/user_management.sh`):
+**Текущий client URI** (`generate_vless_uri()` строка 834 — уже реализовано):
 
 ```
-# Формат VLESS URI без Vision:
-vless://${UUID}@${SERVER}:443?type=tcp&security=reality&...
-
-# Формат VLESS URI с Vision:
-vless://${UUID}@${SERVER}:443?type=tcp&security=reality&flow=xtls-rprx-vision&...
+# Формат с Vision (АКТИВНЫЙ — подтверждён на сервере):
+vless://${UUID}@${SERVER}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=...&fp=chrome&pbk=...&sid=...&type=tcp#username
 ```
 
 ### 8.2 WebSocket Transport: конфигурация Xray
@@ -744,24 +848,44 @@ vless://${UUID}@${SERVER}:443?type=tcp&security=reality&flow=xtls-rprx-vision&..
 }
 ```
 
-**HAProxy конфигурация для WebSocket** (добавить в `haproxy.cfg`):
+**HAProxy конфигурация** (SNI routing → `familytraffic-nginx_tier2`, НЕ напрямую на Xray):
+
+> **Уточнение:** HAProxy на порту 443 работает в `mode tcp`. TLS-терминацию для WebSocket выполняет `familytraffic-nginx_tier2` (новый контейнер). HAProxy только маршрутизирует по SNI.
 
 ```haproxy
-# Frontend для WebSocket subdomain (SNI routing)
-# Добавляется в секцию DYNAMIC_REVERSE_PROXY_ROUTES
+# В frontend https_sni_router, ПЕРЕД default_backend (R4 mitigation):
+acl is_tier2_ws req_ssl_sni -i ws.example.com
+use_backend nginx_tier2 if is_tier2_ws
 
-acl is_vless_ws req_ssl_sni -i ws.example.com
-use_backend xray_websocket if is_vless_ws
-
-# Backend
-backend xray_websocket
+# Единый backend для всех Tier 2 транспортов:
+backend nginx_tier2
     mode tcp
-    server xray vless_xray:8444 check inter 10s fall 3 rise 2
+    server nginx familytraffic-nginx_tier2:8448 check inter 10s fall 3 rise 2
+```
+
+**Nginx конфигурация** (TLS termination → plaintext WebSocket к Xray):
+```nginx
+server {
+    listen 8448 ssl;
+    http2 on;
+    server_name ws.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    location /vless-ws {
+        proxy_pass http://familytraffic:8444;   # plaintext к Xray
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+    }
+}
 ```
 
 **Клиентский URI для WebSocket:**
 ```
-vless://${UUID}@ws.example.com:443?type=ws&path=/vless-ws&security=tls&sni=ws.example.com
+vless://${UUID}@ws.example.com:443?encryption=none&security=tls&sni=ws.example.com&fp=chrome&type=ws&path=%2Fvless-ws#username-ws
 ```
 
 ### 8.3 XHTTP/SplitHTTP Transport: конфигурация Xray
@@ -789,15 +913,33 @@ vless://${UUID}@ws.example.com:443?type=ws&path=/vless-ws&security=tls&sni=ws.ex
 }
 ```
 
-**HAProxy конфигурация:**
+**HAProxy конфигурация** (к тому же единому `nginx_tier2` backend):
 
 ```haproxy
-acl is_vless_xhttp req_ssl_sni -i xhttp.example.com
-use_backend xray_xhttp if is_vless_xhttp
+acl is_tier2_xhttp req_ssl_sni -i xhttp.example.com
+use_backend nginx_tier2 if is_tier2_xhttp
+# backend nginx_tier2 уже определён в секции 8.2 (shared с WS и gRPC)
+```
 
-backend xray_xhttp
-    mode tcp
-    server xray vless_xray:8445 check inter 10s fall 3 rise 2
+**Nginx конфигурация** (TLS termination → plaintext XHTTP к Xray):
+```nginx
+server {
+    listen 8448 ssl;
+    http2 on;
+    server_name xhttp.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    location /api/v2 {
+        proxy_pass http://familytraffic:8445;   # plaintext к Xray
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        client_max_body_size 0;
+        proxy_read_timeout 300s;
+    }
+}
 ```
 
 ### 8.4 gRPC Transport: конфигурация
@@ -826,20 +968,32 @@ backend xray_xhttp
 }
 ```
 
-**Nginx конфигурация для gRPC proxy** (альтернатива HAProxy `mode http`):
+**HAProxy конфигурация** (к тому же `nginx_tier2` backend):
+
+```haproxy
+acl is_tier2_grpc req_ssl_sni -i grpc.example.com
+use_backend nginx_tier2 if is_tier2_grpc
+# backend nginx_tier2 уже определён в секции 8.2 (shared с WS и XHTTP)
+```
+
+**Nginx конфигурация** (TLS termination + gRPC proxy → plaintext к Xray):
+
+> **Важно:** Nginx работает на порту 8448 (общем для всех Tier 2), различает транспорты по `server_name`.
 
 ```nginx
 server {
-    listen 8446 ssl http2;
+    listen 8448 ssl;
+    http2 on;
     server_name grpc.example.com;
 
     ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
     location /GunService/ {
-        grpc_pass grpc://vless_xray:8446;
+        grpc_pass grpc://familytraffic:8446;   # plaintext gRPC к Xray
         grpc_read_timeout 300s;
         grpc_send_timeout 300s;
+        grpc_buffer_size 4k;
     }
 }
 ```
@@ -913,20 +1067,25 @@ curl -o /dev/null -s -w "%{speed_download}" \
 ### 10.1 Временная шкала
 
 ```
-2026 Q1: Tier 1 — XTLS Vision
-├── v5.25: Enable flow=xtls-rprx-vision для всех новых пользователей
-├── v5.26: Миграция существующих пользователей (CLI команда)
-└── v5.27: Документация и клиентские инструкции
+2026 Q1: Tier 1 — XTLS Vision [✅ ВЫПОЛНЕНО раньше срока]
+├── ✅ v5.24+: flow=xtls-rprx-vision добавлен в add_user_to_json() и generate_vless_uri()
+├── ✅ v5.24+: Все 7 существующих пользователей уже имеют flow (миграция не потребовалась)
+├── ⏳ v5.25: Исправить validate_vless_uri() — убрать flow из обязательных (блокирует Tier 2)
+└── ⏳ v5.25: Добавить test_xtls_vision_enabled() (TC-01) в security_tests.sh
 
-2026 Q2: Tier 2 — WebSocket + XHTTP
-├── v5.30: WebSocket transport (lib/orchestrator.sh + HAProxy)
-├── v5.31: XHTTP/SplitHTTP transport
-├── v5.32: gRPC transport
-└── v5.33: CLI управление транспортами + документация
+2026 Q2: Tier 2 — WebSocket + XHTTP + gRPC [✅ РЕАЛИЗОВАНО в v1.1.0]
+├── ✅ v1.1.0: nginx Tier 2 proxy + WebSocket transport (port 8444)
+│             (lib/nginx_stream_generator.sh + lib/transport_manager.sh)
+├── ✅ v1.1.0: XHTTP/SplitHTTP transport (port 8445)
+├── ✅ v1.1.0: gRPC transport (port 8446)
+└── ✅ v1.1.0: CLI управление транспортами (familytraffic add-transport/list-transports)
+
+2026 Q2 MTProxy: ✅ РЕАЛИЗОВАНО в v1.1.0
+└── ✅ v1.1.0: MTProxy (mtg v2.2.3) как opt-in supervisord процесс (familytraffic-mtproxy CLI)
 
 2026 Q3-Q4: Tier 3 — UDP Protocols
-├── v6.0: Hysteria2 opt-in контейнер
-├── v6.1: TUIC v5 opt-in контейнер
+├── v6.0: Hysteria2 opt-in supervisord процесс (по образцу MTProxy)
+├── v6.1: TUIC v5 opt-in supervisord процесс
 └── v6.2: Единый CLI для transport selection
 
 2027: Tier 4 — SingBox
@@ -955,21 +1114,28 @@ curl -o /dev/null -s -w "%{speed_download}" \
 ### 10.3 Критерии готовности каждого Tier
 
 **Tier 1 (XTLS Vision) — Definition of Done:**
-- [ ] `flow: "xtls-rprx-vision"` добавлен в `generate_xray_config_json()` для новых inbound-ов
-- [ ] `flow` добавлен в user management (`add_user()`)
-- [ ] VLESS URI обновлён с параметром `flow=xtls-rprx-vision`
-- [ ] Клиентская документация обновлена (рекомендуемые настройки Shadowrocket, v2rayNG)
-- [ ] Тест TC-01 и TC-02 пройдены
+- [x] ~~`flow: "xtls-rprx-vision"` добавлен в `generate_xray_config_json()`~~ → **ВЫПОЛНЕНО** (`add_user_to_json()` строка 524)
+- [x] ~~`flow` добавлен в user management (`add_user()`)~~ → **ВЫПОЛНЕНО** (строка 524)
+- [x] ~~VLESS URI обновлён с параметром `flow=xtls-rprx-vision`~~ → **ВЫПОЛНЕНО** (`generate_vless_uri()` строка 834)
+- [x] ~~Все существующие пользователи мигрированы~~ → **ВЫПОЛНЕНО** (7/7 пользователей подтверждены SSH)
+- [ ] `validate_vless_uri()` исправлен — `flow` conditional (только для `security=reality`) ← **ОСТАЛОСЬ**
+- [ ] Клиентская документация обновлена: **v2rayTun** (iOS, основной клиент), Shadowrocket, v2rayNG ← **ОСТАЛОСЬ**
+- [ ] Тест TC-01 (`test_xtls_vision_enabled`) добавлен ← **ОСТАЛОСЬ**
 
-**Tier 2 (Транспорты) — Definition of Done:**
-- [ ] Новые inbound-ы добавлены в `generate_xray_config_json()` с флагом включения
-- [ ] HAProxy ACL/backend добавляются автоматически при `vless add-transport`
-- [ ] Клиентские конфигурации генерируются для каждого транспорта
-- [ ] Тест TC-10 до TC-36 пройдены
-- [ ] Документация обновлена
+**Tier 2 (Транспорты) — Definition of Done: ✅ РЕАЛИЗОВАНО в v1.1.0**
+- [x] ~~`familytraffic-nginx_tier2` контейнер~~ → nginx Tier 2 proxy внутри единого контейнера `familytraffic` (nginx_stream_generator.sh)
+- [x] Новые inbound-ы добавлены в xray_config (WS :8444, XHTTP :8445, gRPC :8446, plaintext, без TLS)
+- [x] nginx SNI routing (ssl_preread) → Tier 2 nginx proxy (TLS termination → plaintext к xray)
+- [x] `lib/nginx_stream_generator.sh` генерирует конфиг для Tier 2 транспортов
+- [x] `lib/transport_manager.sh` управляет транспортами
+- [x] CLI `familytraffic add-transport` / `list-transports` / `remove-transport` работают
+- [x] Reality трафик не нарушен (nginx ssl_preread пассирует Reality без изменений)
+- [ ] Тест TC-10 (WS), TC-20 (XHTTP), TC-30 (gRPC) пройдены ← **ОСТАЛОСЬ**
+- [ ] **iOS v2rayTun**: тесты iOS-10 (WS) и iOS-30 (gRPC) пройдены ← **ОСТАЛОСЬ**
+- [ ] Документация обновлена: README.md, CHANGELOG.md + инструкции для v2rayTun ← **ОСТАЛОСЬ**
 
 **Tier 3 (UDP) — Definition of Done:**
-- [ ] `vless install-hysteria2` wizard работает
+- [ ] `familytraffic install-hysteria2` wizard работает (opt-in, supervisord process)
 - [ ] UDP ports безопасно изолированы (fail2ban, UFW)
 - [ ] Клиентские конфигурации SingBox format генерируются автоматически
 - [ ] Тест TC-40 до TC-45 пройдены
@@ -978,16 +1144,19 @@ curl -o /dev/null -s -w "%{speed_download}" \
 
 ## Приложение А: Клиентские приложения
 
-| Платформа | Приложение | Поддерживаемые протоколы |
-|-----------|-----------|--------------------------|
-| iOS | Shadowrocket | Reality, WebSocket, gRPC |
-| iOS | Sing-Box | Все, включая Hysteria2, TUIC |
-| Android | v2rayNG | Reality, WebSocket, gRPC |
-| Android | Sing-Box / NekoBox | Все, включая Hysteria2, TUIC |
-| Windows | v2rayN | Reality, WebSocket, gRPC, Hysteria2 |
-| macOS | ClashX Pro | Reality, WebSocket, gRPC |
-| macOS/Linux | Sing-Box CLI | Все протоколы |
-| Linux | Xray CLI | Reality, WebSocket, gRPC, XHTTP |
+| Платформа | Приложение | Reality+Vision | WS | gRPC | XHTTP | Hysteria2 | TUIC | Примечание |
+|-----------|-----------|:-:|:-:|:-:|:-:|:-:|:-:|---|
+| **iOS** | **v2rayTun 2.4.4** | ✅ | ✅ | ✅ | ⚠️ | ✗ | ✗ | **Фактический клиент пользователей проекта**; Xray-core 25.10.15; XHTTP требует проверки |
+| iOS | Shadowrocket | ✅ | ✅ | ✅ | ⚠️ | ✗ | ✗ | Платный ($2.99) |
+| iOS | Sing-Box | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Бесплатный, все протоколы |
+| Android | v2rayNG | ✅ | ✅ | ✅ | ✅ | ✗ | ✗ | |
+| Android | Sing-Box / NekoBox | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Windows | v2rayN | ✅ | ✅ | ✅ | ✅ | ✅ | ✗ | |
+| macOS | ClashX Pro | ✅ | ✅ | ✅ | ✗ | ✗ | ✗ | |
+| macOS/Linux | Sing-Box CLI | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Linux | Xray CLI | ✅ | ✅ | ✅ | ✅ | ✗ | ✗ | |
+
+> ⚠️ **XHTTP на iOS (v2rayTun):** Подтверждён на Android v3.9.34 (август 2024). iOS-поддержка не задокументирована явно — требует ручного тестирования при реализации Tier 2.
 
 ## Приложение Б: Полезные ресурсы
 
@@ -1004,4 +1173,7 @@ curl -o /dev/null -s -w "%{speed_download}" \
 
 ---
 
-*Документ создан: 2026-02-20. Версия проекта: v5.24. Автор: Agent-Orchestrator Pipeline (Researcher → Critic → Planner → Executor).*
+*Документ создан: 2026-02-20. Версия проекта: v5.24.*
+*Обновлён: 2026-02-23 — SSH-верификация на ikenibornvpn. Исправлены: статус Tier 1 (→ РЕАЛИЗОВАНО), архитектура Tier 2 (Nginx tier2 вместо HAProxy TLS termination), gap-анализ секции 5.2, риск R6 (→ закрыт), timeline 10.1.*
+*Обновлён: 2026-02-22 — Добавлен анализ совместимости iOS клиента v2rayTun (раздел 6.4 + Приложение А). v2rayTun v2.4.4, Xray-core 25.10.15. XTLS Vision ✅, WS ✅, gRPC ✅, XHTTP ⚠️.*
+*Автор: Agent-Orchestrator Pipeline + live-server SSH verification.*

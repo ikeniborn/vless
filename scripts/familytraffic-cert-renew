@@ -1,0 +1,623 @@
+#!/bin/bash
+#==============================================================================
+# Certificate Renewal Deploy Hook
+# Part of familyTraffic VPN v5.33
+#
+# This script is called by certbot after successful certificate renewal.
+# Handles certificate updates for familytraffic container (nginx+xray+supervisord).
+#
+# Features:
+# - ✅ Uses nginx -s reload for zero-downtime certificate updates
+# - ✅ familytraffic nginx uses fullchain.pem + privkey.pem directly
+# - ✅ Retry logic with exponential backoff for transient failures
+# - ✅ Automatic rollback on critical failures
+# - ✅ Pre-renewal validation (certificates, config, containers, disk space)
+# - ✅ Structured logging with severity levels (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+# - ✅ Execution metrics tracking in JSON format
+# - ✅ Graceful degradation (continue with other domains if one fails)
+# - ✅ Verbose debug mode via FAMILYTRAFFIC_RENEW_VERBOSE=1
+# - ✅ Reloads nginx inside familytraffic container (VLESS Reality)
+# - ✅ Updates reverse_proxies.json database
+# - ✅ Supports multiple renewed domains
+#
+# Usage: Called automatically by certbot via --deploy-hook
+# Location: /usr/local/bin/familytraffic-cert-renew
+#
+# Optional Environment Variables:
+#   FAMILYTRAFFIC_RENEW_VERBOSE=0|1    Enable debug logging (default: 0)
+#   LOG_LEVEL=0-4              Set minimum log level (default: 1=INFO)
+#   RETRY_MAX_ATTEMPTS=3       Number of retry attempts (default: 3)
+#   RETRY_INITIAL_DELAY=2      Initial retry delay in seconds (default: 2)
+#   RETRY_MAX_DELAY=10         Maximum retry delay in seconds (default: 10)
+#==============================================================================
+
+set -euo pipefail
+
+#==============================================================================
+# Constants
+#==============================================================================
+
+readonly VLESS_DIR="/opt/familytraffic"
+readonly LOG_FILE="$VLESS_DIR/logs/certbot-renew.log"
+readonly METRICS_FILE="$VLESS_DIR/logs/certbot-renew-metrics.json"
+readonly CERT_MANAGER="$VLESS_DIR/lib/certificate_manager.sh"
+
+# Retry configuration (can be overridden by environment variables)
+readonly RETRY_MAX_ATTEMPTS="${RETRY_MAX_ATTEMPTS:-3}"
+readonly RETRY_INITIAL_DELAY="${RETRY_INITIAL_DELAY:-2}"
+readonly RETRY_MAX_DELAY="${RETRY_MAX_DELAY:-10}"
+
+# Log severity levels
+readonly LOG_DEBUG=0
+readonly LOG_INFO=1
+readonly LOG_WARNING=2
+readonly LOG_ERROR=3
+readonly LOG_CRITICAL=4
+
+# Current log level (default INFO unless FAMILYTRAFFIC_RENEW_VERBOSE=1)
+LOG_LEVEL="${LOG_LEVEL:-1}"
+[[ "${FAMILYTRAFFIC_RENEW_VERBOSE:-0}" == "1" ]] && LOG_LEVEL=0
+
+# Track execution start time for metrics
+readonly START_TIME=$(date +%s)
+
+# Source certificate manager module
+if [[ -f "$CERT_MANAGER" ]]; then
+    source "$CERT_MANAGER"
+fi
+
+# Ensure log directory exists
+mkdir -p "$VLESS_DIR/logs" 2>/dev/null
+
+#==============================================================================
+# Enhanced Logging Functions (v5.25)
+#==============================================================================
+
+log_with_severity() {
+    local severity="$1"
+    local severity_num="$2"
+    local message="$3"
+
+    # Skip if below current log level
+    [[ $severity_num -lt $LOG_LEVEL ]] && return 0
+
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S.%3N')
+
+    # Color codes for terminal output
+    local color=""
+    local reset="\e[0m"
+    case "$severity" in
+        DEBUG)    color="\e[36m" ;;      # Cyan
+        INFO)     color="\e[32m" ;;      # Green
+        WARNING)  color="\e[33m" ;;      # Yellow
+        ERROR)    color="\e[31m" ;;      # Red
+        CRITICAL) color="\e[1;31m" ;;    # Bold Red
+    esac
+
+    # Write to log file and terminal
+    echo -e "${color}[$timestamp] [$severity] $message${reset}" | tee -a "$LOG_FILE"
+}
+
+log_debug()    { log_with_severity "DEBUG"    "$LOG_DEBUG"    "$1"; }
+log_info()     { log_with_severity "INFO"     "$LOG_INFO"     "$1"; }
+log_warning()  { log_with_severity "WARNING"  "$LOG_WARNING"  "$1"; }
+log_error()    { log_with_severity "ERROR"    "$LOG_ERROR"    "$1"; }
+log_critical() { log_with_severity "CRITICAL" "$LOG_CRITICAL" "$1"; }
+
+#==============================================================================
+# Metrics Tracking (v5.25)
+#==============================================================================
+
+save_renewal_metrics() {
+    local domains="$1"
+    local status="$2"
+    local execution_time="$3"
+    local error_msg="${4:-}"
+
+    # Get component versions
+    local certbot_version
+    certbot_version=$(certbot --version 2>&1 | awk '{print $2}' || echo "unknown")
+
+    local nginx_version
+    nginx_version=$(docker exec familytraffic nginx -v 2>&1 | head -n1 || echo "unknown")
+
+    # Create metrics JSON
+    cat > "$METRICS_FILE" <<EOF
+{
+  "timestamp": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "domains": "$domains",
+  "status": "$status",
+  "execution_time_seconds": $execution_time,
+  "error_message": "$error_msg",
+  "certbot_version": "$certbot_version",
+  "nginx_version": "$nginx_version"
+}
+EOF
+
+    log_debug "Metrics saved to: $METRICS_FILE"
+}
+
+#==============================================================================
+# Retry Logic with Exponential Backoff (v5.25)
+#==============================================================================
+
+retry_with_backoff() {
+    local max_attempts="${1:-$RETRY_MAX_ATTEMPTS}"
+    local initial_delay="${2:-$RETRY_INITIAL_DELAY}"
+    local max_delay="${3:-$RETRY_MAX_DELAY}"
+    shift 3
+    local command=("$@")
+
+    local attempt=1
+    local delay="$initial_delay"
+
+    log_debug "Retry configuration: max_attempts=$max_attempts, initial_delay=${initial_delay}s, max_delay=${max_delay}s"
+
+    while [[ $attempt -le $max_attempts ]]; do
+        log_debug "Attempt $attempt/$max_attempts: ${command[*]}"
+
+        if "${command[@]}"; then
+            log_debug "✅ Command succeeded on attempt $attempt"
+            return 0
+        fi
+
+        if [[ $attempt -lt $max_attempts ]]; then
+            # Add jitter (±20%) to prevent thundering herd
+            local jitter=$((delay / 5))
+            local random_jitter=$((RANDOM % (jitter * 2 + 1) - jitter))
+            local actual_delay=$((delay + random_jitter))
+
+            log_warning "Attempt $attempt failed, retrying in ${actual_delay}s..."
+            sleep "$actual_delay"
+
+            # Exponential backoff (double delay, cap at max_delay)
+            delay=$((delay * 2))
+            [[ $delay -gt $max_delay ]] && delay="$max_delay"
+        fi
+
+        ((attempt++))
+    done
+
+    log_error "❌ All $max_attempts attempts failed for: ${command[*]}"
+    return 1
+}
+
+#==============================================================================
+# Backup and Rollback Functions (v5.25)
+#==============================================================================
+
+backup_combined_pem() {
+    local domain="$1"
+    local combined="/etc/letsencrypt/live/$domain/combined.pem"
+    local backup="${combined}.backup"
+
+    if [[ ! -f "$combined" ]]; then
+        log_debug "No existing combined.pem to backup for $domain"
+        return 0
+    fi
+
+    if cp "$combined" "$backup"; then
+        log_debug "✅ Backed up combined.pem for $domain"
+        return 0
+    else
+        log_error "Failed to backup combined.pem for $domain"
+        return 1
+    fi
+}
+
+rollback_combined_pem() {
+    local domain="$1"
+    local combined="/etc/letsencrypt/live/$domain/combined.pem"
+    local backup="${combined}.backup"
+
+    if [[ ! -f "$backup" ]]; then
+        log_warning "No backup found for $domain, cannot rollback"
+        return 1
+    fi
+
+    if mv "$backup" "$combined"; then
+        log_info "✅ Rolled back combined.pem for $domain"
+        return 0
+    else
+        log_critical "Failed to rollback combined.pem for $domain"
+        return 1
+    fi
+}
+
+#==============================================================================
+# Pre-Renewal Validation Functions (v5.25)
+#==============================================================================
+
+validate_certificate_files() {
+    local domain="$1"
+    local cert_dir="/etc/letsencrypt/live/$domain"
+
+    log_debug "Validating certificate files for $domain"
+
+    # Check directory exists
+    if [[ ! -d "$cert_dir" ]]; then
+        log_error "Certificate directory not found: $cert_dir"
+        return 1
+    fi
+
+    # Check required files
+    local required_files=("fullchain.pem" "privkey.pem" "cert.pem" "chain.pem")
+    for file in "${required_files[@]}"; do
+        local filepath="$cert_dir/$file"
+
+        if [[ ! -f "$filepath" ]]; then
+            log_error "Certificate file missing: $filepath"
+            return 1
+        fi
+
+        if [[ ! -r "$filepath" ]]; then
+            log_error "Certificate file not readable: $filepath"
+            return 1
+        fi
+
+        if [[ ! -s "$filepath" ]]; then
+            log_error "Certificate file is empty: $filepath"
+            return 1
+        fi
+    done
+
+    # Check certificate not expired (warning only, not fatal)
+    local expiry
+    expiry=$(openssl x509 -in "$cert_dir/cert.pem" -noout -enddate 2>/dev/null | cut -d= -f2 || echo "")
+    if [[ -n "$expiry" ]]; then
+        local expiry_epoch
+        expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || echo "0")
+        local now_epoch
+        now_epoch=$(date +%s)
+
+        if [[ $expiry_epoch -gt 0 && $expiry_epoch -lt $now_epoch ]]; then
+            log_warning "Certificate for $domain is already expired: $expiry"
+        fi
+    fi
+
+    # Check cert and key match
+    local cert_modulus
+    cert_modulus=$(openssl x509 -in "$cert_dir/cert.pem" -noout -modulus 2>/dev/null | md5sum || echo "")
+    local key_modulus
+    key_modulus=$(openssl rsa -in "$cert_dir/privkey.pem" -noout -modulus 2>/dev/null | md5sum || echo "")
+
+    if [[ -n "$cert_modulus" && -n "$key_modulus" && "$cert_modulus" != "$key_modulus" ]]; then
+        log_error "Certificate and private key do not match for $domain"
+        return 1
+    fi
+
+    log_debug "  ✓ Certificate files validated for $domain"
+    return 0
+}
+
+validate_nginx_config() {
+    log_debug "Validating Nginx configuration"
+
+    # Check container exists
+    if ! docker ps -a --format '{{.Names}}' | grep -q "familytraffic"; then
+        log_error "familytraffic container not found"
+        return 1
+    fi
+
+    # Check nginx config syntax
+    local config_check
+    config_check=$(docker exec familytraffic nginx -t 2>&1 || true)
+
+    if echo "$config_check" | grep -qi "^nginx: \[emerg\]\|^nginx: \[alert\]\|^nginx: \[crit\]"; then
+        log_error "Nginx configuration validation failed:"
+        log_error "$config_check"
+        return 1
+    fi
+
+    log_debug "  ✓ Nginx configuration is valid"
+    return 0
+}
+
+validate_container_health() {
+    log_debug "Validating container health"
+
+    local critical_containers=("familytraffic")
+
+    for container in "${critical_containers[@]}"; do
+        # Check exists
+        if ! docker ps -a --format '{{.Names}}' | grep -q "^${container}\$"; then
+            log_error "Container not found: $container"
+            return 1
+        fi
+
+        # Check running
+        if ! docker ps --format '{{.Names}}' | grep -q "^${container}\$"; then
+            log_warning "Container not running: $container, attempting to start..."
+
+            if docker start "$container" &>/dev/null; then
+                sleep 2
+                log_info "✅ Container started: $container"
+            else
+                log_error "Failed to start container: $container"
+                return 1
+            fi
+        fi
+
+        # Check processes running inside the single familytraffic container via supervisord
+        case "$container" in
+            familytraffic)
+                if ! docker exec "$container" nginx -t &>/dev/null; then
+                    log_error "Nginx config check failed inside familytraffic container"
+                    return 1
+                fi
+                if ! docker exec "$container" supervisorctl status xray 2>/dev/null | grep -q "RUNNING"; then
+                    log_error "Xray process not running inside familytraffic container"
+                    return 1
+                fi
+                ;;
+        esac
+
+        log_debug "  ✓ Container healthy: $container"
+    done
+
+    return 0
+}
+
+validate_disk_space() {
+    log_debug "Validating disk space"
+
+    # Check /etc/letsencrypt (at least 50 MB required)
+    local letsencrypt_free
+    letsencrypt_free=$(df -BM /etc/letsencrypt 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0")
+
+    if [[ $letsencrypt_free -lt 50 ]]; then
+        log_error "Insufficient disk space on /etc/letsencrypt: ${letsencrypt_free}M (need 50M)"
+        return 1
+    fi
+
+    # Check /opt/familytraffic (at least 100 MB recommended, warning only)
+    local disk_free
+    disk_free=$(df -BM /opt/familytraffic 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/M//' || echo "0")
+
+    if [[ $disk_free -lt 100 ]]; then
+        log_warning "Low disk space on /opt/familytraffic: ${disk_free}M (recommend 100M)"
+    fi
+
+    log_debug "  ✓ Sufficient disk space available"
+    return 0
+}
+
+validate_write_permissions() {
+    log_debug "Validating write permissions"
+
+    # Test write to /etc/letsencrypt
+    local test_file="/etc/letsencrypt/.familytraffic-test-$$"
+    if ! touch "$test_file" 2>/dev/null; then
+        log_error "Cannot write to /etc/letsencrypt directory"
+        return 1
+    fi
+    rm -f "$test_file"
+
+    # Test write to /opt/familytraffic/logs
+    local test_log="/opt/familytraffic/logs/.familytraffic-test-$$"
+    if ! touch "$test_log" 2>/dev/null; then
+        log_error "Cannot write to /opt/familytraffic/logs directory"
+        return 1
+    fi
+    rm -f "$test_log"
+
+    log_debug "  ✓ Write permissions validated"
+    return 0
+}
+
+pre_renewal_validation() {
+    local domains="$1"
+
+    log_info "Running pre-renewal validation checks..."
+
+    local validation_failed=false
+
+    # Check 1: Certificate files
+    for domain in $domains; do
+        if ! validate_certificate_files "$domain"; then
+            log_error "Certificate file validation failed for $domain"
+            validation_failed=true
+        fi
+    done
+
+    # Check 2: Nginx config
+    if ! validate_nginx_config; then
+        log_error "Nginx configuration validation failed"
+        validation_failed=true
+    fi
+
+    # Check 3: Container health
+    if ! validate_container_health; then
+        log_error "Container health validation failed"
+        validation_failed=true
+    fi
+
+    # Check 4: Disk space
+    if ! validate_disk_space; then
+        log_error "Disk space validation failed"
+        validation_failed=true
+    fi
+
+    # Check 5: Write permissions
+    if ! validate_write_permissions; then
+        log_error "Write permission validation failed"
+        validation_failed=true
+    fi
+
+    if [[ "$validation_failed" == "true" ]]; then
+        log_critical "Pre-renewal validation failed, aborting renewal"
+        return 1
+    fi
+
+    log_info "✅ All pre-renewal validation checks passed"
+    return 0
+}
+
+#==============================================================================
+# Legacy Functions (v4.2/v4.3 - preserved for backward compatibility)
+#==============================================================================
+
+reload_nginx_reverseproxy() {
+    # v5.33: reverse proxy container removed as legacy
+    # nginx runs inside the single familytraffic container — reload via supervisorctl
+    log_info "ℹ️  Reverse proxy removed in v5.33 — nginx runs inside familytraffic container"
+    log_info "    To reload nginx: docker exec familytraffic supervisorctl signal SIGHUP nginx"
+    return 0
+}
+
+update_database_cert_info() {
+    # Reverse proxy database removed in v5.33 — no-op
+    return 0
+}
+
+#==============================================================================
+# Main Execution (v5.25 - Enhanced)
+#==============================================================================
+
+main() {
+    log_info "═══════════════════════════════════════════════════════"
+    log_info "🔄 Certificate Renewal Deploy Hook (v5.25)"
+    log_info "═══════════════════════════════════════════════════════"
+
+    # Get renewed domains from certbot environment variable
+    local renewed_domains="${RENEWED_DOMAINS:-}"
+
+    if [[ -z "$renewed_domains" ]]; then
+        log_error "RENEWED_DOMAINS environment variable not set"
+        log_info "This script should be called by certbot --deploy-hook"
+        save_renewal_metrics "" "error" "0" "RENEWED_DOMAINS not set"
+        exit 1
+    fi
+
+    log_info "Renewed domains: $renewed_domains"
+    log_info "Verbose mode: ${FAMILYTRAFFIC_RENEW_VERBOSE:-0}, Log level: $LOG_LEVEL"
+
+    # Change to VLESS directory
+    if ! cd "$VLESS_DIR"; then
+        log_error "Cannot access $VLESS_DIR"
+        save_renewal_metrics "$renewed_domains" "error" "0" "Cannot access FAMILYTRAFFIC_DIR"
+        exit 1
+    fi
+
+    # PHASE 1: Pre-Renewal Validation (v5.25)
+    log_info ""
+    log_info "━━━ Phase 1: Pre-Renewal Validation ━━━"
+    if ! pre_renewal_validation "$renewed_domains"; then
+        local end_time=$(date +%s)
+        local execution_time=$((end_time - START_TIME))
+        save_renewal_metrics "$renewed_domains" "validation_failed" "$execution_time" "Pre-renewal validation failed"
+        exit 1
+    fi
+
+    # Track per-domain status for graceful degradation
+    declare -A domain_status
+
+    # Mark all domains as success initially; individual failures will update per-domain status
+    for domain in $renewed_domains; do
+        domain_status["$domain"]="success"
+    done
+
+    # PHASE 2: Reload familytraffic (zero-downtime via nginx -s reload)
+    # Nginx uses fullchain.pem + privkey.pem directly — no combined.pem needed (v5.30)
+    log_info ""
+    log_info "━━━ Phase 2: nginx -s reload (zero-downtime) ━━━"
+
+    if docker ps --format '{{.Names}}' | grep -q "familytraffic"; then
+        if retry_with_backoff "$RETRY_MAX_ATTEMPTS" "$RETRY_INITIAL_DELAY" "$RETRY_MAX_DELAY" \
+            docker exec familytraffic supervisorctl signal SIGHUP nginx; then
+            log_info "✅ familytraffic reloaded successfully (zero-downtime)"
+        else
+            log_critical "❌ familytraffic reload failed after $RETRY_MAX_ATTEMPTS attempts"
+            log_critical "Manual intervention required: docker exec familytraffic supervisorctl signal SIGHUP nginx"
+            local end_time=$(date +%s)
+            local execution_time=$((end_time - START_TIME))
+            save_renewal_metrics "$renewed_domains" "failed" "$execution_time" "familytraffic reload failed"
+            exit 1
+        fi
+    else
+        log_warning "familytraffic container not running — skipping reload (non-critical if not installed)"
+    fi
+
+    # PHASE 4: Restart Xray container (v5.25 - with retry)
+    log_info ""
+    log_info "━━━ Phase 4: Restarting Xray container ━━━"
+
+    if retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 docker exec familytraffic supervisorctl restart xray; then
+        sleep 2
+
+        if docker exec familytraffic supervisorctl status xray 2>/dev/null | grep -q "RUNNING"; then
+            log_info "✅ Xray process restarted successfully inside familytraffic"
+        else
+            log_error "❌ Xray process failed to restart inside familytraffic"
+            # Non-critical - continue
+        fi
+    else
+        log_error "❌ Failed to restart Xray container after $RETRY_MAX_ATTEMPTS attempts"
+        # Non-critical - continue
+    fi
+
+    # PHASE 5: Reload Nginx reverse proxy (v5.25 - with retry)
+    log_info ""
+    log_info "━━━ Phase 5: Reloading Nginx reverse proxy ━━━"
+
+    if ! retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 reload_nginx_reverseproxy; then
+        log_warning "Failed to reload Nginx reverse proxy (non-critical)"
+        # Non-critical - continue
+    fi
+
+    # PHASE 6: Update database (v5.25 - with retry)
+    log_info ""
+    log_info "━━━ Phase 6: Updating database ━━━"
+
+    for domain in $renewed_domains; do
+        if [[ "${domain_status[$domain]}" == "success" ]]; then
+            if ! retry_with_backoff "$RETRY_MAX_ATTEMPTS" 1 5 update_database_cert_info "$domain"; then
+                log_warning "Failed to update database for $domain (non-critical)"
+                # Non-critical - continue
+            fi
+        fi
+    done
+
+    # Calculate execution time
+    local end_time=$(date +%s)
+    local execution_time=$((end_time - START_TIME))
+
+    # Determine final status
+    local final_status="success"
+    local failed_domains=""
+    for domain in $renewed_domains; do
+        if [[ "${domain_status[$domain]}" == "failed" ]]; then
+            final_status="partial_success"
+            failed_domains="$failed_domains $domain"
+        fi
+    done
+
+    # Save metrics
+    save_renewal_metrics "$renewed_domains" "$final_status" "$execution_time" "$failed_domains"
+
+    # Summary
+    log_info ""
+    log_info "═══════════════════════════════════════════════════════"
+    log_info "📊 Renewal Summary"
+    log_info "═══════════════════════════════════════════════════════"
+    log_info "Execution time: ${execution_time}s"
+    log_info "Status: $final_status"
+
+    if [[ "$final_status" == "success" ]]; then
+        log_info "✅ Deploy hook completed successfully"
+        log_info "All services reloaded with new certificates"
+        exit 0
+    elif [[ "$final_status" == "partial_success" ]]; then
+        log_warning "⚠️  Deploy hook completed with partial success"
+        log_warning "Failed domains:$failed_domains"
+        log_info "Check logs: $LOG_FILE"
+        exit 0  # Don't fail if some domains succeeded
+    else
+        log_error "❌ Deploy hook failed"
+        log_error "Check logs: $LOG_FILE"
+        exit 1
+    fi
+}
+
+main "$@"

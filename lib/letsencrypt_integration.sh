@@ -418,8 +418,15 @@ acquire_certificate() {
         certbot_result=1
     fi
 
-    # Cleanup will be called automatically via trap
-    # Return certbot result
+    # Explicitly stop certbot nginx and close port 80 before returning.
+    # NOTE: trap cleanup EXIT fires on shell exit, NOT on function return —
+    # so without this explicit call the certbot_nginx container stays alive
+    # and blocks port 80 when the familytraffic container's nginx tries to bind it.
+    echo ""
+    stop_certbot_nginx
+    close_port_80_for_certbot
+    trap - EXIT
+
     return $certbot_result
 }
 

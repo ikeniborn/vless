@@ -2,7 +2,7 @@
 
 **Purpose:** Function call graphs for major runtime operations
 
-**Version:** v5.26
+**Version:** v5.33
 **Status:** Production
 **Related Files:**
 - [lib-modules.yaml](../../yaml/lib-modules.yaml) - Module specifications
@@ -12,13 +12,13 @@
 
 ## Overview
 
-This diagram shows the actual function call chains during runtime operations in the VLESS + Reality VPN system. Each operation is traced from CLI entry point through all module functions to final state changes.
+This diagram shows the actual function call chains during runtime operations in the familyTraffic VPN system. Each operation is traced from CLI entry point through all module functions to final state changes.
 
 **Key Operations Documented:**
 1. Add User Flow
 2. Remove User Flow
 3. Set Per-User Proxy Flow (v5.24+)
-4. Add Reverse Proxy Domain Flow
+4. Add Reverse Proxy Domain Flow (REMOVED in v5.33)
 5. Certificate Renewal Flow
 6. External Proxy Management Flow (v5.24+)
 
@@ -64,7 +64,7 @@ graph TB
 
     subgraph "Service Management"
         RELOAD["🟥 reload_xray()<br/>user_management.sh:834"]
-        DOCKEREXEC["🟧 docker exec vless_xray<br/>kill -HUP"]
+        DOCKEREXEC["🟧 docker exec familytraffic<br/>kill -HUP"]
         VERIFY["🟥 verify_xray_healthy()<br/>user_management.sh:891"]
     end
 
@@ -120,9 +120,9 @@ graph TB
 
 **Critical Functions:**
 - `validate_username()` - Regex: `^[a-z][a-z0-9_-]{2,31}$`
-- `flock_acquire()` - File lock: `/var/lock/vless_users.lock`, timeout: 10s
+- `flock_acquire()` - File lock: `/var/lock/familytraffic_users.lock`, timeout: 10s
 - `atomic_write_json()` - Pattern: write to temp → `mv -f temp users.json`
-- `reload_xray()` - Method: `docker exec vless_xray kill -HUP $(pidof xray)`
+- `reload_xray()` - Method: `docker exec familytraffic kill -HUP $(pidof xray)`
 
 **Error Handling:**
 - Username validation failure → Exit code 1
@@ -175,7 +175,7 @@ graph TB
 **Critical Operations:**
 - User confirmation prompt (prevents accidental deletion)
 - Atomic JSON update with rollback capability
-- Cleanup of `/opt/vless/data/clients/<username>/` directory
+- Cleanup of `/opt/familytraffic/data/clients/<username>/` directory
 - Xray graceful reload with zero downtime
 
 ---
@@ -199,7 +199,7 @@ graph TB
 
     subgraph "Database Update"
         UPDATE["🟨 update_user_proxy_id()<br/>user_management.sh:1456"]
-        LOCK["🟧 flock /var/lock/vless_users.lock"]
+        LOCK["🟧 flock /var/lock/familytraffic_users.lock"]
         WRITE["🟧 atomic_write_json()"]
     end
 
@@ -247,8 +247,8 @@ graph TB
 ```
 
 **Critical Validations:**
-- User existence in `/opt/vless/data/users.json`
-- Proxy existence in `/opt/vless/config/external_proxy.json`
+- User existence in `/opt/familytraffic/data/users.json`
+- Proxy existence in `/opt/familytraffic/config/external_proxy.json`
 - Proxy connectivity test: `curl --proxy socks5h://... https://www.google.com`
 - Xray routing rule syntax validation
 
@@ -268,16 +268,18 @@ graph TB
 
 ---
 
-## 4. Add Reverse Proxy Domain Flow
+## 4. Add Reverse Proxy Domain Flow (REMOVED in v5.33)
 
-**Entry Point:** `vless-proxy add`
+> **Note:** This feature was removed in v5.33. The call chain below is preserved as historical reference only.
+
+**Entry Point:** `familytraffic-proxy add` (removed)
 **Duration:** ~8-12 seconds (includes DNS validation)
 **Modules:** lib/reverseproxy_db.sh, lib/haproxy_config_manager.sh
 
 ```mermaid
 graph TB
-    CLI["🟦 CLI Entry<br/>vless-proxy add"]
-    WIZARD["🟩 interactive_add_domain()<br/>scripts/vless-proxy:123"]
+    CLI["🟦 CLI Entry<br/>familytraffic-proxy add"]
+    WIZARD["🟩 interactive_add_domain()<br/>scripts/familytraffic-proxy:123"]
 
     subgraph "Input Collection"
         DOMAIN["🟩 prompt_domain_name()"]
@@ -312,7 +314,7 @@ graph TB
 
     subgraph "Service Reloads"
         RLHAPROXY["🟥 reload_haproxy()<br/>haproxy_config_manager.sh:923"]
-        RLNGINX["🟥 reload_nginx()<br/>docker restart vless_nginx_reverseproxy"]
+        RLNGINX["🟥 reload_nginx()<br/>docker exec familytraffic supervisorctl restart nginx"]
     end
 
     VERIFY["🟥 verify_domain_accessible()<br/>curl https://domain"]
@@ -366,9 +368,9 @@ graph TB
 - HAProxy dynamic ACL injection: `### DYNAMIC_REVERSE_PROXY_ROUTES ###`
 
 **Files Modified:**
-1. `/opt/vless/config/reverse-proxy/<domain>.conf` (created)
-2. `/opt/vless/config/reverse-proxy/http_context.conf` (rate limit zone added)
-3. `/opt/vless/config/haproxy.cfg` (ACL rule added)
+1. `/opt/familytraffic/config/reverse-proxy/<domain>.conf` (created)
+2. `/opt/familytraffic/config/reverse-proxy/http_context.conf` (rate limit zone added)
+3. `/opt/familytraffic/config/haproxy.cfg` (ACL rule added)
 4. `/etc/letsencrypt/live/<domain>/` (certificate)
 
 **Rollback Strategy:**
@@ -450,26 +452,26 @@ graph TB
 
 **Cron Schedule:**
 ```cron
-0 */12 * * * /usr/bin/certbot renew --quiet --deploy-hook "/opt/vless/lib/certificate_manager.sh deploy_hook"
+0 */12 * * * /usr/bin/certbot renew --quiet --deploy-hook "/opt/familytraffic/lib/certificate_manager.sh deploy_hook"
 ```
 
 **Error Handling:**
 - Renewal failure → Email alert to LETSENCRYPT_EMAIL
-- Hook failure → Log to `/opt/vless/logs/certbot_errors.log`
+- Hook failure → Log to `/opt/familytraffic/logs/certbot_errors.log`
 - Service reload failure → Retry after 60 seconds (max 3 attempts)
 
 ---
 
 ## 6. External Proxy Management Flow (v5.24+)
 
-**Entry Point:** `vless-external-proxy add`
+**Entry Point:** `familytraffic-external-proxy add`
 **Duration:** ~10-15 seconds (includes connectivity test)
 **Module:** lib/external_proxy_manager.sh
 
 ```mermaid
 graph TB
-    CLI["🟦 CLI Entry<br/>vless-external-proxy add"]
-    WIZARD["🟩 interactive_add_proxy()<br/>scripts/vless-external-proxy:89"]
+    CLI["🟦 CLI Entry<br/>familytraffic-external-proxy add"]
+    WIZARD["🟩 interactive_add_proxy()<br/>scripts/familytraffic-external-proxy:89"]
 
     subgraph "Input Collection"
         TYPE["🟩 prompt_proxy_type()<br/>socks5/socks5s/http/https"]
@@ -500,7 +502,7 @@ graph TB
         VALIDATE["🟥 validate_xray_config()"]
     end
 
-    RESTART["🟥 restart_xray_container()<br/>docker restart vless_xray"]
+    RESTART["🟥 restart_xray_container()<br/>docker restart familytraffic"]
     VERIFY["🟥 verify_proxy_routing()<br/>Test with temp user"]
     SUCCESS["✅ Proxy Added<br/>Show proxy ID"]
     FAIL["❌ Operation Failed"]
@@ -606,9 +608,9 @@ graph TB
 | **Add User** | `vless add-user` | user_management.sh | validate_username()<br/>add_user_to_json()<br/>reload_xray() | ~3-5s | HIGH |
 | **Remove User** | `vless remove-user` | user_management.sh | check_user_exists()<br/>remove_user_from_json()<br/>cleanup_client_files() | ~2-4s | HIGH |
 | **Set Proxy** | `vless set-proxy` | user_management.sh<br/>xray_routing_manager.sh | validate_proxy_exists()<br/>update_xray_routing_for_user()<br/>reload_xray() | ~4-6s | MEDIUM |
-| **Add Domain** | `vless-proxy add` | reverseproxy_db.sh<br/>haproxy_config_manager.sh | validate_dns_for_domain()<br/>generate_nginx_config()<br/>reload_haproxy() | ~8-12s | MEDIUM |
+| **Add Domain** | `familytraffic-proxy add` | reverseproxy_db.sh<br/>haproxy_config_manager.sh | validate_dns_for_domain()<br/>generate_nginx_config()<br/>reload_haproxy() | ~8-12s | MEDIUM |
 | **Cert Renewal** | certbot renew (cron) | certificate_manager.sh | create_combined_pem()<br/>reload_haproxy_graceful() | ~30-60s | CRITICAL |
-| **Add Ext Proxy** | `vless-external-proxy add` | external_proxy_manager.sh | test_proxy_connectivity()<br/>add_proxy_to_json()<br/>restart_xray_container() | ~10-15s | MEDIUM |
+| **Add Ext Proxy** | `familytraffic-external-proxy add` | external_proxy_manager.sh | test_proxy_connectivity()<br/>add_proxy_to_json()<br/>restart_xray_container() | ~10-15s | MEDIUM |
 
 ---
 
@@ -655,7 +657,7 @@ Maximum Depth: 5 levels
 **add-domain:**
 
 ```
-vless-proxy add (depth 1)
+familytraffic-proxy add (depth 1)
 └─ interactive_add_domain() (depth 2)
    ├─ validate_dns_for_domain() (depth 3)
    │  └─ dig +short domain (depth 4)
@@ -767,11 +769,11 @@ graph LR
    - Optimization: Incremental updates instead of full regeneration
 
 3. **Docker Exec Operations** - ~20% of execution time
-   - docker exec vless_xray: ~0.6s overhead per call
+   - docker exec familytraffic: ~0.6s overhead per call
    - Optimization: Batch operations where possible
 
 4. **File I/O Operations** - ~10% of execution time
-   - Multiple reads/writes to /opt/vless/data/
+   - Multiple reads/writes to /opt/familytraffic/data/
    - Optimization: Use tmpfs for temporary operations
 
 5. **Network Operations** - ~5% of execution time (variable)
@@ -786,10 +788,10 @@ graph LR
 
 | Lock File | Purpose | Scope | Timeout |
 |-----------|---------|-------|---------|
-| `/var/lock/vless_users.lock` | Serialize users.json modifications | All user operations | 10s |
-| `/var/lock/vless_xray_config.lock` | Serialize xray_config.json updates | Config regeneration | 15s |
-| `/var/lock/vless_haproxy.lock` | Serialize HAProxy reloads | HAProxy operations | 5s |
-| `/var/lock/vless_external_proxy.lock` | Serialize external_proxy.json updates | Proxy management (v5.24+) | 10s |
+| `/var/lock/familytraffic_users.lock` | Serialize users.json modifications | All user operations | 10s |
+| `/var/lock/familytraffic_config.lock` | Serialize xray_config.json updates | Config regeneration | 15s |
+| `/var/lock/familytraffic.lock` | Serialize HAProxy reloads | HAProxy operations | 5s |
+| `/var/lock/familytraffic_external_proxy.lock` | Serialize external_proxy.json updates | Proxy management (v5.24+) | 10s |
 
 **Lock Acquisition Order (prevents deadlock):**
 1. users.lock (if needed)
@@ -817,7 +819,7 @@ graph LR
 |--------|------------|---------|----------------|
 | user_management.sh | xray_routing_manager.sh, qr_generator.sh | scripts/vless | HIGH |
 | xray_routing_manager.sh | orchestrator.sh | user_management.sh, external_proxy_manager.sh | HIGH |
-| external_proxy_manager.sh | xray_routing_manager.sh | scripts/vless-external-proxy, user_management.sh | MEDIUM |
+| external_proxy_manager.sh | xray_routing_manager.sh | scripts/familytraffic-external-proxy, user_management.sh | MEDIUM |
 | haproxy_config_manager.sh | orchestrator.sh | reverseproxy_db.sh, certificate_manager.sh | MEDIUM |
 | certificate_manager.sh | haproxy_config_manager.sh | letsencrypt_integration.sh, certbot hooks | LOW |
 
@@ -888,6 +890,6 @@ This document provides complete traceability of function call chains during runt
 
 ---
 
-**Version:** v5.26
+**Version:** v5.33
 **Last Updated:** 2025-01-07
 **Status:** Production Documentation

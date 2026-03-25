@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 
 # Working directory (production files)
-/opt/vless/
+/opt/familytraffic/
 
 # Environment variables with private keys and passwords
 .env
@@ -55,6 +55,13 @@ qr_codes/
 *.txt
 *.png
 *.sh
+
+# Exception: Docker container scripts (part of source code, not generated)
+!docker/familytraffic/*.sh
+!lib/migrate_rename.sh
+!lib/tests/test_mtproxy_manager.sh
+!lib/tests/test_mtproxy_integration.sh
+!tests/integration/test_mtproxy_cloak.sh
 
 # Backup files
 data/backups/
@@ -209,4 +216,4 @@ docs/sphinx/_build/.doctrees/
 
 # Claude Code Agent Workspace
 .claude/workspace/
-.claude/sessions/
+.claude/plans/

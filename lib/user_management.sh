@@ -55,15 +55,15 @@ fi
 # ============================================================================
 
 # Installation paths (only define if not already set)
-[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/familytraffic"
 [[ -z "${USERS_JSON:-}" ]] && readonly USERS_JSON="${VLESS_HOME}/data/users.json"
 [[ -z "${XRAY_CONFIG:-}" ]] && readonly XRAY_CONFIG="${VLESS_HOME}/config/xray_config.json"
 [[ -z "${ENV_FILE:-}" ]] && readonly ENV_FILE="${VLESS_HOME}/.env"
 [[ -z "${CLIENTS_DIR:-}" ]] && readonly CLIENTS_DIR="${VLESS_HOME}/data/clients"
-[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/vless_users.lock"
+[[ -z "${LOCK_FILE:-}" ]] && readonly LOCK_FILE="/var/lock/familytraffic_users.lock"
 
 # Container name (only define if not already set)
-[[ -z "${XRAY_CONTAINER:-}" ]] && readonly XRAY_CONTAINER="vless_xray"
+[[ -z "${XRAY_CONTAINER:-}" ]] && readonly XRAY_CONTAINER="familytraffic"
 
 # Colors for output (only define if not already set to avoid conflicts)
 [[ -z "${RED:-}" ]] && readonly RED='\033[0;31m'
@@ -274,10 +274,10 @@ validate_external_proxy_assignment() {
     fi
 
     # Check if external_proxy.json exists
-    local external_proxy_db="/opt/vless/config/external_proxy.json"
+    local external_proxy_db="/opt/familytraffic/config/external_proxy.json"
     if [[ ! -f "$external_proxy_db" ]]; then
         log_error "External proxy database not found: $external_proxy_db"
-        log_info "Run 'vless-external-proxy add' to configure external proxies first"
+        log_info "Run 'familytraffic-external-proxy add' to configure external proxies first"
         return 1
     fi
 
@@ -584,9 +584,9 @@ add_client_to_xray() {
         fi
     fi
 
-    # Apply configuration
-    mv "$temp_file" "$XRAY_CONFIG"
-    rm -f "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
+    cp "$temp_file" "$XRAY_CONFIG"
+    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client added to Xray configuration"
     return 0
@@ -666,9 +666,9 @@ remove_client_from_xray() {
         fi
     fi
 
-    # Apply configuration
-    mv "$temp_file" "$XRAY_CONFIG"
-    rm -f "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
+    cp "$temp_file" "$XRAY_CONFIG"
+    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client removed from Xray configuration"
     return 0
@@ -693,8 +693,8 @@ apply_per_user_routing() {
     local script_dir
     script_dir="$(dirname "${BASH_SOURCE[0]}")"
 
-    if [[ -f "/opt/vless/lib/xray_routing_manager.sh" ]]; then
-        source "/opt/vless/lib/xray_routing_manager.sh"
+    if [[ -f "/opt/familytraffic/lib/xray_routing_manager.sh" ]]; then
+        source "/opt/familytraffic/lib/xray_routing_manager.sh"
     elif [[ -f "${script_dir}/xray_routing_manager.sh" ]]; then
         source "${script_dir}/xray_routing_manager.sh"
     else
@@ -726,61 +726,132 @@ apply_per_user_routing() {
 
     local temp_file="${XRAY_CONFIG}.tmp.$$"
 
-    # Update routing section
-    echo "$routing_json" | jq -s '.[0]' > /tmp/routing_rules.json || {
-        log_error "Failed to parse routing JSON"
+    # Use mktemp to avoid predictable /tmp path (CWE-377 symlink attack)
+    local routing_tmp
+    routing_tmp=$(mktemp) || {
+        log_error "Failed to create temporary file"
         return 1
     }
 
-    jq --slurpfile routing /tmp/routing_rules.json \
+    # Update routing section
+    echo "$routing_json" | jq -s '.[0]' > "$routing_tmp" || {
+        log_error "Failed to parse routing JSON"
+        rm -f "$routing_tmp"
+        return 1
+    }
+
+    jq --slurpfile routing "$routing_tmp" \
         '.routing = $routing[0]' \
         "$XRAY_CONFIG" > "$temp_file"
 
     if [[ $? -ne 0 ]]; then
         log_error "Failed to update routing rules in Xray config"
-        rm -f "$temp_file" /tmp/routing_rules.json
+        rm -f "$temp_file" "$routing_tmp"
         return 1
     fi
 
     # Validate JSON
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
-        rm -f "$temp_file" /tmp/routing_rules.json
+        rm -f "$temp_file" "$routing_tmp"
         return 1
     fi
 
-    # Apply changes
-    mv "$temp_file" "$XRAY_CONFIG"
-    rm -f /tmp/routing_rules.json
+    # Apply changes — use cp+rm to preserve inode (required for Docker bind mounts)
+    cp "$temp_file" "$XRAY_CONFIG"
+    rm -f "$temp_file" "$routing_tmp"
 
     log_success "Per-user routing applied successfully"
+
+    # Reload Xray so routing changes take effect immediately
+    if ! reload_xray; then
+        log_warning "Routing config written but Xray reload failed"
+        log_warning "Run manually: docker exec familytraffic supervisorctl restart xray"
+        return 1
+    fi
     return 0
 }
 
 reload_xray() {
     log_info "Reloading Xray configuration..."
 
-    local compose_dir="/opt/vless"
-
     if ! docker ps --format '{{.Names}}' | grep -q "^${XRAY_CONTAINER}$"; then
-        log_warning "Xray container is not running, skipping reload"
+        log_warning "Container ${XRAY_CONTAINER} is not running, skipping reload"
         return 0
     fi
 
-    # Try graceful reload via HUP signal first (using docker compose)
-    if (cd "$compose_dir" && docker compose kill -s HUP xray) 2>/dev/null; then
-        log_success "Xray configuration reloaded (HUP signal)"
+    # v5.33 single-container: send SIGHUP to the xray process managed by supervisord.
+    # This reloads only xray — nginx and certbot are not affected.
+    local supervisord_conf="/etc/familytraffic/supervisord.conf"
+    if docker exec "${XRAY_CONTAINER}" supervisorctl -c "${supervisord_conf}" signal SIGHUP xray 2>/dev/null; then
+        log_success "Xray configuration reloaded (SIGHUP via supervisorctl)"
         return 0
-    else
-        log_warning "Failed to send HUP signal, restarting container..."
-        if (cd "$compose_dir" && docker compose restart xray) 2>/dev/null; then
-            log_success "Xray container restarted"
-            return 0
-        else
-            log_error "Failed to restart Xray container"
-            return 1
-        fi
     fi
+
+    # Fallback 1: restart only the xray process inside the container (not the container itself)
+    log_warning "SIGHUP failed, restarting xray process via supervisorctl..."
+    if docker exec "${XRAY_CONTAINER}" supervisorctl -c "${supervisord_conf}" restart xray 2>/dev/null; then
+        log_success "Xray process restarted (supervisorctl)"
+        return 0
+    fi
+
+    # Fallback 2: send SIGHUP directly via pkill (no supervisord dependency)
+    log_warning "supervisorctl failed, sending SIGHUP directly to xray process..."
+    if docker exec "${XRAY_CONTAINER}" pkill -HUP -x xray 2>/dev/null; then
+        log_success "Xray configuration reloaded (SIGHUP via pkill)"
+        return 0
+    fi
+
+    log_error "Failed to reload Xray inside container ${XRAY_CONTAINER}"
+    return 1
+}
+
+# ============================================================================
+# FUNCTION: generate_transport_uri (v5.30)
+# ============================================================================
+# Description: Generate transport-specific VLESS URI
+# Arguments:
+#   $1 - transport_type: reality|ws|xhttp|grpc
+#   $2 - uuid
+#   $3 - server_ip
+#   $4 - domain (for SNI and subdomain construction)
+#   $5 - server_port (default: 443)
+#   $6 - username (for URI fragment/remark)  [R10 fix: explicit parameter, not from outer scope]
+# Returns: VLESS URI string
+# ============================================================================
+generate_transport_uri() {
+    local transport_type="$1"
+    local uuid="$2"
+    local server_ip="$3"
+    local domain="$4"
+    local server_port="${5:-443}"
+    local username="${6:-user}"   # R10 fix: $username explicitly in scope
+
+    case "$transport_type" in
+        reality)
+            # Existing Reality URI format (delegate to generate_vless_uri)
+            generate_vless_uri "$username" "$uuid"
+            ;;
+        ws)
+            # WebSocket + TLS URI (Nginx terminates TLS on ws.domain)
+            local ws_subdomain="ws.${domain}"
+            echo "vless://${uuid}@${ws_subdomain}:${server_port}?encryption=none&security=tls&sni=${ws_subdomain}&fp=chrome&type=ws&path=%2Fvless-ws#${username}-ws"
+            ;;
+        xhttp)
+            # XHTTP/SplitHTTP + TLS URI (Nginx terminates TLS on xhttp.domain)
+            local xhttp_subdomain="xhttp.${domain}"
+            echo "vless://${uuid}@${xhttp_subdomain}:${server_port}?encryption=none&security=tls&sni=${xhttp_subdomain}&fp=chrome&type=splithttp&path=%2Fapi%2Fv2#${username}-xhttp"
+            ;;
+        grpc)
+            # gRPC + TLS URI (Nginx terminates TLS on grpc.domain)
+            local grpc_subdomain="grpc.${domain}"
+            echo "vless://${uuid}@${grpc_subdomain}:${server_port}?encryption=none&security=tls&sni=${grpc_subdomain}&fp=chrome&type=grpc&serviceName=GunService#${username}-grpc"
+            ;;
+        *)
+            log_error "Unknown transport type: $transport_type (must be: reality, ws, xhttp, grpc)"
+            return 1
+            ;;
+    esac
 }
 
 # ============================================================================
@@ -939,6 +1010,105 @@ update_proxy_accounts() {
         log_error "Failed to verify proxy account addition"
         return 1
     fi
+}
+
+# =============================================================================
+# FUNCTION: rebuild_proxy_accounts_from_users_json
+# =============================================================================
+# Description: Rebuild SOCKS5 and HTTP proxy accounts in Xray config from users.json.
+#              Called after xray config (re)generation to prevent open proxy access.
+#              Root cause fix: xray HTTP inbound has no "auth" flag — empty accounts
+#              means no auth required. This function ensures accounts stay in sync.
+# Arguments: none
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+rebuild_proxy_accounts_from_users_json() {
+    if [[ ! -f "${USERS_JSON}" ]]; then
+        log_info "users.json not found, skipping proxy accounts rebuild"
+        return 0
+    fi
+
+    if ! jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_info "Proxy inbounds not in config, skipping accounts rebuild"
+        return 0
+    fi
+
+    local proxy_accounts
+    proxy_accounts=$(jq '[.users[]
+        | select(.proxy_password != null and .proxy_password != "")
+        | {user: .username, pass: .proxy_password}
+    ]' "${USERS_JSON}" 2>/dev/null || echo "[]")
+
+    local tmp
+    tmp=$(mktemp)
+    if ! jq --argjson accs "$proxy_accounts" \
+       '(.inbounds[] | select(.tag == "socks5-proxy" or .tag == "http-proxy")
+        | .settings.accounts) = $accs' \
+       "${XRAY_CONFIG}" > "$tmp"; then
+        rm -f "$tmp"
+        log_error "Failed to rebuild proxy accounts from users.json"
+        return 1
+    fi
+    mv "$tmp" "${XRAY_CONFIG}"
+
+    local count
+    count=$(echo "$proxy_accounts" | jq 'length')
+    log_success "Proxy accounts rebuilt from users.json: $count user(s)"
+}
+
+# =============================================================================
+# FUNCTION: remove_proxy_accounts
+# =============================================================================
+# Description: Remove user from SOCKS5 and HTTP proxy accounts in Xray config
+# Arguments:
+#   $1 - username
+# Returns:
+#   0 on success, 1 on failure
+# =============================================================================
+remove_proxy_accounts() {
+    local username="$1"
+
+    # Check if SOCKS5 proxy inbound exists
+    if ! jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_info "Proxy support not enabled, skipping proxy account removal"
+        return 0
+    fi
+
+    log_info "Removing user from proxy accounts..."
+
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Remove account from SOCKS5 and HTTP inbounds in a single jq pass.
+    # map(select(.user != $user)) is a no-op if the user doesn't exist (idempotent).
+    # (. // []) on the right side of |= guards against a null accounts key;
+    # using // [] on the left side of |= causes "Invalid path expression" when null.
+    if ! jq --arg user "$username" '
+        (.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts) |= (. // [] | map(select(.user != $user))) |
+        (.inbounds[] | select(.tag == "http-proxy")   | .settings.accounts) |= (. // [] | map(select(.user != $user)))
+      ' "${XRAY_CONFIG}" > "$temp_file"; then
+        log_error "Failed to update proxy accounts"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Atomic replace
+    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+        log_error "Failed to save updated Xray config"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    # Verify removal
+    if jq -e --arg user "$username" \
+       '.inbounds[] | select(.tag == "socks5-proxy") | .settings.accounts[] | select(.user == $user)' \
+       "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_error "Failed to verify proxy account removal for '$username'"
+        return 1
+    fi
+
+    log_success "User removed from proxy accounts"
+    return 0
 }
 
 # ============================================================================
@@ -1209,7 +1379,7 @@ reset_proxy_password() {
     echo "SOCKS5: ${socks_scheme}://${username}:${new_password}@${proxy_host}:1080"
     echo "HTTP:   ${http_scheme}://${username}:${new_password}@${proxy_host}:8118"
     echo ""
-    echo "NOTE: Proxy config files updated in /opt/vless/data/clients/$username/"
+    echo "NOTE: Proxy config files updated in /opt/familytraffic/data/clients/$username/"
     echo "═══════════════════════════════════════════════════════"
     echo ""
 
@@ -1256,7 +1426,7 @@ get_server_ip() {
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: socks5_config.txt with SOCKS5 URI
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1302,7 +1472,7 @@ export_socks5_config() {
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: http_config.txt with HTTP URI
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1348,7 +1518,7 @@ export_http_config() {
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: vscode_settings.json with VSCode proxy configuration
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1403,7 +1573,7 @@ EOF
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: docker_daemon.json with Docker proxy configuration
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1452,7 +1622,7 @@ EOF
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: bash_exports.sh with proxy environment variables
 # Related: TASK-11.4 (Proxy Configuration Export)
@@ -1508,7 +1678,7 @@ EOF
 # Arguments:
 #   $1 - username
 #   $2 - proxy_password
-#   $3 - output_dir (optional, defaults to /opt/vless/data/clients/$username)
+#   $3 - output_dir (optional, defaults to /opt/familytraffic/data/clients/$username)
 # Returns: 0 on success, 1 on failure
 # Output: git_config.txt with Git proxy setup commands
 # Related: TASK-3.6 (v3.3 Git Config)
@@ -1589,7 +1759,7 @@ EOF
 #   $1 - username
 #   $2 - proxy_password (optional, will read from users.json if not provided)
 # Returns: 0 on success, 1 on failure
-# Output: 6 proxy config files in /opt/vless/data/clients/$username/
+# Output: 6 proxy config files in /opt/familytraffic/data/clients/$username/
 # Related: TASK-11.4 (Proxy Configuration Export)
 # =============================================================================
 export_all_proxy_configs() {
@@ -1853,6 +2023,62 @@ migrate_users_schema_v525() {
 }
 
 # ============================================================================
+# FUNCTION: migrate_xtls_vision (v5.25)
+# ============================================================================
+# Description: Add flow=xtls-rprx-vision to all existing Xray client objects
+#              that were created before XTLS Vision was added to the code.
+#              Safety-net: on current installations all users already have flow.
+# Returns: 0 on success, 1 on failure
+# ============================================================================
+migrate_xtls_vision() {
+    log_info "Checking XTLS Vision migration status..."
+
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        log_error "Xray configuration not found: $XRAY_CONFIG"
+        return 1
+    fi
+
+    # Count clients missing flow field
+    local missing_count
+    missing_count=$(jq '[.inbounds[0].settings.clients[] | select(.flow == null or .flow == "")] | length' \
+        "$XRAY_CONFIG" 2>/dev/null || echo "0")
+
+    if [[ "$missing_count" == "0" ]]; then
+        log_success "XTLS Vision already configured for all users (no migration needed)"
+        return 0
+    fi
+
+    log_info "Found $missing_count user(s) without flow field — migrating..."
+
+    # Backup
+    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.bak.migrate.$$"
+
+    # Add flow field to all clients missing it
+    local temp_file="${XRAY_CONFIG}.tmp.migrate.$$"
+    jq '(.inbounds[0].settings.clients[] | select(.flow == null or .flow == "")) |= . + {"flow": "xtls-rprx-vision"}' \
+        "$XRAY_CONFIG" > "$temp_file"
+
+    if ! jq empty "$temp_file" 2>/dev/null; then
+        log_error "Migration produced invalid JSON"
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    mv "$temp_file" "$XRAY_CONFIG"
+    chmod 644 "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.migrate.$$"
+
+    log_success "XTLS Vision migration complete: $missing_count user(s) updated"
+    log_warning "IMPORTANT: Existing clients must update their VLESS URI to include flow=xtls-rprx-vision"
+    log_warning "Use 'vless list-users' to regenerate QR codes/URIs for affected users"
+
+    # Reload Xray to apply changes
+    docker exec familytraffic supervisorctl -c /etc/familytraffic/supervisord.conf restart xray 2>/dev/null && log_success "Xray restarted to apply Vision migration"
+
+    return 0
+}
+
+# ============================================================================
 # v5.25: Connection Type Selection (vpn|proxy|both)
 # ============================================================================
 
@@ -2056,7 +2282,7 @@ create_user() {
         echo "  Route this user's traffic through an external proxy?"
         echo ""
 
-        local external_proxy_db="/opt/vless/config/external_proxy.json"
+        local external_proxy_db="/opt/familytraffic/config/external_proxy.json"
 
         # Check if external proxies are configured
         if [[ -f "$external_proxy_db" ]]; then
@@ -2095,14 +2321,14 @@ create_user() {
                 done
             else
                 echo "  No external proxies configured."
-                echo "  Run 'vless-external-proxy add' to configure an external proxy."
+                echo "  Run 'familytraffic-external-proxy add' to configure an external proxy."
                 echo ""
                 log_info "Using direct routing (no external proxy)"
                 external_proxy_id=""
             fi
         else
             echo "  No external proxies configured."
-            echo "  Run 'vless-external-proxy add' to configure an external proxy."
+            echo "  Run 'familytraffic-external-proxy add' to configure an external proxy."
             echo ""
             log_info "Using direct routing (no external proxy)"
             external_proxy_id=""
@@ -2121,7 +2347,7 @@ create_user() {
     echo ""
 
     # Check if MTProxy is installed
-    local mtproxy_config="/opt/vless/config/mtproxy/mtproxy_config.json"
+    local mtproxy_config="/opt/familytraffic/config/mtproxy/mtproxy_config.json"
     local mtproxy_available=false
 
     if [[ -f "$mtproxy_config" ]]; then
@@ -2416,7 +2642,8 @@ remove_user() {
     uuid=$(jq -r ".users[] | select(.username == \"$username\") | .uuid" "$USERS_JSON" 2>/dev/null)
     connection_type=$(jq -r ".users[] | select(.username == \"$username\") | .connection_type // \"both\"" "$USERS_JSON" 2>/dev/null)
 
-    if [[ -z "$uuid" ]]; then
+    # UUID is only required for vpn/both users; proxy-only users have uuid=""
+    if [[ -z "$uuid" && "$connection_type" != "proxy" ]]; then
         log_error "Failed to retrieve UUID for user '$username'"
         return 1
     fi
@@ -2427,6 +2654,14 @@ remove_user() {
     if [[ "$connection_type" == "vpn" || "$connection_type" == "both" ]]; then
         if ! remove_client_from_xray "$uuid" "$username"; then
             log_error "Failed to remove client from Xray configuration"
+            return 1
+        fi
+    fi
+
+    # Step 4.5: Remove SOCKS5/HTTP proxy accounts (only for proxy or both)
+    if [[ "$connection_type" == "proxy" || "$connection_type" == "both" ]]; then
+        if ! remove_proxy_accounts "$username"; then
+            log_error "Failed to remove proxy accounts"
             return 1
         fi
     fi
@@ -2509,7 +2744,7 @@ cmd_set_user_proxy() {
     # Validate username
     if [[ -z "$username" ]]; then
         log_error "Username required"
-        echo "Usage: vless set-proxy <username> <proxy-id|none>"
+        echo "Usage: familytraffic set-proxy <username> <proxy-id|none>"
         return 1
     fi
 
@@ -2569,7 +2804,7 @@ cmd_set_user_proxy() {
 
     # Auto-activate proxy if not already active
     if [[ -n "$proxy_id" && "$proxy_id" != "none" && "$proxy_id" != "null" ]]; then
-        local proxy_db="${EXTERNAL_PROXY_DB:-/opt/vless/config/external_proxy.json}"
+        local proxy_db="${EXTERNAL_PROXY_DB:-/opt/familytraffic/config/external_proxy.json}"
         if [[ -f "$proxy_db" ]]; then
             local is_active
             is_active=$(jq -r --arg id "$proxy_id" '.proxies[] | select(.id == $id) | .active' "$proxy_db" 2>/dev/null || echo "false")
@@ -2623,8 +2858,7 @@ cmd_set_user_proxy() {
     fi
 
     echo ""
-    log_info "Xray will reload automatically within 30 seconds"
-    log_info "Or run: sudo docker restart vless_xray"
+    log_info "Xray configuration reloaded"
     echo ""
 
     return 0
@@ -2640,7 +2874,7 @@ cmd_show_user_proxy() {
     # Validate username
     if [[ -z "$username" ]]; then
         log_error "Username required"
-        echo "Usage: vless show-proxy <username>"
+        echo "Usage: familytraffic show-proxy <username>"
         return 1
     fi
 
@@ -2670,7 +2904,7 @@ cmd_show_user_proxy() {
         echo "    Client → HAProxy → Xray → Internet"
     else
         # Get proxy details from external_proxy.json
-        local ext_proxy_db="/opt/vless/config/external_proxy.json"
+        local ext_proxy_db="/opt/familytraffic/config/external_proxy.json"
         if [[ -f "$ext_proxy_db" ]]; then
             local proxy_type proxy_address proxy_port test_status
             proxy_type=$(jq -r --arg id "$proxy_id" \
@@ -2777,7 +3011,7 @@ cmd_list_proxy_assignments() {
             local user_array=($users_list)
 
             # Get proxy details
-            local ext_proxy_db="/opt/vless/config/external_proxy.json"
+            local ext_proxy_db="/opt/familytraffic/config/external_proxy.json"
             local proxy_info="$proxy_id"
             if [[ -f "$ext_proxy_db" ]]; then
                 local proxy_type proxy_address
@@ -2836,6 +3070,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_user_from_json
     export -f add_client_to_xray
     export -f remove_client_from_xray
+    export -f rebuild_proxy_accounts_from_users_json
+    export -f remove_proxy_accounts
     export -f apply_per_user_routing
     export -f reload_xray
     export -f cmd_set_user_proxy

@@ -13,7 +13,7 @@
 #   sudo vless test-security --verbose
 #
 # Direct module usage:
-#   sudo /opt/vless/lib/security_tests.sh [options]
+#   sudo /opt/familytraffic/lib/security_tests.sh [options]
 #
 # Or from development repository:
 #   cd /path/to/vless
@@ -31,7 +31,7 @@ echo "1. CLI command (recommended):"
 echo "   sudo vless test-security [options]"
 echo ""
 echo "2. Direct module execution:"
-echo "   sudo /opt/vless/lib/security_tests.sh [options]"
+echo "   sudo /opt/familytraffic/lib/security_tests.sh [options]"
 echo ""
 echo "3. From development repository:"
 echo "   cd /path/to/vless"
@@ -41,9 +41,9 @@ echo "For help: sudo vless test-security --help"
 echo ""
 
 # Try to run the new location if available
-if [[ -f "/opt/vless/lib/security_tests.sh" ]]; then
-    echo "Redirecting to /opt/vless/lib/security_tests.sh..."
-    exec sudo bash /opt/vless/lib/security_tests.sh "$@"
+if [[ -f "/opt/familytraffic/lib/security_tests.sh" ]]; then
+    echo "Redirecting to /opt/familytraffic/lib/security_tests.sh..."
+    exec sudo bash /opt/familytraffic/lib/security_tests.sh "$@"
 elif [[ -f "$(dirname "$0")/../../lib/security_tests.sh" ]]; then
     echo "Redirecting to lib/security_tests.sh..."
     exec bash "$(dirname "$0")/../../lib/security_tests.sh" "$@"

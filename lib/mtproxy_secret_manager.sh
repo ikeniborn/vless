@@ -8,7 +8,7 @@
 # Purpose:
 #   MTProxy secret generation, validation, and management system.
 #   Supports 3 secret types: standard (32 hex), dd (34 hex, random padding),
-#   ee (34 hex + 16 hex domain encoding for fake-TLS).
+#   ee (32 hex key + variable hex domain encoding for fake-TLS).
 #
 # Functions:
 #   1. generate_mtproxy_secret()        - Generate random secret (type: standard/dd/ee)
@@ -43,7 +43,7 @@ set -euo pipefail
 # ============================================================================
 
 # Installation paths (only define if not already set)
-[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/vless"
+[[ -z "${VLESS_HOME:-}" ]] && readonly VLESS_HOME="/opt/familytraffic"
 [[ -z "${MTPROXY_CONFIG_DIR:-}" ]] && readonly MTPROXY_CONFIG_DIR="${VLESS_HOME}/config/mtproxy"
 [[ -z "${MTPROXY_SECRETS_JSON:-}" ]] && readonly MTPROXY_SECRETS_JSON="${MTPROXY_CONFIG_DIR}/secrets.json"
 [[ -z "${MTPROXY_SECRET_FILE:-}" ]] && readonly MTPROXY_SECRET_FILE="${MTPROXY_CONFIG_DIR}/proxy-secret"
@@ -83,7 +83,7 @@ secret_log_error() {
 # Description: Generate MTProxy secret (3 types supported)
 #
 # Parameters:
-#   $1 - type: "standard" (32 hex), "dd" (34 hex), "ee" (34 hex + 16 hex domain)
+#   $1 - type: "standard" (32 hex), "dd" (34 hex), "ee" (34 hex + full domain hex)
 #   $2 - domain (required for type="ee", e.g., "www.google.com")
 #
 # Returns:
@@ -92,12 +92,12 @@ secret_log_error() {
 # Examples:
 #   generate_mtproxy_secret "standard"                # Returns: 32 hex chars
 #   generate_mtproxy_secret "dd"                      # Returns: "dd" + 32 hex chars
-#   generate_mtproxy_secret "ee" "www.google.com"     # Returns: "ee" + 32 hex + 16 hex domain
+#   generate_mtproxy_secret "ee" "www.google.com"     # Returns: "ee" + 32 hex + hex(domain)
 #
 # Secret formats (MTProxy specification):
 #   - standard: 32 hex characters (16 bytes)
 #   - dd: "dd" + 32 hex characters (random padding enabled)
-#   - ee: "ee" + 32 hex + 16 hex domain encoding (fake-TLS)
+#   - ee: "ee" + 32 hex + full domain UTF-8 hex (fake-TLS)
 # ============================================================================
 generate_mtproxy_secret() {
     local secret_type="${1:-standard}"
@@ -164,20 +164,20 @@ generate_mtproxy_secret() {
 # ============================================================================
 # FUNCTION: encode_domain_to_hex
 # ============================================================================
-# Description: Encode domain name to 16 hex characters for ee-type secrets
+# Description: Encode full domain name to hex for ee-type secrets
 #
 # Parameters:
 #   $1 - domain (e.g., "www.google.com")
 #
 # Returns:
-#   16 hex characters to stdout, 1 on error
+#   Variable-length hex string (full domain UTF-8 encoded), 1 on error
 #
 # Example:
-#   encode_domain_to_hex "www.google.com"  # Returns: 16 hex chars
+#   encode_domain_to_hex "www.google.com"  # Returns: hex of full domain
 #
 # Note:
-#   This encodes the domain for MTProxy fake-TLS (ee-type secrets).
-#   Format: First 8 bytes of domain (padded/truncated), hex-encoded
+#   MTProxy ee-type secret format: "ee" + 32hex(16 random bytes) + hex(domain)
+#   The domain is the full hostname encoded as UTF-8 hex — no truncation.
 # ============================================================================
 encode_domain_to_hex() {
     local domain="$1"
@@ -188,32 +188,18 @@ encode_domain_to_hex() {
         return 1
     fi
 
-    # Encode domain to hex (first 8 bytes, padded with zeros if shorter)
-    # MTProxy expects exactly 16 hex characters (8 bytes)
-    local domain_bytes="${domain:0:8}"  # Take first 8 chars
-
-    # Pad with nulls if shorter than 8
-    while [ ${#domain_bytes} -lt 8 ]; do
-        domain_bytes="${domain_bytes}\x00"
-    done
-
-    # Convert to hex
+    # Convert full domain to hex (no truncation)
     local domain_hex
     if command -v xxd &>/dev/null; then
-        domain_hex=$(echo -n "$domain_bytes" | xxd -p -c 16 | head -c 16)
+        domain_hex=$(echo -n "$domain" | xxd -p | tr -d '\n')
     elif command -v hexdump &>/dev/null; then
-        domain_hex=$(echo -n "$domain_bytes" | hexdump -v -e '/1 "%02x"' | head -c 16)
+        domain_hex=$(echo -n "$domain" | hexdump -v -e '/1 "%02x"')
     else
         secret_log_error "Cannot encode domain (no xxd or hexdump)"
         return 1
     fi
 
-    # Pad to 16 hex chars if needed
-    while [ ${#domain_hex} -lt 16 ]; do
-        domain_hex="${domain_hex}00"
-    done
-
-    echo "${domain_hex:0:16}"
+    echo "$domain_hex"
     return 0
 }
 
@@ -231,7 +217,7 @@ encode_domain_to_hex() {
 # Examples:
 #   validate_mtproxy_secret "abcd1234..."  # standard (32 hex)
 #   validate_mtproxy_secret "ddabcd1234..."  # dd-type (34 hex)
-#   validate_mtproxy_secret "eeabcd1234...abcd1234"  # ee-type (50 hex)
+#   validate_mtproxy_secret "eeabcd1234...domain_hex"  # ee-type (variable length)
 # ============================================================================
 validate_mtproxy_secret() {
     local secret="$1"
@@ -247,8 +233,8 @@ validate_mtproxy_secret() {
         # dd-type: "dd" + 32 hex (total 34 chars)
         return 0
 
-    elif [[ "$secret" =~ ^ee[0-9a-fA-F]{48}$ ]]; then
-        # ee-type: "ee" + 32 hex + 16 hex (total 50 chars)
+    elif [[ "$secret" =~ ^ee[0-9a-fA-F]{34,}$ ]]; then
+        # ee-type: "ee" + 32 hex (key) + variable hex (full domain UTF-8 encoded)
         return 0
 
     elif [[ "$secret" =~ ^[0-9a-fA-F]{32}$ ]]; then
@@ -260,7 +246,7 @@ validate_mtproxy_secret() {
         secret_log_error "Expected formats:"
         secret_log_error "  - standard: 32 hex characters"
         secret_log_error "  - dd-type:  'dd' + 32 hex characters (34 total)"
-        secret_log_error "  - ee-type:  'ee' + 32 hex + 16 hex (50 total)"
+        secret_log_error "  - ee-type:  'ee' + 32 hex (key) + domain hex (variable length)"
         return 1
     fi
 }
@@ -441,16 +427,40 @@ list_secrets() {
         return 0
     fi
 
+    # Resolve server IP once for all deep links
+    local server_ip
+    server_ip=$(get_server_ip 2>/dev/null || echo "")
+    local port="${MTPROXY_PORT:-2053}"
+
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║              MTProxy Secrets Database                        ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
-    jq -r '.secrets[] | "Type: \(.type)\nSecret: \(.secret)\nUser: \(.username // "N/A")\nDomain: \(.domain // "N/A")\nCreated: \(.created_at)\n"' \
-        "${MTPROXY_SECRETS_JSON}"
+    local i secret secret_type username domain created_at deeplink
+    for (( i=0; i<count; i++ )); do
+        secret=$(jq -r ".secrets[${i}].secret"      "${MTPROXY_SECRETS_JSON}")
+        secret_type=$(jq -r ".secrets[${i}].type"   "${MTPROXY_SECRETS_JSON}")
+        username=$(jq -r ".secrets[${i}].username // \"\"" "${MTPROXY_SECRETS_JSON}")
+        domain=$(jq -r ".secrets[${i}].domain // \"\""     "${MTPROXY_SECRETS_JSON}")
+        created_at=$(jq -r ".secrets[${i}].created_at"     "${MTPROXY_SECRETS_JSON}")
 
-    echo -e "${BLUE}Total secrets: ${count}${NC}"
+        echo -e "${BLUE}#$((i+1))${NC}"
+        echo -e "  Type:    ${secret_type}"
+        echo -e "  Secret:  ${secret}"
+        [[ -n "$username" ]] && echo -e "  User:    ${username}"
+        [[ -n "$domain"   ]] && echo -e "  Domain:  ${domain} (fake-TLS)"
+        echo -e "  Created: ${created_at}"
+
+        if [[ -n "$server_ip" ]]; then
+            deeplink="tg://proxy?server=${server_ip}&port=${port}&secret=${secret}"
+            echo -e "  ${YELLOW}Link:${NC}    ${deeplink}"
+        fi
+        echo ""
+    done
+
+    echo -e "${BLUE}Total: ${count} secret(s)${NC}"
     return 0
 }
 

@@ -1,0 +1,680 @@
+#!/bin/bash
+#
+# familyTraffic VPN - Main CLI Interface
+# Version: 5.33.0
+#
+# Usage: familytraffic <command> [arguments]
+#
+# This is the main CLI wrapper that provides user-friendly commands
+# for managing the familyTraffic VPN server.
+#
+# Architecture (v5.33):
+# - Single container: nginx + xray + certbot + supervisord
+# - network_mode: host (no Docker DNS, all ports on 127.0.0.1/0.0.0.0)
+# - Tier 2 transports: WebSocket (8444), XHTTP (8445), gRPC (8446)
+#
+
+set -euo pipefail
+
+# Installation paths
+readonly INSTALL_ROOT="/opt/familytraffic"
+readonly LIB_DIR="${INSTALL_ROOT}/lib"
+readonly CONFIG_DIR="${INSTALL_ROOT}/config"
+readonly DATA_DIR="${INSTALL_ROOT}/data"
+
+# Color codes
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m' # No Color
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}Error: This command must be run as root${NC}" >&2
+        echo "Please use: sudo familytraffic $*" >&2
+        exit 1
+    fi
+}
+
+# Show usage information
+show_usage() {
+    cat << EOF
+${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}
+${BLUE}║        familyTraffic VPN - CLI Management Tool              ║${NC}
+${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}
+
+${CYAN}Usage:${NC}
+  familytraffic <command> [arguments]
+
+${CYAN}User Management:${NC}
+  add-user <username>       Create a new VPN user
+  remove-user <username>    Remove an existing user
+  list-users                List all users
+  show-user <username>      Show user details and connection info
+  regenerate <username>     Regenerate config files (v3.3 migration)
+
+${CYAN}External Proxy (v5.24 - Per-User):${NC}
+  set-proxy <user> <id|none>    Set external proxy for user
+  show-proxy <username>         Show user's proxy assignment
+  list-proxy-assignments        List all proxy assignments
+
+${CYAN}Proxy IP Whitelist (v3.6 - Server-Level):${NC}
+  show-proxy-ips                    Show allowed IPs for proxy access
+  set-proxy-ips <ips>               Set allowed IPs (comma-separated)
+  add-proxy-ip <ip>                 Add IP to proxy whitelist
+  remove-proxy-ip <ip>              Remove IP from proxy whitelist
+  reset-proxy-ips                   Reset to localhost only
+
+${CYAN}UFW Firewall Rules (v4.0 - Host-Level):${NC}
+  show-ufw-ips                      Show UFW proxy whitelist rules
+  add-ufw-ip <ip>                   Add IP to UFW whitelist
+  remove-ufw-ip <ip>                Remove IP from UFW whitelist
+  reset-ufw-ips                     Remove all UFW proxy rules
+
+${CYAN}Service Operations:${NC}
+  status                    Show service status
+  start                     Start VLESS services
+  stop                      Stop VLESS services
+  restart                   Restart VLESS services
+  logs [service]            Show logs (service: xray|nginx|all)
+
+${CYAN}Maintenance:${NC}
+  update                    Update VLESS to latest version
+  backup                    Create backup of configuration
+  test                      Test Xray configuration
+
+${CYAN}Security Testing:${NC}
+  test-security [options]   Run encryption & security tests
+    --quick                 Skip long-running tests
+    --skip-pcap             Skip packet capture tests
+    --verbose               Show detailed output
+    --dev-mode              Development mode (skip installation checks)
+
+${CYAN}Information:${NC}
+  info                      Show server information
+  help                      Show this help message
+
+${CYAN}Examples:${NC}
+  sudo familytraffic add-user alice
+  sudo familytraffic list-users
+  sudo familytraffic set-proxy alice corporate-proxy-123
+  sudo familytraffic show-proxy alice
+  sudo familytraffic list-proxy-assignments
+  sudo familytraffic show-proxy-ips
+  sudo familytraffic set-proxy-ips 127.0.0.1,10.0.0.0/24
+  sudo familytraffic status
+  sudo familytraffic logs xray
+  sudo familytraffic test-security --quick
+
+${YELLOW}Note:${NC} All commands require root privileges (use sudo)
+
+EOF
+}
+
+# Source lib modules
+source_modules() {
+    local modules=(
+        "user_management.sh"
+        "qr_generator.sh"
+        "proxy_whitelist.sh"
+        "ufw_whitelist.sh"
+    )
+
+    for module in "${modules[@]}"; do
+        if [[ -f "${LIB_DIR}/${module}" ]]; then
+            source "${LIB_DIR}/${module}"
+        fi
+    done
+}
+
+# Main command router
+main() {
+    # Show help if no arguments
+    if [[ $# -eq 0 ]]; then
+        show_usage
+        exit 0
+    fi
+
+    local command="$1"
+    shift
+
+    case "$command" in
+        add-user|adduser)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic add-user <username>" >&2
+                exit 1
+            fi
+            source_modules
+            create_user "$1"
+            ;;
+
+        remove-user|rmuser|deleteuser)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic remove-user <username>" >&2
+                exit 1
+            fi
+            source_modules
+            remove_user "$1"
+            ;;
+
+        list-users|ls|users)
+            check_root
+            source_modules
+            list_users
+            ;;
+
+        show-user|show|user)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic show-user <username>" >&2
+                exit 1
+            fi
+            source_modules
+            get_user_info "$1"
+            ;;
+
+        regenerate|regen)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic regenerate <username>" >&2
+                exit 1
+            fi
+            source_modules
+            regenerate_configs "$1"
+            ;;
+
+        set-proxy)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: Username and proxy ID required${NC}" >&2
+                echo "Usage: familytraffic set-proxy <username> <proxy-id|none>" >&2
+                echo "Example: familytraffic set-proxy alice corporate-proxy-123" >&2
+                echo "         familytraffic set-proxy alice none" >&2
+                exit 1
+            fi
+            source_modules
+            cmd_set_user_proxy "$1" "$2"
+            ;;
+
+        show-proxy)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic show-proxy <username>" >&2
+                exit 1
+            fi
+            source_modules
+            cmd_show_user_proxy "$1"
+            ;;
+
+        list-proxy-assignments)
+            check_root
+            source_modules
+            cmd_list_proxy_assignments
+            ;;
+
+        show-proxy-ips)
+            check_root
+            source_modules
+            show_proxy_allowed_ips
+            ;;
+
+        set-proxy-ips)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP list required${NC}" >&2
+                echo "Usage: familytraffic set-proxy-ips <ip1,ip2,...>" >&2
+                echo "Example: familytraffic set-proxy-ips 127.0.0.1,10.0.0.0/24,192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            set_proxy_allowed_ips "$1"
+            ;;
+
+        add-proxy-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: familytraffic add-proxy-ip <ip>" >&2
+                echo "Example: familytraffic add-proxy-ip 192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            add_proxy_allowed_ip "$1"
+            ;;
+
+        remove-proxy-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: familytraffic remove-proxy-ip <ip>" >&2
+                echo "Example: familytraffic remove-proxy-ip 192.168.1.5" >&2
+                exit 1
+            fi
+            source_modules
+            remove_proxy_allowed_ip "$1"
+            ;;
+
+        reset-proxy-ips)
+            check_root
+            source_modules
+            reset_proxy_allowed_ips
+            ;;
+
+        show-ufw-ips)
+            check_root
+            source_modules
+            show_ufw_proxy_ips
+            ;;
+
+        add-ufw-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: familytraffic add-ufw-ip <ip>" >&2
+                echo "Example: familytraffic add-ufw-ip 192.168.1.100" >&2
+                exit 1
+            fi
+            source_modules
+            add_ufw_proxy_rule "$1"
+            ;;
+
+        remove-ufw-ip)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: IP address required${NC}" >&2
+                echo "Usage: familytraffic remove-ufw-ip <ip>" >&2
+                echo "Example: familytraffic remove-ufw-ip 192.168.1.100" >&2
+                exit 1
+            fi
+            source_modules
+            remove_ufw_proxy_rule "$1"
+            ;;
+
+        reset-ufw-ips)
+            check_root
+            source_modules
+            reset_ufw_proxy_ips
+            ;;
+
+        status)
+            check_root
+            echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║        familyTraffic v5.33 - Service Status                 ║${NC}"
+            echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+
+            # Container status
+            echo -e "${CYAN}Container Status:${NC}"
+            docker ps --filter "name=familytraffic" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            echo ""
+
+            # Supervisor / service status inside container
+            echo -e "${CYAN}Services (inside container):${NC}"
+            if docker ps --filter "name=familytraffic" --format "{{.Names}}" | grep -q "familytraffic"; then
+                echo -e "  ${GREEN}✓ familytraffic Running${NC}"
+                docker exec familytraffic supervisorctl status 2>/dev/null || echo "  (supervisorctl not accessible)"
+
+                # Show port routing
+                echo ""
+                echo -e "${CYAN}Port Routing:${NC}"
+                echo "  1. TCP:443  → ssl_preread SNI routing → 127.0.0.1:8443 (VLESS Reality)"
+                echo "  2. TCP:1080 → TLS termination → 127.0.0.1:10800 (SOCKS5)"
+                echo "  3. TCP:8118 → TLS termination → 127.0.0.1:18118 (HTTP proxy)"
+
+                # Show active reverse proxy routes
+                echo ""
+                echo -e "${CYAN}Reverse Proxy Routes (SNI):${NC}"
+                if [[ -f "${INSTALL_ROOT}/config/reverse_proxies.json" ]]; then
+                    local route_count=$(jq -r '.proxies | length' "${INSTALL_ROOT}/config/reverse_proxies.json" 2>/dev/null || echo "0")
+                    if [ "$route_count" -gt 0 ]; then
+                        echo -e "  ${GREEN}Active Routes: $route_count${NC}"
+                        jq -r '.proxies[].domain' \
+                            "${INSTALL_ROOT}/config/reverse_proxies.json" 2>/dev/null | while read -r domain; do
+                            echo "    → https://$domain"
+                        done
+                    else
+                        echo "  ${YELLOW}No reverse proxy routes configured${NC}"
+                    fi
+                else
+                    echo "  ${YELLOW}No reverse proxy routes configured${NC}"
+                fi
+            else
+                echo -e "  ${RED}✗ familytraffic Not Running${NC}"
+            fi
+
+            # External Proxy Status (v5.23)
+            echo ""
+            echo -e "${CYAN}External Proxy Status (v5.23):${NC}"
+            if [[ -f "${INSTALL_ROOT}/config/external_proxy.json" ]]; then
+                local ext_proxy_enabled=$(jq -r '.enabled' "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "false")
+                local proxy_count=$(jq -r '.proxies | length' "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "0")
+
+                if [[ "$ext_proxy_enabled" == "true" ]]; then
+                    echo -e "  ${GREEN}✓ External Proxy ENABLED${NC}"
+
+                    # Get active proxy info
+                    local active_proxy_id=$(jq -r '.proxies[] | select(.active == true) | .id' \
+                        "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "")
+
+                    if [[ -n "$active_proxy_id" ]]; then
+                        local proxy_type=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .type' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                        local proxy_address=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .address' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                        local proxy_port=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .port' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                        local test_status=$(jq -r --arg id "$active_proxy_id" \
+                            '.proxies[] | select(.id == $id) | .metadata.test_result.status // "never tested"' \
+                            "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+
+                        echo "  Active Proxy: $active_proxy_id"
+                        echo "    Type: $proxy_type"
+                        echo "    Address: $proxy_address:$proxy_port"
+                        echo "    Last Test: $test_status"
+
+                        if [[ "$test_status" == "success" ]]; then
+                            local latency=$(jq -r --arg id "$active_proxy_id" \
+                                '.proxies[] | select(.id == $id) | .metadata.test_result.latency_ms' \
+                                "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null)
+                            echo "    Latency: ${latency}ms"
+                        fi
+                    else
+                        echo -e "  ${YELLOW}⚠️  No active proxy (enabled but no proxy selected)${NC}"
+                    fi
+
+                    # Show routing mode
+                    local routing_mode=$(jq -r '.routing.mode' "${INSTALL_ROOT}/config/external_proxy.json" 2>/dev/null || echo "unknown")
+                    echo "  Routing Mode: $routing_mode"
+                    echo "  Total Proxies: $proxy_count"
+                elif [[ "$proxy_count" -gt 0 ]]; then
+                    echo -e "  ${YELLOW}✗ External Proxy DISABLED${NC}"
+                    echo "  Total Proxies: $proxy_count (configured but not active)"
+                    echo "  Hint: familytraffic-external-proxy enable"
+                else
+                    echo "  ${YELLOW}Not configured${NC} (no external proxies added)"
+                    echo "  Hint: familytraffic-external-proxy add"
+                fi
+            else
+                echo "  ${YELLOW}Not available${NC} (database not found)"
+            fi
+
+            # Per-User Proxy Assignments (v5.24)
+            echo ""
+            echo -e "${CYAN}Per-User Proxy Assignments (v5.24):${NC}"
+            if [[ -f "${DATA_DIR}/users.json" ]]; then
+                local total_users=$(jq -r '.users | length' "${DATA_DIR}/users.json" 2>/dev/null || echo "0")
+
+                if [[ "$total_users" -eq 0 ]]; then
+                    echo "  ${YELLOW}No users configured${NC}"
+                else
+                    # Count users by routing type
+                    local direct_count=0
+                    local proxied_count=0
+
+                    # Count users with direct routing (external_proxy_id is null or missing)
+                    direct_count=$(jq -r '[.users[] | select(.external_proxy_id == null or .external_proxy_id == "")] | length' \
+                        "${DATA_DIR}/users.json" 2>/dev/null || echo "0")
+
+                    # Count users with external proxy
+                    proxied_count=$(jq -r '[.users[] | select(.external_proxy_id != null and .external_proxy_id != "")] | length' \
+                        "${DATA_DIR}/users.json" 2>/dev/null || echo "0")
+
+                    echo "  Total Users: $total_users"
+                    echo "    Direct Routing: ${direct_count} users"
+                    echo "    Via External Proxy: ${proxied_count} users"
+
+                    # Show top proxies if any users are using external proxy
+                    if [[ "$proxied_count" -gt 0 ]]; then
+                        echo ""
+                        echo "  Top Proxies by User Count:"
+
+                        # Group users by proxy_id and count
+                        local proxy_stats
+                        proxy_stats=$(jq -r '[.users[] | select(.external_proxy_id != null and .external_proxy_id != "") | .external_proxy_id] | group_by(.) | map({proxy: .[0], count: length}) | sort_by(-.count) | .[:3]' \
+                            "${DATA_DIR}/users.json" 2>/dev/null)
+
+                        if [[ -n "$proxy_stats" ]] && [[ "$proxy_stats" != "[]" ]]; then
+                            # Display top 3 proxies
+                            echo "$proxy_stats" | jq -r '.[] | "    • \(.proxy): \(.count) user(s)"' 2>/dev/null
+
+                            echo ""
+                            echo "  Hint: familytraffic list-proxy-assignments (detailed view)"
+                        fi
+                    fi
+                fi
+            else
+                echo "  ${YELLOW}Users database not found${NC}"
+            fi
+
+            echo ""
+            ;;
+
+        start)
+            check_root
+            echo "Starting familyTraffic services..."
+            (cd "${INSTALL_ROOT}" && docker compose up -d)
+            ;;
+
+        stop)
+            check_root
+            echo "Stopping familyTraffic services..."
+            (cd "${INSTALL_ROOT}" && docker compose down)
+            ;;
+
+        restart)
+            check_root
+            echo "Restarting familyTraffic services..."
+            (cd "${INSTALL_ROOT}" && docker compose restart)
+            ;;
+
+        logs)
+            check_root
+            local service="${1:-}"
+            if [[ -z "$service" ]] || [[ "$service" == "all" ]]; then
+                (cd "${INSTALL_ROOT}" && docker compose logs -f --tail=100)
+            else
+                (cd "${INSTALL_ROOT}" && docker compose logs -f --tail=100 "$service")
+            fi
+            ;;
+
+        test)
+            check_root
+            echo "Testing Xray configuration..."
+            docker exec familytraffic xray -test -config=/etc/xray/config.json
+            ;;
+
+        test-security|security-test|security)
+            check_root
+
+            # Check if security test module exists
+            if [[ ! -f "${LIB_DIR}/security_tests.sh" ]]; then
+                echo -e "${RED}Error: Security test module not found${NC}" >&2
+                echo "Expected location: ${LIB_DIR}/security_tests.sh" >&2
+                exit 1
+            fi
+
+            # Run security tests with all arguments passed through
+            bash "${LIB_DIR}/security_tests.sh" "$@"
+            ;;
+
+        update|upgrade)
+            check_root
+            # Detect current version
+            local current_version=""
+            if [[ -f "${INSTALL_ROOT}/.version" ]]; then
+                current_version=$(cat "${INSTALL_ROOT}/.version")
+            elif grep -q "ENABLE_PUBLIC_PROXY" "${INSTALL_ROOT}/.env" 2>/dev/null; then
+                current_version="3.2"
+            else
+                current_version="3.1"
+            fi
+
+            echo ""
+            echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${BLUE}║          familyTraffic VPN - Update Check                   ║${NC}"
+            echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+            echo ""
+            echo -e "Current Version: ${YELLOW}${current_version:-unknown}${NC}"
+            echo -e "Target Version:  ${GREEN}5.33${NC}"
+            echo ""
+
+            # Show breaking change warning for v3.2 → v3.3 migration
+            if [[ "$current_version" == "3.2" ]]; then
+                echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${RED}║   ⚠️  CRITICAL: BREAKING CHANGES IN v3.3                   ║${NC}"
+                echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+                echo ""
+                echo -e "${YELLOW}v3.2 → v3.3 Migration includes breaking changes:${NC}"
+                echo ""
+                echo "1. ${RED}Proxy URIs Changed:${NC}"
+                echo "   v3.2: socks5://user:pass@IP:1080 (plaintext)"
+                echo "   v3.3: socks5s://user:pass@DOMAIN:1080 (TLS encrypted)"
+                echo ""
+                echo "2. ${RED}Domain Required:${NC}"
+                echo "   v3.3 requires a domain name for TLS certificates"
+                echo "   IP-based configs will NOT work"
+                echo ""
+                echo "3. ${RED}Client Config Migration:${NC}"
+                echo "   All client proxy configs must be regenerated"
+                echo "   Use: sudo familytraffic regenerate <username>"
+                echo ""
+                echo "4. ${RED}Security Critical:${NC}"
+                echo "   v3.2 transmitted credentials in PLAINTEXT"
+                echo "   v3.3 enforces TLS 1.3 encryption"
+                echo ""
+                echo -e "${CYAN}📖 Migration Guide:${NC}"
+                echo "   ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
+                echo ""
+                echo -e "${YELLOW}Required Actions Before Update:${NC}"
+                echo "  1. Read migration guide: less ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
+                echo "  2. Prepare domain name (DNS A record pointing to server)"
+                echo "  3. Backup configs: sudo familytraffic backup"
+                echo "  4. Test on staging environment first (recommended)"
+                echo ""
+                echo -e "${RED}⚠️  DO NOT proceed without reading migration guide${NC}"
+                echo ""
+                echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
+                echo ""
+                read -p "Have you read the migration guide and are ready to proceed? (yes/no): " confirm
+
+                if [[ "$confirm" != "yes" ]]; then
+                    echo ""
+                    echo -e "${YELLOW}Update cancelled. Please read migration guide first.${NC}"
+                    echo ""
+                    exit 0
+                fi
+            fi
+
+            echo ""
+            echo -e "${YELLOW}Update functionality not yet implemented.${NC}"
+            echo ""
+            echo "To update manually:"
+            echo "  1. Backup: sudo familytraffic backup"
+            echo "  2. Pull latest: git pull origin master"
+            echo "  3. Re-run installer: sudo bash install.sh"
+            echo ""
+            echo "For v3.2 → v3.3 migration:"
+            echo "  1. Follow: ${INSTALL_ROOT}/docs/MIGRATION_v3.2_to_v3.3.md"
+            echo "  2. Regenerate configs: sudo familytraffic regenerate <username>"
+            echo ""
+            ;;
+
+        backup)
+            check_root
+            local backup_dir="${INSTALL_ROOT}/backup"
+            local backup_file="${backup_dir}/familytraffic_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+
+            mkdir -p "$backup_dir"
+
+            echo "Creating backup..."
+            tar -czf "$backup_file" \
+                -C "${INSTALL_ROOT}" \
+                config/ data/ .env docker-compose.yml 2>/dev/null
+
+            echo -e "${GREEN}✓ Backup created: ${backup_file}${NC}"
+            ;;
+
+        info)
+            check_root
+            echo -e "${CYAN}familyTraffic VPN Server Information${NC}"
+            echo "─────────────────────────────────────"
+            echo "Installation: ${INSTALL_ROOT}"
+            echo "Network: host (single container, no Docker network)"
+            echo "Port: $(jq -r '.inbounds[0].port' ${CONFIG_DIR}/xray_config.json 2>/dev/null || echo 'N/A')"
+            echo "Destination: $(jq -r '.inbounds[0].streamSettings.realitySettings.dest' ${CONFIG_DIR}/xray_config.json 2>/dev/null || echo 'N/A')"
+            echo "Users: $(jq -r '.users | length' ${DATA_DIR}/users.json 2>/dev/null || echo '0')"
+            ;;
+
+        help|--help|-h)
+            show_usage
+            ;;
+
+        # v5.25: XTLS Vision migration safety-net
+        migrate-vision|migrate_vision)
+            check_root
+            source_modules
+            echo ""
+            echo "═══════════════════════════════════════════════════════"
+            echo "  XTLS Vision Migration (v5.25)"
+            echo "═══════════════════════════════════════════════════════"
+            migrate_xtls_vision
+            ;;
+
+        # v5.33: Tier 2 Transport Management CLI
+        add-transport|addtransport)
+            check_root
+            if [[ $# -lt 2 ]]; then
+                echo -e "${RED}Error: transport type and subdomain required${NC}" >&2
+                echo "Usage: familytraffic add-transport <type> <subdomain>" >&2
+                echo "Types: ws, xhttp, grpc" >&2
+                echo "Example: familytraffic add-transport ws ws.example.com" >&2
+                exit 1
+            fi
+            source_modules
+            source "${LIB_DIR}/transport_manager.sh"
+            add_transport "$1" "$2"
+            ;;
+
+        list-transports|listtransports)
+            check_root
+            source_modules
+            source "${LIB_DIR}/transport_manager.sh"
+            list_transports
+            ;;
+
+        remove-transport|removetransport)
+            check_root
+            if [[ $# -lt 1 ]]; then
+                echo -e "${RED}Error: transport type required${NC}" >&2
+                echo "Usage: familytraffic remove-transport <type>" >&2
+                echo "Types: ws, xhttp, grpc" >&2
+                exit 1
+            fi
+            source_modules
+            source "${LIB_DIR}/transport_manager.sh"
+            remove_transport "$1"
+            ;;
+
+        *)
+            echo -e "${RED}Error: Unknown command '${command}'${NC}" >&2
+            echo "Run 'familytraffic help' to see available commands" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"

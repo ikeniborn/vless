@@ -7,8 +7,9 @@
 **Operations Covered:**
 - User database changes → Xray configuration
 - External proxy changes → Xray configuration
-- Reverse proxy domain addition → HAProxy + Nginx configuration
 - Direct configuration file edits → Service reloads
+
+> **Note:** Reverse proxy domain addition was removed in v5.33 (reverse proxy feature removed). The HAProxy + Nginx configuration section below is preserved as historical reference.
 
 ---
 
@@ -22,10 +23,9 @@ sequenceDiagram
     participant UsersDB as users.json
     participant XrayConfig as xray_config.json
     participant HAProxyConfig as haproxy.cfg
-    participant Xray as Xray Container
-    participant HAProxy as HAProxy Container
+    participant Xray as Xray Process<br/>(inside familytraffic)
 
-    Note over UserAction: Trigger: sudo vless add-user alice
+    Note over UserAction: Trigger: sudo familytraffic add-user alice
 
     UserAction->>UsersDB: Append user:<br/>{username: "alice", uuid: "...", external_proxy_id: null}
 
@@ -39,13 +39,11 @@ sequenceDiagram
     Note over XrayConfig,Xray: Propagation Step 2: Xray Reload
 
     XrayConfig->>XrayConfig: Validate JSON syntax<br/>(jq . xray_config.json)
-    XrayConfig->>Xray: docker exec vless_xray kill -HUP $(pgrep xray)
+    XrayConfig->>Xray: docker exec familytraffic kill -HUP $(pgrep xray)
     Xray->>Xray: Graceful reload<br/>(read new config, no downtime)
     Xray-->>XrayConfig: ✓ Config reloaded
 
-    Note over UsersDB: HAProxy NOT affected<br/>(user addition doesn't change HAProxy)
-
-    HAProxyConfig->>HAProxyConfig: No changes needed
+    Note over UsersDB: nginx NOT affected by user addition<br/>(user addition only changes xray_config.json)
 
     Note over UserAction: Result: Alice can now connect via<br/>VLESS, SOCKS5, and HTTP
 ```
@@ -64,7 +62,7 @@ sequenceDiagram
     participant XrayConfig as xray_config.json
     participant Xray as Xray Container
 
-    Note over UserAction: Trigger: sudo vless set-proxy alice proxy-us
+    Note over UserAction: Trigger: sudo familytraffic set-proxy alice proxy-us
 
     UserAction->>UsersDB: Update users[alice].external_proxy_id = "proxy-us"
 
@@ -92,13 +90,15 @@ sequenceDiagram
 
 ---
 
-## Reverse Proxy Domain Addition Propagation
+## Reverse Proxy Domain Addition (REMOVED IN v5.33)
 
-### Add Domain → Multi-Service Configuration Update
+> **Note:** The reverse proxy feature (subdomain-based routing via `familytraffic-proxy add`) was **removed in v5.33**. The sequence below is preserved as historical reference only and does not reflect current behavior.
+
+### Add Domain → Multi-Service Configuration Update (pre-v5.33)
 
 ```mermaid
 sequenceDiagram
-    participant UserAction as Admin Action<br/>(vless-proxy add)
+    participant UserAction as Admin Action<br/>(familytraffic-proxy add)
     participant ReverseProxyDB as Reverse Proxy Database<br/>(in-memory)
     participant NginxConfig as Nginx Config<br/>app.example.com.conf
     participant HTTPContext as http_context.conf
@@ -106,7 +106,7 @@ sequenceDiagram
     participant Nginx as Nginx Container
     participant HAProxy as HAProxy Container
 
-    Note over UserAction: Trigger: sudo vless-proxy add
+    Note over UserAction: Trigger: sudo familytraffic-proxy add
 
     UserAction->>UserAction: Interactive wizard:<br/>- Domain: app.example.com<br/>- Target: https://backend:8443<br/>- OAuth2: No<br/>- WebSocket: No
 
@@ -119,11 +119,11 @@ sequenceDiagram
 
     Note over NginxConfig,Nginx: Propagation Step 2: Nginx Reload
 
-    NginxConfig->>Nginx: docker exec vless_nginx_reverseproxy nginx -t
+    NginxConfig->>Nginx: docker exec familytraffic nginx -t
     Nginx->>Nginx: Test configuration syntax
     Nginx-->>NginxConfig: ✓ Syntax OK
 
-    NginxConfig->>Nginx: docker exec vless_nginx_reverseproxy nginx -s reload
+    NginxConfig->>Nginx: docker exec familytraffic nginx -s reload
     Nginx->>Nginx: Graceful reload<br/>(load new server block)
     Nginx-->>NginxConfig: ✓ Config reloaded
 
@@ -156,16 +156,16 @@ sequenceDiagram
     participant ValidationScript as Validation Script
     participant Service as Service Container
 
-    Admin->>ConfigFile: Edit file directly:<br/>vi /opt/vless/config/xray_config.json
+    Admin->>ConfigFile: Edit file directly:<br/>vi /opt/familytraffic/config/xray_config.json
 
     Note over ConfigFile: Changes made:<br/>- Modified inbound port<br/>- Added new outbound
 
-    Admin->>ValidationScript: Validate changes:<br/>jq . /opt/vless/config/xray_config.json
+    Admin->>ValidationScript: Validate changes:<br/>jq . /opt/familytraffic/config/xray_config.json
 
     alt Validation Success
         ValidationScript-->>Admin: ✓ Valid JSON
 
-        Admin->>Service: Reload service:<br/>docker exec vless_xray kill -HUP $(pgrep xray)
+        Admin->>Service: Reload service:<br/>docker exec familytraffic kill -HUP $(pgrep xray)
         Service->>Service: Read configuration file
         Service->>Service: Apply changes
 
@@ -232,10 +232,8 @@ graph TB
 | Set user proxy | `xray_config.json` (routing) | Xray (SIGHUP) |
 | Add external proxy | `external_proxy.json` | None (until assigned to user) |
 | Assign proxy to user | `xray_config.json` (outbounds + routing) | Xray (SIGHUP) |
-| Add reverse proxy domain | `haproxy.cfg` + Nginx `*.conf` | HAProxy (-sf) + Nginx (-s reload) |
-| Remove reverse proxy domain | `haproxy.cfg` + Nginx `*.conf` | HAProxy (-sf) + Nginx (-s reload) |
-| Edit HAProxy config | `haproxy.cfg` | HAProxy (-sf) |
-| Edit Nginx config | Nginx `*.conf` | Nginx (-s reload) |
+| Add reverse proxy domain | REMOVED in v5.33 | REMOVED in v5.33 |
+| Edit nginx config | `nginx/nginx.conf` | nginx (-s reload, inside familytraffic) |
 | Edit Xray config | `xray_config.json` | Xray (SIGHUP) |
 
 ---
@@ -248,7 +246,7 @@ graph TB
 sequenceDiagram
     participant Admin1 as Admin #1<br/>(add-user alice)
     participant Admin2 as Admin #2<br/>(set-proxy bob proxy-us)
-    participant Lock as /var/lock/vless_users.lock
+    participant Lock as /var/lock/familytraffic_users.lock
     participant UsersJSON as users.json
     participant XrayConfig as xray_config.json
 
@@ -406,12 +404,12 @@ graph TB
 **Typical Update Durations:**
 - **Add User:** ~300ms total (mostly Xray reload)
 - **Set Proxy:** ~300ms total (Xray reload + routing update)
-- **Add Reverse Proxy:** ~200ms total (HAProxy + Nginx reload)
+- **nginx Config Edit:** ~100ms total (nginx -s reload)
 - **Direct Config Edit:** Depends on validation + reload (~100-500ms)
 
 **Downtime:**
 - **Xray Reload:** 0 seconds (graceful)
-- **HAProxy Reload:** 0 seconds (graceful)
+- **nginx Reload:** 0 seconds (graceful)
 - **Nginx Reload:** 0 seconds (graceful)
 
 ---
@@ -425,13 +423,13 @@ graph TB
 - **Fix:**
   ```bash
   # Check if lock file exists
-  ls -l /var/lock/vless_users.lock
+  ls -l /var/lock/familytraffic_users.lock
 
   # Check which process holds lock (if any)
-  lsof /var/lock/vless_users.lock
+  lsof /var/lock/familytraffic_users.lock
 
   # Force remove lock (use with caution!)
-  rm -f /var/lock/vless_users.lock
+  rm -f /var/lock/familytraffic_users.lock
   ```
 
 **Issue 2: Service fails to reload after config update**
@@ -439,13 +437,13 @@ graph TB
 - **Debug:**
   ```bash
   # Xray
-  docker exec vless_xray xray -test -config /etc/xray/config.json
+  docker exec familytraffic xray -test -config /etc/xray/config.json
 
   # HAProxy
-  docker exec vless_haproxy haproxy -c -f /etc/haproxy/haproxy.cfg
+  docker exec familytraffic haproxy -c -f /etc/haproxy/haproxy.cfg
 
   # Nginx
-  docker exec vless_nginx_reverseproxy nginx -t
+  docker exec familytraffic nginx -t
   ```
 
 **Issue 3: Changes not taking effect after reload**
@@ -453,13 +451,13 @@ graph TB
 - **Debug:**
   ```bash
   # Verify config file timestamp
-  ls -l /opt/vless/config/xray_config.json
+  ls -l /opt/familytraffic/config/xray_config.json
 
   # Check if service read new config
-  docker logs vless_xray --tail 20 | grep "config"
+  docker logs familytraffic --tail 20 | grep "config"
 
   # Force restart instead of reload
-  docker restart vless_xray
+  docker restart familytraffic
   ```
 
 ---
@@ -476,5 +474,5 @@ graph TB
 ---
 
 **Created:** 2026-01-07
-**Version:** v5.26
-**Status:** ✅ CURRENT
+**Version:** v5.33
+**Status:** UPDATED — HAProxy removed, reverse proxy removed, nginx inside familytraffic

@@ -51,31 +51,19 @@ detect_os() {
         return 1
     fi
 
-    # Source the os-release file to get variables
-    # Use a subshell to avoid polluting current environment with OS-specific variables
-    local os_info
-    # Note: Don't use 2>/dev/null as it hides important errors (e.g., readonly variable conflicts)
-    set +e  # Temporarily disable exit on error to capture actual error
-    os_info=$(source "${os_release_file}" && echo "${NAME}|${VERSION_ID}|${VERSION_CODENAME}|${ID}" 2>&1)
-    local source_exit=$?
-    set -e  # Re-enable exit on error
-
-    if [[ $source_exit -ne 0 ]]; then
-        echo -e "${RED}ERROR: Failed to source ${os_release_file}${NC}" >&2
-        echo -e "${RED}Details: $os_info${NC}" >&2
-        echo -e "${RED}This may indicate a conflict with existing shell variables${NC}" >&2
-        return 1
-    fi
+    # Parse os-release using grep/cut to avoid readonly variable conflicts
+    # (sourcing /etc/os-release in a subshell that inherits readonly vars like VERSION fails)
+    OS_NAME=$(grep "^NAME=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
+    OS_VERSION=$(grep "^VERSION_ID=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
+    OS_VERSION_CODENAME=$(grep "^VERSION_CODENAME=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
+    OS_ID=$(grep "^ID=" "${os_release_file}" | cut -d= -f2 | tr -d '"')
 
     # Check if we got valid output
-    if [[ -z "${os_info}" ]]; then
+    if [[ -z "${OS_NAME}" ]] && [[ -z "${OS_VERSION}" ]] && [[ -z "${OS_ID}" ]]; then
         echo -e "${RED}ERROR: Failed to parse ${os_release_file}${NC}" >&2
         echo -e "${RED}File may be malformed or empty${NC}" >&2
         return 1
     fi
-
-    # Split the output into variables
-    IFS='|' read -r OS_NAME OS_VERSION OS_VERSION_CODENAME OS_ID <<< "${os_info}"
 
     # Validate that we got all required fields
     if [[ -z "${OS_NAME}" ]] || [[ -z "${OS_VERSION}" ]] || [[ -z "${OS_ID}" ]]; then

@@ -2,6 +2,8 @@
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
 
+> **Примечание:** Большинство содержимого актуально. Раздел Dependencies обновлён: HAProxy удалён, добавлен mtg v2.2.3.
+
 ---
 
 ## 5. Implementation Details & Migration History
@@ -10,18 +12,20 @@
 - **[CHANGELOG.md](../../CHANGELOG.md)** - Detailed version history, breaking changes, migration guides
 - **[CLAUDE.md Section 8](../../CLAUDE.md#8-project-structure)** - Current implementation architecture (v4.3)
 
-**Current v4.3 Implementation Summary:**
-- **Config Generation:** Heredoc-based (lib/haproxy_config_manager.sh, lib/orchestrator.sh, lib/user_management.sh)
-- **TLS Termination:** HAProxy container (unified for all services)
-- **SNI Routing:** HAProxy frontend (port 443, NO TLS decryption for Reality)
-- **Proxy Ports:** HAProxy:1080/8118 (TLS) → Xray:10800/18118 (plaintext)
+**Current v1.1.5 Implementation Summary:**
+- **Config Generation:** Heredoc-based (lib/nginx_stream_generator.sh, lib/user_management.sh, lib/external_proxy_manager.sh)
+- **TLS Termination:** nginx inside single `familytraffic` container (supervisord-managed)
+- **SNI Routing:** nginx ssl_preread (port 443, TLS passthrough for VLESS Reality)
+- **Proxy Ports:** nginx:1080/8118 (TLS termination) → Xray:10800/18118 (plaintext)
 - **Reverse Proxy:** Subdomain-based (https://domain, NO port!), Nginx:9443-9452 (localhost-only)
 - **IP Whitelisting:** server-level via proxy_allowed_ips.json + Xray routing + optional UFW
 - **Client Configs:** 6 formats auto-generated with correct URI schemes (https://, socks5s://)
+- **MTProxy:** mtg v2.2.3 (optional, supervisord-managed, port 2053)
 
 **Architecture Evolution:**
-- **v4.3 (current):** HAProxy Unified (1 container, SNI routing + TLS termination, subdomain reverse proxy)
-- **v4.2 (planning):** Reverse proxy feature planning phase (see v4.3 for implementation)
+- **v1.1.5 (current):** Per-user SOCKS5/HTTP proxy auth; cert renewal improvements
+- **v1.1.0:** Single-container supervisord; nginx replaces HAProxy; MTProxy (mtg v2.2.3)
+- **v4.3 (legacy):** HAProxy Unified (removed in v1.1.0)
 - **v4.1:** Heredoc config generation + Proxy URI fix (envsubst removed)
 - **v4.0:** stunnel TLS termination architecture (deprecated in v4.3)
 
@@ -33,21 +37,21 @@
 - **[CLAUDE.md Section 15](../../CLAUDE.md#15-security--debug)** - Security Threat Matrix, Best Practices, Debug Commands
 - **[CHANGELOG.md](../../CHANGELOG.md)** - Historical security improvements (v3.2 → v3.3 TLS migration, v4.3 HAProxy unified)
 
-**Current v4.3 Security Posture:**
-- ✅ **TLS 1.3 Encryption:** HAProxy unified termination for all proxy connections (v4.3)
-- ✅ **SNI Routing Security:** NO TLS decryption for reverse proxy (TLS passthrough)
-- ✅ **Let's Encrypt Certificates:** Automated certificate management with auto-renewal (combined.pem format)
-- ✅ **32-Character Passwords:** Brute-force resistant credentials
-- ✅ **fail2ban Protection:** HAProxy + Nginx filters (automated IP banning after 5 failed attempts)
+**Current v1.1.5 Security Posture:**
+- ✅ **TLS 1.3 Encryption:** nginx TLS termination for all proxy connections (v1.1.0)
+- ✅ **SNI Routing Security:** NO TLS decryption for reverse proxy (nginx ssl_preread TLS passthrough)
+- ✅ **Let's Encrypt Certificates:** Automated certificate management with auto-renewal (certbot-cron inside container)
+- ✅ **32-Character Passwords + Per-user credentials:** Brute-force resistant (v1.1.5)
+- ✅ **fail2ban Protection:** Nginx + Xray filters (automated IP banning after 5 failed attempts)
 - ✅ **UFW Rate Limiting:** 10 connections/minute per IP on proxy ports
-- ✅ **DPI Resistance:** Reality protocol makes VPN traffic indistinguishable from HTTPS
+- ✅ **DPI Resistance:** Reality protocol + XTLS Vision makes VPN traffic indistinguishable from HTTPS
+- ✅ **MTProxy Active Probing Protection:** Cloak-port 4443 (loopback-only, nginx, LE cert)
 
-**v4.3 Security Improvements:**
-- ✅ **Unified HAProxy Architecture:** Single point of TLS termination (simpler attack surface)
-- ✅ **SNI Routing Without Decryption:** Reverse proxy traffic inspected without TLS termination
-- ✅ **combined.pem Format:** Consolidated certificate management (fullchain + privkey)
-- ✅ **Graceful HAProxy Reload:** Zero-downtime certificate updates (haproxy -sf)
-- ✅ **fail2ban HAProxy Integration:** Multi-layer protection (HAProxy + Nginx filters)
+**v1.1.0 Security Improvements (replaces v4.3 HAProxy):**
+- ✅ **Single-container architecture:** nginx ssl_preread SNI routing (no HAProxy)
+- ✅ **SNI Routing Without Decryption:** TLS passthrough via nginx ssl_preread
+- ✅ **nginx reload:** Zero-downtime certificate updates (supervisorctl)
+- ✅ **Per-user proxy auth:** Unique credentials per user (v1.1.5)
 
 ---
 
@@ -276,21 +280,21 @@ Integrated fail2ban for automated IP banning after failed authentication attempt
 
 **fail2ban Configuration (v4.3 - HAProxy Filter):**
 ```ini
-[vless-haproxy]
+[familytraffic]
 enabled = true
 port = 443
 filter = haproxy-sni
-logpath = /opt/vless/logs/haproxy/haproxy.log
+logpath = /opt/familytraffic/logs/haproxy/haproxy.log
 maxretry = 5           # 5 failed attempts
 bantime = 3600         # 1 hour ban
 findtime = 600         # Within 10 minutes
 action = ufw           # Block via UFW firewall
 
-[vless-reverse-proxy-nginx]
+[familytraffic-reverse-proxy-nginx]
 enabled = true
 port = 443
-filter = vless-reverse-proxy
-logpath = /opt/vless/logs/nginx/reverse-proxy-error.log
+filter = familytraffic-reverse-proxy
+logpath = /opt/familytraffic/logs/nginx/reverse-proxy-error.log
 maxretry = 5
 bantime = 3600
 findtime = 600
@@ -303,7 +307,7 @@ action = ufw
 # Match HAProxy frontend rejections
 failregex = ^.* haproxy\[[0-9]+\]: .* client=<HOST>:.* backend=<NONE> .*$
 
-# /etc/fail2ban/filter.d/vless-reverse-proxy.conf
+# /etc/fail2ban/filter.d/familytraffic-reverse-proxy.conf
 # Match HTTP 401 Unauthorized (auth failure)
 failregex = ^.* "401" .* "https://[^"]+.*" .*$
 ```
@@ -364,27 +368,27 @@ failregex = ^.* "401" .* "https://[^"]+.*" .*$
      openssl x509 -in "$cert" -noout -enddate
    done
 
-   # Verify combined.pem for HAProxy
-   openssl x509 -in /opt/vless/certs/combined.pem -noout -enddate
+   # NOTE: combined.pem удалён в v1.1.0 (HAProxy removed). nginx использует fullchain.pem + privkey.pem напрямую.
+   # openssl x509 -in /etc/letsencrypt/live/<DOMAIN>/fullchain.pem -noout -enddate  # уже охвачено выше
    ```
 
 2. **fail2ban Ban Rate Monitoring**
    ```bash
    # Check banned IPs for HAProxy and Nginx
-   sudo fail2ban-client status vless-haproxy
-   sudo fail2ban-client status vless-reverse-proxy-nginx
+   sudo fail2ban-client status familytraffic
+   sudo fail2ban-client status familytraffic-reverse-proxy-nginx
    ```
 
 3. **Rate Limit Hit Rate**
    ```bash
    # Count rate limit events in error log
-   grep -c "limiting requests" /opt/vless/logs/nginx/reverse-proxy-error.log
+   grep -c "limiting requests" /opt/familytraffic/logs/nginx/reverse-proxy-error.log
    ```
 
 4. **VULN-001 Attack Attempts**
    ```bash
    # Count Host header mismatches (HTTP 444 responses)
-   grep -c "Host header mismatch" /opt/vless/logs/nginx/reverse-proxy-error.log
+   grep -c "Host header mismatch" /opt/familytraffic/logs/nginx/reverse-proxy-error.log
    ```
 
 5. **HAProxy Health (NEW v4.3)**
@@ -393,7 +397,7 @@ failregex = ^.* "401" .* "https://[^"]+.*" .*$
    curl -s http://localhost:9000/stats | grep -E 'UP|DOWN'
 
    # Monitor HAProxy logs for routing errors
-   tail -f /opt/vless/logs/haproxy/haproxy.log | grep -E 'error|reject'
+   tail -f /opt/familytraffic/logs/haproxy/haproxy.log | grep -E 'error|reject'
    ```
 
 ---
@@ -482,27 +486,29 @@ The following are explicitly NOT included:
 
 **Quick Summary (v4.3):**
 
-**Container Images:**
-- xray: `teddysun/xray:24.11.30` (Xray-core VPN/Proxy)
-- haproxy: `haproxy:latest` (Unified TLS termination & SNI routing, NEW v4.3)
-- nginx: `nginx:alpine` (Reverse proxy backends, ports 9443-9452)
+**Container Images (v1.1.0+):**
+- Final image base: `nginx:alpine` + supervisord + certbot + xray + mtg (single container `familytraffic`)
+- xray binary: sourced from `teddysun/xray:24.11.30` in multi-stage build (not a runtime container)
+- mtg v2.2.3 (`9seconds/mtg`): MTProxy binary, optional supervisord process
+- supervisord: process manager inside the container (xray, nginx, certbot-cron, mtg)
 
-**REMOVED from v4.3:**
-- ❌ stunnel: `dweomer/stunnel:latest` (DEPRECATED, replaced by HAProxy)
+**REMOVED:**
+- ❌ haproxy: `haproxy:latest` (REMOVED in v1.1.0, replaced by nginx ssl_preread)
+- ❌ stunnel: `dweomer/stunnel:latest` (DEPRECATED, replaced by HAProxy in v4.3, then removed entirely)
 
 **System Requirements:**
 - Ubuntu 20.04+ / Debian 10+ (primary support)
 - Docker 20.10+
 - Docker Compose v2.0+
 - UFW firewall (auto-installed)
-- haproxy package (if standalone deployment)
+- ~~haproxy package~~ (REMOVED in v1.1.0)
 
 **Tools:**
 - bash 4.0+
 - jq 1.5+ (JSON processing)
 - openssl (system default)
 - certbot (Let's Encrypt certificates)
-- fail2ban (brute-force protection, HAProxy + Nginx filters)
+- fail2ban (brute-force protection, nginx + Xray filters)
 
 **Lib Files (v4.3):**
 - `lib/haproxy_config_manager.sh` (NEW v4.3, replaces lib/stunnel_setup.sh)
@@ -515,6 +521,8 @@ The following are explicitly NOT included:
 
 ## 12. Rollback & Troubleshooting
 
+> **v1.1.0+ Note:** Single-container architecture. To stop/restart processes use `supervisorctl stop [process]` inside the container, or `docker compose down` / `docker compose up -d` for the entire `familytraffic` container. There is no separate HAProxy container to stop.
+
 **For rollback procedures, troubleshooting guides, and common failure points, see:**
 - **[CLAUDE.md Section 11](../../CLAUDE.md#11-common-failure-points--solutions)** - Issue detection, solutions, debug workflows
 - **[CHANGELOG.md](../../CHANGELOG.md)** - Historical rollback scenarios (v3.2 → v3.3, v3.5 → v3.6, v4.2 → v4.3)
@@ -522,7 +530,7 @@ The following are explicitly NOT included:
 ### v5.21 Known Issues & Fixes
 
 **Issue 1: Ports not freed after reverse proxy removal (FIXED in v5.21)**
-- **Symptom:** After `vless-proxy remove`, port remains bound, re-add fails with "port occupied"
+- **Symptom:** After `familytraffic-proxy remove`, port remains bound, re-add fails with "port occupied"
 - **Root Cause:** `get_current_nginx_ports()` used `grep -A 20`, but ports section at line 21+
 - **Fix:** `lib/docker_compose_generator.sh:334` - Changed `grep -A 20` → `grep -A 30`
 - **Impact:** Ports now correctly freed after removal, can re-add immediately
@@ -536,9 +544,9 @@ The following are explicitly NOT included:
 **Verification:**
 ```bash
 # Test port cleanup
-sudo vless-proxy remove <domain>
+sudo familytraffic-proxy remove <domain>
 docker ps | grep 9443  # Should be empty
-sudo vless-proxy add   # Re-add should work without "port occupied" error
+sudo familytraffic-proxy add   # Re-add should work without "port occupied" error
 
 # Test silent reload
 # No timeout warnings during add/remove operations
@@ -572,7 +580,7 @@ sudo vless-proxy add   # Re-add should work without "port occupied" error
 - **Root Cause:** `docker exec` reads config through OLD HAProxy process (graceful reload timeout 10s)
 - **Detection:** Validation executes at T+2s, but old process still active (hasn't reloaded config yet)
 - **Fix:** `lib/validation.sh:76, 90, 230`
-  - Check ACL on HOST file (`/opt/vless/config/haproxy.cfg`) instead of container
+  - Check ACL on HOST file (`/opt/familytraffic/config/haproxy.cfg`) instead of container
   - Added 2s stabilization delay before all validation checks
   - Apply same fix to `validate_reverse_proxy_removed()`
 - **Impact:** Validation reliability 100% (was ~30% during reload with active VPN connections)
@@ -601,21 +609,21 @@ curl -k https://your-domain.com  # Should get 401, NOT 404
 curl -k -u "username:password" https://your-domain.com  # Should work
 
 # Issue 7: Test SNI routing validation
-sudo vless-proxy add  # Should pass validation with SNI
+sudo familytraffic-proxy add  # Should pass validation with SNI
 
 # Issue 8: Test validation during active VPN connections
 # Start VPN connection, then add proxy
-sudo vless-proxy add  # Should pass validation (no race condition)
+sudo familytraffic-proxy add  # Should pass validation (no race condition)
 
 # Issue 9: Test fail2ban with last proxy removal
-sudo vless-proxy list  # If only 1 proxy
-sudo vless-proxy remove <domain>
-sudo cat /etc/fail2ban/jail.d/vless-reverseproxy.conf  # enabled = false
+sudo familytraffic-proxy list  # If only 1 proxy
+sudo familytraffic-proxy remove <domain>
+sudo cat /etc/fail2ban/jail.d/familytraffic-reverseproxy.conf  # enabled = false
 
 # Issue 10: Test port range validation
-sudo vless-proxy add  # Create 2 proxies (ports 9443, 9444)
-docker ps | grep vless_nginx  # Should show 127.0.0.1:9443-9444
-sudo vless-proxy add  # Validation should pass for port 9444
+sudo familytraffic-proxy add  # Create 2 proxies (ports 9443, 9444)
+docker ps | grep familytraffic  # Should show familytraffic: Up
+sudo familytraffic-proxy add  # Validation should pass for port 9444
 ```
 
 **Related v5.22 Improvements:**
@@ -631,7 +639,7 @@ sudo vless-proxy add  # Validation should pass for port 9444
 - **Symptom:** User enters "y", "yes", "n", "no" as TLS Server Name → Xray config invalid → connection fails
 - **Root Cause:** No validation on TLS Server Name input, prompts confusing (users typing confirmation instead of domain)
 - **Security Impact:** MEDIUM - Misconfiguration blocks proxy connectivity (service disruption)
-- **Fix:** `scripts/vless-external-proxy:192-208, 260-265`
+- **Fix:** `scripts/familytraffic-external-proxy:192-208, 260-265`
   - Added `validate_server_name()` function: FQDN/IP format validation
   - Rejects invalid inputs: "y", "yes", "n", "no", single words without dot
   - Clear prompt: "Press ENTER to use the proxy address [proxy.example.com]"
@@ -642,7 +650,7 @@ sudo vless-proxy add  # Validation should pass for port 9444
 - **Symptom:** Users forget to activate proxy after `add` (forget switch/enable/restart steps)
 - **Root Cause:** Multi-step activation (add → switch → enable → restart) error-prone
 - **UX Impact:** HIGH - Poor first-time experience, 30% users fail to activate
-- **Fix:** `scripts/vless-external-proxy:335-365`
+- **Fix:** `scripts/familytraffic-external-proxy:335-365`
   - Auto-activation offer after successful test: "Do you want to activate this proxy now? [Y/n]:"
   - Atomic operation: switch + enable + restart in one step
   - Default behavior: Y (immediate activation)
@@ -651,18 +659,18 @@ sudo vless-proxy add  # Validation should pass for port 9444
 **Verification:**
 ```bash
 # Issue 11: Test TLS Server Name validation
-sudo vless-external-proxy add
+sudo familytraffic-external-proxy add
 # Enter TLS Server Name: y
 # Expected: "Invalid server name. Expected FQDN (e.g., proxy.example.com) or IP address"
 # Enter TLS Server Name: proxy.example.com
 # Expected: Validation passes
 
 # Issue 12: Test auto-activation workflow
-sudo vless-external-proxy add
+sudo familytraffic-external-proxy add
 # After successful test: "Do you want to activate this proxy now? [Y/n]:"
 # Press ENTER or Y
 # Expected: Proxy activated immediately, routing enabled, Xray restarted
-sudo vless-external-proxy status
+sudo familytraffic-external-proxy status
 # Expected: Shows proxy as active and enabled
 ```
 
@@ -677,30 +685,30 @@ sudo vless-external-proxy status
 **Steps:**
 ```bash
 # 1. Backup current state
-sudo cp /opt/vless/config/haproxy.cfg /tmp/haproxy.cfg.v4.3.backup
-sudo cp /opt/vless/config/reverse-proxies.json /tmp/reverse-proxies.json.backup
+sudo cp /opt/familytraffic/config/haproxy.cfg /tmp/haproxy.cfg.v4.3.backup
+sudo cp /opt/familytraffic/config/reverse-proxies.json /tmp/reverse-proxies.json.backup
 
 # 2. Stop containers
-cd /opt/vless
+cd /opt/familytraffic
 sudo docker-compose down
 
 # 3. Restore v4.2 docker-compose.yml (with stunnel service)
-sudo cp /opt/vless/backups/docker-compose.yml.v4.2 /opt/vless/docker-compose.yml
+sudo cp /opt/familytraffic/backups/docker-compose.yml.v4.2 /opt/familytraffic/docker-compose.yml
 
 # 4. Restore v4.2 configs
-sudo cp /opt/vless/backups/stunnel.conf.v4.2 /opt/vless/config/stunnel.conf
-sudo cp /opt/vless/backups/haproxy.cfg.v4.2 /opt/vless/config/haproxy.cfg
+sudo cp /opt/familytraffic/backups/stunnel.conf.v4.2 /opt/familytraffic/config/stunnel.conf
+sudo cp /opt/familytraffic/backups/haproxy.cfg.v4.2 /opt/familytraffic/config/haproxy.cfg
 
 # 5. Update reverse proxy URLs (add port numbers)
 # https://domain → https://domain:8443
-sudo vless-proxy migrate-urls --from-v4.3 --to-v4.2
+sudo familytraffic-proxy migrate-urls --from-v4.3 --to-v4.2
 
 # 6. Start containers
 sudo docker-compose up -d
 
 # 7. Verify
 sudo vless-status
-sudo vless-proxy list
+sudo familytraffic-proxy list
 ```
 
 **Data Preserved:**
@@ -721,7 +729,7 @@ sudo vless-proxy list
 # Before (v4.3): https://claude.ikeniborn.ru
 # After (v4.2):  https://claude.ikeniborn.ru:8443
 
-sudo vless-proxy migrate-urls --add-ports
+sudo familytraffic-proxy migrate-urls --add-ports
 ```
 
 **v4.2 → v4.3 Migration:** Remove port numbers
@@ -729,7 +737,7 @@ sudo vless-proxy migrate-urls --add-ports
 # Before (v4.2): https://claude.ikeniborn.ru:8443
 # After (v4.3):  https://claude.ikeniborn.ru
 
-sudo vless-proxy migrate-urls --remove-ports
+sudo familytraffic-proxy migrate-urls --remove-ports
 ```
 
 **Quick Debug Commands (v4.3):**
@@ -738,14 +746,14 @@ sudo vless-proxy migrate-urls --remove-ports
 # System Status
 sudo vless-status                    # Full system status (includes HAProxy info)
 docker ps                            # Check container health
-docker logs vless-haproxy            # HAProxy logs (unified)
-docker logs vless_xray               # Xray proxy logs
-docker logs vless_reverse_proxy_nginx # Nginx reverse proxy logs
+docker logs familytraffic            # HAProxy logs (unified)
+docker logs familytraffic               # Xray proxy logs
+docker logs familytraffic # Nginx reverse proxy logs
 
 # Config Validation
-jq . /opt/vless/config/xray_config.json      # Validate Xray JSON syntax
-cat /opt/vless/config/haproxy.cfg | grep -E 'frontend|backend|acl' # HAProxy structure
-docker exec vless-haproxy haproxy -c -f /etc/haproxy/haproxy.cfg  # Validate HAProxy config
+jq . /opt/familytraffic/config/xray_config.json      # Validate Xray JSON syntax
+cat /opt/familytraffic/config/haproxy.cfg | grep -E 'frontend|backend|acl' # HAProxy structure
+docker exec familytraffic haproxy -c -f /etc/haproxy/haproxy.cfg  # Validate HAProxy config
 
 # Network Tests
 sudo ss -tulnp | grep -E '443|1080|8118|9443' # Check listening ports
@@ -758,27 +766,27 @@ curl -s http://localhost:9000/stats | grep -E 'UP|DOWN'  # HAProxy stats page
 echo "show stat" | socat stdio /var/run/haproxy.sock     # HAProxy socket stats
 
 # External Proxy Debug (v5.33)
-sudo vless-external-proxy status                          # External proxy status
-sudo vless-external-proxy list                            # List all configured proxies
-sudo vless-external-proxy test <proxy-id>                 # Test specific proxy connection
-jq . /opt/vless/config/external_proxy.json                # Validate external proxy database
-jq '.routing' /opt/vless/config/xray_config.json          # Check Xray routing rules
+sudo familytraffic-external-proxy status                          # External proxy status
+sudo familytraffic-external-proxy list                            # List all configured proxies
+sudo familytraffic-external-proxy test <proxy-id>                 # Test specific proxy connection
+jq . /opt/familytraffic/config/external_proxy.json                # Validate external proxy database
+jq '.routing' /opt/familytraffic/config/xray_config.json          # Check Xray routing rules
 # Test TLS Server Name validation (v5.33)
-grep -A 10 "validate_server_name" /opt/vless/scripts/vless-external-proxy
+grep -A 10 "validate_server_name" /opt/familytraffic/scripts/familytraffic-external-proxy
 # Check auto-activation workflow (v5.33)
-grep -A 20 "Do you want to activate this proxy now" /opt/vless/scripts/vless-external-proxy
+grep -A 20 "Do you want to activate this proxy now" /opt/familytraffic/scripts/familytraffic-external-proxy
 
 # Security Tests
-sudo vless test-security             # Run comprehensive security test suite
-sudo vless test-security --quick     # Quick mode (skip long tests)
+sudo familytraffic test-security             # Run comprehensive security test suite
+sudo familytraffic test-security --quick     # Quick mode (skip long tests)
 
 # Certificate Tests
-openssl x509 -in /opt/vless/certs/combined.pem -noout -text  # Verify combined.pem
-openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /opt/vless/certs/combined.pem
+openssl x509 -in /opt/familytraffic/certs/combined.pem -noout -text  # Verify combined.pem
+openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /opt/familytraffic/certs/combined.pem
 
 # fail2ban Tests
-sudo fail2ban-client status vless-haproxy       # HAProxy jail status
-sudo fail2ban-client status vless-reverse-proxy-nginx  # Nginx jail status
+sudo fail2ban-client status familytraffic       # HAProxy jail status
+sudo fail2ban-client status familytraffic-reverse-proxy-nginx  # Nginx jail status
 ```
 
 ---
@@ -831,10 +839,10 @@ sudo fail2ban-client status vless-reverse-proxy-nginx  # Nginx jail status
 
 ### 14.4 Workflow Artifacts
 
-- Phase 1: `/home/ikeniborn/Documents/Project/vless/workflow/phase1_technical_analysis.xml`
-- Phase 2: `/home/ikeniborn/Documents/Project/vless/workflow/phase2_requirements_specification.xml`
-- Phase 3: `/home/ikeniborn/Documents/Project/vless/workflow/phase3_unified_understanding.xml`
-- User Responses: `/home/ikeniborn/Documents/Project/vless/workflow/phase1_user_responses.xml`
+- Phase 1: `/home/ikeniborn/Documents/Project/familyTraffic/workflow/phase1_technical_analysis.xml`
+- Phase 2: `/home/ikeniborn/Documents/Project/familyTraffic/workflow/phase2_requirements_specification.xml`
+- Phase 3: `/home/ikeniborn/Documents/Project/familyTraffic/workflow/phase3_unified_understanding.xml`
+- User Responses: `/home/ikeniborn/Documents/Project/familyTraffic/workflow/phase1_user_responses.xml`
 
 ### 14.5 v4.3 Specific References
 
