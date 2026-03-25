@@ -820,6 +820,13 @@ EOF
         fi
     fi
 
+    # Repopulate proxy accounts from users.json to prevent open proxy access.
+    # xray HTTP inbound has no "auth" flag — empty accounts = no auth required.
+    # This sync ensures accounts survive config regeneration (reinstall, setup).
+    if [[ "$enable_proxy" == "true" ]] && declare -f rebuild_proxy_accounts_from_users_json >/dev/null 2>&1; then
+        rebuild_proxy_accounts_from_users_json || log_warning "Proxy accounts rebuild failed (non-critical, re-run 'familytraffic setup' if proxy auth is broken)"
+    fi
+
     echo -e "${GREEN}✓ Xray configuration created${NC}"
     return 0
 }

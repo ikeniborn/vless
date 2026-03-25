@@ -1013,6 +1013,50 @@ update_proxy_accounts() {
 }
 
 # =============================================================================
+# FUNCTION: rebuild_proxy_accounts_from_users_json
+# =============================================================================
+# Description: Rebuild SOCKS5 and HTTP proxy accounts in Xray config from users.json.
+#              Called after xray config (re)generation to prevent open proxy access.
+#              Root cause fix: xray HTTP inbound has no "auth" flag — empty accounts
+#              means no auth required. This function ensures accounts stay in sync.
+# Arguments: none
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+rebuild_proxy_accounts_from_users_json() {
+    if [[ ! -f "${USERS_JSON}" ]]; then
+        log_info "users.json not found, skipping proxy accounts rebuild"
+        return 0
+    fi
+
+    if ! jq -e '.inbounds[] | select(.tag == "socks5-proxy")' "${XRAY_CONFIG}" >/dev/null 2>&1; then
+        log_info "Proxy inbounds not in config, skipping accounts rebuild"
+        return 0
+    fi
+
+    local proxy_accounts
+    proxy_accounts=$(jq '[.users[]
+        | select(.proxy_password != null and .proxy_password != "")
+        | {user: .username, pass: .proxy_password}
+    ]' "${USERS_JSON}" 2>/dev/null || echo "[]")
+
+    local tmp
+    tmp=$(mktemp)
+    if ! jq --argjson accs "$proxy_accounts" \
+       '(.inbounds[] | select(.tag == "socks5-proxy" or .tag == "http-proxy")
+        | .settings.accounts) = $accs' \
+       "${XRAY_CONFIG}" > "$tmp"; then
+        rm -f "$tmp"
+        log_error "Failed to rebuild proxy accounts from users.json"
+        return 1
+    fi
+    mv "$tmp" "${XRAY_CONFIG}"
+
+    local count
+    count=$(echo "$proxy_accounts" | jq 'length')
+    log_success "Proxy accounts rebuilt from users.json: $count user(s)"
+}
+
+# =============================================================================
 # FUNCTION: remove_proxy_accounts
 # =============================================================================
 # Description: Remove user from SOCKS5 and HTTP proxy accounts in Xray config
@@ -3026,6 +3070,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_user_from_json
     export -f add_client_to_xray
     export -f remove_client_from_xray
+    export -f rebuild_proxy_accounts_from_users_json
     export -f remove_proxy_accounts
     export -f apply_per_user_routing
     export -f reload_xray
