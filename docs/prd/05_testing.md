@@ -2,11 +2,15 @@
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
 
+> **Примечание:** Тест-кейсы актуальны. HAProxy тесты (если есть) заменены nginx-тестами. Используй `sudo familytraffic` вместо `sudo vless-user` в командах.
+
 ---
 
 ## 7. Testing Requirements
 
-### 7.0 v4.3 Automated Test Suite (NEW)
+### 7.0 v4.3 Automated Test Suite (LEGACY — HAProxy architecture)
+
+> ⚠️ **LEGACY:** Тест-кейсы 01–03 написаны под HAProxy-архитектуру (удалена в v1.1.0). Они проверяют HAProxy-контейнер, combined.pem, haproxy -sf — которых больше нет. Актуальные тесты: `TC-MTPROXY-01`, `TC-PERUSER-PROXY-01` (в конце файла) + `tests/unit/` BATS-тесты.
 
 **Test Suite Version:** 5.33.0 (Enhanced with External Proxy validation)
 **Coverage:** 6 test cases (3 automated with v5.33 enhancements, 3 production-only)
@@ -911,6 +915,34 @@ sudo fail2ban-client status familytraffic
 # - HAProxy logs parsed by fail2ban filter
 # - UFW rule added to block IP
 ```
+
+---
+
+## TC-MTPROXY-01 — MTProxy Connectivity Test
+
+**Version:** v1.1.0+
+**Type:** Integration
+
+**Steps:**
+1. `sudo familytraffic-mtproxy setup --fake-domain www.google.com`
+2. `sudo familytraffic-mtproxy status` -> should show running
+3. `nc -zv localhost 2053` -> should connect
+4. Open tg://proxy?... deep link in Telegram application -> proxy should connect
+
+**Expected:** MTProxy is active, port 2053 is accessible, Telegram connects.
+
+## TC-PERUSER-PROXY-01 — Per-User Proxy Auth Test
+
+**Version:** v1.1.5+
+**Type:** Integration
+
+**Steps:**
+1. `sudo familytraffic add-user alice`
+2. `sudo familytraffic show-user alice` -> shows credentials
+3. `curl -x socks5h://[CREDENTIALS]@server:1080 https://ifconfig.me` -> returns server IP
+4. `curl -x https://[CREDENTIALS]@server:8118 https://ifconfig.me` -> returns server IP
+
+**Expected:** Each user has unique credentials; invalid credentials are rejected.
 
 ---
 

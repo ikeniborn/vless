@@ -71,16 +71,16 @@
 **Версия:** v5.24
 **Протокол:** VLESS + Reality (Xray-core 24.11.30)
 **Транспорт:** TCP only
-**Порт:** 443 (через HAProxy SNI passthrough)
+**Порт:** 443 (через nginx ssl_preread SNI passthrough)
 
 ```
 Клиент (Reality Client)
     │
     │ TCP:443 → ClientHello (маскировка под HTTPS к dest-домену)
     ▼
-HAProxy (familytraffic)
+nginx (familytraffic, ssl_preread)
     │ SNI passthrough (NO TLS termination для Reality)
-    │ ACL: req_ssl_sni -i vless.example.com → backend xray_vless
+    │ ssl_preread_server_name = vless.example.com → 127.0.0.1:8443
     ▼
 Xray (familytraffic, port 8443)
     │ Reality handshake: X25519 ECDH + uTLS fingerprint
@@ -139,16 +139,16 @@ Reality — это эволюция TLS-камуфляжа, разработан
 
 ### 2.4 Текущие ограничения
 
-> **Актуальность:** Проверено SSH на живом сервере `ikenibornvpn` 2026-02-23. Xray `teddysun/xray:24.11.30`, HAProxy v4.3 (2025-10-31). 7 пользователей.
+> **Актуальность:** Проверено SSH на живом сервере `ikenibornvpn` 2026-02-23. Xray `teddysun/xray:24.11.30`. Обновлено 2026-03-25 с учётом v1.1.0 (nginx single-container architecture, Tier 2 implemented).
 
 | Ограничение | Описание | Критичность | Статус |
 |-------------|---------|-------------|--------|
-| TCP-only transport | `streamSettings.network` = "tcp" — единственный транспорт Reality | Средняя | 🔴 Актуально (Tier 2) |
-| ~~XTLS Vision не включён~~ | ~~`flow: "xtls-rprx-vision"` отсутствует у клиентов~~ | ~~Низкая~~ | ✅ **ЗАКРЫТО** — `flow: "xtls-rprx-vision"` активен у ВСЕХ 7 пользователей |
-| Нет CDN-совместимости | Reality не работает через Cloudflare и большинство CDN | Средняя | 🔴 Актуально (Tier 2) |
-| UDP не поддерживается | HAProxy и текущая архитектура — TCP only | Высокая | 🔴 Актуально (Tier 3) |
-| Единственный inbound | Один режим подключения — точка отказа при блокировке Reality | Средняя | 🔴 Актуально (Tier 2) |
-| Нет Nginx-контейнера | `familytraffic-nginx` не задеплоен (reverse proxy отключён) | Средняя | 🔴 Актуально — нужен `familytraffic-nginx_tier2` для Tier 2 |
+| ~~TCP-only transport~~ | ~~`streamSettings.network` = "tcp" — единственный транспорт Reality~~ | ~~Средняя~~ | ✅ **ЗАКРЫТО** — Tier 2 (WS/XHTTP/gRPC) реализован в v1.1.0 (порты 8444-8446) |
+| ~~XTLS Vision не включён~~ | ~~`flow: "xtls-rprx-vision"` отсутствует у клиентов~~ | ~~Низкая~~ | ✅ **ЗАКРЫТО** — `flow: "xtls-rprx-vision"` активен у ВСЕХ пользователей (v5.24+) |
+| Нет CDN-совместимости | Reality не работает через Cloudflare и большинство CDN | Средняя | Частично закрыто — Tier 2 (WS/XHTTP/gRPC) добавляет CDN-совместимость (v1.1.0) |
+| UDP не поддерживается | nginx stream module и текущая архитектура — TCP only | Высокая | 🔴 Актуально (Tier 3) |
+| ~~Единственный inbound~~ | ~~Один режим подключения — точка отказа при блокировке Reality~~ | ~~Средняя~~ | ✅ **ЗАКРЫТО** — Tier 2 транспорты добавлены в v1.1.0 (WS/XHTTP/gRPC) |
+| ~~Нет Nginx-контейнера~~ | ~~`familytraffic-nginx` не задеплоен~~ | ~~Средняя~~ | ✅ **ЗАКРЫТО** — nginx интегрирован в единый контейнер `familytraffic` (v1.1.0) |
 
 ---
 
@@ -521,19 +521,20 @@ uri+="&flow=xtls-rprx-vision"
 ### 5.5 Архитектурные ограничения
 
 ```
-ТЕКУЩАЯ АРХИТЕКТУРА:
+ТЕКУЩАЯ АРХИТЕКТУРА (v1.1.0+):
 ┌─────────────────────────────────────────────────────────┐
-│ HAProxy (TCP only, mode tcp)                            │
+│ nginx (ssl_preread, stream module)                      │
 │  Port 443: SNI passthrough → Xray Reality (TCP:8443)   │
+│            SNI routing → Tier 2 nginx proxy (8448)     │
 │  Port 1080: TLS term → Xray SOCKS5 (TCP:10800)         │
 │  Port 8118: TLS term → Xray HTTP (TCP:18118)           │
 └─────────────────────────────────────────────────────────┘
 
 ОГРАНИЧЕНИЯ:
-  ✗ HAProxy не маршрутизирует UDP → Hysteria2/TUIC невозможен без bypass
-  ✗ mode tcp на порту 443 конфликтует с mode http (нужен для gRPC)
+  ✗ nginx stream module не маршрутизирует UDP → Hysteria2/TUIC невозможен без bypass
   ✗ Все инбаунды share порт 443 через SNI → новые транспорты нужны на новых портах
      (или отдельные subdomains через SNI)
+  ✓ Tier 2 (WS/XHTTP/gRPC) — реализовано через nginx ssl_preread → Tier 2 nginx proxy
 ```
 
 ---
@@ -544,11 +545,11 @@ uri+="&flow=xtls-rprx-vision"
 
 | ID | Риск | Severity | Mitigation |
 |----|------|----------|-----------|
-| **R1** | Новые инбаунды (WS, gRPC) требуют новых Docker-портов и HAProxy изменений | Medium | Использовать SNI-subdomain routing: `ws.domain → Xray WebSocket backend`. Один HAProxy frontend на порту 443 маршрутизирует по SNI к разным backends. |
-| **R2** | Hysteria2/TUIC требуют UDP — несовместимы с HAProxy TCP-архитектурой | High | Отдельный контейнер с прямым UDP port exposure (bypass HAProxy). Аналогично MTProxy pattern (`lib/mtproxy_manager.sh`). |
+| **R1** | Новые инбаунды (WS, gRPC) требуют nginx конфигурационных изменений | Medium | Использовать SNI-subdomain routing: `ws.domain → Xray WebSocket backend`. nginx ssl_preread на порту 443 маршрутизирует по SNI к разным backends. Реализовано в v1.1.0 через nginx Tier 2 proxy. |
+| **R2** | Hysteria2/TUIC требуют UDP — несовместимы с nginx stream (TCP-only) | High | Отдельный процесс/контейнер с прямым UDP port exposure (bypass nginx). Аналогично MTProxy pattern (`lib/mtproxy_manager.sh`) — **MTProxy уже реализован** как opt-in в v1.1.0. |
 | **R3** | SingBox как замена Xray потребует полной переработки конфигурационных модулей | High | Реализовывать SingBox как **параллельный** контейнер, не замену. Пользователь выбирает: Xray (Reality) ИЛИ SingBox (multi-protocol). |
-| **R4** | WebSocket на порту 443 конфликтует с Reality SNI passthrough | Medium | Subdomain routing: `vless.domain → Reality/Xray`, `ws.domain → WebSocket/Xray`. Оба через HAProxy SNI ACL. |
-| **R5** | gRPC требует HTTP/2 и HAProxy `mode http`, несовместимо с текущим `mode tcp` на порту 443 | Medium | gRPC inbound на отдельном порту (8444) с отдельным HAProxy frontend в `mode http`. ИЛИ gRPC через Nginx reverse proxy (добавить backend в `familytraffic-nginx`). |
+| **R4** | WebSocket на порту 443 конфликтует с Reality SNI passthrough | Medium | Subdomain routing: `vless.domain → Reality/Xray`, `ws.domain → WebSocket/Xray`. Оба через nginx ssl_preread SNI. Реализовано в v1.1.0. |
+| **R5** | gRPC требует HTTP/2, несовместимо с режимом ssl_preread на порту 443 | Medium | gRPC inbound на отдельном порту (8446), nginx Tier 2 proxy терминирует TLS и передаёт plaintext gRPC в xray. Реализовано в v1.1.0. |
 | ~~**R6**~~ | ~~GFW детектирует VLESS+Reality по timing analysis (без XTLS Vision)~~ | ~~Low~~ | ✅ **ЗАКРЫТ** — `flow: "xtls-rprx-vision"` активен у всех пользователей (подтверждено SSH 2026-02-23) |
 
 ### 6.2 Операционные риски
@@ -728,23 +729,19 @@ sudo familytraffic remove-transport ws
 **Риск:** Высокий (новая архитектура, UDP exposure)
 **Влияние:** Очень высокое (плохие сети, Китай)
 
-**Архитектура:** По образцу MTProxy (`lib/mtproxy_manager.sh` + `docker/mtproxy/`):
+**Архитектура:** По образцу MTProxy — ✅ **РЕАЛИЗОВАН** в v1.1.0 как opt-in supervisord процесс (`lib/mtproxy_manager.sh`, mtg v2.2.3, порт 2053).
+Hysteria2/TUIC реализовать аналогично: opt-in supervisord процесс с прямым UDP exposure (bypass nginx stream).
 
 ```
 Новые файлы:
-  lib/hysteria2_manager.sh        # Управление Hysteria2 контейнером
-  lib/tuic_manager.sh             # Управление TUIC контейнером
-  docker/hysteria2/               # Dockerfile + entrypoint
-  docker/tuic/                    # Dockerfile + entrypoint
-  scripts/vless-hysteria2         # CLI для Hysteria2
-  scripts/vless-tuic              # CLI для TUIC
+  lib/hysteria2_manager.sh        # Управление Hysteria2 процессом (как mtproxy_manager.sh)
+  lib/tuic_manager.sh             # Управление TUIC процессом
+  scripts/familytraffic-hysteria2 # CLI для Hysteria2 (как familytraffic-mtproxy)
+  scripts/familytraffic-tuic      # CLI для TUIC
 
-Изменения docker-compose.yml:
-  familytraffic:
-    image: tobyxdd/hysteria:latest
-    ports:
-      - "8443:8443/udp"  # Прямой UDP, bypass HAProxy
-    profiles: ["hysteria2"]  # Opt-in, не стартует по умолчанию
+Интеграция через supervisord (аналогично MTProxy):
+  /opt/familytraffic/config/supervisord.d/hysteria2.conf  # создаётся при установке
+  # UDP port — прямой exposure, bypass nginx
 
 UFW правила:
   ufw allow 8443/udp comment 'Hysteria2'
@@ -1076,16 +1073,19 @@ curl -o /dev/null -s -w "%{speed_download}" \
 ├── ⏳ v5.25: Исправить validate_vless_uri() — убрать flow из обязательных (блокирует Tier 2)
 └── ⏳ v5.25: Добавить test_xtls_vision_enabled() (TC-01) в security_tests.sh
 
-2026 Q2: Tier 2 — WebSocket + XHTTP + gRPC [ТЕКУЩИЙ ПРИОРИТЕТ]
-├── v5.30: familytraffic-nginx_tier2 контейнер + WebSocket transport
-│          (lib/orchestrator.sh + haproxy_config_manager.sh + nginx_config_generator.sh)
-├── v5.31: XHTTP/SplitHTTP transport
-├── v5.32: gRPC transport
-└── v5.33: CLI управление транспортами (lib/transport_manager.sh) + документация
+2026 Q2: Tier 2 — WebSocket + XHTTP + gRPC [✅ РЕАЛИЗОВАНО в v1.1.0]
+├── ✅ v1.1.0: nginx Tier 2 proxy + WebSocket transport (port 8444)
+│             (lib/nginx_stream_generator.sh + lib/transport_manager.sh)
+├── ✅ v1.1.0: XHTTP/SplitHTTP transport (port 8445)
+├── ✅ v1.1.0: gRPC transport (port 8446)
+└── ✅ v1.1.0: CLI управление транспортами (familytraffic add-transport/list-transports)
+
+2026 Q2 MTProxy: ✅ РЕАЛИЗОВАНО в v1.1.0
+└── ✅ v1.1.0: MTProxy (mtg v2.2.3) как opt-in supervisord процесс (familytraffic-mtproxy CLI)
 
 2026 Q3-Q4: Tier 3 — UDP Protocols
-├── v6.0: Hysteria2 opt-in контейнер
-├── v6.1: TUIC v5 opt-in контейнер
+├── v6.0: Hysteria2 opt-in supervisord процесс (по образцу MTProxy)
+├── v6.1: TUIC v5 opt-in supervisord процесс
 └── v6.2: Единый CLI для transport selection
 
 2027: Tier 4 — SingBox
@@ -1122,22 +1122,20 @@ curl -o /dev/null -s -w "%{speed_download}" \
 - [ ] Клиентская документация обновлена: **v2rayTun** (iOS, основной клиент), Shadowrocket, v2rayNG ← **ОСТАЛОСЬ**
 - [ ] Тест TC-01 (`test_xtls_vision_enabled`) добавлен ← **ОСТАЛОСЬ**
 
-**Tier 2 (Транспорты) — Definition of Done:**
-- [ ] `familytraffic-nginx_tier2` контейнер добавлен в docker-compose.yml (НОВОЕ — нет nginx на сервере)
-- [ ] Новые inbound-ы добавлены в `create_xray_config()` с флагом `enable_tier2` (plaintext, без TLS)
-- [ ] `generate_tier2_nginx_config()` добавлена в nginx_config_generator.sh (WS + XHTTP + gRPC)
-- [ ] HAProxy SNI routing → `nginx_tier2` (единый backend для всех Tier 2)
-- [ ] `generate_haproxy_config()` принимает $6=ws, $7=xhttp, $8=grpc subdomains
-- [ ] `generate_transport_uri()` добавлена с параметром username ($6)
-- [ ] CLI `vless add-transport` / `list-transports` / `remove-transport` работают
-- [ ] Тест TC-10 (WS), TC-20 (XHTTP), TC-30 (gRPC) пройдены
-- [ ] **iOS v2rayTun**: тесты iOS-10 (WS) и iOS-30 (gRPC) пройдены
-- [ ] **iOS v2rayTun**: тест iOS-20 (XHTTP) пройден или задокументировано ограничение (R11)
-- [ ] Reality трафик не нарушен (регрессионный тест)
-- [ ] Документация обновлена: README.md, CHANGELOG.md + инструкции для v2rayTun
+**Tier 2 (Транспорты) — Definition of Done: ✅ РЕАЛИЗОВАНО в v1.1.0**
+- [x] ~~`familytraffic-nginx_tier2` контейнер~~ → nginx Tier 2 proxy внутри единого контейнера `familytraffic` (nginx_stream_generator.sh)
+- [x] Новые inbound-ы добавлены в xray_config (WS :8444, XHTTP :8445, gRPC :8446, plaintext, без TLS)
+- [x] nginx SNI routing (ssl_preread) → Tier 2 nginx proxy (TLS termination → plaintext к xray)
+- [x] `lib/nginx_stream_generator.sh` генерирует конфиг для Tier 2 транспортов
+- [x] `lib/transport_manager.sh` управляет транспортами
+- [x] CLI `familytraffic add-transport` / `list-transports` / `remove-transport` работают
+- [x] Reality трафик не нарушен (nginx ssl_preread пассирует Reality без изменений)
+- [ ] Тест TC-10 (WS), TC-20 (XHTTP), TC-30 (gRPC) пройдены ← **ОСТАЛОСЬ**
+- [ ] **iOS v2rayTun**: тесты iOS-10 (WS) и iOS-30 (gRPC) пройдены ← **ОСТАЛОСЬ**
+- [ ] Документация обновлена: README.md, CHANGELOG.md + инструкции для v2rayTun ← **ОСТАЛОСЬ**
 
 **Tier 3 (UDP) — Definition of Done:**
-- [ ] `vless install-hysteria2` wizard работает
+- [ ] `familytraffic install-hysteria2` wizard работает (opt-in, supervisord process)
 - [ ] UDP ports безопасно изолированы (fail2ban, UFW)
 - [ ] Клиентские конфигурации SingBox format генерируются автоматически
 - [ ] Тест TC-40 до TC-45 пройдены

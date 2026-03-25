@@ -12,6 +12,214 @@
 
 ---
 
+## 4.8 Current Architecture: Single-Container (v1.1.0+)
+
+**Version:** 1.1.5
+**Status:** Current Implementation
+**Purpose:** Single Docker container `familytraffic` running four processes under supervisord (PID 1)
+
+### 4.8.1 Process Map (supervisord)
+
+| Process | Role | Ports |
+|---------|------|-------|
+| **xray** | VLESS Reality (8443), Tier 2 (8444-8446), SOCKS5 (10800), HTTP proxy (18118) | Internal only |
+| **nginx** | SNI routing (443), TLS termination (1080/8118), cloak-port (4443, loopback-only) | 443, 1080, 8118, 4443 |
+| **certbot-cron** | Auto-renews Let's Encrypt every 12h | — |
+| **mtg** | MTProxy Fake TLS (port 2053) — optional, enabled via supervisord.d/mtg.conf | 2053 |
+
+Container runs with `network_mode: host` — shares the host network stack.
+
+### 4.8.2 Architecture Diagram
+
+```
++-------------------------------------------------------------------+
+|                           INTERNET                                |
++---+-------------------+-------------------+----------------------+
+    |                   |                   |
+    | Port 443          | Ports 1080/8118   | Port 2053
+    | (VLESS + Tier2    | (Encrypted        | (MTProxy Fake TLS,
+    |  + Reverse Proxy) |  Proxies)         |  optional)
+    |                   |                   |
++---v-------------------v-------------------v----------------------+
+|                   SERVER (Ubuntu/Debian)                         |
+|  +-------------------------------------------------------------+ |
+|  |                   UFW FIREWALL                              | |
+|  |  - 443 ALLOW      - 1080/8118 LIMIT   - 2053 ALLOW (opt)   | |
+|  +-----------------------------+-------------------------------+ |
+|                                |                                  |
+|  +-----------------------------v-------------------------------+ |
+|  |       Docker: familytraffic (network_mode: host)           | |
+|  |                    supervisord (PID 1)                      | |
+|  |                                                             | |
+|  |  +--------------------------------------------------+       | |
+|  |  | nginx                                            |       | |
+|  |  |  Port 443:  ssl_preread SNI routing              |       | |
+|  |  |    +--> Reality SNI  -> 127.0.0.1:8443 (xray)   |       | |
+|  |  |    +--> Tier 2 SNI   -> port 8448 (nginx proxy)  |       | |
+|  |  |  Port 1080: TLS termination -> 127.0.0.1:10800   |       | |
+|  |  |  Port 8118: TLS termination -> 127.0.0.1:18118   |       | |
+|  |  |  Port 4443: cloak-port (127.0.0.1 only, LE cert) |       | |
+|  |  +--------------------------------------------------+       | |
+|  |                                                             | |
+|  |  +--------------------------------------------------+       | |
+|  |  | xray-core                                        |       | |
+|  |  |  :8443  VLESS Reality inbound                    |       | |
+|  |  |  :8444  Tier 2 WebSocket inbound (plaintext)     |       | |
+|  |  |  :8445  Tier 2 XHTTP inbound (plaintext)         |       | |
+|  |  |  :8446  Tier 2 gRPC inbound (plaintext)          |       | |
+|  |  |  :10800 SOCKS5 proxy (plaintext)                 |       | |
+|  |  |  :18118 HTTP proxy (plaintext)                   |       | |
+|  |  +--------------------------------------------------+       | |
+|  |                                                             | |
+|  |  +--------------------------------------------------+       | |
+|  |  | certbot-cron                                     |       | |
+|  |  |  Runs every 12h: certbot renew --quiet           |       | |
+|  |  |  Deploy hook: nginx reload (graceful)            |       | |
+|  |  +--------------------------------------------------+       | |
+|  |                                                             | |
+|  |  +--------------------------------------------------+       | |
+|  |  | mtg v2.2.3 (OPTIONAL)                            |       | |
+|  |  |  :2053 MTProxy Fake TLS -> Telegram DCs          |       | |
+|  |  |  Enabled: supervisord.d/mtg.conf exists          |       | |
+|  |  |  Disabled: supervisord.d/mtg.conf removed        |       | |
+|  |  +--------------------------------------------------+       | |
+|  +-------------------------------------------------------------+ |
++------------------------------------------------------------------+
+```
+
+### 4.8.3 Traffic Flow
+
+```
+Client:443  -> nginx (ssl_preread SNI)
+               +- Reality SNI  -> 127.0.0.1:8443 (xray VLESS Reality)
+               +- Tier 2 SNI   -> port 8448 -> WS/XHTTP/gRPC inbounds (8444-8446)
+Client:1080 -> nginx TLS termination -> 127.0.0.1:10800 (SOCKS5)
+Client:8118 -> nginx TLS termination -> 127.0.0.1:18118 (HTTP proxy)
+Client:2053 -> mtg (MTProxy Fake TLS) -> Telegram DCs
+Client:4443 -> nginx (LE-cert, active probing protection, loopback-only)
+```
+
+### 4.8.4 Port Allocation
+
+| Service | Port | Binding | Protocol | Notes |
+|---------|------|---------|----------|-------|
+| nginx SNI router | 443 | 0.0.0.0 | ssl_preread (TCP) | Routes by SNI, no TLS termination for Reality |
+| nginx SOCKS5 TLS | 1080 | 0.0.0.0 | TLS termination | Forwards plaintext to xray :10800 |
+| nginx HTTP TLS | 8118 | 0.0.0.0 | TLS termination | Forwards plaintext to xray :18118 |
+| nginx cloak-port | 4443 | 127.0.0.1 | HTTPS | Active probing protection (loopback-only) |
+| xray VLESS Reality | 8443 | 127.0.0.1 | Reality TLS | Internal, nginx routes here |
+| xray Tier 2 WS | 8444 | 127.0.0.1 | WebSocket (plaintext) | nginx terminates TLS |
+| xray Tier 2 XHTTP | 8445 | 127.0.0.1 | XHTTP (plaintext) | nginx terminates TLS |
+| xray Tier 2 gRPC | 8446 | 127.0.0.1 | gRPC (plaintext) | nginx terminates TLS |
+| xray SOCKS5 | 10800 | 127.0.0.1 | Plaintext | nginx terminates TLS upstream |
+| xray HTTP | 18118 | 127.0.0.1 | Plaintext | nginx terminates TLS upstream |
+| mtg MTProxy | 2053 | 0.0.0.0 | Fake TLS | Optional, direct exposure |
+
+### 4.8.5 Configuration File Paths
+
+Key paths on the host (mounted into container):
+
+| Path | Purpose |
+|------|---------|
+| `/opt/familytraffic/config/nginx/nginx.conf` | nginx config (generated by `lib/nginx_stream_generator.sh`) |
+| `/opt/familytraffic/config/xray_config.json` | xray config (static) |
+| `/opt/familytraffic/data/users.json` | Users DB (live-reloadable via SIGHUP to xray) |
+| `/opt/familytraffic/config/mtproxy/mtg.toml` | mtg v2 config |
+| `/opt/familytraffic/config/mtproxy/secrets.json` | MTProxy secrets |
+| `/opt/familytraffic/config/supervisord.d/mtg.conf` | Enables mtg autostart; created by `mtproxy setup`, removed by `mtproxy disable` |
+| `/opt/familytraffic/.env` | Runtime env vars: `GHCR_IMAGE`, `FT_IMAGE_TAG`, `DOMAIN` |
+| `/etc/letsencrypt/live/${DOMAIN}/fullchain.pem` | TLS certificate (nginx uses directly) |
+| `/etc/letsencrypt/live/${DOMAIN}/privkey.pem` | TLS private key (nginx uses directly) |
+
+### 4.8.6 MTProxy Integration
+
+MTProxy (mtg v2.2.3) is an optional process managed by supervisord:
+
+**Enable:**
+```bash
+sudo familytraffic-mtproxy setup --fake-domain www.google.com
+# Creates /opt/familytraffic/config/supervisord.d/mtg.conf
+# supervisord starts mtg process automatically
+```
+
+**Disable:**
+```bash
+sudo familytraffic-mtproxy disable
+# Removes /opt/familytraffic/config/supervisord.d/mtg.conf
+# supervisord stops mtg process
+```
+
+**mtg.toml structure:**
+```toml
+prefer-ip = "prefer-ipv4"   # TOP LEVEL, not under [network]
+
+[network]
+  dns = "udp://8.8.8.8"     # UDP DNS (requires mtg >= 2.1.12)
+
+[network.timeout]
+  tcp = "5s"
+
+[cloak]
+  port = 4443               # nginx loopback-only (active probing protection)
+```
+
+**Secret format:** `ee` + 32 hex chars (random key) + hex-encoded fake-domain.
+**Validation regex:** `^ee[0-9a-fA-F]{34,}$`
+
+### 4.8.7 nginx Configuration (SNI Routing)
+
+Generated by `lib/nginx_stream_generator.sh`:
+
+```nginx
+stream {
+    # SNI-based routing (ssl_preread, no TLS termination)
+    map $ssl_preread_server_name $backend {
+        vless.example.com     127.0.0.1:8443;   # VLESS Reality
+        ws.example.com        127.0.0.1:8448;   # Tier 2 (nginx TLS proxy -> xray)
+        default               127.0.0.1:4443;   # cloak-port
+    }
+
+    server {
+        listen 443;
+        ssl_preread on;
+        proxy_pass $backend;
+    }
+}
+
+# TLS termination for proxies
+stream {
+    server {
+        listen 1080 ssl;
+        ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+        proxy_pass 127.0.0.1:10800;
+    }
+
+    server {
+        listen 8118 ssl;
+        ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+        proxy_pass 127.0.0.1:18118;
+    }
+}
+```
+
+### 4.8.8 Comparison: Legacy HAProxy vs Current nginx
+
+| Feature | Legacy (HAProxy, v4.3) | Current (nginx, v1.1.0+) |
+|---------|------------------------|--------------------------|
+| **Container count** | Multiple (HAProxy + Xray + Nginx) | 1 container `familytraffic` |
+| **Process manager** | docker-compose | supervisord (PID 1) |
+| **SNI routing** | HAProxy separate container | nginx ssl_preread inside container |
+| **TLS cert format** | combined.pem (fullchain + privkey) | Standard fullchain.pem + privkey.pem |
+| **Cert renewal hook** | Regenerate combined.pem + haproxy -sf | nginx reload (graceful) |
+| **MTProxy** | Not integrated | mtg v2.2.3 via supervisord |
+| **Network mode** | Bridge network | network_mode: host |
+| **Port 4443** | Not present | nginx cloak-port (loopback-only) |
+| **Tier 2 routing** | HAProxy SNI ACL -> familytraffic-nginx | nginx ssl_preread -> internal nginx proxy |
+
+---
+
 ## 4. Technical Architecture
 
 ### 4.1 Network Architecture (v3.3 with TLS)

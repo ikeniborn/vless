@@ -2,11 +2,17 @@
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
 
+> **ЧАСТИЧНО УСТАРЕВШИЙ ДОКУМЕНТ**
+> Требования FR-HAPROXY-001, FR-REVERSE-PROXY-001 описывают **логику** которая реализована, но **компонент изменился**: вместо HAProxy используется nginx (ssl_preread, stream module). Все остальные FR актуальны.
+> **v1.1.5:** Добавлен FR-NGINX-001 (nginx SNI routing), FR-MTPROXY-001 (MTProxy/mtg), FR-PERUSER-PROXY-001 (per-user proxy auth).
+
 ---
 
 ## 2. Functional Requirements
 
 ### FR-HAPROXY-001: HAProxy Unified Architecture (CRITICAL - NEW in v4.3)
+
+> **Компонент изменён в v1.1.0:** Эта функциональность реализована через **nginx** (ssl_preread module), а не HAProxy. HAProxy полностью удалён.
 
 **Requirement:** ALL TLS termination and routing MUST be handled by a single HAProxy container (replaces stunnel from v4.0-v4.2).
 
@@ -173,9 +179,10 @@ haproxy:
 **Version History:**
 - **v4.0 (deprecated)**: Template-based config generation with envsubst
 - **v4.1-v4.2 (deprecated)**: Heredoc-based generation in lib/stunnel_setup.sh
-- **v4.3 (current)**: Heredoc-based generation in lib/haproxy_config_manager.sh
+- **v4.3 (LEGACY)**: Heredoc-based generation in lib/haproxy_config_manager.sh
+- **v1.1.0+ (current)**: nginx config via lib/nginx_stream_generator.sh; xray_config.json static
 
-**Current Implementation:** All configuration files (haproxy.cfg, docker-compose.yml, xray_config.json) generated via heredoc in lib/*.sh modules.
+**Current Implementation:** Configuration files (nginx.conf, xray_config.json) generated/managed via lib/nginx_stream_generator.sh and lib/user_management.sh. haproxy_config_manager.sh удалён.
 
 **Migration:** Templates/ directory removed in v4.1. stunnel_setup.sh replaced by haproxy_config_manager.sh in v4.3. See [CLAUDE.md Section 7](../../CLAUDE.md#7-critical-system-parameters) for current implementation details.
 
@@ -1705,6 +1712,46 @@ sudo familytraffic-external-proxy status
 - [ ] TLS validation: strict by default
 
 **User Story:** Как системный администратор, я хочу направить весь VPN трафик через upstream SOCKS5s прокси, чтобы добавить дополнительный уровень анонимности и соблюдать корпоративные политики без изменения клиентских конфигураций.
+
+---
+
+## FR-NGINX-001 (v1.1.0) — nginx SNI Routing Architecture
+
+**Priority:** CRITICAL
+**Status:** IMPLEMENTED
+
+**Description:** Единый nginx процесс внутри supervisord отвечает за:
+- SNI routing на порту 443 (ssl_preread, TLS passthrough) -> xray VLESS Reality (127.0.0.1:8443) или Tier 2 (127.0.0.1:8448)
+- TLS termination на портах 1080/8118 -> xray SOCKS5 (127.0.0.1:10800) и HTTP proxy (127.0.0.1:18118)
+- Nginx конфиг генерируется через `lib/nginx_stream_generator.sh`
+- Certbot renewal: порт 4443 (loopback-only, active probing protection)
+
+**Config location:** `/opt/familytraffic/config/nginx/nginx.conf`
+
+---
+
+## FR-MTPROXY-001 (v1.1.0) — MTProxy Integration (mtg v2.2.3)
+
+**Priority:** HIGH
+**Status:** IMPLEMENTED
+
+**Description:** MTProxy (Telegram-специализированный прокси) реализован через mtg v2.2.3:
+- Запускается через supervisord (опционально, при наличии /opt/familytraffic/config/supervisord.d/mtg.conf)
+- FakeTLS режим (ee-секреты), IPv4-only, UDP DNS (8.8.8.8)
+- CLI: `sudo familytraffic-mtproxy setup/start/stop/status/logs/list-secrets`
+- Порт 2053 (публичный), Cloak-port 4443 (только loopback — nginx)
+- Config: `/opt/familytraffic/config/mtproxy/mtg.toml`
+
+---
+
+## FR-PERUSER-PROXY-001 (v1.1.5) — Per-User SOCKS5/HTTP Proxy Auth
+
+**Priority:** HIGH
+**Status:** IMPLEMENTED
+
+**Description:** Уникальные credentials (username/password) для каждого пользователя на SOCKS5 и HTTP proxy.
+- Хранится в `/opt/familytraffic/data/users.json`
+- Управляется через `sudo familytraffic set-proxy` / `show-proxy` / `list-proxy-assignments`
 
 ---
 

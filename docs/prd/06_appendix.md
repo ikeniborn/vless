@@ -2,6 +2,8 @@
 
 **Навигация:** [Обзор](01_overview.md) | [Функциональные требования](02_functional_requirements.md) | [NFR](03_nfr.md) | [Архитектура](04_architecture.md) | [Тестирование](05_testing.md) | [Приложения](06_appendix.md) | [← Саммари](00_summary.md)
 
+> **Примечание:** Большинство содержимого актуально. Раздел Dependencies обновлён: HAProxy удалён, добавлен mtg v2.2.3.
+
 ---
 
 ## 5. Implementation Details & Migration History
@@ -10,18 +12,20 @@
 - **[CHANGELOG.md](../../CHANGELOG.md)** - Detailed version history, breaking changes, migration guides
 - **[CLAUDE.md Section 8](../../CLAUDE.md#8-project-structure)** - Current implementation architecture (v4.3)
 
-**Current v4.3 Implementation Summary:**
-- **Config Generation:** Heredoc-based (lib/haproxy_config_manager.sh, lib/orchestrator.sh, lib/user_management.sh)
-- **TLS Termination:** HAProxy container (unified for all services)
-- **SNI Routing:** HAProxy frontend (port 443, NO TLS decryption for Reality)
-- **Proxy Ports:** HAProxy:1080/8118 (TLS) → Xray:10800/18118 (plaintext)
+**Current v1.1.5 Implementation Summary:**
+- **Config Generation:** Heredoc-based (lib/nginx_stream_generator.sh, lib/user_management.sh, lib/external_proxy_manager.sh)
+- **TLS Termination:** nginx inside single `familytraffic` container (supervisord-managed)
+- **SNI Routing:** nginx ssl_preread (port 443, TLS passthrough for VLESS Reality)
+- **Proxy Ports:** nginx:1080/8118 (TLS termination) → Xray:10800/18118 (plaintext)
 - **Reverse Proxy:** Subdomain-based (https://domain, NO port!), Nginx:9443-9452 (localhost-only)
 - **IP Whitelisting:** server-level via proxy_allowed_ips.json + Xray routing + optional UFW
 - **Client Configs:** 6 formats auto-generated with correct URI schemes (https://, socks5s://)
+- **MTProxy:** mtg v2.2.3 (optional, supervisord-managed, port 2053)
 
 **Architecture Evolution:**
-- **v4.3 (current):** HAProxy Unified (1 container, SNI routing + TLS termination, subdomain reverse proxy)
-- **v4.2 (planning):** Reverse proxy feature planning phase (see v4.3 for implementation)
+- **v1.1.5 (current):** Per-user SOCKS5/HTTP proxy auth; cert renewal improvements
+- **v1.1.0:** Single-container supervisord; nginx replaces HAProxy; MTProxy (mtg v2.2.3)
+- **v4.3 (legacy):** HAProxy Unified (removed in v1.1.0)
 - **v4.1:** Heredoc config generation + Proxy URI fix (envsubst removed)
 - **v4.0:** stunnel TLS termination architecture (deprecated in v4.3)
 
@@ -33,21 +37,21 @@
 - **[CLAUDE.md Section 15](../../CLAUDE.md#15-security--debug)** - Security Threat Matrix, Best Practices, Debug Commands
 - **[CHANGELOG.md](../../CHANGELOG.md)** - Historical security improvements (v3.2 → v3.3 TLS migration, v4.3 HAProxy unified)
 
-**Current v4.3 Security Posture:**
-- ✅ **TLS 1.3 Encryption:** HAProxy unified termination for all proxy connections (v4.3)
-- ✅ **SNI Routing Security:** NO TLS decryption for reverse proxy (TLS passthrough)
-- ✅ **Let's Encrypt Certificates:** Automated certificate management with auto-renewal (combined.pem format)
-- ✅ **32-Character Passwords:** Brute-force resistant credentials
-- ✅ **fail2ban Protection:** HAProxy + Nginx filters (automated IP banning after 5 failed attempts)
+**Current v1.1.5 Security Posture:**
+- ✅ **TLS 1.3 Encryption:** nginx TLS termination for all proxy connections (v1.1.0)
+- ✅ **SNI Routing Security:** NO TLS decryption for reverse proxy (nginx ssl_preread TLS passthrough)
+- ✅ **Let's Encrypt Certificates:** Automated certificate management with auto-renewal (certbot-cron inside container)
+- ✅ **32-Character Passwords + Per-user credentials:** Brute-force resistant (v1.1.5)
+- ✅ **fail2ban Protection:** Nginx + Xray filters (automated IP banning after 5 failed attempts)
 - ✅ **UFW Rate Limiting:** 10 connections/minute per IP on proxy ports
-- ✅ **DPI Resistance:** Reality protocol makes VPN traffic indistinguishable from HTTPS
+- ✅ **DPI Resistance:** Reality protocol + XTLS Vision makes VPN traffic indistinguishable from HTTPS
+- ✅ **MTProxy Active Probing Protection:** Cloak-port 4443 (loopback-only, nginx, LE cert)
 
-**v4.3 Security Improvements:**
-- ✅ **Unified HAProxy Architecture:** Single point of TLS termination (simpler attack surface)
-- ✅ **SNI Routing Without Decryption:** Reverse proxy traffic inspected without TLS termination
-- ✅ **combined.pem Format:** Consolidated certificate management (fullchain + privkey)
-- ✅ **Graceful HAProxy Reload:** Zero-downtime certificate updates (haproxy -sf)
-- ✅ **fail2ban HAProxy Integration:** Multi-layer protection (HAProxy + Nginx filters)
+**v1.1.0 Security Improvements (replaces v4.3 HAProxy):**
+- ✅ **Single-container architecture:** nginx ssl_preread SNI routing (no HAProxy)
+- ✅ **SNI Routing Without Decryption:** TLS passthrough via nginx ssl_preread
+- ✅ **nginx reload:** Zero-downtime certificate updates (supervisorctl)
+- ✅ **Per-user proxy auth:** Unique credentials per user (v1.1.5)
 
 ---
 
@@ -364,8 +368,8 @@ failregex = ^.* "401" .* "https://[^"]+.*" .*$
      openssl x509 -in "$cert" -noout -enddate
    done
 
-   # Verify combined.pem for HAProxy
-   openssl x509 -in /opt/familytraffic/certs/combined.pem -noout -enddate
+   # NOTE: combined.pem удалён в v1.1.0 (HAProxy removed). nginx использует fullchain.pem + privkey.pem напрямую.
+   # openssl x509 -in /etc/letsencrypt/live/<DOMAIN>/fullchain.pem -noout -enddate  # уже охвачено выше
    ```
 
 2. **fail2ban Ban Rate Monitoring**
@@ -482,27 +486,29 @@ The following are explicitly NOT included:
 
 **Quick Summary (v4.3):**
 
-**Container Images:**
-- xray: `teddysun/xray:24.11.30` (Xray-core VPN/Proxy)
-- haproxy: `haproxy:latest` (Unified TLS termination & SNI routing, NEW v4.3)
-- nginx: `nginx:alpine` (Reverse proxy backends, ports 9443-9452)
+**Container Images (v1.1.0+):**
+- Final image base: `nginx:alpine` + supervisord + certbot + xray + mtg (single container `familytraffic`)
+- xray binary: sourced from `teddysun/xray:24.11.30` in multi-stage build (not a runtime container)
+- mtg v2.2.3 (`9seconds/mtg`): MTProxy binary, optional supervisord process
+- supervisord: process manager inside the container (xray, nginx, certbot-cron, mtg)
 
-**REMOVED from v4.3:**
-- ❌ stunnel: `dweomer/stunnel:latest` (DEPRECATED, replaced by HAProxy)
+**REMOVED:**
+- ❌ haproxy: `haproxy:latest` (REMOVED in v1.1.0, replaced by nginx ssl_preread)
+- ❌ stunnel: `dweomer/stunnel:latest` (DEPRECATED, replaced by HAProxy in v4.3, then removed entirely)
 
 **System Requirements:**
 - Ubuntu 20.04+ / Debian 10+ (primary support)
 - Docker 20.10+
 - Docker Compose v2.0+
 - UFW firewall (auto-installed)
-- haproxy package (if standalone deployment)
+- ~~haproxy package~~ (REMOVED in v1.1.0)
 
 **Tools:**
 - bash 4.0+
 - jq 1.5+ (JSON processing)
 - openssl (system default)
 - certbot (Let's Encrypt certificates)
-- fail2ban (brute-force protection, HAProxy + Nginx filters)
+- fail2ban (brute-force protection, nginx + Xray filters)
 
 **Lib Files (v4.3):**
 - `lib/haproxy_config_manager.sh` (NEW v4.3, replaces lib/stunnel_setup.sh)
@@ -514,6 +520,8 @@ The following are explicitly NOT included:
 ---
 
 ## 12. Rollback & Troubleshooting
+
+> **v1.1.0+ Note:** Single-container architecture. To stop/restart processes use `supervisorctl stop [process]` inside the container, or `docker compose down` / `docker compose up -d` for the entire `familytraffic` container. There is no separate HAProxy container to stop.
 
 **For rollback procedures, troubleshooting guides, and common failure points, see:**
 - **[CLAUDE.md Section 11](../../CLAUDE.md#11-common-failure-points--solutions)** - Issue detection, solutions, debug workflows
