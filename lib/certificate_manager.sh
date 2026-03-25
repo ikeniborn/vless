@@ -287,37 +287,15 @@ acquire_certificate_for_domain() {
         return 1
     fi
 
-    # STEP 6: HAProxy Reload
-    echo ""
-    echo -e "${CYAN}[STEP 6/6] nginx Reload (via familytraffic container)${NC}"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-
-    if ! reload_haproxy_after_cert_update; then
-        echo ""
-        echo -e "${YELLOW}⚠️  WARNING: nginx reload failed${NC}"
-        echo ""
-        echo "Certificate acquired successfully, but nginx did not reload."
-        echo "Manually reload nginx to use the new certificate:"
-        echo "  reload_haproxy_after_cert_update"
-        echo ""
-        return 1
-    fi
-
     # SUCCESS SUMMARY
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║  ${GREEN}✅ CERTIFICATE ACQUISITION COMPLETED${CYAN}                      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo "Domain:         $domain"
-    echo "Email:          $email"
-    echo "Certificate:    /etc/letsencrypt/live/$domain/fullchain.pem"
-    echo "Private Key:    /etc/letsencrypt/live/$domain/privkey.pem"
-    echo "nginx reads: /etc/letsencrypt/live/$domain/fullchain.pem directly"
-    echo "nginx Status: Reloaded via familytraffic container"
-    echo ""
-    echo -e "${GREEN}Ready to configure reverse proxy or other services using this certificate.${NC}"
+    echo "Domain:      $domain"
+    echo "Certificate: /etc/letsencrypt/live/$domain/fullchain.pem"
+    echo "Private Key: /etc/letsencrypt/live/$domain/privkey.pem"
     echo ""
 
     return 0
