@@ -76,43 +76,43 @@ sudo ./install.sh
 ### Пользователи
 
 ```
-familytraffic add-user <name>          Создать пользователя (выводит QR + URI)
-familytraffic remove-user <name>       Удалить пользователя
-familytraffic list-users               Список всех пользователей
-familytraffic show-user <name>         Показать конфигурацию и QR код
+sudo familytraffic add-user <name>          Создать пользователя (выводит QR + URI)
+sudo familytraffic remove-user <name>       Удалить пользователя
+sudo familytraffic list-users               Список всех пользователей
+sudo familytraffic show-user <name>         Показать конфигурацию и QR код
 ```
 
 ### Tier 2 транспорты
 
 ```
-familytraffic add-transport <type> <subdomain>    Включить транспорт (ws|xhttp|grpc)
-familytraffic list-transports                     Список активных транспортов
-familytraffic remove-transport <type>             Отключить транспорт
+sudo familytraffic add-transport <type> <subdomain>    Включить транспорт (ws|xhttp|grpc)
+sudo familytraffic list-transports                     Список активных транспортов
+sudo familytraffic remove-transport <type>             Отключить транспорт
 ```
 
 ### Per-user external proxy
 
 ```
-familytraffic set-proxy <user> <proxy-id|none>   Назначить proxy пользователю
-familytraffic show-proxy <user>                  Показать назначение
-familytraffic list-proxy-assignments             Список всех назначений
+sudo familytraffic set-proxy <user> <proxy-id|none>   Назначить proxy пользователю
+sudo familytraffic show-proxy <user>                  Показать назначение
+sudo familytraffic list-proxy-assignments             Список всех назначений
 ```
 
 ### External proxy (server-level)
 
 ```
-familytraffic-external-proxy add                 Добавить upstream proxy
-familytraffic-external-proxy list                Список proxies
-familytraffic-external-proxy status              Статус + пользователи по proxies
+sudo familytraffic-external-proxy add                 Добавить upstream proxy
+sudo familytraffic-external-proxy list                Список proxies
+sudo familytraffic-external-proxy status              Статус + пользователи по proxies
 ```
 
 ### Сервис
 
 ```
-familytraffic status                             Статус контейнера
-familytraffic logs [xray|nginx|all]              Логи
-familytraffic restart                            Перезапуск
-familytraffic test-security [--quick]            Тесты безопасности
+sudo familytraffic status                             Статус контейнера
+sudo familytraffic logs [xray|nginx|all]              Логи
+sudo familytraffic restart                            Перезапуск
+sudo familytraffic test-security [--quick]            Тесты безопасности
 ```
 
 ### MTProxy (Telegram proxy)
