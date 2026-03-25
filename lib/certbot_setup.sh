@@ -185,10 +185,9 @@ obtain_certificate() {
     local domain="$1"
     local email="$2"
 
-    # v4.3: Use Certbot Nginx service (webroot mode) via certbot_manager.sh
-    if command -v acquire_certificate &>/dev/null; then
-        # Use new certbot_manager.sh workflow
-        if acquire_certificate "$domain" "$email"; then
+    # v5.33: Use unified acquisition workflow via certificate_manager.sh
+    if command -v acquire_certificate_for_domain &>/dev/null; then
+        if acquire_certificate_for_domain "$domain" "$email"; then
             return 0
         else
             return 1
@@ -196,7 +195,7 @@ obtain_certificate() {
     else
         # Fallback to standalone mode (legacy v3.3)
         echo ""
-        echo -e "${YELLOW}WARNING: certbot_manager.sh not found, using standalone mode${NC}"
+        echo -e "${YELLOW}WARNING: certificate_manager.sh not loaded, using standalone mode${NC}"
         echo ""
 
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
