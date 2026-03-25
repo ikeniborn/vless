@@ -126,6 +126,28 @@ sudo familytraffic list-users
 sudo familytraffic remove-user <name>
 ```
 
+### Перегенерировать клиентские файлы
+
+```bash
+sudo familytraffic regenerate <name>
+```
+
+Пересоздаёт клиентские файлы (`vless_uri.txt`, `vless_qr.png`, proxy-конфиги) на основе **текущих настроек сервера** — IP, Reality ключей, shortId из `users.json`.
+
+Нужно запускать после:
+- **Миграции на новый сервер** — если изменился IP или были сгенерированы новые Reality ключи (`pbk`)
+- **Смены домена** — для обновления proxy URI
+- **Ручного изменения** `xray_config.json` или `keys/public.key`
+
+Для всех VPN-пользователей сразу:
+```bash
+sudo familytraffic list-users | grep -oP '(?<=  )\S+' | xargs -I{} sudo familytraffic regenerate {}
+```
+
+После регенерации файлы находятся в `/opt/familytraffic/data/clients/<name>/` — раздайте пользователям новые ссылки.
+
+> **Важно:** После смены Reality ключей все клиенты должны обновить конфиг в приложении. Старые ссылки с устаревшим `pbk` работать не будут.
+
 ### Миграция на XTLS Vision
 
 Если на сервере есть пользователи без поля `flow` (созданные до v5.25):

@@ -28,7 +28,7 @@
 
 **Схема `users.json` одинакова в обеих версиях** — миграция данных не требуется, достаточно подстановки файлов.
 
-`UUID` и `shortId` каждого пользователя сохраняются, поэтому клиентские конфиги после переустановки менять не нужно.
+`UUID` и `shortId` каждого пользователя сохраняются, поэтому клиентские конфиги после переустановки менять не нужно — **при условии, что Reality ключи (`keys/`) тоже перенесены**. Если ключи не сохранить, при установке генерируются новые, `pbk` в клиентских ссылках становится недействительным, и VPN перестаёт работать у всех пользователей.
 
 Переименование `/opt/vless` → `/opt/familytraffic` автоматически выполняется `install.sh` через `lib/migrate_rename.sh`.
 
@@ -58,10 +58,13 @@ sudo cp -r /opt/familytraffic/config/mtproxy/ "${BACKUP_DIR}/mtproxy/"
 # 5. Per-user proxy assignments
 sudo cp /opt/familytraffic/config/external_proxy.json "${BACKUP_DIR}/external_proxy.json" 2>/dev/null || true
 
-# 6. Клиентские конфиги
+# 6. Reality ключи (КРИТИЧНО — без них pbk в клиентских ссылках станет недействительным)
+sudo cp -r /opt/familytraffic/keys/ "${BACKUP_DIR}/keys/"
+
+# 7. Клиентские конфиги
 sudo cp -r /opt/familytraffic/data/clients/ "${BACKUP_DIR}/clients/"
 
-# 7. Let's Encrypt сертификаты
+# 8. Let's Encrypt сертификаты
 sudo cp -r /etc/letsencrypt/ "${BACKUP_DIR}/letsencrypt/"
 
 echo "Backup: ${BACKUP_DIR}"
@@ -107,13 +110,18 @@ sudo cp "${BACKUP_DIR}/xray_config.json" /opt/familytraffic/config/xray_config.j
 # 3. MTProxy секреты и конфиг
 sudo cp -r "${BACKUP_DIR}/mtproxy/" /opt/familytraffic/config/mtproxy/
 
-# 4. Per-user proxy assignments
+# 4. Reality ключи (КРИТИЧНО — восстановить до перезапуска контейнера)
+sudo cp -r "${BACKUP_DIR}/keys/" /opt/familytraffic/keys/
+sudo chmod 600 /opt/familytraffic/keys/private.key
+sudo chmod 644 /opt/familytraffic/keys/public.key
+
+# 5. Per-user proxy assignments
 sudo cp "${BACKUP_DIR}/external_proxy.json" /opt/familytraffic/config/external_proxy.json 2>/dev/null || true
 
-# 5. Клиентские конфиги
+# 6. Клиентские конфиги
 sudo cp -r "${BACKUP_DIR}/clients/" /opt/familytraffic/data/clients/
 
-# 6. Сертификаты (только если не сохранились)
+# 7. Сертификаты (только если не сохранились)
 ls /etc/letsencrypt/live/   # проверить наличие
 # Если пусто:
 sudo rsync -av "${BACKUP_DIR}/letsencrypt/" /etc/letsencrypt/
@@ -158,6 +166,8 @@ sudo docker logs familytraffic --tail=50
 | `supervisord.conf` | Часть Docker-образа |
 | `docker-compose.yml` | Копируется из репозитория установщиком (`create_docker_compose`) |
 | UFW-правила | Настраиваются установщиком при install |
+
+> **Важно:** `keys/private.key` и `keys/public.key` — **обязательно восстанавливать**. Без них установщик генерирует новую пару ключей, `pbk` в клиентских VLESS-ссылках становится недействительным, и VPN перестаёт работать у всех пользователей без перевыпуска конфигов.
 
 ---
 
