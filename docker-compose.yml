@@ -39,6 +39,8 @@ services:
       - /opt/familytraffic/config/mtproxy:/opt/familytraffic/config/mtproxy:ro
       # supervisord optional programs (mtg.conf created by mtproxy setup) — read-only
       - /opt/familytraffic/config/supervisord.d:/opt/familytraffic/config/supervisord.d:ro
+      # xray logs — mounted to host so fail2ban can read /opt/familytraffic/logs/xray/
+      - /opt/familytraffic/logs/xray:/var/log/xray
     env_file:
       - /opt/familytraffic/.env
     logging:
