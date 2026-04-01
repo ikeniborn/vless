@@ -760,6 +760,100 @@ regenerate_mtproxy_secret_file_from_users() {
 }
 
 # ============================================================================
+# FUNCTION: validate_fake_tls_domain
+# ============================================================================
+# Description: Validate that a domain is safe to use as an mtg fake-TLS domain.
+#
+#   Checks performed:
+#     1. Domain resolves to at least one A (IPv4) address
+#     2. If domain also has AAAA (IPv6) — server must have global IPv6;
+#        otherwise mtg will try IPv6 first, time out, and Telegram iOS / strict
+#        clients will fail to connect (Telegram Desktop is lenient and may work)
+#     3. Domain is reachable on port 443 via IPv4 (fake-TLS relay requires this)
+#
+# Parameters:
+#   $1 - domain (e.g., "vk.com")
+#
+# Returns:
+#   0 - domain is safe to use
+#   1 - domain is NOT safe (error printed); caller should abort
+#
+# Example:
+#   validate_fake_tls_domain "vk.com"    # ok, IPv4-only
+#   validate_fake_tls_domain "yandex.ru" # error: has AAAA, server has no global IPv6
+# ============================================================================
+validate_fake_tls_domain() {
+    local domain="${1:-}"
+
+    if [[ -z "$domain" ]]; then
+        mtproxy_log_error "validate_fake_tls_domain: domain is required"
+        return 1
+    fi
+
+    mtproxy_log_info "Validating fake-TLS domain: ${domain}"
+
+    # ── 1. Resolve IPv4 (A record) ──────────────────────────────────────────
+    local ipv4_addrs
+    ipv4_addrs=$(getent ahostsv4 "$domain" 2>/dev/null \
+        | awk '{print $1}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
+
+    if [[ -z "$ipv4_addrs" ]]; then
+        mtproxy_log_error "Domain '${domain}' has no A (IPv4) record"
+        mtproxy_log_error "Cannot use as fake-TLS domain — choose a domain with IPv4"
+        return 1
+    fi
+
+    # ── 2. Check whether domain has AAAA (IPv6) records ────────────────────
+    local domain_ipv6
+    # Filter out loopback (::1), link-local (fe80::), IPv4-mapped (::ffff:)
+    domain_ipv6=$(getent ahostsv6 "$domain" 2>/dev/null \
+        | awk '{print $1}' \
+        | grep -v '^::1$' \
+        | grep -v '^fe80' \
+        | grep -v '^::ffff:' \
+        | sort -u)
+
+    local has_aaaa=false
+    [[ -n "$domain_ipv6" ]] && has_aaaa=true
+
+    # ── 3. Check whether THIS server has a global IPv6 address ─────────────
+    local server_has_ipv6=false
+    if ip -6 addr show scope global 2>/dev/null | grep -q 'inet6'; then
+        server_has_ipv6=true
+    fi
+
+    # ── 4. Fail if domain has IPv6 but server cannot reach it ───────────────
+    if [[ "$has_aaaa" == "true" ]] && [[ "$server_has_ipv6" == "false" ]]; then
+        mtproxy_log_error "Domain '${domain}' has AAAA (IPv6) records:"
+        echo "$domain_ipv6" | while read -r addr; do
+            mtproxy_log_error "  ${addr}"
+        done
+        mtproxy_log_error "This server has NO global IPv6 connectivity."
+        mtproxy_log_error "mtg will try IPv6 first → 5 s timeout → fake-TLS handshake fails."
+        mtproxy_log_error "iPhone and other strict Telegram clients will hang on 'Connecting...'."
+        mtproxy_log_error ""
+        mtproxy_log_error "Use a domain with IPv4 only. Suggestions (no AAAA records):"
+        mtproxy_log_error "  vk.com  ok.ru  mail.ru  gosuslugi.ru  sberbank.ru"
+        return 1
+    fi
+
+    # ── 5. Test TCP reachability on port 443 ────────────────────────────────
+    local first_ipv4
+    first_ipv4=$(echo "$ipv4_addrs" | head -1)
+    if ! timeout 5 bash -c "echo > /dev/tcp/${first_ipv4}/443" 2>/dev/null; then
+        mtproxy_log_error "Domain '${domain}' (${first_ipv4}):443 is unreachable"
+        mtproxy_log_error "mtg needs to connect to the fake-TLS domain to complete the handshake"
+        return 1
+    fi
+
+    # ── All checks passed ───────────────────────────────────────────────────
+    local ipv6_note="has AAAA (server has IPv6 ✓)"
+    [[ "$has_aaaa" == "false" ]] && ipv6_note="IPv4-only (no AAAA)"
+    mtproxy_log_success "Domain '${domain}': A=${first_ipv4}, ${ipv6_note}, :443 reachable"
+    return 0
+}
+
+# ============================================================================
 # FUNCTION: generate_mtg_toml (v7.0)
 # ============================================================================
 # Description: Generate mtg.toml configuration for mtg v2 (nineseconds/mtg)
