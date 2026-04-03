@@ -58,6 +58,7 @@ ${CYAN}User Management:${NC}
 
 ${CYAN}External Proxy (v5.24 - Per-User):${NC}
   set-proxy <user> <id|none>    Set external proxy for user
+  unset-proxy <username>        Remove external proxy from user
   show-proxy <username>         Show user's proxy assignment
   list-proxy-assignments        List all proxy assignments
 
@@ -101,6 +102,7 @@ ${CYAN}Examples:${NC}
   sudo familytraffic add-user alice
   sudo familytraffic list-users
   sudo familytraffic set-proxy alice corporate-proxy-123
+  sudo familytraffic unset-proxy alice
   sudo familytraffic show-proxy alice
   sudo familytraffic list-proxy-assignments
   sudo familytraffic show-proxy-ips
@@ -214,6 +216,17 @@ main() {
             fi
             source_modules
             cmd_show_user_proxy "$1"
+            ;;
+
+        unset-proxy)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic unset-proxy <username>" >&2
+                exit 1
+            fi
+            source_modules
+            cmd_set_user_proxy "$1" "none"
             ;;
 
         list-proxy-assignments)
