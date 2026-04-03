@@ -252,6 +252,11 @@ cmd_setup() {
 
     log_info "Fake-TLS domain: ${domain}"
 
+    # Validate domain: must have IPv4, reachable on :443, safe with server's IPv6 status
+    if ! validate_fake_tls_domain "$domain"; then
+        return 1
+    fi
+
     # Check familytraffic container is running
     if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
         log_error "${FAMILYTRAFFIC_CONTAINER} container is not running"
@@ -474,6 +479,13 @@ cmd_add_secret() {
             return 1
         fi
         log_info "Using detected domain: ${domain}"
+    fi
+
+    # Validate domain for ee-type secrets (fake-TLS domain reachability + IPv6 safety)
+    if [[ "$secret_type" == "ee" ]] && [[ -n "$domain" ]]; then
+        if ! validate_fake_tls_domain "$domain"; then
+            return 1
+        fi
     fi
 
     log_info "Generating MTProxy secret..."
