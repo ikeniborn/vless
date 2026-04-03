@@ -181,7 +181,18 @@ _regen_nginx() {
     # Detect current Tier 2 state
     read -r enable_tier2 ws_sub xhttp_sub grpc_sub <<< "$(_detect_nginx_params)"
 
-    log_info "Regenerating nginx.conf (cloak-port: ${enable_mtproxy_cloak})..."
+    # Detect no-TLS proxy state from .env or current nginx.conf
+    local enable_notls="false"
+    local env_file="${FAMILYTRAFFIC_HOME}/.env"
+    if [[ -f "$env_file" ]]; then
+        enable_notls=$(grep -E '^PROXY_NOTLS_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | head -1)
+    fi
+    if [[ "${enable_notls}" != "true" ]] && [[ -f "${NGINX_CONF_PATH}" ]]; then
+        grep -q 'listen 1081' "${NGINX_CONF_PATH}" 2>/dev/null && enable_notls="true"
+    fi
+    enable_notls="${enable_notls:-false}"
+
+    log_info "Regenerating nginx.conf (cloak-port: ${enable_mtproxy_cloak}, no-tls: ${enable_notls})..."
 
     # Write new config
     generate_nginx_config \
@@ -191,6 +202,7 @@ _regen_nginx() {
         "${xhttp_sub}" \
         "${grpc_sub}" \
         "${enable_mtproxy_cloak}" \
+        "${enable_notls}" \
         > "${NGINX_CONF_PATH}"
 
     log_success "nginx.conf regenerated"

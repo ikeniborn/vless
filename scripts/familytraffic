@@ -74,6 +74,10 @@ ${CYAN}UFW Firewall Rules (v4.0 - Host-Level):${NC}
   remove-ufw-ip <ip>                Remove IP from UFW whitelist
   reset-ufw-ips                     Remove all UFW proxy rules
 
+${CYAN}No-TLS Proxy Ports:${NC}
+  enable-notls                      Enable no-TLS proxy ports (1081 SOCKS5, 8119 HTTP)
+  disable-notls                     Disable no-TLS proxy ports
+
 ${CYAN}Service Operations:${NC}
   status                    Show service status
   start                     Start VLESS services
@@ -128,6 +132,191 @@ source_modules() {
             source "${LIB_DIR}/${module}"
         fi
     done
+}
+
+# =============================================================================
+# No-TLS Proxy Ports (v5.35)
+# =============================================================================
+
+# Helper: detect current no-TLS state from .env or nginx.conf
+_detect_notls_enabled() {
+    local env_file="${INSTALL_ROOT}/.env"
+    if [[ -f "$env_file" ]]; then
+        local val
+        val=$(grep -E '^PROXY_NOTLS_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | head -1)
+        if [[ "${val}" == "true" ]]; then
+            echo "true"
+            return
+        fi
+    fi
+    # Fallback: check existing nginx.conf
+    local nginx_conf="${INSTALL_ROOT}/config/nginx/nginx.conf"
+    if [[ -f "$nginx_conf" ]] && grep -q 'listen 1081' "$nginx_conf" 2>/dev/null; then
+        echo "true"
+        return
+    fi
+    echo "false"
+}
+
+# Helper: regenerate nginx.conf preserving all current state
+_notls_regen_nginx() {
+    local enable_notls="$1"
+
+    # Read domain from .env
+    local cert_domain=""
+    local env_file="${INSTALL_ROOT}/.env"
+    if [[ -f "$env_file" ]]; then
+        cert_domain=$(grep -E '^DOMAIN=' "$env_file" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | head -1)
+    fi
+    if [[ -z "$cert_domain" ]]; then
+        echo -e "${RED}Error: Cannot detect domain. Set DOMAIN in ${INSTALL_ROOT}/.env${NC}" >&2
+        return 1
+    fi
+
+    local nginx_conf="${INSTALL_ROOT}/config/nginx/nginx.conf"
+
+    # Detect Tier 2 transports from current nginx.conf
+    local enable_tier2="false" ws_sub="" xhttp_sub="" grpc_sub=""
+    if [[ -f "$nginx_conf" ]]; then
+        ws_sub=$(awk '/WebSocket Transport/,/^    \}/' "$nginx_conf" 2>/dev/null \
+            | grep "server_name" | awk '{print $2}' | tr -d ';' | head -1)
+        xhttp_sub=$(awk '/XHTTP\/SplitHTTP Transport/,/^    \}/' "$nginx_conf" 2>/dev/null \
+            | grep "server_name" | awk '{print $2}' | tr -d ';' | head -1)
+        grpc_sub=$(awk '/gRPC Transport/,/^    \}/' "$nginx_conf" 2>/dev/null \
+            | grep "server_name" | awk '{print $2}' | tr -d ';' | head -1)
+        [[ -n "$ws_sub" || -n "$xhttp_sub" || -n "$grpc_sub" ]] && enable_tier2="true"
+    fi
+
+    # Detect mtproxy cloak state
+    local enable_mtproxy_cloak="false"
+    if [[ -f "$nginx_conf" ]] && grep -q 'listen 4443' "$nginx_conf" 2>/dev/null; then
+        enable_mtproxy_cloak="true"
+    fi
+
+    # Source nginx generator if not already loaded
+    if ! type generate_nginx_config &>/dev/null; then
+        source "${LIB_DIR}/nginx_stream_generator.sh"
+    fi
+
+    # Regenerate
+    generate_nginx_config \
+        "${cert_domain}" \
+        "${enable_tier2}" \
+        "${ws_sub}" \
+        "${xhttp_sub}" \
+        "${grpc_sub}" \
+        "${enable_mtproxy_cloak}" \
+        "${enable_notls}" \
+        > "$nginx_conf"
+
+    # Reload nginx
+    if ! docker exec familytraffic nginx -s reload 2>/dev/null; then
+        echo -e "${YELLOW}Warning: Failed to reload nginx (container may not be running)${NC}" >&2
+    fi
+}
+
+# Update .env file with PROXY_NOTLS_ENABLED value
+_set_notls_env() {
+    local value="$1"
+    local env_file="${INSTALL_ROOT}/.env"
+
+    if [[ ! -f "$env_file" ]]; then
+        echo "PROXY_NOTLS_ENABLED=${value}" >> "$env_file"
+        return
+    fi
+
+    if grep -q '^PROXY_NOTLS_ENABLED=' "$env_file" 2>/dev/null; then
+        sed -i "s/^PROXY_NOTLS_ENABLED=.*/PROXY_NOTLS_ENABLED=${value}/" "$env_file"
+    else
+        echo "PROXY_NOTLS_ENABLED=${value}" >> "$env_file"
+    fi
+}
+
+cmd_enable_notls() {
+    echo ""
+    echo -e "${BLUE}Enabling no-TLS proxy ports (v5.35)...${NC}"
+    echo ""
+
+    if [[ "$(_detect_notls_enabled)" == "true" ]]; then
+        echo -e "${YELLOW}No-TLS proxy ports are already enabled${NC}"
+        echo "  SOCKS5: port 1081 (plaintext)"
+        echo "  HTTP:   port 8119 (plaintext)"
+        return 0
+    fi
+
+    # Step 1: Update .env
+    _set_notls_env "true"
+    echo -e "  ${GREEN}✓${NC} Updated ${INSTALL_ROOT}/.env (PROXY_NOTLS_ENABLED=true)"
+
+    # Step 2: Regenerate nginx.conf
+    if _notls_regen_nginx "true"; then
+        echo -e "  ${GREEN}✓${NC} nginx.conf regenerated with no-TLS ports"
+        echo -e "  ${GREEN}✓${NC} nginx reloaded"
+    else
+        echo -e "  ${RED}✗ Failed to regenerate nginx.conf${NC}" >&2
+        return 1
+    fi
+
+    # Step 3: Add UFW rules
+    if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+        ufw allow 1081/tcp comment "familytraffic SOCKS5 no-TLS" &>/dev/null && \
+            echo -e "  ${GREEN}✓${NC} UFW: allowed 1081/tcp"
+        ufw allow 8119/tcp comment "familytraffic HTTP no-TLS" &>/dev/null && \
+            echo -e "  ${GREEN}✓${NC} UFW: allowed 8119/tcp"
+    else
+        echo -e "  ${YELLOW}UFW not active — skipping firewall rules${NC}"
+    fi
+
+    echo ""
+    echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║  WARNING: SECURITY RISK — PLAINTEXT CREDENTIALS            ║${NC}"
+    echo -e "${RED}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${RED}║  Ports 1081 and 8119 transmit credentials in CLEARTEXT.    ║${NC}"
+    echo -e "${RED}║  Only use on trusted networks or for testing.              ║${NC}"
+    echo -e "${RED}║  Use TLS ports (1080/8118) for production.                 ║${NC}"
+    echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${GREEN}No-TLS proxy ports enabled:${NC}"
+    echo "  SOCKS5: port 1081 (plaintext)"
+    echo "  HTTP:   port 8119 (plaintext)"
+    echo ""
+}
+
+cmd_disable_notls() {
+    echo ""
+    echo -e "${BLUE}Disabling no-TLS proxy ports...${NC}"
+    echo ""
+
+    if [[ "$(_detect_notls_enabled)" != "true" ]]; then
+        echo -e "${YELLOW}No-TLS proxy ports are already disabled${NC}"
+        return 0
+    fi
+
+    # Step 1: Update .env
+    _set_notls_env "false"
+    echo -e "  ${GREEN}✓${NC} Updated ${INSTALL_ROOT}/.env (PROXY_NOTLS_ENABLED=false)"
+
+    # Step 2: Regenerate nginx.conf
+    if _notls_regen_nginx "false"; then
+        echo -e "  ${GREEN}✓${NC} nginx.conf regenerated without no-TLS ports"
+        echo -e "  ${GREEN}✓${NC} nginx reloaded"
+    else
+        echo -e "  ${RED}✗ Failed to regenerate nginx.conf${NC}" >&2
+        return 1
+    fi
+
+    # Step 3: Remove UFW rules
+    if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+        ufw delete allow 1081/tcp &>/dev/null && \
+            echo -e "  ${GREEN}✓${NC} UFW: removed 1081/tcp"
+        ufw delete allow 8119/tcp &>/dev/null && \
+            echo -e "  ${GREEN}✓${NC} UFW: removed 8119/tcp"
+    fi
+
+    echo ""
+    echo -e "${GREEN}No-TLS proxy ports disabled.${NC}"
+    echo "  TLS ports remain active: 1080 (SOCKS5), 8118 (HTTP)"
+    echo ""
 }
 
 # Main command router
@@ -666,6 +855,19 @@ main() {
             source_modules
             source "${LIB_DIR}/transport_manager.sh"
             remove_transport "$1"
+            ;;
+
+        # v5.35: No-TLS proxy ports (1081 SOCKS5, 8119 HTTP)
+        enable-notls)
+            check_root
+            source_modules
+            cmd_enable_notls
+            ;;
+
+        disable-notls)
+            check_root
+            source_modules
+            cmd_disable_notls
             ;;
 
         *)

@@ -1441,15 +1441,15 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # v4.3: HAProxy-based TLS termination (unified architecture)
-    # Architecture: Client → HAProxy (TLS) → Xray (plaintext)
-    # IMPORTANT: HAProxy ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
+    # v5.34: nginx-based TLS termination (unified architecture)
+    # Architecture: Client → nginx (TLS) → Xray (plaintext)
+    # IMPORTANT: nginx ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
     local scheme="socks5"
     local host
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
-        scheme="socks5s"  # SOCKS5 with TLS (HAProxy provides TLS termination)
+        # Public proxy with nginx TLS termination
+        scheme="socks5s"  # SOCKS5 with TLS (nginx provides TLS termination)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
@@ -1457,11 +1457,19 @@ export_socks5_config() {
         host="127.0.0.1"
     fi
 
-    # Write SOCKS5 URI (port 1080 exposed by HAProxy, not Xray)
+    # Write SOCKS5 URI (port 1080 exposed by nginx, not Xray)
     echo "${scheme}://${username}:${password}@${host}:1080" \
         > "$output_dir/socks5_config.txt"
 
     chmod 600 "$output_dir/socks5_config.txt"
+
+    # v5.35: Export no-TLS SOCKS5 config when enabled
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]] && [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo "socks5://${username}:${password}@${DOMAIN}:1081" \
+            > "$output_dir/socks5_notls_config.txt"
+        chmod 600 "$output_dir/socks5_notls_config.txt"
+    fi
+
     return 0
 }
 
@@ -1487,15 +1495,15 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # v4.3: HAProxy-based TLS termination (unified architecture)
-    # Architecture: Client → HAProxy (TLS) → Xray (plaintext)
-    # IMPORTANT: HAProxy ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
+    # v5.34: nginx-based TLS termination (unified architecture)
+    # Architecture: Client → nginx (TLS) → Xray (plaintext)
+    # IMPORTANT: nginx ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
     local scheme="http"
     local host
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
-        scheme="https"  # HTTPS proxy with TLS (HAProxy provides TLS termination)
+        # Public proxy with nginx TLS termination
+        scheme="https"  # HTTPS proxy with TLS (nginx provides TLS termination)
         host="${DOMAIN}"  # Use domain for TLS certificate validation
     else
         # Localhost-only, no TLS
@@ -1503,11 +1511,19 @@ export_http_config() {
         host="127.0.0.1"
     fi
 
-    # Write HTTP URI (port 8118 exposed by HAProxy, not Xray)
+    # Write HTTP URI (port 8118 exposed by nginx, not Xray)
     echo "${scheme}://${username}:${password}@${host}:8118" \
         > "$output_dir/http_config.txt"
 
     chmod 600 "$output_dir/http_config.txt"
+
+    # v5.35: Export no-TLS HTTP config when enabled
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]] && [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo "http://${username}:${password}@${DOMAIN}:8119" \
+            > "$output_dir/http_notls_config.txt"
+        chmod 600 "$output_dir/http_notls_config.txt"
+    fi
+
     return 0
 }
 

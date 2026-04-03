@@ -26,6 +26,10 @@
 # Usage (with MTProxy cloak-port):
 #   generate_nginx_config "$CERT_DOMAIN" "false" "" "" "" "true" \
 #       > "${VLESS_DIR}/config/nginx/nginx.conf"
+#
+# Usage (with no-TLS proxy ports):
+#   generate_nginx_config "$CERT_DOMAIN" "false" "" "" "" "false" "true" \
+#       > "${VLESS_DIR}/config/nginx/nginx.conf"
 
 # ============================================================================
 # FUNCTION: generate_nginx_config (v5.34)
@@ -41,6 +45,7 @@
 #   $4 - xhttp_subdomain: XHTTP subdomain (optional, Phase 2 / v5.31)
 #   $5 - grpc_subdomain: gRPC subdomain (optional, Phase 2 / v5.32)
 #   $6 - enable_mtproxy_cloak: "true"/"false" — include MTProxy cloak-port 4443 (v5.34)
+#   $7 - enable_notls: "true"/"false" — include no-TLS proxy ports 1081/8119 (v5.35)
 # Returns: nginx.conf content on stdout; 0 on success, 1 on failure
 # ============================================================================
 NGINX_CONF="${NGINX_CONF:-/opt/familytraffic/config/nginx/nginx.conf}"
@@ -53,6 +58,7 @@ generate_nginx_config() {
     local xhttp_subdomain="${4:-}"
     local grpc_subdomain="${5:-}"
     local enable_mtproxy_cloak="${6:-false}"
+    local enable_notls="${7:-false}"
 
     if [[ -z "$cert_domain" ]]; then
         echo "ERROR: generate_nginx_config requires cert_domain as \$1" >&2
@@ -134,6 +140,32 @@ fi)
         proxy_connect_timeout 10s;
         proxy_timeout        300s;
     }
+$(if [[ "${enable_notls}" == "true" ]]; then
+cat <<NOTLS_BLOCK
+
+    # -------------------------------------------------------------------------
+    # Port 1081: SOCKS5 without TLS (plaintext, credentials transmitted in cleartext!)
+    # No TLS termination — direct proxy_pass to xray SOCKS5 inbound
+    # -------------------------------------------------------------------------
+    server {
+        listen 1081;
+        proxy_pass 127.0.0.1:10800;
+        proxy_connect_timeout 10s;
+        proxy_timeout 300s;
+    }
+
+    # -------------------------------------------------------------------------
+    # Port 8119: HTTP proxy without TLS (plaintext, credentials transmitted in cleartext!)
+    # No TLS termination — direct proxy_pass to xray HTTP proxy inbound
+    # -------------------------------------------------------------------------
+    server {
+        listen 8119;
+        proxy_pass 127.0.0.1:18118;
+        proxy_connect_timeout 10s;
+        proxy_timeout 300s;
+    }
+NOTLS_BLOCK
+fi)
 }
 
 # =============================================================================

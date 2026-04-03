@@ -20,6 +20,8 @@ set -euo pipefail
 # Proxy ports
 readonly SOCKS5_PORT=1080
 readonly HTTP_PORT=8118
+readonly SOCKS5_NOTLS_PORT=1081
+readonly HTTP_NOTLS_PORT=8119
 
 # UFW rule comment prefix
 readonly UFW_COMMENT_PREFIX="VLESS proxy whitelist"
@@ -199,8 +201,30 @@ add_ufw_proxy_rule() {
         ((errors++))
     fi
 
+    # No-TLS ports (1081, 8119) — only when PROXY_NOTLS_ENABLED=true
+    local env_file="${INSTALL_ROOT:-/opt/familytraffic}/.env"
+    local notls_enabled="false"
+    if [[ -f "$env_file" ]]; then
+        notls_enabled=$(grep -E '^PROXY_NOTLS_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | head -1)
+    fi
+    if [[ "${notls_enabled}" == "true" ]]; then
+        # SOCKS5 no-TLS port (1081)
+        if ! ufw allow from "$ip" to any port "$SOCKS5_NOTLS_PORT" proto tcp comment "${UFW_COMMENT_PREFIX}: ${ip} SOCKS5-NOTLS" &>/dev/null; then
+            log_ufw_error "Failed to add UFW rule for SOCKS5 no-TLS port ($SOCKS5_NOTLS_PORT)"
+            ((errors++))
+        fi
+
+        # HTTP no-TLS port (8119)
+        if ! ufw allow from "$ip" to any port "$HTTP_NOTLS_PORT" proto tcp comment "${UFW_COMMENT_PREFIX}: ${ip} HTTP-NOTLS" &>/dev/null; then
+            log_ufw_error "Failed to add UFW rule for HTTP no-TLS port ($HTTP_NOTLS_PORT)"
+            ((errors++))
+        fi
+    fi
+
     if [[ $errors -eq 0 ]]; then
-        log_ufw_success "Added UFW rules for $ip (ports $SOCKS5_PORT, $HTTP_PORT)"
+        local ports_msg="ports $SOCKS5_PORT, $HTTP_PORT"
+        [[ "${notls_enabled}" == "true" ]] && ports_msg+=", $SOCKS5_NOTLS_PORT, $HTTP_NOTLS_PORT"
+        log_ufw_success "Added UFW rules for $ip ($ports_msg)"
         return 0
     else
         log_ufw_error "Failed to add some UFW rules for $ip"
@@ -334,8 +358,17 @@ show_ufw_proxy_ips() {
     fi
 
     echo -e "${CYAN}Ports Protected:${NC}"
-    echo "  • SOCKS5: $SOCKS5_PORT/tcp"
-    echo "  • HTTP:   $HTTP_PORT/tcp"
+    echo "  • SOCKS5: $SOCKS5_PORT/tcp (TLS)"
+    echo "  • HTTP:   $HTTP_PORT/tcp (TLS)"
+    local env_file="${INSTALL_ROOT:-/opt/familytraffic}/.env"
+    local notls_enabled="false"
+    if [[ -f "$env_file" ]]; then
+        notls_enabled=$(grep -E '^PROXY_NOTLS_ENABLED=' "$env_file" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | head -1)
+    fi
+    if [[ "${notls_enabled}" == "true" ]]; then
+        echo "  • SOCKS5: $SOCKS5_NOTLS_PORT/tcp (no-TLS)"
+        echo "  • HTTP:   $HTTP_NOTLS_PORT/tcp (no-TLS)"
+    fi
     echo ""
 
     echo -e "${CYAN}Management Commands:${NC}"
