@@ -1100,14 +1100,23 @@ generate_nginx_config_wrapper() {
         echo -e "${YELLOW}Warning: Failed to create ${VLESS_DIR}/logs/nginx directory${NC}"
     }
 
+    # Read no-TLS flag from .env
+    local enable_notls="false"
+    if [[ -f "${VLESS_DIR}/.env" ]] && grep -q '^PROXY_NOTLS_ENABLED=true' "${VLESS_DIR}/.env" 2>/dev/null; then
+        enable_notls="true"
+    fi
+
     # Generate nginx.conf (Phase 0: no Tier 2 subdomains yet; they are added by transport_manager.sh)
-    if ! generate_nginx_config "${cert_domain}" "false" > "${VLESS_DIR}/config/nginx/nginx.conf"; then
+    if ! generate_nginx_config "${cert_domain}" "false" "" "" "" "false" "${enable_notls}" > "${VLESS_DIR}/config/nginx/nginx.conf"; then
         echo -e "${RED}Failed to generate Nginx configuration${NC}" >&2
         return 1
     fi
 
     echo "  ✓ Nginx config: ${VLESS_DIR}/config/nginx/nginx.conf"
     echo "  ✓ Stream ports: 443 (SNI ssl_preread), 1080 (SOCKS5 TLS), 8118 (HTTP TLS)"
+    if [[ "${enable_notls}" == "true" ]]; then
+        echo "  ✓ No-TLS ports: 1081 (SOCKS5), 8119 (HTTP) — credentials in cleartext!"
+    fi
     echo "  ✓ HTTP block: port 8448 (Tier 2 loopback placeholder)"
     echo "  ✓ Cert domain: ${cert_domain}"
 

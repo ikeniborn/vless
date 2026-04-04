@@ -74,6 +74,13 @@ ${CYAN}UFW Firewall Rules (v4.0 - Host-Level):${NC}
   remove-ufw-ip <ip>                Remove IP from UFW whitelist
   reset-ufw-ips                     Remove all UFW proxy rules
 
+${CYAN}No-TLS Proxy (v5.35):${NC}
+  enable-notls                Enable plaintext proxy ports (1081/8119)
+  disable-notls               Disable plaintext proxy ports
+
+${CYAN}Per-User Proxy Alias:${NC}
+  unset-proxy <username>      Remove external proxy assignment (alias for set-proxy <user> none)
+
 ${CYAN}Service Operations:${NC}
   status                    Show service status
   start                     Start VLESS services
@@ -128,6 +135,141 @@ source_modules() {
             source "${LIB_DIR}/${module}"
         fi
     done
+}
+
+# =============================================================================
+# No-TLS proxy helpers (v5.35)
+# =============================================================================
+
+_detect_notls_enabled() {
+    local env_file="${INSTALL_ROOT}/.env"
+    if [[ -f "$env_file" ]] && grep -q '^PROXY_NOTLS_ENABLED=true' "$env_file" 2>/dev/null; then
+        echo "true"
+        return
+    fi
+    local nginx_conf="${INSTALL_ROOT}/config/nginx/nginx.conf"
+    if [[ -f "$nginx_conf" ]] && grep -q 'listen 1081' "$nginx_conf" 2>/dev/null; then
+        echo "true"
+        return
+    fi
+    echo "false"
+}
+
+_set_notls_env() {
+    local value="$1"
+    local env_file="${INSTALL_ROOT}/.env"
+    if [[ ! -f "$env_file" ]]; then
+        echo "PROXY_NOTLS_ENABLED=${value}" > "$env_file"
+        return
+    fi
+    if grep -q '^PROXY_NOTLS_ENABLED=' "$env_file" 2>/dev/null; then
+        sed -i "s/^PROXY_NOTLS_ENABLED=.*/PROXY_NOTLS_ENABLED=${value}/" "$env_file"
+    else
+        echo "PROXY_NOTLS_ENABLED=${value}" >> "$env_file"
+    fi
+}
+
+_notls_regen_nginx() {
+    local enable_notls="$1"
+    local cert_domain
+    cert_domain=$(grep '^DOMAIN=' "${INSTALL_ROOT}/.env" 2>/dev/null | cut -d= -f2)
+    if [[ -z "$cert_domain" ]]; then
+        echo -e "${RED}Error: DOMAIN not set in ${INSTALL_ROOT}/.env${NC}" >&2
+        return 1
+    fi
+
+    local nginx_conf="${INSTALL_ROOT}/config/nginx/nginx.conf"
+
+    # Detect current Tier 2 state
+    local enable_tier2="false" ws_sub="" xhttp_sub="" grpc_sub=""
+    local transports_json="${INSTALL_ROOT}/config/transports.json"
+    if [[ -f "$transports_json" ]]; then
+        ws_sub=$(jq -r '.transports[] | select(.type == "ws") | .subdomain' "$transports_json" 2>/dev/null || true)
+        xhttp_sub=$(jq -r '.transports[] | select(.type == "xhttp") | .subdomain' "$transports_json" 2>/dev/null || true)
+        grpc_sub=$(jq -r '.transports[] | select(.type == "grpc") | .subdomain' "$transports_json" 2>/dev/null || true)
+        [[ -n "$ws_sub" || -n "$xhttp_sub" || -n "$grpc_sub" ]] && enable_tier2="true"
+    fi
+
+    # Detect MTProxy cloak
+    local enable_cloak="false"
+    if [[ -f "$nginx_conf" ]] && grep -q 'listen 4443' "$nginx_conf" 2>/dev/null; then
+        enable_cloak="true"
+    fi
+
+    generate_nginx_config "$cert_domain" "$enable_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
+        > "$nginx_conf"
+
+    # Reload nginx in container
+    docker exec familytraffic nginx -s reload 2>/dev/null || true
+}
+
+cmd_enable_notls() {
+    echo ""
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  Enable No-TLS Proxy Ports (v5.35)${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    local current
+    current=$(_detect_notls_enabled)
+    if [[ "$current" == "true" ]]; then
+        echo -e "${YELLOW}No-TLS ports already enabled (1081/tcp, 8119/tcp)${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}WARNING: No-TLS ports transmit proxy credentials in CLEARTEXT!${NC}"
+    echo -e "${YELLOW}Use only in trusted networks or when TLS client support is unavailable.${NC}"
+    echo ""
+
+    # Update .env
+    _set_notls_env "true"
+    echo -e "  ${GREEN}✓${NC} PROXY_NOTLS_ENABLED=true in .env"
+
+    # Regenerate nginx.conf
+    _notls_regen_nginx "true"
+    echo -e "  ${GREEN}✓${NC} nginx.conf regenerated with ports 1081, 8119"
+    echo -e "  ${GREEN}✓${NC} nginx reloaded"
+
+    echo ""
+    echo -e "${CYAN}Ports:${NC}"
+    echo "  SOCKS5 (no TLS): 1081/tcp"
+    echo "  HTTP   (no TLS): 8119/tcp"
+    echo ""
+    echo -e "${YELLOW}Remember to add UFW rules if needed:${NC}"
+    echo "  sudo ufw allow 1081/tcp"
+    echo "  sudo ufw allow 8119/tcp"
+    echo ""
+}
+
+cmd_disable_notls() {
+    echo ""
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  Disable No-TLS Proxy Ports (v5.35)${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    local current
+    current=$(_detect_notls_enabled)
+    if [[ "$current" == "false" ]]; then
+        echo -e "${YELLOW}No-TLS ports already disabled${NC}"
+        return 0
+    fi
+
+    # Update .env
+    _set_notls_env "false"
+    echo -e "  ${GREEN}✓${NC} PROXY_NOTLS_ENABLED=false in .env"
+
+    # Regenerate nginx.conf
+    _notls_regen_nginx "false"
+    echo -e "  ${GREEN}✓${NC} nginx.conf regenerated without no-TLS ports"
+    echo -e "  ${GREEN}✓${NC} nginx reloaded"
+
+    echo ""
+    echo -e "${GREEN}No-TLS ports 1081 and 8119 removed from nginx.${NC}"
+    echo -e "${YELLOW}Remember to remove UFW rules if they exist:${NC}"
+    echo "  sudo ufw delete allow 1081/tcp"
+    echo "  sudo ufw delete allow 8119/tcp"
+    echo ""
 }
 
 # Main command router
@@ -666,6 +808,33 @@ main() {
             source_modules
             source "${LIB_DIR}/transport_manager.sh"
             remove_transport "$1"
+            ;;
+
+        # v5.35: Per-user proxy alias
+        unset-proxy)
+            check_root
+            if [[ $# -eq 0 ]]; then
+                echo -e "${RED}Error: Username required${NC}" >&2
+                echo "Usage: familytraffic unset-proxy <username>" >&2
+                exit 1
+            fi
+            source_modules
+            cmd_set_user_proxy "$1" "none"
+            ;;
+
+        # v5.35: No-TLS proxy ports management
+        enable-notls)
+            check_root
+            source_modules
+            source "${LIB_DIR}/nginx_stream_generator.sh"
+            cmd_enable_notls
+            ;;
+
+        disable-notls)
+            check_root
+            source_modules
+            source "${LIB_DIR}/nginx_stream_generator.sh"
+            cmd_disable_notls
             ;;
 
         *)

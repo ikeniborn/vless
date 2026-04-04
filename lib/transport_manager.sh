@@ -182,8 +182,23 @@ _regenerate_nginx_config() {
     local has_tier2="false"
     [[ -n "$ws_sub" || -n "$xhttp_sub" || -n "$grpc_sub" ]] && has_tier2="true"
 
-    log_info "Regenerating nginx.conf (ws='$ws_sub' xhttp='$xhttp_sub' grpc='$grpc_sub')..."
-    if generate_nginx_config "$cert_domain" "$has_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" \
+    # Auto-detect MTProxy cloak-port from existing nginx.conf
+    local enable_cloak="false"
+    if [[ -f "${nginx_conf_dir}/nginx.conf" ]] && grep -q 'listen 4443' "${nginx_conf_dir}/nginx.conf" 2>/dev/null; then
+        enable_cloak="true"
+    fi
+
+    # Auto-detect no-TLS from .env or existing nginx.conf
+    local enable_notls="false"
+    local env_file="${VLESS_DIR:-/opt/familytraffic}/.env"
+    if [[ -f "$env_file" ]] && grep -q '^PROXY_NOTLS_ENABLED=true' "$env_file" 2>/dev/null; then
+        enable_notls="true"
+    elif [[ -f "${nginx_conf_dir}/nginx.conf" ]] && grep -q 'listen 1081' "${nginx_conf_dir}/nginx.conf" 2>/dev/null; then
+        enable_notls="true"
+    fi
+
+    log_info "Regenerating nginx.conf (ws='$ws_sub' xhttp='$xhttp_sub' grpc='$grpc_sub' cloak=$enable_cloak notls=$enable_notls)..."
+    if generate_nginx_config "$cert_domain" "$has_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
         > "${nginx_conf_dir}/nginx.conf"; then
         log_success "nginx.conf regenerated"
     else

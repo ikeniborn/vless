@@ -74,7 +74,7 @@ COPY --chmod=755 \
 ENV INSTALL_PATH=/opt/familytraffic
 
 # Documentation only — actual binding controlled by network_mode:host in compose
-EXPOSE 443 1080 8118 2053
+EXPOSE 443 1080 1081 8118 8119 2053
 
 # Fallback healthcheck — overridden by docker-compose.yml when run via compose
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=20s \
