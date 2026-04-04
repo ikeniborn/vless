@@ -1820,7 +1820,11 @@ export_all_proxy_configs() {
     export_git_config "$username" "$proxy_password" "$output_dir" || return 1
 
     log_success "Proxy configs exported to: $output_dir/"
-    log_info "Files: socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh, git_config.txt"
+    local file_list="socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh, git_config.txt"
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]]; then
+        file_list+=", socks5_notls_config.txt, http_notls_config.txt"
+    fi
+    log_info "Files: $file_list"
 
     return 0
 }
@@ -2610,6 +2614,19 @@ create_user() {
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 [[ -n "$socks5_uri" ]] && echo "SOCKS5: $socks5_uri"
                 [[ -n "$http_uri" ]] && echo "HTTP:   $http_uri"
+
+                # v5.35: Display no-TLS proxy URIs if available
+                if [[ -f "${user_dir}/socks5_notls_config.txt" ]]; then
+                    local socks5_notls_uri
+                    socks5_notls_uri=$(cat "${user_dir}/socks5_notls_config.txt")
+                    echo "SOCKS5 (no TLS): $socks5_notls_uri"
+                fi
+                if [[ -f "${user_dir}/http_notls_config.txt" ]]; then
+                    local http_notls_uri
+                    http_notls_uri=$(cat "${user_dir}/http_notls_config.txt")
+                    echo "HTTP   (no TLS): $http_notls_uri"
+                fi
+
                 echo ""
                 echo "Config files saved to: ${user_dir}/"
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

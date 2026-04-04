@@ -1307,7 +1307,7 @@ configure_ufw() {
     fi
 
     # Add Docker forwarding rules to UFW (if not already present)
-    if ! grep -q "VLESS REALITY" "${UFW_AFTER_RULES}" 2>/dev/null; then
+    if ! grep -q "FAMILYTRAFFIC DOCKER FORWARDING\|VLESS REALITY" "${UFW_AFTER_RULES}" 2>/dev/null; then
         echo "  Adding Docker forwarding rules..."
 
         cat >> "${UFW_AFTER_RULES}" <<EOF
