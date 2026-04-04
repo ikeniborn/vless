@@ -58,6 +58,10 @@ readonly NC='\033[0m'
 # Source Required Modules
 # ============================================================================
 
+if [[ -f "${LIB_DIR}/common.sh" ]]; then
+    source "${LIB_DIR}/common.sh"
+fi
+
 if [[ -f "${LIB_DIR}/mtproxy_manager.sh" ]]; then
     # shellcheck source=/opt/familytraffic/lib/mtproxy_manager.sh
     source "${LIB_DIR}/mtproxy_manager.sh"
@@ -206,7 +210,7 @@ _regen_nginx() {
         log_error "Failed to generate nginx.conf"
         return 1
     fi
-    mv "$tmp_conf" "${NGINX_CONF_PATH}"
+    write_preserving_inode "$tmp_conf" "${NGINX_CONF_PATH}"
 
     log_success "nginx.conf regenerated"
     _nginx_reload

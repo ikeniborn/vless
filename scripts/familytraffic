@@ -124,6 +124,7 @@ EOF
 # Source lib modules
 source_modules() {
     local modules=(
+        "common.sh"
         "user_management.sh"
         "qr_generator.sh"
         "proxy_whitelist.sh"
@@ -202,7 +203,7 @@ _notls_regen_nginx() {
         rm -f "$tmp_conf"
         return 1
     fi
-    mv "$tmp_conf" "$nginx_conf"
+    write_preserving_inode "$tmp_conf" "$nginx_conf"
 
     # Reload nginx in container
     docker exec familytraffic nginx -s reload 2>/dev/null || true

@@ -436,8 +436,8 @@ add_user_to_json() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
 
         # Set proper permissions
         chmod 600 "$USERS_JSON"
@@ -484,8 +484,8 @@ remove_user_from_json() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
 
         # Set proper permissions
         chmod 600 "$USERS_JSON"
@@ -551,7 +551,7 @@ add_client_to_xray() {
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
         rm -f "$temp_file"
-        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
         return 1
     fi
 
@@ -579,14 +579,14 @@ add_client_to_xray() {
             log_error "Xray configuration validation failed:"
             echo "$validation_output" >&2
             rm -f "$temp_file"
-            mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+            write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
             return 1
         fi
     fi
 
-    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
-    cp "$temp_file" "$XRAY_CONFIG"
-    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client added to Xray configuration"
     return 0
@@ -634,7 +634,7 @@ remove_client_from_xray() {
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
         rm -f "$temp_file"
-        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
         return 1
     fi
 
@@ -661,14 +661,14 @@ remove_client_from_xray() {
             log_error "Xray configuration validation failed:"
             echo "$validation_output" >&2
             rm -f "$temp_file"
-            mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+            write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
             return 1
         fi
     fi
 
-    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
-    cp "$temp_file" "$XRAY_CONFIG"
-    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client removed from Xray configuration"
     return 0
@@ -757,9 +757,9 @@ apply_per_user_routing() {
         return 1
     fi
 
-    # Apply changes — use cp+rm to preserve inode (required for Docker bind mounts)
-    cp "$temp_file" "$XRAY_CONFIG"
-    rm -f "$temp_file" "$routing_tmp"
+    # Apply changes — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
+    rm -f "$routing_tmp"
 
     log_success "Per-user routing applied successfully"
 
@@ -977,8 +977,8 @@ update_proxy_accounts() {
         mv "$temp_file2" "$temp_file"
     fi
 
-    # Move temp file to config (atomic)
-    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+    # Write preserving inode (required for Docker bind mounts)
+    if ! write_preserving_inode "$temp_file" "${XRAY_CONFIG}"; then
         log_error "Failed to save updated Xray config"
         rm -f "$temp_file"
         return 1
@@ -1049,7 +1049,7 @@ rebuild_proxy_accounts_from_users_json() {
         log_error "Failed to rebuild proxy accounts from users.json"
         return 1
     fi
-    mv "$tmp" "${XRAY_CONFIG}"
+    write_preserving_inode "$tmp" "${XRAY_CONFIG}"
 
     local count
     count=$(echo "$proxy_accounts" | jq 'length')
@@ -1092,8 +1092,8 @@ remove_proxy_accounts() {
         return 1
     fi
 
-    # Atomic replace
-    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+    # Write preserving inode (required for Docker bind mounts)
+    if ! write_preserving_inode "$temp_file" "${XRAY_CONFIG}"; then
         log_error "Failed to save updated Xray config"
         rm -f "$temp_file"
         return 1
@@ -1277,8 +1277,8 @@ reset_proxy_password() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
         chmod 600 "$USERS_JSON"
 
     ) 200>"$LOCK_FILE"
@@ -1316,8 +1316,8 @@ reset_proxy_password() {
             mv "$temp_file2" "$temp_file"
         fi
 
-        # Save intermediate state
-        mv "$temp_file" "${XRAY_CONFIG}"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "${XRAY_CONFIG}"
     fi
 
     # Add new account with new password
@@ -2024,8 +2024,8 @@ migrate_users_schema_v525() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
 
         # Set proper permissions
         chmod 600 "$USERS_JSON"
@@ -2079,7 +2079,7 @@ migrate_xtls_vision() {
         return 1
     fi
 
-    mv "$temp_file" "$XRAY_CONFIG"
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
     chmod 644 "$XRAY_CONFIG"
     rm -f "${XRAY_CONFIG}.bak.migrate.$$"
 
@@ -2820,7 +2820,7 @@ cmd_set_user_proxy() {
         fi
 
         if [[ $? -eq 0 ]]; then
-            mv "$temp_file" "$USERS_JSON"
+            write_preserving_inode "$temp_file" "$USERS_JSON"
             chmod 600 "$USERS_JSON"
         else
             rm -f "$temp_file"
@@ -2846,7 +2846,7 @@ cmd_set_user_proxy() {
                     (.proxies[] | select(.id == $id) | .metadata.last_modified) = $ts |
                     .enabled = true |
                     .metadata.last_modified = $ts' \
-                   "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
+                   "$proxy_db" > "$temp_file" && write_preserving_inode "$temp_file" "$proxy_db"
 
                 log_info "Auto-activated external proxy: $proxy_id"
             fi
@@ -2864,7 +2864,7 @@ cmd_set_user_proxy() {
                     jq --arg ts "$(date -Iseconds)" \
                        '.enabled = true |
                         .metadata.last_modified = $ts' \
-                       "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
+                       "$proxy_db" > "$temp_file" && write_preserving_inode "$temp_file" "$proxy_db"
                 fi
             fi
         fi
@@ -3102,6 +3102,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_proxy_accounts
     export -f apply_per_user_routing
     export -f reload_xray
+    export -f write_preserving_inode
     export -f cmd_set_user_proxy
     export -f cmd_show_user_proxy
     export -f cmd_list_proxy_assignments

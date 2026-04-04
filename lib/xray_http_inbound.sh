@@ -135,12 +135,12 @@ add_reverseproxy_inbound() {
     # Validate JSON
     if ! jq empty "${XRAY_CONFIG}.tmp" 2>/dev/null; then
         echo "Error: Generated invalid Xray configuration" >&2
-        mv "${XRAY_CONFIG}.bak" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak" "$XRAY_CONFIG"
         rm -f "${XRAY_CONFIG}.tmp"
         return 1
     fi
 
-    mv "${XRAY_CONFIG}.tmp" "$XRAY_CONFIG"
+    write_preserving_inode "${XRAY_CONFIG}.tmp" "$XRAY_CONFIG"
     chmod 644 "$XRAY_CONFIG"
 
     # Return tag and port
@@ -179,12 +179,12 @@ remove_reverseproxy_inbound() {
     # Validate JSON
     if ! jq empty "${XRAY_CONFIG}.tmp" 2>/dev/null; then
         echo "Error: Generated invalid Xray configuration" >&2
-        mv "${XRAY_CONFIG}.bak" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak" "$XRAY_CONFIG"
         rm -f "${XRAY_CONFIG}.tmp"
         return 1
     fi
 
-    mv "${XRAY_CONFIG}.tmp" "$XRAY_CONFIG"
+    write_preserving_inode "${XRAY_CONFIG}.tmp" "$XRAY_CONFIG"
     chmod 644 "$XRAY_CONFIG"
 
     return 0

@@ -86,7 +86,7 @@ add_transport() {
         log_error "transports.json update produced invalid JSON"
         return 1
     fi
-    mv "$temp" "$TRANSPORTS_JSON"
+    write_preserving_inode "$temp" "$TRANSPORTS_JSON"
 
     log_success "Transport '$transport_type' registered: $subdomain → familytraffic:$port"
 
@@ -137,7 +137,7 @@ add_transport() {
             log_error "xray_config.json update produced invalid JSON"
             return 1
         fi
-        mv "$xray_temp" "$xray_config"
+        write_preserving_inode "$xray_temp" "$xray_config"
         log_success "Inbound '$inbound_tag' appended to xray_config.json (existing users preserved)"
     fi
 
@@ -201,7 +201,7 @@ _regenerate_nginx_config() {
     local tmp_conf="${nginx_conf_dir}/nginx.conf.tmp"
     if generate_nginx_config "$cert_domain" "$has_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
         > "$tmp_conf"; then
-        mv "$tmp_conf" "${nginx_conf_dir}/nginx.conf"
+        write_preserving_inode "$tmp_conf" "${nginx_conf_dir}/nginx.conf"
         log_success "nginx.conf regenerated"
     else
         rm -f "$tmp_conf"
@@ -280,7 +280,7 @@ remove_transport() {
         log_error "transports.json update produced invalid JSON"
         return 1
     fi
-    mv "$temp" "$TRANSPORTS_JSON"
+    write_preserving_inode "$temp" "$TRANSPORTS_JSON"
 
     log_success "Transport '$transport_type' removed from transports.json"
 
@@ -303,7 +303,7 @@ remove_transport() {
             log_error "xray_config.json update produced invalid JSON"
             return 1
         fi
-        mv "$xray_temp" "$xray_config"
+        write_preserving_inode "$xray_temp" "$xray_config"
         log_success "Removed inbound '$tag' from xray_config.json"
     else
         log_warning "xray_config.json not found — skipping inbound removal"

@@ -947,7 +947,7 @@ EOF
     temp_file=$(mktemp)
 
     jq ".metadata.created = \"${timestamp}\" | .metadata.last_modified = \"${timestamp}\"" \
-       "${USERS_JSON}" > "$temp_file" && mv "$temp_file" "${USERS_JSON}"
+       "${USERS_JSON}" > "$temp_file" && write_preserving_inode "$temp_file" "${USERS_JSON}"
 
     if [[ ! -f "${USERS_JSON}" ]]; then
         echo -e "${RED}Failed to create ${USERS_JSON}${NC}" >&2
@@ -998,7 +998,7 @@ EOF
     temp_file=$(mktemp)
 
     jq ".metadata.created = \"${timestamp}\" | .metadata.last_modified = \"${timestamp}\"" \
-       "$proxy_ips_file" > "$temp_file" && mv "$temp_file" "$proxy_ips_file"
+       "$proxy_ips_file" > "$temp_file" && write_preserving_inode "$temp_file" "$proxy_ips_file"
 
     if [[ ! -f "$proxy_ips_file" ]]; then
         echo -e "${RED}Failed to create ${proxy_ips_file}${NC}" >&2

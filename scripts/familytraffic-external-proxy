@@ -48,6 +48,10 @@ readonly NC='\033[0m' # No Color
 # LOAD MODULES
 # =============================================================================
 
+if [[ -f "${LIB_DIR}/common.sh" ]]; then
+    source "${LIB_DIR}/common.sh"
+fi
+
 if [[ -f "${LIB_DIR}/external_proxy_manager.sh" ]]; then
     source "${LIB_DIR}/external_proxy_manager.sh"
 else

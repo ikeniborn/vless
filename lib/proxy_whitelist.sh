@@ -622,12 +622,12 @@ regenerate_proxy_routing() {
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
         rm -f "$temp_file"
-        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
         return 1
     fi
 
-    # Apply changes
-    mv "$temp_file" "$XRAY_CONFIG"
+    # Apply changes — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
     rm -f "${XRAY_CONFIG}.bak.$$"
 
     local ip_count
