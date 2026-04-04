@@ -257,12 +257,25 @@ cmd_enable_notls() {
         return 1
     fi
 
-    # Step 3: Add UFW rules
+    # Step 3: Add UFW rules for no-TLS ports (per-IP, matching existing whitelist)
     if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-        ufw allow 1081/tcp comment "familytraffic SOCKS5 no-TLS" &>/dev/null && \
-            echo -e "  ${GREEN}✓${NC} UFW: allowed 1081/tcp"
-        ufw allow 8119/tcp comment "familytraffic HTTP no-TLS" &>/dev/null && \
-            echo -e "  ${GREEN}✓${NC} UFW: allowed 8119/tcp"
+        # Extract existing whitelisted IPs from UFW proxy rules
+        local whitelisted_ips
+        whitelisted_ips=$(ufw status | grep "${UFW_COMMENT_PREFIX:-VLESS proxy whitelist}:" | \
+            grep -oP 'from \K[0-9a-fA-F.:/]+' | sort -u)
+        if [[ -n "$whitelisted_ips" ]]; then
+            local ip_count=0
+            while IFS= read -r ip; do
+                ufw allow from "$ip" to any port 1081 proto tcp \
+                    comment "${UFW_COMMENT_PREFIX:-VLESS proxy whitelist}: ${ip} SOCKS5-NOTLS" &>/dev/null
+                ufw allow from "$ip" to any port 8119 proto tcp \
+                    comment "${UFW_COMMENT_PREFIX:-VLESS proxy whitelist}: ${ip} HTTP-NOTLS" &>/dev/null
+                ((ip_count++))
+            done <<< "$whitelisted_ips"
+            echo -e "  ${GREEN}✓${NC} UFW: added no-TLS rules for ${ip_count} whitelisted IP(s)"
+        else
+            echo -e "  ${YELLOW}No whitelisted IPs found — add IPs with: familytraffic add-ufw-ip <ip>${NC}"
+        fi
     else
         echo -e "  ${YELLOW}UFW not active — skipping firewall rules${NC}"
     fi
@@ -305,12 +318,21 @@ cmd_disable_notls() {
         return 1
     fi
 
-    # Step 3: Remove UFW rules
+    # Step 3: Remove UFW rules for no-TLS ports (per-IP rules)
     if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-        ufw delete allow 1081/tcp &>/dev/null && \
-            echo -e "  ${GREEN}✓${NC} UFW: removed 1081/tcp"
-        ufw delete allow 8119/tcp &>/dev/null && \
-            echo -e "  ${GREEN}✓${NC} UFW: removed 8119/tcp"
+        # Remove all no-TLS rules by matching comment pattern
+        local notls_rule_nums
+        notls_rule_nums=$(ufw status numbered | grep -E 'SOCKS5-NOTLS|HTTP-NOTLS' | \
+            grep -oP '^\[\s*\K[0-9]+' | sort -rn)
+        if [[ -n "$notls_rule_nums" ]]; then
+            local removed=0
+            while IFS= read -r num; do
+                echo "y" | ufw delete "$num" &>/dev/null && ((removed++))
+            done <<< "$notls_rule_nums"
+            echo -e "  ${GREEN}✓${NC} UFW: removed ${removed} no-TLS rule(s)"
+        else
+            echo -e "  ${YELLOW}No UFW no-TLS rules found to remove${NC}"
+        fi
     fi
 
     echo ""
