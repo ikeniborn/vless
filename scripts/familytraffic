@@ -196,8 +196,13 @@ _notls_regen_nginx() {
         enable_cloak="true"
     fi
 
-    generate_nginx_config "$cert_domain" "$enable_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
-        > "$nginx_conf"
+    local tmp_conf="${nginx_conf}.tmp"
+    if ! generate_nginx_config "$cert_domain" "$enable_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
+        > "$tmp_conf"; then
+        rm -f "$tmp_conf"
+        return 1
+    fi
+    mv "$tmp_conf" "$nginx_conf"
 
     # Reload nginx in container
     docker exec familytraffic nginx -s reload 2>/dev/null || true
@@ -226,7 +231,10 @@ cmd_enable_notls() {
     echo -e "  ${GREEN}✓${NC} PROXY_NOTLS_ENABLED=true in .env"
 
     # Regenerate nginx.conf
-    _notls_regen_nginx "true"
+    if ! _notls_regen_nginx "true"; then
+        echo -e "  ${RED}✗${NC} Failed to regenerate nginx.conf"
+        return 1
+    fi
     echo -e "  ${GREEN}✓${NC} nginx.conf regenerated with ports 1081, 8119"
     echo -e "  ${GREEN}✓${NC} nginx reloaded"
 
@@ -260,7 +268,10 @@ cmd_disable_notls() {
     echo -e "  ${GREEN}✓${NC} PROXY_NOTLS_ENABLED=false in .env"
 
     # Regenerate nginx.conf
-    _notls_regen_nginx "false"
+    if ! _notls_regen_nginx "false"; then
+        echo -e "  ${RED}✗${NC} Failed to regenerate nginx.conf"
+        return 1
+    fi
     echo -e "  ${GREEN}✓${NC} nginx.conf regenerated without no-TLS ports"
     echo -e "  ${GREEN}✓${NC} nginx reloaded"
 
