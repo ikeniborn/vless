@@ -191,8 +191,9 @@ _regen_nginx() {
 
     log_info "Regenerating nginx.conf (cloak-port: ${enable_mtproxy_cloak}, notls: ${enable_notls})..."
 
-    # Write new config
-    generate_nginx_config \
+    # Write new config (atomic: write to .tmp, then mv)
+    local tmp_conf="${NGINX_CONF_PATH}.tmp"
+    if ! generate_nginx_config \
         "${cert_domain}" \
         "${enable_tier2}" \
         "${ws_sub}" \
@@ -200,7 +201,12 @@ _regen_nginx() {
         "${grpc_sub}" \
         "${enable_mtproxy_cloak}" \
         "${enable_notls}" \
-        > "${NGINX_CONF_PATH}"
+        > "$tmp_conf"; then
+        rm -f "$tmp_conf"
+        log_error "Failed to generate nginx.conf"
+        return 1
+    fi
+    mv "$tmp_conf" "${NGINX_CONF_PATH}"
 
     log_success "nginx.conf regenerated"
     _nginx_reload

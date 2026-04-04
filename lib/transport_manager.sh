@@ -198,10 +198,13 @@ _regenerate_nginx_config() {
     fi
 
     log_info "Regenerating nginx.conf (ws='$ws_sub' xhttp='$xhttp_sub' grpc='$grpc_sub' cloak=$enable_cloak notls=$enable_notls)..."
+    local tmp_conf="${nginx_conf_dir}/nginx.conf.tmp"
     if generate_nginx_config "$cert_domain" "$has_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
-        > "${nginx_conf_dir}/nginx.conf"; then
+        > "$tmp_conf"; then
+        mv "$tmp_conf" "${nginx_conf_dir}/nginx.conf"
         log_success "nginx.conf regenerated"
     else
+        rm -f "$tmp_conf"
         log_error "Failed to regenerate nginx.conf"
         return 1
     fi
