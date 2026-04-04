@@ -305,11 +305,87 @@ start_certbot_nginx() {
         docker rm -f "$container_name" >/dev/null 2>&1 || true
     fi
 
-    # Check if port 80 is available
+    # Check if port 80 is available; attempt to free it automatically
     if ss -tulnp | grep -q ":80 "; then
-        echo "Error: Port 80 is already in use" >&2
-        echo "Stop the service using port 80 and try again" >&2
-        return 1
+        echo "Port 80 is in use, attempting to free it..."
+
+        # Try to stop known services that commonly occupy port 80
+        local freed=false
+
+        # 1. Check for Docker containers binding to port 80
+        local container_on_80
+        container_on_80=$(docker ps --format '{{.Names}}' --filter "publish=80" 2>/dev/null || true)
+        if [[ -z "$container_on_80" ]]; then
+            # Also check host-network containers listening on 80
+            container_on_80=$(docker ps -q 2>/dev/null | while read -r cid; do
+                if docker inspect "$cid" --format '{{.HostConfig.NetworkMode}}' 2>/dev/null | grep -q "host"; then
+                    docker inspect "$cid" --format '{{.Name}}' 2>/dev/null | sed 's|^/||'
+                fi
+            done || true)
+        fi
+        if [[ -n "$container_on_80" ]]; then
+            echo "  Stopping Docker container(s) on port 80: $container_on_80"
+            for c in $container_on_80; do
+                docker stop "$c" >/dev/null 2>&1 || true
+            done
+            sleep 1
+            if ! ss -tulnp | grep -q ":80 "; then
+                freed=true
+            fi
+        fi
+
+        # 2. Check for system nginx
+        if [[ "$freed" != "true" ]] && systemctl is-active nginx &>/dev/null; then
+            echo "  Stopping system nginx..."
+            systemctl stop nginx 2>/dev/null || true
+            sleep 1
+            if ! ss -tulnp | grep -q ":80 "; then
+                freed=true
+            fi
+        fi
+
+        # 3. Check for system apache2/httpd
+        if [[ "$freed" != "true" ]]; then
+            for svc in apache2 httpd; do
+                if systemctl is-active "$svc" &>/dev/null; then
+                    echo "  Stopping $svc..."
+                    systemctl stop "$svc" 2>/dev/null || true
+                    sleep 1
+                    if ! ss -tulnp | grep -q ":80 "; then
+                        freed=true
+                        break
+                    fi
+                fi
+            done
+        fi
+
+        # 4. Last resort: identify and kill the process
+        if [[ "$freed" != "true" ]]; then
+            local pid_on_80
+            pid_on_80=$(ss -tulnp | grep ":80 " | grep -oP 'pid=\K[0-9]+' | head -1)
+            if [[ -n "$pid_on_80" ]]; then
+                local proc_name
+                proc_name=$(ps -p "$pid_on_80" -o comm= 2>/dev/null || echo "unknown")
+                echo "  Killing process $proc_name (PID $pid_on_80) on port 80..."
+                kill "$pid_on_80" 2>/dev/null || true
+                sleep 2
+                # Force kill if still alive
+                if kill -0 "$pid_on_80" 2>/dev/null; then
+                    kill -9 "$pid_on_80" 2>/dev/null || true
+                    sleep 1
+                fi
+                if ! ss -tulnp | grep -q ":80 "; then
+                    freed=true
+                fi
+            fi
+        fi
+
+        if [[ "$freed" != "true" ]]; then
+            echo "Error: Could not free port 80" >&2
+            echo "Manually stop the service using port 80 and try again" >&2
+            return 1
+        fi
+        echo "✓ Port 80 freed successfully"
     fi
 
     echo "Starting certbot nginx container on port 80..."

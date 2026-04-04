@@ -828,22 +828,52 @@ open_port_80_for_acme() {
         return 0
     fi
 
-    # Check if port 80 is occupied by another service
+    # Check if port 80 is occupied by another service and try to free it
     if ss -tulnp | grep -q ":80 "; then
-        local process_info=$(lsof -i :80 2>/dev/null | tail -n +2 | head -1 || echo "Unknown process")
+        local process_info
+        process_info=$(lsof -i :80 2>/dev/null | tail -n +2 | head -1 || echo "Unknown process")
         log_warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         log_warn "WARNING: Port 80 is currently occupied"
         log_warn "Process: $process_info"
         log_warn ""
         log_warn "ACME HTTP-01 challenge requires port 80 to be available."
-        log_warn "The challenge may fail if the port cannot be freed."
+        log_warn "Will attempt to stop the service automatically."
         log_warn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        read -p "Continue anyway and try to open port 80? (yes/no): " confirm
 
-        if [[ "$confirm" != "yes" ]] && [[ "$confirm" != "y" ]]; then
-            log_info "Aborted by user"
-            return 1
+        # Try to stop known services
+        local freed=false
+
+        # Stop system nginx/apache if running
+        for svc in nginx apache2 httpd; do
+            if systemctl is-active "$svc" &>/dev/null; then
+                log_info "Stopping $svc to free port 80..."
+                systemctl stop "$svc" 2>/dev/null || true
+                sleep 1
+            fi
+        done
+
+        # Stop Docker containers using port 80
+        local container_on_80
+        container_on_80=$(docker ps --format '{{.Names}}' --filter "publish=80" 2>/dev/null || true)
+        if [[ -n "$container_on_80" ]]; then
+            log_info "Stopping Docker container(s) on port 80: $container_on_80"
+            for c in $container_on_80; do
+                docker stop "$c" >/dev/null 2>&1 || true
+            done
+            sleep 1
+        fi
+
+        if ! ss -tulnp | grep -q ":80 "; then
+            log_success "Port 80 freed automatically"
+        else
+            log_warn "Could not fully free port 80"
+            echo ""
+            read -p "Continue anyway? (yes/no): " confirm
+            if [[ "$confirm" != "yes" ]] && [[ "$confirm" != "y" ]]; then
+                log_info "Aborted by user"
+                return 1
+            fi
         fi
     fi
 
