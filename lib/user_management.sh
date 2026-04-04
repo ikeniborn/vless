@@ -1781,16 +1781,19 @@ export_all_proxy_configs() {
         export ENABLE_PUBLIC_PROXY=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
         export ENABLE_PROXY_TLS=$(grep -E "^ENABLE_PROXY_TLS=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
         export DOMAIN=$(grep -E "^DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+        export PROXY_NOTLS_ENABLED=$(grep -E "^PROXY_NOTLS_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
 
         # Set defaults if not found in .env
         [[ -z "$ENABLE_PUBLIC_PROXY" ]] && export ENABLE_PUBLIC_PROXY="false"
         [[ -z "$ENABLE_PROXY_TLS" ]] && export ENABLE_PROXY_TLS="false"
         [[ -z "$DOMAIN" ]] && export DOMAIN=""
+        [[ -z "$PROXY_NOTLS_ENABLED" ]] && export PROXY_NOTLS_ENABLED="false"
     else
         # .env file not found, use defaults (no TLS)
         export ENABLE_PUBLIC_PROXY="false"
         export ENABLE_PROXY_TLS="false"
         export DOMAIN=""
+        export PROXY_NOTLS_ENABLED="false"
     fi
 
     # If password not provided, read from users.json

@@ -8,7 +8,7 @@
 # Usage: source this file from install.sh
 #
 # TASK-1.5: Interactive parameter collection (3h)
-# v5.1: Removed VLESS port selection (hardcoded 8443 for HAProxy architecture)
+# v5.1: Removed VLESS port selection (hardcoded 8443 for nginx architecture)
 #
 
 # Only set strict mode if not already set (to avoid issues when sourced)
@@ -25,6 +25,7 @@ export DOCKER_SUBNET=""
 export ENABLE_PROXY=""
 export ENABLE_PUBLIC_PROXY=""  # v3.2: Public proxy access flag
 export ENABLE_PROXY_TLS=""     # v3.4: TLS encryption for public proxy (true/false)
+export PROXY_NOTLS_ENABLED=""  # v5.35: No-TLS proxy ports 1081/8119
 export DOMAIN=""                # v3.3: Domain for Let's Encrypt certificate
 export EMAIL=""                 # v3.3: Email for Let's Encrypt notifications
 export DETECTED_DNS_PRIMARY=""    # v5.32: Primary DNS server (user-selected or auto-detected)
@@ -41,7 +42,7 @@ export DETECTED_DNS_TERTIARY=""   # v5.32: Tertiary DNS server (user-selected or
 [[ -z "${NC:-}" ]] && NC='\033[0m' # No Color
 
 # Default values (conditional to avoid conflicts with other modules)
-# v4.3 HAProxy Architecture: Xray listens on internal port 8443, HAProxy on external 443
+# v5.30 nginx architecture: Xray listens on internal port 8443, nginx on external 443
 [[ -z "${DEFAULT_VLESS_PORT:-}" ]] && readonly DEFAULT_VLESS_PORT=8443
 [[ -z "${DEFAULT_DOCKER_SUBNET:-}" ]] && readonly DEFAULT_DOCKER_SUBNET="172.20.0.0/16"
 readonly DEST_VALIDATION_TIMEOUT=10  # seconds
@@ -63,7 +64,7 @@ PREDEFINED_DESTINATIONS=(
 # Called by: install.sh main()
 # Sets: REALITY_DEST, REALITY_DEST_PORT, VLESS_PORT (hardcoded 8443), DOCKER_SUBNET
 # Returns: 0 on success, 1 on failure or user cancellation
-# v5.1: VLESS_PORT hardcoded to 8443 (HAProxy architecture requirement)
+# v5.1: VLESS_PORT hardcoded to 8443 (nginx architecture requirement)
 # =============================================================================
 collect_parameters() {
     echo ""
@@ -75,10 +76,10 @@ collect_parameters() {
     echo -e "${CYAN}Press Ctrl+C at any time to cancel.${NC}"
     echo ""
 
-    # v5.1: Hardcode VLESS port to 8443 (HAProxy architecture requirement)
-    # HAProxy listens on external port 443 and forwards to Xray internal port 8443
+    # v5.1: Hardcode VLESS port to 8443 (nginx architecture requirement)
+    # nginx listens on external port 443 and forwards to Xray internal port 8443
     VLESS_PORT="$DEFAULT_VLESS_PORT"
-    echo -e "${CYAN}Xray internal port: ${VLESS_PORT} (hardcoded for HAProxy architecture)${NC}"
+    echo -e "${CYAN}Xray internal port: ${VLESS_PORT} (hardcoded for nginx architecture)${NC}"
     echo ""
 
     # Step 1: Select destination site
@@ -293,7 +294,7 @@ validate_destination() {
 # FUNCTION: select_port - REMOVED in v5.1
 # =============================================================================
 # VLESS port is hardcoded to 8443 (Xray internal port; nginx listens on 443 via host network)
-# This function has been removed as port selection is no longer needed
+# Port selection removed in v5.1 (nginx architecture)
 # =============================================================================
 
 # =============================================================================
@@ -562,7 +563,7 @@ confirm_parameters() {
     echo -e "${CYAN}Please review your configuration:${NC}"
     echo ""
     echo -e "  ${YELLOW}Destination Site:${NC}    ${REALITY_DEST}:${REALITY_DEST_PORT}"
-    echo -e "  ${YELLOW}Xray Internal Port:${NC}  ${VLESS_PORT} (HAProxy forwards from 443)"
+    echo -e "  ${YELLOW}Xray Internal Port:${NC}  ${VLESS_PORT} (nginx forwards from 443)"
     echo -e "  ${YELLOW}Docker Subnet:${NC}       ${DOCKER_SUBNET}"
 
     # v3.4: Display proxy mode with TLS status
@@ -581,6 +582,9 @@ confirm_parameters() {
             echo -e "  ${YELLOW}Proxy Mode:${NC}          ${RED}Public (PLAINTEXT)${NC}"
             echo -e "  ${YELLOW}⚠️  Ports 1080, 8118 exposed (socks5://, http://)${NC}"
             echo -e "  ${RED}⚠️  WARNING: Credentials NOT encrypted!${NC}"
+        fi
+        if [[ "$PROXY_NOTLS_ENABLED" == "true" ]]; then
+            echo -e "  ${YELLOW}No-TLS Ports:${NC}        ${RED}1081 (SOCKS5), 8119 (HTTP) — cleartext!${NC}"
         fi
     elif [[ "$ENABLE_PROXY" == "true" ]]; then
         echo -e "  ${YELLOW}Proxy Mode:${NC}          ${GREEN}Enabled (localhost only)${NC}"
@@ -795,7 +799,7 @@ get_server_public_ip() {
 prompt_enable_public_proxy() {
     echo ""
     echo "═════════════════════════════════════════════════════"
-    echo "  PROXY CONFIGURATION (v4.3 - HAProxy Unified)"
+    echo "  PROXY CONFIGURATION (v5.30 - nginx Unified)"
     echo "═════════════════════════════════════════════════════"
     echo ""
     echo "VLESS Reality supports dual proxy modes:"
@@ -805,20 +809,20 @@ prompt_enable_public_proxy() {
     echo "   - No SOCKS5/HTTP proxies"
     echo "   - Best for VPN-only use cases"
     echo ""
-    echo "2. PUBLIC PROXY MODE (v4.3 - HAProxy TLS termination):"
+    echo "2. PUBLIC PROXY MODE (v5.30 - nginx TLS termination):"
     echo "   - TLS-encrypted SOCKS5 + HTTP proxies (socks5s://, https://)"
-    echo "   - HAProxy handles TLS 1.3 encryption (unified architecture)"
+    echo "   - nginx handles TLS 1.3 encryption (unified architecture)"
     echo "   - No VPN client required (direct internet access)"
     echo "   - Requires: Domain name, Let's Encrypt certificate"
     echo ""
-    echo "   Architecture: Client → HAProxy (TLS) → Xray (auth) → Internet"
+    echo "   Architecture: Client → nginx (TLS) → Xray (auth) → Internet"
     echo ""
     echo -e "${YELLOW}⚠️  WARNING: Public proxy exposes ports 1080 and 8118${NC}"
     echo -e "${YELLOW}⚠️  to the internet. Ensure your server can handle${NC}"
     echo -e "${YELLOW}⚠️  potential abuse and DDoS attempts.${NC}"
     echo ""
     echo "Security measures (auto-configured if YES):"
-    echo "  ✓ HAProxy TLS 1.3 termination (unified architecture)"
+    echo "  ✓ nginx TLS 1.3 termination (unified architecture)"
     echo "  ✓ Let's Encrypt certificates with auto-renewal"
     echo "  ✓ Xray username + password authentication (mandatory)"
     echo "  ✓ Fail2ban (ban after 5 failed auth attempts)"
@@ -949,12 +953,52 @@ prompt_enable_public_proxy() {
                         esac
                     done
 
-                    echo "Next steps:"
-                    echo "  1. Fail2ban will be installed"
-                    echo "  2. UFW ports 1080, 8118 will be opened"
-                    echo "  3. All passwords will be 32 characters"
+                    # v5.35: Prompt for no-TLS proxy ports (only when TLS is enabled)
                     if [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
-                        echo "  4. Let's Encrypt certificate will be acquired"
+                        echo ""
+                        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo -e "${CYAN}  ADDITIONAL: No-TLS Proxy Ports (v5.35)${NC}"
+                        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo ""
+                        echo "  In addition to TLS-encrypted ports (1080/8118), you can enable"
+                        echo "  plaintext proxy ports for clients that don't support TLS:"
+                        echo ""
+                        echo "    SOCKS5 (no TLS): port 1081"
+                        echo "    HTTP   (no TLS): port 8119"
+                        echo ""
+                        echo -e "${YELLOW}  ⚠️  WARNING: Credentials transmitted in cleartext on these ports!${NC}"
+                        echo -e "${YELLOW}  Use only in trusted networks or when TLS is not an option.${NC}"
+                        echo ""
+
+                        local notls_response
+                        read -r -p "Enable no-TLS proxy ports? [y/N]: " notls_response
+                        notls_response=${notls_response,,}
+
+                        if [[ "$notls_response" == "y" || "$notls_response" == "yes" ]]; then
+                            PROXY_NOTLS_ENABLED="true"
+                            echo ""
+                            echo -e "${GREEN}✓ No-TLS proxy ports enabled (1081/8119)${NC}"
+                        else
+                            PROXY_NOTLS_ENABLED="false"
+                            echo ""
+                            echo -e "${YELLOW}⊗ No-TLS proxy ports disabled${NC}"
+                        fi
+                    else
+                        # Plaintext mode on 1080/8118 — additional no-TLS ports not needed
+                        PROXY_NOTLS_ENABLED="false"
+                    fi
+
+                    echo ""
+                    local step_num=1
+                    echo "Next steps:"
+                    echo "  $((step_num++)). Fail2ban will be installed"
+                    echo "  $((step_num++)). UFW ports 1080, 8118 will be opened"
+                    if [[ "$PROXY_NOTLS_ENABLED" == "true" ]]; then
+                        echo "  $((step_num++)). UFW ports 1081, 8119 will be opened (no TLS)"
+                    fi
+                    echo "  $((step_num++)). All passwords will be 32 characters"
+                    if [[ "$ENABLE_PROXY_TLS" == "true" ]]; then
+                        echo "  $((step_num++)). Let's Encrypt certificate will be acquired"
                     fi
                     echo ""
                     break
@@ -964,6 +1008,7 @@ prompt_enable_public_proxy() {
                     ENABLE_PUBLIC_PROXY="false"
                     ENABLE_PROXY="false"
                     ENABLE_PROXY_TLS="false"
+                    PROXY_NOTLS_ENABLED="false"
                     break
                 fi
                 ;;
@@ -971,6 +1016,7 @@ prompt_enable_public_proxy() {
                 ENABLE_PUBLIC_PROXY="false"
                 ENABLE_PROXY="false"
                 ENABLE_PROXY_TLS="false"
+                PROXY_NOTLS_ENABLED="false"
                 echo ""
                 echo -e "${GREEN}✓ VLESS-only mode (no public proxy)${NC}"
                 echo ""
@@ -985,6 +1031,7 @@ prompt_enable_public_proxy() {
     export ENABLE_PUBLIC_PROXY
     export ENABLE_PROXY
     export ENABLE_PROXY_TLS
+    export PROXY_NOTLS_ENABLED
     return 0
 }
 
