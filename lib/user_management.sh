@@ -436,8 +436,8 @@ add_user_to_json() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
 
         # Set proper permissions
         chmod 600 "$USERS_JSON"
@@ -484,8 +484,8 @@ remove_user_from_json() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
 
         # Set proper permissions
         chmod 600 "$USERS_JSON"
@@ -551,7 +551,7 @@ add_client_to_xray() {
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
         rm -f "$temp_file"
-        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
         return 1
     fi
 
@@ -579,14 +579,14 @@ add_client_to_xray() {
             log_error "Xray configuration validation failed:"
             echo "$validation_output" >&2
             rm -f "$temp_file"
-            mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+            write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
             return 1
         fi
     fi
 
-    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
-    cp "$temp_file" "$XRAY_CONFIG"
-    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client added to Xray configuration"
     return 0
@@ -634,7 +634,7 @@ remove_client_from_xray() {
     if ! jq empty "$temp_file" 2>/dev/null; then
         log_error "Generated invalid Xray configuration"
         rm -f "$temp_file"
-        mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+        write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
         return 1
     fi
 
@@ -661,14 +661,14 @@ remove_client_from_xray() {
             log_error "Xray configuration validation failed:"
             echo "$validation_output" >&2
             rm -f "$temp_file"
-            mv "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
+            write_preserving_inode "${XRAY_CONFIG}.bak.$$" "$XRAY_CONFIG"
             return 1
         fi
     fi
 
-    # Apply configuration — use cp+rm to preserve inode (required for Docker bind mounts)
-    cp "$temp_file" "$XRAY_CONFIG"
-    rm -f "$temp_file" "${XRAY_CONFIG}.bak.$$"
+    # Apply configuration — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
+    rm -f "${XRAY_CONFIG}.bak.$$"
 
     log_success "Client removed from Xray configuration"
     return 0
@@ -757,9 +757,9 @@ apply_per_user_routing() {
         return 1
     fi
 
-    # Apply changes — use cp+rm to preserve inode (required for Docker bind mounts)
-    cp "$temp_file" "$XRAY_CONFIG"
-    rm -f "$temp_file" "$routing_tmp"
+    # Apply changes — write preserving inode (required for Docker bind mounts)
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
+    rm -f "$routing_tmp"
 
     log_success "Per-user routing applied successfully"
 
@@ -866,8 +866,8 @@ generate_vless_uri() {
     local server_ip
     server_ip=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "SERVER_IP")
 
-    # v5.1: Hardcoded port 443 (HAProxy external port for clients)
-    # Xray listens on internal port 8443, but HAProxy forwards from 443
+    # v5.1: Hardcoded port 443 (nginx external port for clients)
+    # Xray listens on internal port 8443, nginx forwards from 443
     local server_port=443
 
     local public_key
@@ -977,8 +977,8 @@ update_proxy_accounts() {
         mv "$temp_file2" "$temp_file"
     fi
 
-    # Move temp file to config (atomic)
-    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+    # Write preserving inode (required for Docker bind mounts)
+    if ! write_preserving_inode "$temp_file" "${XRAY_CONFIG}"; then
         log_error "Failed to save updated Xray config"
         rm -f "$temp_file"
         return 1
@@ -1049,7 +1049,7 @@ rebuild_proxy_accounts_from_users_json() {
         log_error "Failed to rebuild proxy accounts from users.json"
         return 1
     fi
-    mv "$tmp" "${XRAY_CONFIG}"
+    write_preserving_inode "$tmp" "${XRAY_CONFIG}"
 
     local count
     count=$(echo "$proxy_accounts" | jq 'length')
@@ -1092,8 +1092,8 @@ remove_proxy_accounts() {
         return 1
     fi
 
-    # Atomic replace
-    if ! mv "$temp_file" "${XRAY_CONFIG}"; then
+    # Write preserving inode (required for Docker bind mounts)
+    if ! write_preserving_inode "$temp_file" "${XRAY_CONFIG}"; then
         log_error "Failed to save updated Xray config"
         rm -f "$temp_file"
         return 1
@@ -1277,8 +1277,8 @@ reset_proxy_password() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
         chmod 600 "$USERS_JSON"
 
     ) 200>"$LOCK_FILE"
@@ -1316,8 +1316,8 @@ reset_proxy_password() {
             mv "$temp_file2" "$temp_file"
         fi
 
-        # Save intermediate state
-        mv "$temp_file" "${XRAY_CONFIG}"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "${XRAY_CONFIG}"
     fi
 
     # Add new account with new password
@@ -1441,27 +1441,31 @@ export_socks5_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # v4.3: HAProxy-based TLS termination (unified architecture)
-    # Architecture: Client → HAProxy (TLS) → Xray (plaintext)
-    # IMPORTANT: HAProxy ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
+    # v5.35: nginx-based TLS termination (unified architecture)
+    # Architecture: Client → nginx (TLS) → Xray (plaintext)
     local scheme="socks5"
     local host
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
-        scheme="socks5s"  # SOCKS5 with TLS (HAProxy provides TLS termination)
-        host="${DOMAIN}"  # Use domain for TLS certificate validation
+        scheme="socks5s"  # SOCKS5 with TLS (nginx provides TLS termination)
+        host="${DOMAIN}"
     else
-        # Localhost-only, no TLS
         scheme="socks5"
         host="127.0.0.1"
     fi
 
-    # Write SOCKS5 URI (port 1080 exposed by HAProxy, not Xray)
+    # Write SOCKS5 URI (port 1080 exposed by nginx, not Xray)
     echo "${scheme}://${username}:${password}@${host}:1080" \
         > "$output_dir/socks5_config.txt"
-
     chmod 600 "$output_dir/socks5_config.txt"
+
+    # No-TLS variant (port 1081)
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" && "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo "socks5://${username}:${password}@${DOMAIN}:1081" \
+            > "$output_dir/socks5_notls_config.txt"
+        chmod 600 "$output_dir/socks5_notls_config.txt"
+    fi
+
     return 0
 }
 
@@ -1487,27 +1491,31 @@ export_http_config() {
     mkdir -p "$output_dir"
     chmod 700 "$output_dir"
 
-    # v4.3: HAProxy-based TLS termination (unified architecture)
-    # Architecture: Client → HAProxy (TLS) → Xray (plaintext)
-    # IMPORTANT: HAProxy ALWAYS uses TLS when ENABLE_PUBLIC_PROXY=true
+    # v5.35: nginx-based TLS termination (unified architecture)
+    # Architecture: Client → nginx (TLS) → Xray (plaintext)
     local scheme="http"
     local host
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
-        scheme="https"  # HTTPS proxy with TLS (HAProxy provides TLS termination)
-        host="${DOMAIN}"  # Use domain for TLS certificate validation
+        scheme="https"  # HTTPS proxy with TLS (nginx provides TLS termination)
+        host="${DOMAIN}"
     else
-        # Localhost-only, no TLS
         scheme="http"
         host="127.0.0.1"
     fi
 
-    # Write HTTP URI (port 8118 exposed by HAProxy, not Xray)
+    # Write HTTP URI (port 8118 exposed by nginx, not Xray)
     echo "${scheme}://${username}:${password}@${host}:8118" \
         > "$output_dir/http_config.txt"
-
     chmod 600 "$output_dir/http_config.txt"
+
+    # No-TLS variant (port 8119)
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" && "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
+        echo "http://${username}:${password}@${DOMAIN}:8119" \
+            > "$output_dir/http_notls_config.txt"
+        chmod 600 "$output_dir/http_notls_config.txt"
+    fi
+
     return 0
 }
 
@@ -1537,7 +1545,7 @@ export_vscode_config() {
     local strict_ssl="false"
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
+        # v5.35: Public proxy with nginx TLS termination
         proxy_url="https://${DOMAIN}:8118"
         strict_ssl="true"  # Validate TLS certificate
     else
@@ -1591,7 +1599,7 @@ export_docker_config() {
     local proxy_url
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
+        # v5.35: Public proxy with nginx TLS termination
         proxy_url="https://${username}:${password}@${DOMAIN}:8118"
     else
         # Localhost-only, no TLS (proxies bind to 127.0.0.1)
@@ -1641,9 +1649,9 @@ export_bash_config() {
     local mode_label
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: Public proxy with HAProxy TLS termination
+        # v5.35: Public proxy with nginx TLS termination
         proxy_url="https://${username}:${password}@${DOMAIN}:8118"
-        mode_label="v4.3 - Public Access with HAProxy TLS"
+        mode_label="v5.35 - Public Access with nginx TLS"
     else
         # Localhost-only, no TLS (proxies bind to 127.0.0.1)
         proxy_url="http://${username}:${password}@127.0.0.1:8118"
@@ -1697,7 +1705,7 @@ export_git_config() {
     local http_proxy
 
     if [[ "${ENABLE_PUBLIC_PROXY:-false}" == "true" ]]; then
-        # v4.3: HAProxy ALWAYS uses TLS for public mode
+        # v5.35: nginx ALWAYS uses TLS for public mode
         socks_proxy="socks5s://${username}:${password}@${DOMAIN}:1080"
         http_proxy="https://${username}:${password}@${DOMAIN}:8118"
     else
@@ -1773,16 +1781,19 @@ export_all_proxy_configs() {
         export ENABLE_PUBLIC_PROXY=$(grep -E "^ENABLE_PUBLIC_PROXY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
         export ENABLE_PROXY_TLS=$(grep -E "^ENABLE_PROXY_TLS=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
         export DOMAIN=$(grep -E "^DOMAIN=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+        export PROXY_NOTLS_ENABLED=$(grep -E "^PROXY_NOTLS_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
 
         # Set defaults if not found in .env
         [[ -z "$ENABLE_PUBLIC_PROXY" ]] && export ENABLE_PUBLIC_PROXY="false"
         [[ -z "$ENABLE_PROXY_TLS" ]] && export ENABLE_PROXY_TLS="false"
         [[ -z "$DOMAIN" ]] && export DOMAIN=""
+        [[ -z "$PROXY_NOTLS_ENABLED" ]] && export PROXY_NOTLS_ENABLED="false"
     else
         # .env file not found, use defaults (no TLS)
         export ENABLE_PUBLIC_PROXY="false"
         export ENABLE_PROXY_TLS="false"
         export DOMAIN=""
+        export PROXY_NOTLS_ENABLED="false"
     fi
 
     # If password not provided, read from users.json
@@ -1809,7 +1820,11 @@ export_all_proxy_configs() {
     export_git_config "$username" "$proxy_password" "$output_dir" || return 1
 
     log_success "Proxy configs exported to: $output_dir/"
-    log_info "Files: socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh, git_config.txt"
+    local file_list="socks5_config.txt, http_config.txt, vscode_settings.json, docker_daemon.json, bash_exports.sh, git_config.txt"
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]]; then
+        file_list+=", socks5_notls_config.txt, http_notls_config.txt"
+    fi
+    log_info "Files: $file_list"
 
     return 0
 }
@@ -2009,8 +2024,8 @@ migrate_users_schema_v525() {
             return 1
         fi
 
-        # Atomic move
-        mv "$temp_file" "$USERS_JSON"
+        # Write preserving inode (required for Docker bind mounts)
+        write_preserving_inode "$temp_file" "$USERS_JSON"
 
         # Set proper permissions
         chmod 600 "$USERS_JSON"
@@ -2064,7 +2079,7 @@ migrate_xtls_vision() {
         return 1
     fi
 
-    mv "$temp_file" "$XRAY_CONFIG"
+    write_preserving_inode "$temp_file" "$XRAY_CONFIG"
     chmod 644 "$XRAY_CONFIG"
     rm -f "${XRAY_CONFIG}.bak.migrate.$$"
 
@@ -2599,6 +2614,19 @@ create_user() {
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 [[ -n "$socks5_uri" ]] && echo "SOCKS5: $socks5_uri"
                 [[ -n "$http_uri" ]] && echo "HTTP:   $http_uri"
+
+                # v5.35: Display no-TLS proxy URIs if available
+                if [[ -f "${user_dir}/socks5_notls_config.txt" ]]; then
+                    local socks5_notls_uri
+                    socks5_notls_uri=$(cat "${user_dir}/socks5_notls_config.txt")
+                    echo "SOCKS5 (no TLS): $socks5_notls_uri"
+                fi
+                if [[ -f "${user_dir}/http_notls_config.txt" ]]; then
+                    local http_notls_uri
+                    http_notls_uri=$(cat "${user_dir}/http_notls_config.txt")
+                    echo "HTTP   (no TLS): $http_notls_uri"
+                fi
+
                 echo ""
                 echo "Config files saved to: ${user_dir}/"
                 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -2792,7 +2820,7 @@ cmd_set_user_proxy() {
         fi
 
         if [[ $? -eq 0 ]]; then
-            mv "$temp_file" "$USERS_JSON"
+            write_preserving_inode "$temp_file" "$USERS_JSON"
             chmod 600 "$USERS_JSON"
         else
             rm -f "$temp_file"
@@ -2818,7 +2846,7 @@ cmd_set_user_proxy() {
                     (.proxies[] | select(.id == $id) | .metadata.last_modified) = $ts |
                     .enabled = true |
                     .metadata.last_modified = $ts' \
-                   "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
+                   "$proxy_db" > "$temp_file" && write_preserving_inode "$temp_file" "$proxy_db"
 
                 log_info "Auto-activated external proxy: $proxy_id"
             fi
@@ -2836,7 +2864,7 @@ cmd_set_user_proxy() {
                     jq --arg ts "$(date -Iseconds)" \
                        '.enabled = true |
                         .metadata.last_modified = $ts' \
-                       "$proxy_db" > "$temp_file" && mv "$temp_file" "$proxy_db"
+                       "$proxy_db" > "$temp_file" && write_preserving_inode "$temp_file" "$proxy_db"
                 fi
             fi
         fi
@@ -2901,7 +2929,7 @@ cmd_show_user_proxy() {
         echo "  Outbound Tag: direct"
         echo ""
         echo "  Traffic Flow:"
-        echo "    Client → HAProxy → Xray → Internet"
+        echo "    Client → nginx → Xray → Internet"
     else
         # Get proxy details from external_proxy.json
         local ext_proxy_db="/opt/familytraffic/config/external_proxy.json"
@@ -2930,7 +2958,7 @@ cmd_show_user_proxy() {
             echo "    Test Status: $test_status"
             echo ""
             echo "  Traffic Flow:"
-            echo "    Client → HAProxy → Xray → External Proxy → Internet"
+            echo "    Client → nginx → Xray → External Proxy → Internet"
         else
             echo "  Routing Mode: Via External Proxy"
             echo "  Proxy ID: $proxy_id"
@@ -3074,6 +3102,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export -f remove_proxy_accounts
     export -f apply_per_user_routing
     export -f reload_xray
+    export -f write_preserving_inode
     export -f cmd_set_user_proxy
     export -f cmd_show_user_proxy
     export -f cmd_list_proxy_assignments

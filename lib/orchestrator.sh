@@ -878,6 +878,31 @@ configure_proxy_firewall_rules() {
         echo "  ✓ HTTP port already open"
     fi
 
+    # No-TLS proxy ports (v5.35)
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]]; then
+        if ! ufw status numbered | grep -q "1081/tcp"; then
+            echo "  Adding SOCKS5 no-TLS port (1081/tcp) with rate limiting..."
+            if ! ufw limit 1081/tcp comment 'VLESS SOCKS5 Proxy no-TLS (rate-limited)'; then
+                echo -e "${RED}Failed to add SOCKS5 no-TLS firewall rule${NC}" >&2
+                return 1
+            fi
+            echo -e "${GREEN}  ✓ SOCKS5 no-TLS port opened with rate limiting${NC}"
+        else
+            echo "  ✓ SOCKS5 no-TLS port already open"
+        fi
+
+        if ! ufw status numbered | grep -q "8119/tcp"; then
+            echo "  Adding HTTP no-TLS port (8119/tcp) with rate limiting..."
+            if ! ufw limit 8119/tcp comment 'VLESS HTTP Proxy no-TLS (rate-limited)'; then
+                echo -e "${RED}Failed to add HTTP no-TLS firewall rule${NC}" >&2
+                return 1
+            fi
+            echo -e "${GREEN}  ✓ HTTP no-TLS port opened with rate limiting${NC}"
+        else
+            echo "  ✓ HTTP no-TLS port already open"
+        fi
+    fi
+
     # Reload UFW to apply rules
     echo "  Reloading UFW..."
     if ! ufw reload &>/dev/null; then
@@ -887,7 +912,7 @@ configure_proxy_firewall_rules() {
     echo -e "${GREEN}✓ Firewall configured for public proxy${NC}"
     echo ""
     echo "Active proxy ports:"
-    ufw status numbered | grep -E "(1080|8118)/tcp" || true
+    ufw status numbered | grep -E "(1080|1081|8118|8119)/tcp" || true
     echo ""
 
     return 0
@@ -922,7 +947,7 @@ EOF
     temp_file=$(mktemp)
 
     jq ".metadata.created = \"${timestamp}\" | .metadata.last_modified = \"${timestamp}\"" \
-       "${USERS_JSON}" > "$temp_file" && mv "$temp_file" "${USERS_JSON}"
+       "${USERS_JSON}" > "$temp_file" && write_preserving_inode "$temp_file" "${USERS_JSON}"
 
     if [[ ! -f "${USERS_JSON}" ]]; then
         echo -e "${RED}Failed to create ${USERS_JSON}${NC}" >&2
@@ -973,7 +998,7 @@ EOF
     temp_file=$(mktemp)
 
     jq ".metadata.created = \"${timestamp}\" | .metadata.last_modified = \"${timestamp}\"" \
-       "$proxy_ips_file" > "$temp_file" && mv "$temp_file" "$proxy_ips_file"
+       "$proxy_ips_file" > "$temp_file" && write_preserving_inode "$temp_file" "$proxy_ips_file"
 
     if [[ ! -f "$proxy_ips_file" ]]; then
         echo -e "${RED}Failed to create ${proxy_ips_file}${NC}" >&2
@@ -1100,14 +1125,23 @@ generate_nginx_config_wrapper() {
         echo -e "${YELLOW}Warning: Failed to create ${VLESS_DIR}/logs/nginx directory${NC}"
     }
 
+    # Read no-TLS flag from .env
+    local enable_notls="false"
+    if [[ -f "${VLESS_DIR}/.env" ]] && grep -q '^PROXY_NOTLS_ENABLED=true' "${VLESS_DIR}/.env" 2>/dev/null; then
+        enable_notls="true"
+    fi
+
     # Generate nginx.conf (Phase 0: no Tier 2 subdomains yet; they are added by transport_manager.sh)
-    if ! generate_nginx_config "${cert_domain}" "false" > "${VLESS_DIR}/config/nginx/nginx.conf"; then
+    if ! generate_nginx_config "${cert_domain}" "false" "" "" "" "false" "${enable_notls}" > "${VLESS_DIR}/config/nginx/nginx.conf"; then
         echo -e "${RED}Failed to generate Nginx configuration${NC}" >&2
         return 1
     fi
 
     echo "  ✓ Nginx config: ${VLESS_DIR}/config/nginx/nginx.conf"
     echo "  ✓ Stream ports: 443 (SNI ssl_preread), 1080 (SOCKS5 TLS), 8118 (HTTP TLS)"
+    if [[ "${enable_notls}" == "true" ]]; then
+        echo "  ✓ No-TLS ports: 1081 (SOCKS5), 8119 (HTTP) — credentials in cleartext!"
+    fi
     echo "  ✓ HTTP block: port 8448 (Tier 2 loopback placeholder)"
     echo "  ✓ Cert domain: ${cert_domain}"
 
@@ -1177,7 +1211,7 @@ SERVER_IP=${server_ip}
 ENABLE_PROXY=${ENABLE_PROXY:-false}
 ENABLE_PUBLIC_PROXY=${ENABLE_PUBLIC_PROXY:-false}
 ENABLE_PROXY_TLS=${ENABLE_PROXY_TLS:-false}
-
+PROXY_NOTLS_ENABLED=${PROXY_NOTLS_ENABLED:-false}
 
 # Keys (for reference only, actual keys in ${KEYS_DIR}/)
 PUBLIC_KEY=${PUBLIC_KEY}
@@ -1273,7 +1307,7 @@ configure_ufw() {
     fi
 
     # Add Docker forwarding rules to UFW (if not already present)
-    if ! grep -q "VLESS REALITY" "${UFW_AFTER_RULES}" 2>/dev/null; then
+    if ! grep -q "FAMILYTRAFFIC DOCKER FORWARDING\|VLESS REALITY" "${UFW_AFTER_RULES}" 2>/dev/null; then
         echo "  Adding Docker forwarding rules..."
 
         cat >> "${UFW_AFTER_RULES}" <<EOF

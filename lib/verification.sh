@@ -479,18 +479,15 @@ verify_ufw_rules() {
     fi
 
     # Check Docker forwarding rules in after.rules
+    # v5.33: marker changed to "FAMILYTRAFFIC DOCKER FORWARDING RULES"
+    # network_mode:host — no MASQUERADE needed, DOCKER-USER chain kept for compatibility
     if [[ -f /etc/ufw/after.rules ]]; then
-        if grep -q "BEGIN VLESS REALITY DOCKER FORWARDING RULES" /etc/ufw/after.rules; then
-            log_success "Docker forwarding rules found in /etc/ufw/after.rules"
-
-            # Verify MASQUERADE rule
-            if grep -q "MASQUERADE" /etc/ufw/after.rules; then
-                log_success "MASQUERADE rule configured"
-            else
-                log_warning "MASQUERADE rule not found in after.rules"
-            fi
+        if grep -q "BEGIN FAMILYTRAFFIC DOCKER FORWARDING RULES" /etc/ufw/after.rules; then
+            log_success "Docker forwarding rules found in /etc/ufw/after.rules (v5.33 host-network)"
+        elif grep -q "BEGIN VLESS REALITY DOCKER FORWARDING RULES" /etc/ufw/after.rules; then
+            log_success "Docker forwarding rules found in /etc/ufw/after.rules (legacy marker)"
         else
-            log_warning "VLESS REALITY DOCKER FORWARDING rules section not found in /etc/ufw/after.rules"
+            log_warning "FAMILYTRAFFIC DOCKER FORWARDING rules section not found in /etc/ufw/after.rules"
         fi
     else
         log_warning "/etc/ufw/after.rules file not found"

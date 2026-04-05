@@ -309,7 +309,7 @@ add_external_proxy() {
 
     jq --argjson proxy "$proxy_json" --arg timestamp "$timestamp" \
         '.proxies += [$proxy] | .metadata.last_modified = $timestamp' \
-        "$EXTERNAL_PROXY_DB" > "$temp_file" && mv "$temp_file" "$EXTERNAL_PROXY_DB"
+        "$EXTERNAL_PROXY_DB" > "$temp_file" && write_preserving_inode "$temp_file" "$EXTERNAL_PROXY_DB"
 
     if [[ $? -ne 0 ]]; then
         echo -e "${RED}Failed to add proxy to database${NC}" >&2
@@ -508,7 +508,7 @@ update_external_proxy() {
             ;;
     esac
 
-    mv "$temp_file" "$EXTERNAL_PROXY_DB"
+    write_preserving_inode "$temp_file" "$EXTERNAL_PROXY_DB"
 
     echo "  ✓ Updated $field: $new_value"
     echo -e "${GREEN}✓ Proxy updated successfully${NC}"
@@ -552,7 +552,7 @@ remove_external_proxy() {
     jq --arg id "$proxy_id" --arg ts "$timestamp" \
         '.proxies = [.proxies[] | select(.id != $id)] |
          .metadata.last_modified = $ts' \
-        "$EXTERNAL_PROXY_DB" > "$temp_file" && mv "$temp_file" "$EXTERNAL_PROXY_DB"
+        "$EXTERNAL_PROXY_DB" > "$temp_file" && write_preserving_inode "$temp_file" "$EXTERNAL_PROXY_DB"
 
     if [[ $? -ne 0 ]]; then
         echo -e "${RED}Failed to remove proxy from database${NC}" >&2
@@ -603,7 +603,7 @@ set_active_proxy() {
         '(.proxies[] | .active) = false |
          (.proxies[] | select(.id == $id) | .active) = true |
          .metadata.last_modified = $ts' \
-        "$EXTERNAL_PROXY_DB" > "$temp_file" && mv "$temp_file" "$EXTERNAL_PROXY_DB"
+        "$EXTERNAL_PROXY_DB" > "$temp_file" && write_preserving_inode "$temp_file" "$EXTERNAL_PROXY_DB"
 
     if [[ $? -ne 0 ]]; then
         echo -e "${RED}Failed to activate proxy${NC}" >&2
@@ -696,7 +696,7 @@ test_proxy_connectivity() {
                      timestamp: $ts
                  } |
                  .metadata.last_modified = $ts' \
-                "$EXTERNAL_PROXY_DB" > "$temp_file" && mv "$temp_file" "$EXTERNAL_PROXY_DB"
+                "$EXTERNAL_PROXY_DB" > "$temp_file" && write_preserving_inode "$temp_file" "$EXTERNAL_PROXY_DB"
 
             return 0
         fi
@@ -721,7 +721,7 @@ test_proxy_connectivity() {
              timestamp: $ts
          } |
          .metadata.last_modified = $ts' \
-        "$EXTERNAL_PROXY_DB" > "$temp_file" && mv "$temp_file" "$EXTERNAL_PROXY_DB"
+        "$EXTERNAL_PROXY_DB" > "$temp_file" && write_preserving_inode "$temp_file" "$EXTERNAL_PROXY_DB"
 
     return 1
 }

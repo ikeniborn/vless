@@ -62,6 +62,7 @@ qr_codes/
 !lib/tests/test_mtproxy_manager.sh
 !lib/tests/test_mtproxy_integration.sh
 !tests/integration/test_mtproxy_cloak.sh
+!lib/common.sh
 
 # Backup files
 data/backups/

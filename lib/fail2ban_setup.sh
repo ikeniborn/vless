@@ -162,6 +162,34 @@ findtime = 600
 action   = iptables-multiport[name=familytraffic-http, port="8118", protocol=tcp]
 EOF
 
+    # Append no-TLS jails if enabled (v5.35)
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]]; then
+        cat >> "$jail_file" <<'EOF'
+
+[familytraffic-socks5-notls]
+enabled  = true
+port     = 1081
+protocol = tcp
+filter   = familytraffic-proxy
+logpath  = /opt/familytraffic/logs/xray/error.log
+maxretry = 5
+bantime  = 3600
+findtime = 600
+action   = iptables-multiport[name=familytraffic-socks5-notls, port="1081", protocol=tcp]
+
+[familytraffic-http-notls]
+enabled  = true
+port     = 8119
+protocol = tcp
+filter   = familytraffic-proxy
+logpath  = /opt/familytraffic/logs/xray/error.log
+maxretry = 5
+bantime  = 3600
+findtime = 600
+action   = iptables-multiport[name=familytraffic-http-notls, port="8119", protocol=tcp]
+EOF
+    fi
+
     if [[ ! -f "$jail_file" ]]; then
         echo -e "${RED}Failed to create jail file${NC}" >&2
         return 1
@@ -396,6 +424,10 @@ setup_fail2ban_for_proxy() {
     echo "Configuration:"
     echo "  - SOCKS5 jail active (port 1080)"
     echo "  - HTTP jail active (port 8118)"
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]]; then
+        echo "  - SOCKS5 no-TLS jail active (port 1081)"
+        echo "  - HTTP no-TLS jail active (port 8119)"
+    fi
     echo "  - Reality jail active (ports 443, 8443) [NEW v5.32 - Active Probing Protection]"
     echo ""
     echo "Protection levels:"
@@ -405,6 +437,10 @@ setup_fail2ban_for_proxy() {
     echo "Monitor banned IPs:"
     echo "  sudo fail2ban-client status familytraffic-socks5"
     echo "  sudo fail2ban-client status familytraffic-http"
+    if [[ "${PROXY_NOTLS_ENABLED:-false}" == "true" ]]; then
+        echo "  sudo fail2ban-client status familytraffic-socks5-notls"
+        echo "  sudo fail2ban-client status familytraffic-http-notls"
+    fi
     echo "  sudo fail2ban-client status xray-reality  [NEW v5.32]"
     echo "═════════════════════════════════════════════════════"
     echo ""

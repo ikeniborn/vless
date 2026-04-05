@@ -58,6 +58,10 @@ readonly NC='\033[0m'
 # Source Required Modules
 # ============================================================================
 
+if [[ -f "${LIB_DIR}/common.sh" ]]; then
+    source "${LIB_DIR}/common.sh"
+fi
+
 if [[ -f "${LIB_DIR}/mtproxy_manager.sh" ]]; then
     # shellcheck source=/opt/familytraffic/lib/mtproxy_manager.sh
     source "${LIB_DIR}/mtproxy_manager.sh"
@@ -181,17 +185,32 @@ _regen_nginx() {
     # Detect current Tier 2 state
     read -r enable_tier2 ws_sub xhttp_sub grpc_sub <<< "$(_detect_nginx_params)"
 
-    log_info "Regenerating nginx.conf (cloak-port: ${enable_mtproxy_cloak})..."
+    # Auto-detect no-TLS from .env or existing nginx.conf
+    local enable_notls="false"
+    if [[ -f "${FAMILYTRAFFIC_HOME}/.env" ]] && grep -q '^PROXY_NOTLS_ENABLED=true' "${FAMILYTRAFFIC_HOME}/.env" 2>/dev/null; then
+        enable_notls="true"
+    elif [[ -f "${NGINX_CONF_PATH}" ]] && grep -q 'listen 1081' "${NGINX_CONF_PATH}" 2>/dev/null; then
+        enable_notls="true"
+    fi
 
-    # Write new config
-    generate_nginx_config \
+    log_info "Regenerating nginx.conf (cloak-port: ${enable_mtproxy_cloak}, notls: ${enable_notls})..."
+
+    # Write new config (atomic: write to .tmp, then mv)
+    local tmp_conf="${NGINX_CONF_PATH}.tmp"
+    if ! generate_nginx_config \
         "${cert_domain}" \
         "${enable_tier2}" \
         "${ws_sub}" \
         "${xhttp_sub}" \
         "${grpc_sub}" \
         "${enable_mtproxy_cloak}" \
-        > "${NGINX_CONF_PATH}"
+        "${enable_notls}" \
+        > "$tmp_conf"; then
+        rm -f "$tmp_conf"
+        log_error "Failed to generate nginx.conf"
+        return 1
+    fi
+    write_preserving_inode "$tmp_conf" "${NGINX_CONF_PATH}"
 
     log_success "nginx.conf regenerated"
     _nginx_reload
@@ -251,6 +270,11 @@ cmd_setup() {
     fi
 
     log_info "Fake-TLS domain: ${domain}"
+
+    # Validate domain: must have IPv4, reachable on :443, safe with server's IPv6 status
+    if ! validate_fake_tls_domain "$domain"; then
+        return 1
+    fi
 
     # Check familytraffic container is running
     if ! docker ps --format '{{.Names}}' | grep -q "^${FAMILYTRAFFIC_CONTAINER}$"; then
@@ -474,6 +498,13 @@ cmd_add_secret() {
             return 1
         fi
         log_info "Using detected domain: ${domain}"
+    fi
+
+    # Validate domain for ee-type secrets (fake-TLS domain reachability + IPv6 safety)
+    if [[ "$secret_type" == "ee" ]] && [[ -n "$domain" ]]; then
+        if ! validate_fake_tls_domain "$domain"; then
+            return 1
+        fi
     fi
 
     log_info "Generating MTProxy secret..."

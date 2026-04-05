@@ -86,7 +86,7 @@ add_transport() {
         log_error "transports.json update produced invalid JSON"
         return 1
     fi
-    mv "$temp" "$TRANSPORTS_JSON"
+    write_preserving_inode "$temp" "$TRANSPORTS_JSON"
 
     log_success "Transport '$transport_type' registered: $subdomain → familytraffic:$port"
 
@@ -137,7 +137,7 @@ add_transport() {
             log_error "xray_config.json update produced invalid JSON"
             return 1
         fi
-        mv "$xray_temp" "$xray_config"
+        write_preserving_inode "$xray_temp" "$xray_config"
         log_success "Inbound '$inbound_tag' appended to xray_config.json (existing users preserved)"
     fi
 
@@ -182,11 +182,29 @@ _regenerate_nginx_config() {
     local has_tier2="false"
     [[ -n "$ws_sub" || -n "$xhttp_sub" || -n "$grpc_sub" ]] && has_tier2="true"
 
-    log_info "Regenerating nginx.conf (ws='$ws_sub' xhttp='$xhttp_sub' grpc='$grpc_sub')..."
-    if generate_nginx_config "$cert_domain" "$has_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" \
-        > "${nginx_conf_dir}/nginx.conf"; then
+    # Auto-detect MTProxy cloak-port from existing nginx.conf
+    local enable_cloak="false"
+    if [[ -f "${nginx_conf_dir}/nginx.conf" ]] && grep -q 'listen 4443' "${nginx_conf_dir}/nginx.conf" 2>/dev/null; then
+        enable_cloak="true"
+    fi
+
+    # Auto-detect no-TLS from .env or existing nginx.conf
+    local enable_notls="false"
+    local env_file="${VLESS_DIR:-/opt/familytraffic}/.env"
+    if [[ -f "$env_file" ]] && grep -q '^PROXY_NOTLS_ENABLED=true' "$env_file" 2>/dev/null; then
+        enable_notls="true"
+    elif [[ -f "${nginx_conf_dir}/nginx.conf" ]] && grep -q 'listen 1081' "${nginx_conf_dir}/nginx.conf" 2>/dev/null; then
+        enable_notls="true"
+    fi
+
+    log_info "Regenerating nginx.conf (ws='$ws_sub' xhttp='$xhttp_sub' grpc='$grpc_sub' cloak=$enable_cloak notls=$enable_notls)..."
+    local tmp_conf="${nginx_conf_dir}/nginx.conf.tmp"
+    if generate_nginx_config "$cert_domain" "$has_tier2" "$ws_sub" "$xhttp_sub" "$grpc_sub" "$enable_cloak" "$enable_notls" \
+        > "$tmp_conf"; then
+        write_preserving_inode "$tmp_conf" "${nginx_conf_dir}/nginx.conf"
         log_success "nginx.conf regenerated"
     else
+        rm -f "$tmp_conf"
         log_error "Failed to regenerate nginx.conf"
         return 1
     fi
@@ -262,7 +280,7 @@ remove_transport() {
         log_error "transports.json update produced invalid JSON"
         return 1
     fi
-    mv "$temp" "$TRANSPORTS_JSON"
+    write_preserving_inode "$temp" "$TRANSPORTS_JSON"
 
     log_success "Transport '$transport_type' removed from transports.json"
 
@@ -285,7 +303,7 @@ remove_transport() {
             log_error "xray_config.json update produced invalid JSON"
             return 1
         fi
-        mv "$xray_temp" "$xray_config"
+        write_preserving_inode "$xray_temp" "$xray_config"
         log_success "Removed inbound '$tag' from xray_config.json"
     else
         log_warning "xray_config.json not found — skipping inbound removal"
