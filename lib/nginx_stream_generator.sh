@@ -171,7 +171,7 @@ fi)
 # Port 8448: loopback target from stream SNI map (Tier 2 subdomains only)
 # =============================================================================
 http {
-    access_log /var/log/nginx/access.log;
+    access_log off;
     error_log  /var/log/nginx/error.log warn;
 
     # Default server — reject unknown hosts (active probing protection)

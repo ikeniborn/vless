@@ -287,6 +287,12 @@ orchestrate_installation() {
         return 1
     }
 
+    # Step 14.5: Setup logrotate for xray error logs
+    setup_xray_logrotate || {
+        echo -e "${YELLOW}Warning: Failed to setup logrotate for xray logs${NC}" >&2
+        # Non-critical: continue installation
+    }
+
     echo ""
     echo -e "${GREEN}✓ Installation orchestration completed successfully${NC}"
     echo ""
@@ -681,7 +687,7 @@ create_xray_config() {
 {
   "log": {
     "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
+    "access": "",
     "error": "/var/log/xray/error.log"
   },
   "dns": {
@@ -1048,7 +1054,7 @@ server {
     server_name _;
 
     # Logging
-    access_log /var/log/nginx/access.log;
+    access_log off;
     error_log /var/log/nginx/error.log;
 
     # Proxy settings
@@ -1890,6 +1896,45 @@ verify_file_permissions() {
 }
 
 # =============================================================================
+# FUNCTION: setup_xray_logrotate
+# =============================================================================
+# Description: Install logrotate configuration for xray error log (7-day retention).
+#              Access logging is disabled; only error.log is rotated.
+# Returns: 0 on success, 1 on failure
+# =============================================================================
+setup_xray_logrotate() {
+    echo -e "${CYAN}[14.5/12] Setting up logrotate for xray error logs...${NC}"
+
+    local logrotate_file="/etc/logrotate.d/familytraffic-xray"
+
+    cat > "${logrotate_file}" <<'LOGROTATE_EOF'
+# familyTraffic — Xray error log rotation (7-day retention)
+# Access logging is disabled; only errors are kept for diagnostics.
+
+/opt/familytraffic/logs/xray/error.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE_EOF
+
+    if [[ -f "${logrotate_file}" ]]; then
+        chmod 644 "${logrotate_file}"
+        echo "  ✓ Logrotate installed: ${logrotate_file}"
+        echo "  ✓ Retention: 7 days, compressed"
+        echo -e "${GREEN}✓ Xray log rotation configured${NC}"
+        return 0
+    else
+        echo -e "${RED}Failed to create ${logrotate_file}${NC}" >&2
+        return 1
+    fi
+}
+
+# =============================================================================
 # MODULE INITIALIZATION
 # =============================================================================
 
@@ -1906,6 +1951,7 @@ export -f create_xray_config
 export -f configure_proxy_firewall_rules
 export -f create_users_json
 export -f create_nginx_config
+export -f setup_xray_logrotate
 export -f create_docker_compose
 export -f create_env_file
 export -f create_docker_network
